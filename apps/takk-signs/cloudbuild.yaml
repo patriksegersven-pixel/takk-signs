@@ -4,7 +4,6 @@ substitutions:
   _REGION: europe-north1
   _REPO: apps
   _MAX_INSTANCES: "10"
-  _RUNTIME_SA: takk-signs-run@$PROJECT_ID.iam.gserviceaccount.com
 
 steps:
   - id: build
@@ -33,7 +32,7 @@ steps:
       - --region=${_REGION}
       - --platform=managed
       - --allow-unauthenticated
-      - --service-account=${_RUNTIME_SA}
+      - --service-account=takk-signs-run@$PROJECT_ID.iam.gserviceaccount.com
       - --max-instances=${_MAX_INSTANCES}
       - --set-env-vars=GCP_PROJECT=$PROJECT_ID
 

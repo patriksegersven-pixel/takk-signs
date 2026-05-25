@@ -121,7 +121,6 @@ substitutions:
   _REGION: $REGION
   _REPO: apps
   _MAX_INSTANCES: "10"
-  _RUNTIME_SA: ${NAME}-run@\$PROJECT_ID.iam.gserviceaccount.com
 
 steps:
   - id: build
@@ -150,7 +149,7 @@ steps:
       - --region=\${_REGION}
       - --platform=managed
       - ${AUTH_FLAG}
-      - --service-account=\${_RUNTIME_SA}
+      - --service-account=${NAME}-run@\$PROJECT_ID.iam.gserviceaccount.com
       - --max-instances=\${_MAX_INSTANCES}
       - --set-env-vars=GCP_PROJECT=\$PROJECT_ID
 
