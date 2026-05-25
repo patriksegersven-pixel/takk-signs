@@ -1,11 +1,13 @@
 substitutions:
   _SERVICE: takk-signs
+  _APP_DIR: apps/takk-signs
   _REGION: europe-north1
   _REPO: apps
 
 steps:
   - id: build
     name: gcr.io/cloud-builders/docker
+    dir: ${_APP_DIR}
     args:
       - build
       - -t
