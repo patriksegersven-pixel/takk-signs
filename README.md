@@ -4,7 +4,7 @@ First app on the Claude → GitHub → Cloud Build → Cloud Run pipeline.
 
 ## Endpoints
 - `GET /` — hello + revision
-- `GET /healthz` — liveness probe
+- `GET /health` — liveness probe (note: `/healthz` is reserved by Google's edge)
 - `GET /firestore-test` — writes timestamp to Firestore `smoke-test/latest` and reads it back
 
 ## Stack
