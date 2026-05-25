@@ -3,6 +3,8 @@ substitutions:
   _APP_DIR: apps/takk-signs
   _REGION: europe-north1
   _REPO: apps
+  _MAX_INSTANCES: "10"
+  _RUNTIME_SA: takk-signs-run@$PROJECT_ID.iam.gserviceaccount.com
 
 steps:
   - id: build
@@ -12,16 +14,13 @@ steps:
       - build
       - -t
       - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
-      - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
       - .
 
   - id: push
     name: gcr.io/cloud-builders/docker
     args:
       - push
-      - --all-tags
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
 
   - id: deploy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
@@ -34,11 +33,12 @@ steps:
       - --region=${_REGION}
       - --platform=managed
       - --allow-unauthenticated
+      - --service-account=${_RUNTIME_SA}
+      - --max-instances=${_MAX_INSTANCES}
       - --set-env-vars=GCP_PROJECT=$PROJECT_ID
 
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
 
 options:
   logging: CLOUD_LOGGING_ONLY
