@@ -121,6 +121,7 @@ substitutions:
   _REGION: $REGION
   _REPO: apps
   _MAX_INSTANCES: "10"
+  _MIN_INSTANCES: "0"   # bump to "1" for ~\$5/mo to eliminate cold starts
 
 steps:
   - id: syntax-check
@@ -159,6 +160,7 @@ steps:
       - ${AUTH_FLAG}
       - --service-account=${NAME}-run@\$PROJECT_ID.iam.gserviceaccount.com
       - --max-instances=\${_MAX_INSTANCES}
+      - --min-instances=\${_MIN_INSTANCES}
       - --set-env-vars=GCP_PROJECT=\$PROJECT_ID
 
 images:

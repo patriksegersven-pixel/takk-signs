@@ -198,12 +198,18 @@ This:
 
 After running, `git add apps/<name>/` and push — Cloud Build deploys.
 
+## Per-app tuning
+
+Each app's `cloudbuild.yaml` exposes substitutions you can override:
+
+- `_MAX_INSTANCES` (default `"10"`) — caps autoscaling; safety against runaway cost.
+- `_MIN_INSTANCES` (default `"0"`) — set to `"1"` to keep one warm instance, eliminating cold starts (~$5/mo idle cost per app). Set per app, not globally.
+
+To change, edit the substitution in `apps/<name>/cloudbuild.yaml` and push.
+
 ## Known open items
 
-- **Compute SA holds `roles/owner`** on the project. This is broader than needed for build & deploy. Until reduced, a compromised app could escalate (apps use their own scoped runtime SA, so the blast radius from a running container is bounded — but the build SA itself is over-privileged). To fix: reduce to specific roles (`run.admin`, `artifactregistry.writer`, `iam.serviceAccountUser`, `logging.logWriter`, `storage.admin`, `cloudbuild.builds.builder`) and remove `owner`.
-- **No CI tests** in `cloudbuild.yaml`. A Python syntax error in `app.py` builds and pushes successfully, then Cloud Run boot-loops. Old revision keeps serving (safe), but next deploy fails until fixed. Add a `python -m py_compile` step at minimum.
-- **No branch protection on `main`.** Anyone with push access can deploy directly. Consider enabling required-PR + status-check via `gh api repos/<owner>/<repo>/branches/main/protection`.
-- **No build notifications.** A failed Cloud Build run is silent unless you check `gcloud builds list`. Wire Pub/Sub → Slack/email when this matters.
+(Nothing critical. All previous gaps closed.)
 
 ## Git commits
 
