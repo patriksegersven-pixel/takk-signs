@@ -38,3 +38,5 @@ This creates `apps/my-new-service/` from a template (Flask + Dockerfile + cloudb
 
 ## Per-app docs
 - [takk-signs](apps/takk-signs/README.md)
+
+<!-- selective-build test: this change should NOT trigger any build -->
