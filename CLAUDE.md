@@ -177,11 +177,14 @@ For deploy changes verify ALL of these before pushing:
 
 - **GCP project:** `project-a7ade44e-e7e3-4871-a83` (number `871631085269`, name "Data Visualization")
 - **Region:** `europe-north1` (Cloud Run, Artifact Registry, Firestore, Cloud Build)
-- **Artifact Registry:** `europe-north1-docker.pkg.dev/project-a7ade44e-e7e3-4871-a83/apps`
-- **Cloud Build GitHub connection:** `github-conn`, linked repo `takk-signs`
-- **Cloud Build service account:** `871631085269-compute@developer.gserviceaccount.com` (default compute SA)
+- **Artifact Registry:** `europe-north1-docker.pkg.dev/project-a7ade44e-e7e3-4871-a83/apps` (cleanup policy: keep last 10, untagged purged after 7d)
+- **Cloud Build GitHub connection:** `github-conn` (2nd-gen), linked repo `takk-signs`
+- **Cloud Build service account:** `871631085269-compute@developer.gserviceaccount.com` (default compute SA) — has only the specific roles needed (`run.admin`, `iam.serviceAccountUser`, `artifactregistry.writer`, `logging.logWriter`, `storage.admin`, `datastore.user`, `cloudbuild.builds.builder`); does NOT have `roles/owner`.
+- **Cloud Build P4SA:** `service-871631085269@gcp-sa-cloudbuild.iam.gserviceaccount.com` — has `roles/secretmanager.admin` (needed for GitHub connection's OAuth secret).
 - **Runtime SA pattern:** `<service>-run@project-a7ade44e-e7e3-4871-a83.iam.gserviceaccount.com` — one per service, scoped to `roles/datastore.user` by default (Firestore access only). Add more roles per app as needed.
 - **Firestore:** Native mode, single `(default)` database in `europe-north1`
+- **Build-failure alerting:** Cloud Monitoring alert policy `Cloud Build failure` (id `11106874909155476347`) → email channel `7935008251541699152` (`patrik.segersven@gmail.com`). Channels require one-time email verification before they actually deliver — if alerts seem silent, run `gcloud beta monitoring channels verify <channel-id>`.
+- **Branch protection on `main`:** force-pushes and deletions blocked, enforced on admins, no PR requirement (solo workflow).
 
 ## Adding a new app
 
@@ -207,9 +210,66 @@ Each app's `cloudbuild.yaml` exposes substitutions you can override:
 
 To change, edit the substitution in `apps/<name>/cloudbuild.yaml` and push.
 
-## Known open items
+## Operational gotchas (learned the hard way)
 
-(Nothing critical. All previous gaps closed.)
+### Auditing what roles a service account actually has
+
+Do NOT trust the output of `gcloud projects add-iam-policy-binding ... --format='value(bindings.role)'` — that lists every role in the project's IAM policy, not the SA's. To see what one SA really holds:
+
+```bash
+gcloud projects get-iam-policy <PROJECT_ID> \
+  --flatten="bindings[].members" \
+  --filter="bindings.members:serviceAccount:<sa-email>" \
+  --format="value(bindings.role)" | sort -u
+```
+
+### `gcloud --format` breaks on annotation keys with `/`
+
+`--format='value(spec.template.metadata.annotations.autoscaling.knative.dev/minScale)'` errors with "Expected )". The projection language treats `/` as a separator. Use `--format=yaml` or `--format=json` and parse the annotations map client-side, or scope to the parent: `--format='value(spec.template.metadata.annotations)'` and grep.
+
+### `gh api -F field=` sends empty string, not null
+
+GitHub branch-protection (and several other) endpoints reject empty string for nullable fields like `required_status_checks`. Use `--input <file>` with a JSON body that has explicit `null`:
+
+```bash
+echo '{"required_status_checks":null,"required_pull_request_reviews":null,"restrictions":null,"enforce_admins":true,"allow_force_pushes":false,"allow_deletions":false}' \
+  | gh api -X PUT repos/<owner>/<repo>/branches/main/protection --input -
+```
+
+### `gcloud beta monitoring channels create` hangs without `--quiet`
+
+The beta surface prompts to install the beta component the first time. Either pass `--quiet`, or skip the CLI entirely and POST to the REST endpoint with a `gcloud auth print-access-token` bearer:
+
+```bash
+TOKEN=$(gcloud auth print-access-token)
+curl -sX POST "https://monitoring.googleapis.com/v3/projects/<PROJECT_ID>/notificationChannels" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"type":"email","displayName":"...","labels":{"email_address":"..."},"enabled":true}'
+```
+
+### zsh `status` is a read-only built-in variable
+
+Don't name your shell variable `status` — `until s=$(...) && [[ "$s" =~ SUCCESS ]]; do …; done` works; `until status=$(...) && …` fails immediately with "read-only variable: status" under zsh (the default shell here). Use any other name.
+
+### Cloud Build substitution defaults don't recursively expand other substitutions
+
+`_RUNTIME_SA: foo@$PROJECT_ID.iam...` leaves `$PROJECT_ID` literal. Inline the expansion in step `args:` instead — substitutions DO expand there. (See also the same note in "Cloud Build YAML" above.)
+
+### Cloud Run sets `minScale` annotation ONLY when non-default
+
+When `--min-instances=0` is the deploy flag, the Cloud Run revision has no `autoscaling.knative.dev/minScale` annotation at all. Don't conclude the flag was ignored — that's just how Cloud Run reports defaults. To prove it was applied, look at the build's deploy step log, or bump to 1 temporarily.
+
+### First-time GitHub HTTPS push needs `gh auth setup-git`
+
+A fresh `gh auth login` doesn't wire `gh` as git's credential helper. Without that, `git push` over HTTPS errors with `could not read Username for 'https://github.com': Device not configured`. One-time fix:
+
+```bash
+gh auth setup-git
+```
+
+### Cloud Build → GitHub 2nd-gen connection requires Secret Manager admin on the P4SA
+
+Before `gcloud builds connections create github` succeeds, the Cloud Build Project-4 SA needs `roles/secretmanager.admin` (to create + IAM-policy the OAuth-token secret). Already granted; document for re-creation.
 
 ## Git commits
 
