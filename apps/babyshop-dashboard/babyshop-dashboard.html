@@ -1,0 +1,2503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Babyshop — GP3 Optimization</title>
+<meta name="robots" content="noindex, nofollow" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#f4f6f8; --panel:#ffffff; --panel-2:#fafbfc;
+  --ink:#101519; --ink-2:#39434d; --muted:#6d7986; --line:#e2e7ec; --line-2:#eef1f4;
+  --accent:#0d7d75; --accent-soft:#e6f3f1; --accent-ink:#0a5c56;
+  --gp2:#3b6ea5; --gp3:#0d7d75; --marg:#b4762b; --cur:#7a4fbf;
+  --pos:#1a7f52; --neg:#c2453c; --warn:#a9741a; --warn-soft:#fdf5e6;
+  --radius:14px;
+  --shadow:0 1px 2px rgba(16,21,25,.04), 0 6px 24px rgba(16,21,25,.05);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+  font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:14px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;}
+.wrap{max-width:1280px;margin:0 auto;padding:0 24px 90px;}
+a{color:var(--accent-ink)}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace;}
+
+/* ---------- header ---------- */
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;padding:28px 0 18px;flex-wrap:wrap;}
+.brand{display:flex;flex-direction:column;gap:3px;}
+.wordmark{font-weight:700;letter-spacing:.22em;font-size:20px;text-transform:uppercase;line-height:1;}
+.wordmark .thin{font-weight:300;color:var(--muted);}
+.subtitle{color:var(--muted);font-size:13px;}
+.controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.ctl{display:flex;align-items:center;gap:6px;}
+.ctl-lbl{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);}
+select,input[type=text],input[type=number],.btn{font-family:inherit;font-size:13px;color:var(--ink);
+  border:1px solid var(--line);background:var(--panel);padding:8px 12px;border-radius:9px;transition:.15s;}
+select,.btn{cursor:pointer;}
+select:hover,.btn:hover{border-color:var(--accent);}
+select:focus,input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+.btn-primary{background:var(--ink);color:#fff;border-color:var(--ink);font-weight:500;}
+.btn-primary:hover{background:#000;border-color:#000;}
+
+/* ---------- status strip ---------- */
+.status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:0 0 18px;font-size:12.5px;color:var(--muted);}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;
+  font-size:11.5px;font-weight:600;letter-spacing:.02em;border:1px solid transparent;}
+.badge .dot{width:7px;height:7px;border-radius:50%;background:currentColor;}
+.badge.live{color:var(--pos);background:rgba(26,127,82,.09);}
+.badge.demo{color:var(--cur);background:rgba(122,79,191,.09);}
+.badge.cached{color:var(--muted);background:rgba(109,121,134,.10);}
+.badge.warn{color:var(--warn);background:var(--warn-soft);border-color:#f0e0bd;}
+.badge.err{color:var(--neg);background:rgba(194,69,60,.09);}
+.status .sep{color:var(--line);}
+
+/* ---------- tabs ---------- */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--line);margin-bottom:24px;overflow-x:auto;}
+.tab{padding:11px 2px;margin-right:28px;font-size:14px;font-weight:500;color:var(--muted);
+  cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;transition:.15s;}
+.tab:hover{color:var(--ink-2);}
+.tab.active{color:var(--ink);border-color:var(--accent);}
+.view{display:none;} .view.active{display:block;}
+
+/* ---------- cards & KPI ---------- */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:20px 22px;box-shadow:var(--shadow);margin-bottom:18px;}
+.card h3{font-size:15.5px;font-weight:600;margin:0 0 3px;letter-spacing:-.01em;}
+.card .hint{font-size:12.5px;color:var(--muted);margin:0 0 16px;line-height:1.45;}
+.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+.kpi-block{margin-bottom:20px;}
+.kpi-cur{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:0 0 9px 2px;}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:17px 19px;box-shadow:var(--shadow);}
+.kpi .label{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:11px;}
+.kpi .value{font-size:26px;font-weight:600;line-height:1.05;letter-spacing:-.02em;}
+.kpi .sub{margin-top:9px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+.kpi.accent{background:linear-gradient(180deg,var(--accent-soft),var(--panel) 70%);border-color:#cfe6e3;}
+.delta{font-weight:600;padding:2px 8px;border-radius:999px;font-size:11.5px;}
+.delta.pos{color:var(--pos);background:rgba(26,127,82,.10);}
+.delta.neg{color:var(--neg);background:rgba(194,69,60,.10);}
+.delta.flat{color:var(--muted);background:rgba(109,121,134,.10);}
+.meter{height:6px;border-radius:4px;background:var(--line-2);overflow:hidden;margin-top:12px;}
+.meter i{display:block;height:100%;background:var(--accent);border-radius:4px;}
+
+/* ---------- tables ---------- */
+.tscroll{overflow-x:auto;margin:0 -4px;padding:0 4px;}
+table{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap;}
+th{text-align:right;font-weight:500;color:var(--muted);font-size:10.5px;text-transform:uppercase;
+  letter-spacing:.07em;padding:0 12px 9px 0;border-bottom:1px solid var(--line);}
+th:first-child{text-align:left;padding-left:0;}
+th:last-child{padding-right:0;}
+td{padding:10px 12px 10px 0;border-bottom:1px solid var(--line-2);text-align:right;}
+td:first-child{text-align:left;font-weight:500;padding-left:0;}
+td:last-child{padding-right:0;}
+tbody tr:hover td{background:var(--panel-2);}
+tbody tr.sel td{background:var(--accent-soft);}
+tr.total-row td{font-weight:700;border-top:2px solid var(--ink);border-bottom:none;padding-top:12px;background:none!important;}
+/* incrementality-class sections in the summary table */
+tr.sec-row td{background:var(--panel-2)!important;padding:18px 0 8px;border-bottom:1px solid var(--line);white-space:normal;}
+tr.sec-row .sec-t{font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--ink);}
+tr.sec-row .sec-d{display:block;font-weight:400;font-size:11.5px;color:var(--muted);margin-top:3px;max-width:980px;line-height:1.45;}
+tr.sub-row td{font-weight:600;background:var(--panel-2)!important;border-bottom:1px solid var(--line);}
+tr.sub-row td:first-child{color:var(--muted);font-weight:500;}
+.strat-cell{display:flex;flex-direction:column;gap:1px;}
+.strat-cell .nm{font-weight:600;cursor:pointer;}
+.strat-cell .nm:hover{color:var(--accent-ink);text-decoration:underline;}
+.strat-cell .mt{font-size:11px;color:var(--muted);font-weight:400;}
+.pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:600;}
+.pill.raise{color:#8a4a12;background:#fdf0e0;}
+.pill.lower{color:#1c5a86;background:#e6f0f8;}
+.pill.optimum{color:var(--pos);background:rgba(26,127,82,.10);}
+.pill.unknown{color:var(--muted);background:rgba(109,121,134,.10);}
+/* only rendered for accounts with a non-1.0 valueToGp2Multiplier */
+.pill.mult{color:var(--marg);background:rgba(180,118,43,.10);font-weight:500;}
+/* assumed incrementality factor — only rendered when it is not 1.0 */
+.pill.inc{color:var(--cur);background:rgba(122,79,191,.10);font-weight:500;}
+.num.pos{color:var(--pos);} .num.neg{color:var(--neg);}
+
+/* ---------- incrementality notes ---------- */
+.sens{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:12.5px;}
+.assumption{font-size:11.5px;color:var(--muted);}
+
+/* ---------- charts ---------- */
+.chart-box{position:relative;height:330px;}
+.chart-box.md{height:280px;}
+.chart-box.tall{height:400px;}
+
+/* ---------- notes / flags ---------- */
+.note{font-size:12.5px;color:var(--ink-2);background:var(--panel);border:1px solid var(--line);
+  border-left:3px solid var(--accent);border-radius:10px;padding:12px 15px;margin-bottom:18px;line-height:1.55;}
+.note.warn{border-left-color:var(--warn);background:var(--warn-soft);border-color:#f0e0bd;}
+.note b{font-weight:600;}
+.flags{display:flex;flex-direction:column;gap:9px;}
+.flag{display:flex;gap:11px;padding:11px 13px;border-radius:10px;background:var(--panel-2);border:1px solid var(--line-2);}
+.flag .ic{font-size:13px;line-height:1.4;color:var(--warn);}
+.flag .t{font-weight:600;font-size:13px;margin-bottom:2px;}
+.flag .d{font-size:12.5px;color:var(--muted);line-height:1.45;}
+.empty{text-align:center;color:var(--muted);padding:52px 16px;font-size:13.5px;}
+.kv{display:flex;gap:26px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-bottom:4px;}
+.kv b{display:block;color:var(--ink);font-weight:600;font-size:14px;}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:10px;}
+.legend .sw{width:11px;height:3px;border-radius:2px;display:inline-block;margin-right:6px;vertical-align:middle;}
+.legend .sw.pt{width:9px;height:9px;border-radius:50%;}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;
+  padding:11px 20px;border-radius:999px;font-size:13px;opacity:0;transition:.25s;pointer-events:none;z-index:60;}
+.toast.show{opacity:1;}
+.foot{color:var(--muted);font-size:12px;text-align:center;padding:8px 0 0;}
+@media(max-width:960px){.kpis{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
+@media(max-width:560px){.kpis{grid-template-columns:1fr}.wrap{padding:0 14px 70px}}
+
+/* ---------- login gate ---------- */
+body.locked .wrap,body.locked .toast{display:none!important;}
+#gate{position:fixed;inset:0;background:var(--bg);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;}
+body.locked #gate{display:flex;}
+.gate-card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:40px 36px;
+  box-shadow:var(--shadow);width:350px;max-width:100%;text-align:center;}
+.gate-card .wordmark{font-size:19px;margin-bottom:5px;}
+.gate-card .subtitle{margin-bottom:24px;}
+.gate-card input{width:100%;margin-bottom:10px;padding:11px 13px;}
+.gate-card button{width:100%;padding:11px;border:none;border-radius:9px;background:var(--ink);color:#fff;
+  font-family:inherit;font-weight:500;font-size:14px;cursor:pointer;margin-top:4px;}
+.gate-card button:hover{background:#000;}
+.gate-err{color:var(--neg);font-size:12.5px;min-height:17px;margin-top:9px;}
+</style>
+</head>
+<body class="locked">
+
+<div id="gate">
+  <form class="gate-card" id="gateForm" autocomplete="off">
+    <div class="wordmark">Baby<span class="thin">shop</span></div>
+    <div class="subtitle">GP3 Optimization</div>
+    <input type="text" id="gUser" placeholder="Username" autocomplete="username" />
+    <input type="password" id="gPass" placeholder="Password" autocomplete="current-password" />
+    <button type="submit">Sign in</button>
+    <div class="gate-err" id="gErr"></div>
+  </form>
+</div>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="wordmark">Baby<span class="thin">shop</span></div>
+      <div class="subtitle">GP3 Optimization &middot; Target ROAS bid simulations</div>
+    </div>
+    <div class="controls">
+      <div class="ctl"><span class="ctl-lbl">Account</span><select id="accountSel"></select></div>
+      <div class="ctl"><span class="ctl-lbl">Run</span><select id="runSel"></select></div>
+      <button class="btn" id="refreshBtn" title="Re-fetch from the Apps Script endpoint">Refresh</button>
+    </div>
+  </header>
+
+  <div class="status" id="statusBar"></div>
+
+  <div class="tabs">
+    <div class="tab active" data-view="overview">Overview</div>
+    <div class="tab" data-view="strategy">Strategy curves</div>
+    <div class="tab" data-view="portfolio">Portfolio budget</div>
+    <div class="tab" data-view="history">History</div>
+  </div>
+
+  <!-- ============ OVERVIEW ============ -->
+  <div class="view active" id="view-overview">
+    <div id="kpiZone"></div>
+    <div class="note" id="caveatNote"></div>
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>Where every strategy should sit</h3>
+          <p class="hint">One row per portfolio bidding strategy at the selected snapshot, grouped by
+            <b>incrementality class</b> — generic first, then private label, then brand. <b>Recommended</b> is the
+            simulated target with the highest <b>incremental</b> GP3; <b>breakeven</b> is the interpolated target where
+            the next krona of spend stops paying for itself (marginal incremental ROAS = 1.0). Observed GP3 is shown
+            alongside. A <b>higher</b> target ROAS means <b>less</b> spend.</p>
+        </div>
+      </div>
+      <div class="tscroll"><table id="summaryTable"></table></div>
+    </div>
+    <div class="card">
+      <h3>Data quality &amp; trust</h3>
+      <p class="hint">Automatic checks on the snapshot feeding this page.</p>
+      <div class="flags" id="trustFlags"></div>
+    </div>
+  </div>
+
+  <!-- ============ STRATEGY ============ -->
+  <div class="view" id="view-strategy">
+    <div class="card">
+      <div class="card-head">
+        <div class="ctl"><span class="ctl-lbl">Strategy</span><select id="stratSel"></select></div>
+        <div class="kv" id="stratMeta"></div>
+      </div>
+      <!-- incrementality factor, its impression-share derivation and the sensitivity line;
+           rendered only for campaigns whose factor is not a plain 1.0 -->
+      <div id="stratIncBox"></div>
+    </div>
+    <div class="card">
+      <h3>Profit curve — GP2 and GP3 against cost</h3>
+      <p class="hint">Each dot is one simulated target ROAS. GP3 peaks where the GP2 curve's slope falls to 1.0 —
+        past that point Google can still buy more GP2, but each extra krona of spend buys less than a krona of it,
+        so GP3 falls. When an incrementality factor below 1.0 applies, the <b>incremental</b> GP3 line is the one
+        the recommendation is read off; the observed GP3 line stays visible next to it.</p>
+      <div class="chart-box tall"><canvas id="chartCurve"></canvas></div>
+      <div class="legend" id="curveLegend"></div>
+    </div>
+    <div class="card">
+      <h3>Marginal ROAS by target</h3>
+      <p class="hint">&Delta;GP2 &divide; &Delta;Cost between adjacent simulation points, plotted at each segment's
+        midpoint target. Where the line crosses 1.0 is the profit-maximising target; the crossing is found by
+        linear interpolation between the two bracketing segments. With an incrementality factor below 1.0 the solid
+        line is the <b>incremental</b> marginal (&Delta;iGP2 &divide; &Delta;Cost) — the one that decides — and the
+        faint dashed line is the observed marginal it was cut down from.</p>
+      <div class="chart-box"><canvas id="chartMarginal"></canvas></div>
+    </div>
+    <div class="card">
+      <h3>Simulation points</h3>
+      <p class="hint">The raw grid Google returned, with the derived economics.</p>
+      <div class="tscroll"><table id="pointTable"></table></div>
+    </div>
+  </div>
+
+  <!-- ============ PORTFOLIO ============ -->
+  <div class="view" id="view-portfolio">
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>Equal-marginal-return allocation</h3>
+          <p class="hint">Spend the budget one krona at a time, always on whichever strategy returns the most
+            <b>incremental</b> GP2 for it. At the stopping point every strategy earns the same marginal incremental
+            ROAS — the condition for a profit-optimal portfolio. Below that, targets are read back off each strategy's
+            curve. Because brand and private-label value is discounted first, this is what pulls budget out of them
+            and into generic; the note below sizes that shift against the unadjusted allocation.</p>
+        </div>
+        <div class="ctl">
+          <span class="ctl-lbl">Budget</span>
+          <input type="number" id="budgetInput" step="1000" style="width:150px" />
+          <button class="btn" id="budgetCurrent">Current spend</button>
+          <button class="btn" id="budgetOptimal">GP3-max spend</button>
+        </div>
+      </div>
+      <div id="portfolioKpis"></div>
+      <div class="note" id="portfolioNote" style="margin-top:16px"></div>
+      <div class="tscroll"><table id="allocTable"></table></div>
+    </div>
+    <div class="card">
+      <h3>Spend shift</h3>
+      <p class="hint">Current cost against the allocated cost at the budget above.</p>
+      <div class="chart-box tall"><canvas id="chartAlloc"></canvas></div>
+    </div>
+    <div class="card">
+      <h3>Portfolio incremental GP3 against total budget</h3>
+      <p class="hint">Total incremental GP3 achievable at each budget level under the optimal allocation. The peak is
+        the unconstrained profit optimum.</p>
+      <div class="chart-box"><canvas id="chartBudget"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ============ HISTORY ============ -->
+  <div class="view" id="view-history">
+    <div class="note" id="historyNote"></div>
+    <div class="card" id="historyCards">
+      <h3>Recommended target and GP3 over runs</h3>
+      <p class="hint">How the recommendation for the selected strategy has moved as new snapshots arrived.</p>
+      <div class="chart-box"><canvas id="chartHistory"></canvas></div>
+    </div>
+    <div class="card">
+      <h3>Snapshots on file</h3>
+      <p class="hint">Every run date present in the loaded payload.</p>
+      <div class="tscroll"><table id="runTable"></table></div>
+    </div>
+  </div>
+
+  <div class="foot" id="footNote"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================================
+   Babyshop — GP3 Optimization
+   Single-file dashboard. Reads Target ROAS bid-simulator snapshots produced by
+   ads-script/gp3-simulations.js and served by apps-script/webapp.gs.
+   All economics are computed client-side from the raw simulation rows.
+   ============================================================================ */
+
+/* ---------- CONFIGURE ME ----------------------------------------------------
+   DATA_ENDPOINT: the /exec URL of the Apps Script web app (apps-script/webapp.gs).
+   DATA_TOKEN:    must match SCRIPT_TOKEN in that web app.
+   Leave both empty and the page runs on the embedded DEMO_DATA sample below. */
+const DATA_ENDPOINT = '';
+const DATA_TOKEN    = '';
+/* --------------------------------------------------------------------------- */
+
+/* ---------- soft login gate (deterrent, NOT authentication) ----------------
+   The hash is public in the page source, so this only keeps casual visitors out.
+   Never rely on it for confidential data — see the security note in README.md.
+   Current credentials: user "babyshop", password "gp3".
+   Regenerate:  echo -n "user:password" | shasum -a 256
+   or in a browser console:
+     crypto.subtle.digest('SHA-256', new TextEncoder().encode('user:password'))
+       .then(b => console.log([...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')));
+   -------------------------------------------------------------------------- */
+const GATE_HASH = '661f41f06dd3193f0d8a3da49f2b940a7f58cf14c3e4339f06634c3c77a145e8';
+
+async function sha256(str){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
+}
+function unlock(){ document.body.classList.remove('locked'); sessionStorage.setItem('bs_auth','1'); boot(); }
+document.getElementById('gateForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const u = document.getElementById('gUser').value.trim().toLowerCase();
+  const p = document.getElementById('gPass').value;
+  if (await sha256(u + ':' + p) === GATE_HASH){ document.getElementById('gErr').textContent = ''; unlock(); }
+  else { document.getElementById('gErr').textContent = 'Incorrect username or password.';
+         document.getElementById('gPass').value = ''; }
+});
+
+const CACHE_KEY = 'bs_gp3_cache_v2';
+const PREFS_KEY = 'bs_gp3_prefs_v2';
+const STALE_DAYS = 7;
+
+
+/* ==================== CORE MATH START ====================
+   Pure functions: no DOM, no globals, no side effects. Everything between these
+   two markers can be lifted straight out of this file and run under node against
+   the DEMO_DATA below, which is how the economics here were validated.
+
+   Definitions
+     Cost        = Cost Micros / 1e6          (account currency)
+     GP2         = Conversions Value                       <- already gross profit
+     GP3         = GP2 - Cost
+     marginal ROAS between two adjacent simulation points = dGP2 / dCost
+     The profit-maximising target is where marginal ROAS crosses 1.0: the last
+     krona of spend must return at least one krona of GP2.
+
+   Why no margin is applied: in these Google Ads accounts the PRIMARY conversion
+   action already sends cart-level gross profit as its value, so "Conversions
+   Value" in a bid simulation IS GP2. Revenue exists only as a separate secondary
+   conversion action, which bid simulations do not report at all. Multiplying by a
+   gross margin here would subtract cost of goods a second time.
+   ========================================================= */
+
+/* ---------- generic helpers ---------- */
+
+/** Parse a ROAS value that may arrive as 1.5, "150%", "150" or "1,5". Returns a fraction (1.5). */
+function parseRoas(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number') return v > 30 ? v / 100 : v; // bare 150 means 150%
+  var s = String(v).trim().replace(/\s/g, '').replace(',', '.');
+  if (s === '' || s === '-') return null;
+  var pct = s.indexOf('%') >= 0;
+  var n = parseFloat(s.replace('%', ''));
+  if (!isFinite(n)) return null;
+  if (pct) return n / 100;
+  return n > 30 ? n / 100 : n;
+}
+
+/** Parse a numeric cell that may arrive as a formatted string. */
+function parseNum(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : 0;
+  if (v === null || v === undefined) return 0;
+  var n = parseFloat(String(v).replace(/[^0-9eE+\-.]/g, ''));
+  return isFinite(n) ? n : 0;
+}
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+/** Linear interpolation of y over x on a list sorted ascending by xKey. Clamps at both ends. */
+function interpAt(list, xKey, x, yKeys) {
+  var out = { clamped: false };
+  if (!list.length) return null;
+  if (list.length === 1 || x <= list[0][xKey]) {
+    out.clamped = x < list[0][xKey];
+    yKeys.forEach(function (k) { out[k] = list[0][k]; });
+    out[xKey] = list[0][xKey];
+    return out;
+  }
+  var last = list[list.length - 1];
+  if (x >= last[xKey]) {
+    out.clamped = x > last[xKey];
+    yKeys.forEach(function (k) { out[k] = last[k]; });
+    out[xKey] = last[xKey];
+    return out;
+  }
+  for (var i = 1; i < list.length; i++) {
+    if (x <= list[i][xKey]) {
+      var a = list[i - 1], b = list[i];
+      var span = b[xKey] - a[xKey];
+      var t = span === 0 ? 0 : (x - a[xKey]) / span;
+      yKeys.forEach(function (k) { out[k] = lerp(a[k], b[k], t); });
+      out[xKey] = x;
+      return out;
+    }
+  }
+  return null;
+}
+
+/* ---------- payload normalisation ---------- */
+
+/* Sheet header -> canonical field. Matching is case/space/punctuation insensitive
+   so the dashboard survives cosmetic edits to the Raw tab. */
+var COLUMN_MAP = {
+  customername: 'account',
+  biddingstrategyname: 'strategy',
+  currenttargetroas: 'currentTarget',
+  biddingstrategyid: 'strategyId',
+  startdate: 'startDate',
+  enddate: 'endDate',
+  targetroas: 'target',
+  conversions: 'conversions',
+  conversionsvalue: 'convValue',
+  clicks: 'clicks',
+  costmicros: 'costMicros',
+  impressions: 'impressions',
+  topslotimpressions: 'topSlotImpressions',
+  currentcampaignstrategy: 'biddingType',
+  currency: 'currency',
+  rundate: 'runDate'
+};
+
+function canonKey(h) { return String(h).toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+function toIsoDate(v) {
+  if (v instanceof Date) {
+    return v.getFullYear() + '-' + String(v.getMonth() + 1).padStart(2, '0') + '-' + String(v.getDate()).padStart(2, '0');
+  }
+  var s = String(v == null ? '' : v).trim();
+  var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  var d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  return s;
+}
+
+/**
+ * Accepts either {columns:[...], rows:[[...]]} (what the Apps Script emits, compact)
+ * or {rows:[{...}]} and returns a flat list of canonical rows.
+ */
+function normalizePayload(payload) {
+  var cols = payload.columns || null;
+  var raw = payload.rows || [];
+  var recs = raw.map(function (r) {
+    if (Array.isArray(r)) {
+      var o = {};
+      for (var i = 0; i < cols.length; i++) {
+        var key = COLUMN_MAP[canonKey(cols[i])];
+        if (key) o[key] = r[i];
+      }
+      return o;
+    }
+    var o2 = {};
+    Object.keys(r).forEach(function (k) {
+      var key = COLUMN_MAP[canonKey(k)] || k;
+      o2[key] = r[k];
+    });
+    return o2;
+  });
+
+  var out = [];
+  recs.forEach(function (r) {
+    var target = parseRoas(r.target);
+    if (target === null) return;                       // non-ROAS simulation point
+    var costMicros = parseNum(r.costMicros);
+    if (!(costMicros > 0)) return;
+    out.push({
+      account: String(r.account || 'Unknown').trim(),
+      strategy: String(r.strategy || 'Unknown').trim(),
+      strategyId: String(r.strategyId == null ? '' : r.strategyId).trim(),
+      currentTarget: parseRoas(r.currentTarget),
+      startDate: toIsoDate(r.startDate),
+      endDate: toIsoDate(r.endDate),
+      runDate: toIsoDate(r.runDate || r.endDate),
+      target: target,
+      conversions: parseNum(r.conversions),
+      convValue: parseNum(r.convValue),
+      clicks: parseNum(r.clicks),
+      costMicros: costMicros,
+      impressions: parseNum(r.impressions),
+      topSlotImpressions: parseNum(r.topSlotImpressions),
+      biddingType: String(r.biddingType || '').trim(),
+      currency: String(r.currency || '').trim().toUpperCase() || 'SEK'
+    });
+  });
+  return out;
+}
+
+/* Shares tab header -> canonical field, same forgiving matching as COLUMN_MAP. */
+var SHARE_COLUMN_MAP = {
+  customername: 'account',
+  campaignid: 'campaignId',
+  campaignname: 'campaignName',
+  searchis: 'searchIs',
+  topis: 'topIs',
+  abstopis: 'absTopIs',
+  currency: 'currency',
+  rundate: 'runDate'
+};
+
+/**
+ * Normalise `payload.shares` — { columns, rows } from the Shares tab — into a flat list of
+ * { account, campaignId, campaignName, searchIs, topIs, absTopIs, runDate }, keeping ONLY
+ * the most recent run date present.
+ *
+ * Only the latest snapshot is kept because impression share is a statement about the
+ * auction right now: deriving today's incrementality factor from three-week-old share data
+ * would be worse than the flat prior it replaces. Each metric is either a number in (0,1]
+ * or null — 0 and blank both mean "no data" (see shareValue).
+ *
+ * A missing/empty/malformed block yields [], and every campaign falls back to its flat
+ * class factor.
+ */
+function normalizeShares(shares) {
+  if (!shares || !Array.isArray(shares.rows) || !shares.rows.length) return [];
+  var cols = shares.columns || null;
+
+  var recs = shares.rows.map(function (r) {
+    var o = {};
+    if (Array.isArray(r)) {
+      if (!cols) return o;
+      for (var i = 0; i < cols.length; i++) {
+        var key = SHARE_COLUMN_MAP[canonKey(cols[i])];
+        if (key) o[key] = r[i];
+      }
+      return o;
+    }
+    Object.keys(r).forEach(function (k) {
+      var key2 = SHARE_COLUMN_MAP[canonKey(k)] || k;
+      o[key2] = r[k];
+    });
+    return o;
+  }).map(function (r) {
+    return {
+      account: String(r.account || '').trim(),
+      campaignId: String(r.campaignId == null ? '' : r.campaignId).trim(),
+      campaignName: String(r.campaignName || '').trim(),
+      searchIs: shareValue(r.searchIs),
+      topIs: shareValue(r.topIs),
+      absTopIs: shareValue(r.absTopIs),
+      runDate: toIsoDate(r.runDate)
+    };
+  }).filter(function (r) {
+    return r.account && (r.campaignId || r.campaignName);
+  });
+
+  var latest = recs.reduce(function (a, r) { return r.runDate > a ? r.runDate : a; }, '');
+  return recs.filter(function (r) { return r.runDate === latest; });
+}
+
+/**
+ * Index share rows for lookup by (account, campaign id) with an (account, campaign name)
+ * fallback. The id is the reliable join — campaign names get renamed and the Raw tab's
+ * "Bidding Strategy Name" is the campaign name only for campaign-level simulations — but a
+ * row whose id never made it through still joins by name.
+ */
+function buildShareIndex(list) {
+  var byId = {}, byName = {};
+  (list || []).forEach(function (r) {
+    if (r.campaignId) byId[JSON.stringify([r.account, r.campaignId])] = r;
+    if (r.campaignName) byName[JSON.stringify([r.account, r.campaignName.toLowerCase()])] = r;
+  });
+  return { byId: byId, byName: byName, count: (list || []).length,
+    runDate: (list && list.length) ? list[0].runDate : null };
+}
+
+/** Look one campaign up in a share index; null when it has no share data. */
+function shareFor(index, account, name, id) {
+  if (!index) return null;
+  if (id) {
+    var hit = index.byId[JSON.stringify([account, String(id).trim()])];
+    if (hit) return hit;
+  }
+  return index.byName[JSON.stringify([account, String(name || '').trim().toLowerCase()])] || null;
+}
+
+/* ---------- incrementality ----------------------------------------------------
+
+   WHY THIS EXISTS
+   Ad cost is 100% real for every campaign. Observed conversion value is not equally
+   *caused* by the ad:
+
+     brand         — these campaigns only match babyshop / lekmer brand queries. That
+                     traffic already decided to buy from us; most of it arrives anyway
+                     through organic, direct or a later session. The campaign is largely
+                     defensive (it stops competitors buying our brand terms), so its
+                     curve overstates true incremental GP3 while every krona of cost is real.
+     private-label — "pb" campaigns advertise our own-label products, sold nowhere else.
+                     A shopper who wants that specific product has exactly one place to
+                     buy it, so a large share of the value would convert without the ad.
+     generic       — prospecting against open-market demand, where the click genuinely
+                     is the demand. This is where curve optimisation honestly earns money.
+
+   Consequence: brand and private-label must be MANAGED DIFFERENTLY from generic. Their
+   raw GP3-max target is not a valid recommendation; the incremental one is. The factors
+   below are ASSUMPTIONS, editable in the Config tab, and only a geo holdout or a
+   conversion-lift test can replace them with measurements.
+
+   IMPRESSION SHARE MAKES THE FACTOR CAMPAIGN-SPECIFIC
+   A flat 0.20 says the same thing about a brand campaign that already sits in the absolute
+   top slot for 99% of its brand searches as about one being outbid half the time. Those are
+   opposite situations. The first owns the auction: the shopper sees us first whatever we bid
+   next, so marginal spend is close to pure defence and buys almost nothing incremental. The
+   second has real defensive headroom — the impressions it is losing go to a competitor
+   bidding on our name, and buying them back genuinely changes the outcome.
+
+   So wherever the Ads script collected impression share, the factor is DERIVED from the
+   headroom left in the auction instead of assumed:
+
+     brand          h = 1 − search ABSOLUTE TOP impression share   (position is the point)
+     private-label  h = 1 − search impression share                (presence is the point)
+     factor = floor + (cap − floor) × h,  clamped to [floor, cap]
+
+   Generic is never share-adjusted; its factor is 1.00 by definition, because the click is
+   the demand. A campaign with no share data keeps the flat class factor, so the mechanism
+   degrades to exactly the previous behaviour rather than to a guess. Precedence, strongest
+   first: explicit Config pattern override > share-derived factor > flat class factor >
+   built-in default.
+   ------------------------------------------------------------------------------ */
+
+/** Class defaults, used whenever the payload carries no incrementality config. */
+var INCREMENTALITY_DEFAULTS = { brand: 0.20, 'private-label': 0.50, generic: 1.00 };
+
+/**
+ * Floor and cap of the impression-share-derived factor, per class. Keep in sync with
+ * DEFAULT_SHARE_WEIGHTS in apps-script/webapp.gs; the payload's
+ * `config.incrementality.shareWeights` overrides these, so they are editable in the Config
+ * tab under the reserved keys brand-floor / brand-cap / private-label-floor /
+ * private-label-cap.
+ */
+var INCREMENTALITY_SHARE_DEFAULTS = {
+  brand: { floor: 0.10, cap: 0.60 },
+  'private-label': { floor: 0.40, cap: 1.00 }
+};
+
+/** Which impression-share metric drives each class's headroom. Generic is absent on purpose. */
+var SHARE_METRIC_BY_CLASS = { brand: 'absTopIs', 'private-label': 'searchIs' };
+
+var SHARE_METRIC_LABEL = {
+  searchIs: 'Search impression share',
+  topIs: 'Top-of-page impression share',
+  absTopIs: 'Absolute top impression share'
+};
+
+var INCREMENTALITY_CLASSES = ['generic', 'private-label', 'brand'];
+
+/**
+ * Classify a campaign / bidding-strategy name (case-insensitive).
+ *
+ * PRECEDENCE IS DELIBERATE AND ORDER-DEPENDENT — a name can carry more than one marker:
+ *   1. 'brand'          anywhere in the name  -> brand
+ *   2. 'pb-generic'     anywhere in the name  -> generic
+ *   3. '-pb-' anywhere, or a trailing '-pb'   -> private-label
+ *   4. everything else                        -> generic
+ *
+ * Incrementality follows the QUERY, not the product. `pb-generic` campaigns sell
+ * private-label products but match on GENERIC search terms — that searcher was not
+ * coming to us anyway, so the ad captures open-market demand and the incrementality
+ * discount does not apply (e.g. `p-shopping-se-pb-generic` -> generic). `pb-product`
+ * campaigns match on the private-label products themselves, which are sold nowhere
+ * else — that buyer largely converts anyway -> private-label.
+ * Likewise `p-shopping-se-brand` is brand even though it is a shopping campaign.
+ */
+function incrementalityClass(name) {
+  var n = String(name == null ? '' : name).toLowerCase();
+  if (n.indexOf('brand') >= 0) return 'brand';                          // 1
+  if (n.indexOf('pb-generic') >= 0) return 'generic';                    // 2
+  if (n.indexOf('-pb-') >= 0 || /-pb$/.test(n)) return 'private-label';  // 3
+  return 'generic';                                                      // 4
+}
+
+/**
+ * A usable impression-share reading, or null.
+ *
+ * Google reports these metrics bucketed at the extremes — "< 10%" arrives as 0.0999, and
+ * everything above 90% collapses into a >0.9 bucket — so a headroom of 0.10 may really be
+ * anything from 0 to 0.10. Numbers are taken at face value regardless; the bucketing is a
+ * caveat surfaced in the UI, not something to smooth away here.
+ *
+ * null, absent and 0 all mean NO DATA. A campaign whose channel type reports no impression
+ * share must fall back to the flat class factor, never be treated as having 100% headroom.
+ */
+function shareValue(v) {
+  if (v === null || v === undefined || v === '') return null;
+  var n = Number(v);
+  if (!isFinite(n) || n <= 0) return null;
+  return n > 1 ? 1 : n;
+}
+
+function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+/**
+ * Resolve one campaign's incrementality factor.
+ *
+ * `cfg` is the payload's `config.incrementality`, exactly as apps-script/webapp.gs emits it:
+ *   { classes:      { brand:0.2, 'private-label':0.5, generic:1.0 },
+ *     overrides:    [ { pattern:'p-shopping-se-pb-product', factor:0.65 }, ... ],
+ *     shareWeights: { brand:{floor:0.10,cap:0.60}, 'private-label':{floor:0.40,cap:1.00} } }
+ *
+ * `share` is this campaign's row from the Shares tab (see normalizeShares), or null.
+ *
+ * PRECEDENCE, strongest first:
+ *   1. an explicit per-campaign pattern override from the Config tab — a human has decided
+ *      this campaign's factor, and no derivation may quietly overrule that;
+ *   2. the impression-share-derived factor, for brand / private-label campaigns that have
+ *      share data;
+ *   3. the flat class factor from the Config tab;
+ *   4. the built-in INCREMENTALITY_DEFAULTS.
+ * When several override patterns match, the LONGEST (most specific) one wins. Everything is
+ * optional — a missing class, missing overrides, missing shareWeights or a missing
+ * `incrementality` block all fall back — so an older endpoint keeps working unchanged.
+ *
+ * Returns { cls, factor, source:'class'|'share'|'override', pattern, dynamic,
+ *           shareMetric, shareValue, headroom, floor, cap, classFactor, share }.
+ */
+function resolveIncrementality(name, cfg, share) {
+  var c = cfg || {};
+  var classes = c.classes || {};
+  var cls = incrementalityClass(name);
+  var base = Number(classes[cls]);
+  if (!isFinite(base) || base < 0) base = INCREMENTALITY_DEFAULTS[cls];
+
+  var out = {
+    cls: cls, factor: base, source: 'class', pattern: null,
+    dynamic: false, shareMetric: null, shareValue: null, headroom: null,
+    floor: null, cap: null, classFactor: base, share: share || null
+  };
+
+  // --- 2. share-derived factor (brand and private label only) ---
+  var metric = SHARE_METRIC_BY_CLASS[cls];
+  if (metric && share) {
+    var v = shareValue(share[metric]);
+    var w = (c.shareWeights || {})[cls] || INCREMENTALITY_SHARE_DEFAULTS[cls];
+    var floor = Number(w && w.floor), cap = Number(w && w.cap);
+    if (!isFinite(floor)) floor = INCREMENTALITY_SHARE_DEFAULTS[cls].floor;
+    if (!isFinite(cap)) cap = INCREMENTALITY_SHARE_DEFAULTS[cls].cap;
+    if (v !== null) {
+      var h = clamp(1 - v, 0, 1);
+      // min/max rather than [floor,cap] literally, so a mis-entered floor > cap in the
+      // Config tab still yields a factor inside the range the operator wrote.
+      var f = clamp(floor + (cap - floor) * h, Math.min(floor, cap), Math.max(floor, cap));
+      out.factor = f;
+      out.source = 'share';
+      out.dynamic = true;
+      out.shareMetric = metric;
+      out.shareValue = v;
+      out.headroom = h;
+      out.floor = floor;
+      out.cap = cap;
+    }
+  }
+
+  // --- 1. explicit pattern override beats everything, including the derived factor ---
+  var lower = String(name == null ? '' : name).toLowerCase();
+  var best = null;
+  (c.overrides || []).forEach(function (o) {
+    if (!o || o.pattern == null) return;
+    var p = String(o.pattern).toLowerCase().trim();
+    var f = Number(o.factor);
+    if (!p || !isFinite(f) || f < 0) return;
+    if (lower.indexOf(p) < 0) return;
+    if (!best || p.length > best.pattern.length) best = { pattern: p, factor: f };
+  });
+  if (best) {
+    out.factor = best.factor;
+    out.source = 'override';
+    out.pattern = best.pattern;
+    out.dynamic = false;      // a human pinned this number; it is no longer IS-derived
+  }
+  return out;
+}
+
+/**
+ * The iGP3-maximising simulated point at an ARBITRARY incrementality factor.
+ * Drives the sensitivity line: a recommendation for a low-incrementality campaign is only
+ * as good as the factor assumed, so we show, on the real curve, where the optimum sits at
+ * ×1.0, at the class default and at half of it. `netNegative` means no simulated target
+ * makes money at that factor at all — the honest answer is "this campaign does not pay
+ * for itself under that assumption", not a target.
+ */
+function optimumAtFactor(points, factor) {
+  if (!points || !points.length) return null;
+  var best = null;
+  points.forEach(function (p) {
+    var igp3 = p.gp2 * factor - p.cost;
+    if (!best || igp3 > best.igp3) best = { target: p.target, cost: p.cost, gp2: p.gp2, igp3: igp3 };
+  });
+  best.factor = factor;
+  best.netNegative = best.igp3 <= 0;
+  return best;
+}
+
+/* ---------- curve construction ---------- */
+
+/**
+ * Drop dominated simulation points: walking cost ascending, a point is kept only
+ * if it buys strictly more GP2 than every cheaper point. Google occasionally emits
+ * a near-duplicate "current bid" point that costs marginally more for marginally
+ * less value; keeping it would produce a spurious negative marginal ROAS.
+ */
+function efficientFrontier(byCost) {
+  var out = [], bestGp2 = -Infinity;
+  for (var i = 0; i < byCost.length; i++) {
+    var p = byCost[i];
+    if (p.gp2 > bestGp2 + 1e-9) { out.push(p); bestGp2 = p.gp2; }
+  }
+  return out;
+}
+
+/**
+ * Upper concave envelope of (cost, gp2) — the classic monotone chain, keeping only
+ * points where the marginal return is strictly decreasing. Required for the greedy
+ * budget allocation to be optimal; also smooths simulator noise.
+ */
+function concaveHull(pts) {
+  var h = [];
+  for (var i = 0; i < pts.length; i++) {
+    var p = pts[i];
+    while (h.length >= 2) {
+      var a = h[h.length - 2], b = h[h.length - 1];
+      var m1 = (b.gp2 - a.gp2) / (b.cost - a.cost);
+      var m2 = (p.gp2 - b.gp2) / (p.cost - b.cost);
+      if (m2 >= m1 - 1e-12) h.pop(); else break; // b is not on the concave envelope
+    }
+    h.push(p);
+  }
+  return h;
+}
+
+/**
+ * Marginal-ROAS segments between adjacent points of a cost-ascending list.
+ *
+ * `mRoas` is the INCREMENTAL marginal return (ΔiGP2 / ΔCost) — the one every
+ * recommendation, breakeven and allocation in this file is read off. `mRoasObserved`
+ * (ΔGP2 / ΔCost) is what Google's raw numbers say, kept for display and for the
+ * unadjusted comparison in the portfolio allocator. At factor 1.0 the two are identical,
+ * so generic campaigns behave exactly as they did before incrementality existed.
+ */
+function marginalSegments(pts) {
+  var segs = [];
+  for (var i = 1; i < pts.length; i++) {
+    var a = pts[i - 1], b = pts[i];
+    var dCost = b.cost - a.cost;
+    if (dCost <= 0) continue;
+    segs.push({
+      from: a, to: b,
+      dCost: dCost,
+      dGp2: b.gp2 - a.gp2,
+      dIGp2: b.igp2 - a.igp2,
+      mRoas: (b.igp2 - a.igp2) / dCost,
+      mRoasObserved: (b.gp2 - a.gp2) / dCost,
+      costMid: (a.cost + b.cost) / 2,
+      targetMid: (a.target + b.target) / 2
+    });
+  }
+  return segs;
+}
+
+/**
+ * Target ROAS at which marginal ROAS crosses 1.0, by linear interpolation between
+ * adjacent segments (each segment's marginal is attributed to its midpoint target —
+ * a central difference). Returns null when the whole simulated range sits on one
+ * side of breakeven, with `side` saying which.
+ */
+function breakevenTarget(segs) {
+  if (segs.length < 1) return { target: null, cost: null, side: 'unknown' };
+  // segments are cost-ascending, i.e. target-descending; walk from high target down
+  var ordered = segs.slice().sort(function (a, b) { return b.targetMid - a.targetMid; });
+  if (ordered.length === 1) {
+    return { target: null, cost: null, side: ordered[0].mRoas >= 1 ? 'below' : 'above' };
+  }
+  for (var i = 1; i < ordered.length; i++) {
+    var hi = ordered[i - 1], lo = ordered[i]; // hi has the higher target => higher marginal
+    if ((hi.mRoas - 1) * (lo.mRoas - 1) <= 0 && hi.mRoas !== lo.mRoas) {
+      var t = (hi.mRoas - 1) / (hi.mRoas - lo.mRoas);
+      return {
+        target: lerp(hi.targetMid, lo.targetMid, t),
+        cost: lerp(hi.costMid, lo.costMid, t),
+        side: 'inside'
+      };
+    }
+  }
+  // no crossing inside the simulated window
+  var highest = ordered[0], lowest = ordered[ordered.length - 1];
+  if (lowest.mRoas > 1) return { target: null, cost: null, side: 'below' };  // even the cheapest marginal krona pays: spend more
+  if (highest.mRoas < 1) return { target: null, cost: null, side: 'above' }; // nothing pays: spend less
+  return { target: null, cost: null, side: 'unknown' };
+}
+
+/**
+ * Build the full analysis object for one bidding strategy from its raw simulation rows.
+ *
+ * `valueToGp2Multiplier` is an ESCAPE HATCH, normally 1.0 and normally absent from the
+ * config. It exists only for accounts whose conversion value is revenue rather than GP2
+ * (e.g. a newly onboarded account still bidding on revenue); set it to that account's
+ * gross margin to convert. For every account that sends cart-level profit as its primary
+ * conversion value — which is all of Babyshop's — it must stay 1.0.
+ *
+ * `incrementality` is ORTHOGONAL to that multiplier and applies strictly AFTER it:
+ * the multiplier answers "is this number GP2?", incrementality answers "how much of this
+ * GP2 did the ad actually cause?". Chain:  GP2 = value × mult  ->  iGP2 = GP2 × factor.
+ * Cost is never scaled — it is 100% real regardless of class — so iGP3 = iGP2 − cost.
+ */
+function buildStrategy(rows, valueToGp2Multiplier, incrementality) {
+  var mult = valueToGp2Multiplier == null ? 1 : valueToGp2Multiplier;
+  var head = rows[0];
+  var inc = incrementality || resolveIncrementality(head.strategy, null);
+  var factor = inc.factor == null || !isFinite(inc.factor) ? 1 : inc.factor;
+  var adjusted = Math.abs(factor - 1) > 1e-9;
+  var points = rows.map(function (r) {
+    var cost = r.costMicros / 1e6;
+    var gp2 = r.convValue * mult;
+    var igp2 = gp2 * factor;
+    return {
+      target: r.target,
+      cost: cost,
+      gp2: gp2,
+      gp3: gp2 - cost,
+      igp2: igp2,
+      igp3: igp2 - cost,
+      conversions: r.conversions,
+      clicks: r.clicks,
+      impressions: r.impressions,
+      // ROAS exactly as Google measures it: reported conversion value over cost,
+      // i.e. the same scale the target ROAS is set on — never multiplier-adjusted
+      // and never incrementality-adjusted.
+      roasActual: cost > 0 ? r.convValue / cost : 0
+    };
+  }).sort(function (a, b) { return a.target - b.target; });
+
+  // Dominance and concavity are unchanged by incrementality: iGP2 is GP2 times a single
+  // positive constant, so the same points survive either way. Both are computed on the raw
+  // GP2 so the frontier stays a statement about Google's data, not about our assumption.
+  var byCost = points.slice().sort(function (a, b) { return a.cost - b.cost; });
+  var eff = efficientFrontier(byCost);
+  var hull = concaveHull(eff);
+  var segs = marginalSegments(eff);
+  var hullSegs = marginalSegments(hull);
+  var be = breakevenTarget(segs);                       // crossing of INCREMENTAL marginal 1.0
+
+  // current position: interpolate the curve at the currently configured target
+  var cur = interpAt(points, 'target', head.currentTarget, ['cost', 'gp2', 'gp3', 'igp2', 'igp3']);
+  var curInRange = head.currentTarget !== null &&
+    head.currentTarget >= points[0].target - 1e-9 &&
+    head.currentTarget <= points[points.length - 1].target + 1e-9;
+
+  // Recommended step: the simulated point with the highest INCREMENTAL GP3. For a generic
+  // campaign (factor 1.0) this is bit-for-bit the old GP3 maximum.
+  var opt = points.reduce(function (best, p) { return p.igp3 > best.igp3 ? p : best; }, points[0]);
+  // The unadjusted GP3 maximum, kept so the observed recommendation stays visible.
+  var optObserved = points.reduce(function (best, p) { return p.gp3 > best.gp3 ? p : best; }, points[0]);
+
+  var step = points.length > 1
+    ? Math.min.apply(null, points.slice(1).map(function (p, i) { return p.target - points[i].target; }))
+    : 0;
+
+  var uplift = cur ? opt.igp3 - cur.igp3 : 0;
+  var upliftObserved = cur ? optObserved.gp3 - cur.gp3 : 0;
+  var costChange = cur ? opt.cost - cur.cost : 0;
+  var status = 'optimum';
+  if (cur && head.currentTarget !== null) {
+    var d = opt.target - head.currentTarget;
+    if (Math.abs(d) <= step / 2 + 1e-9 || Math.abs(uplift) < Math.max(1, Math.abs(cur.igp3) * 0.002)) status = 'optimum';
+    else if (d > 0) status = 'raise';
+    else status = 'lower';
+  } else {
+    status = 'unknown';
+  }
+
+  /* Sensitivity to the assumption itself: the optimum on this very curve at full
+     incrementality, at the factor in force, and at half of it. Rendered for every campaign
+     whose factor is not 1.0, because there the recommendation is a function of a number
+     nobody has measured yet. */
+  var sensitivity = adjusted
+    ? [optimumAtFactor(points, 1), optimumAtFactor(points, factor), optimumAtFactor(points, factor / 2)]
+    : null;
+
+  var flags = [];
+  if (points.length < 5) flags.push('Only ' + points.length + ' simulation point(s) — curve is coarse.');
+  if (!curInRange) flags.push('Current target ' + fmtPct(head.currentTarget) + ' sits outside the simulated range (' +
+    fmtPct(points[0].target) + '–' + fmtPct(points[points.length - 1].target) + ').');
+  if (be.side === 'below') flags.push('Marginal ' + (adjusted ? 'incremental ' : '') + 'ROAS never drops below 1.0 inside the simulated range — the optimum is at a lower target than Google simulated.');
+  if (be.side === 'above') flags.push('Marginal ' + (adjusted ? 'incremental ' : '') + 'ROAS is below 1.0 across the whole simulated range — every simulated point over-spends.');
+  if (eff.length < byCost.length) flags.push((byCost.length - eff.length) + ' dominated point(s) removed (higher cost, no extra value).');
+  if (hull.length < eff.length) flags.push((eff.length - hull.length) + ' point(s) smoothed to keep the curve concave for allocation.');
+
+  return {
+    account: head.account,
+    currency: head.currency,
+    name: head.strategy,
+    id: head.strategyId,
+    biddingType: head.biddingType,
+    startDate: head.startDate,
+    endDate: head.endDate,
+    runDate: head.runDate,
+    currentTarget: head.currentTarget,
+    currentInRange: curInRange,
+    valueToGp2Multiplier: mult,
+    incrementality: inc,
+    incFactor: factor,
+    incClass: inc.cls,
+    incAdjusted: adjusted,
+    incDynamic: !!inc.dynamic,
+    share: inc.share || null,
+    sensitivity: sensitivity,
+    points: points,
+    byCost: byCost,
+    efficient: eff,
+    hull: hull,
+    segments: segs,
+    hullSegments: hullSegs,
+    breakeven: be,
+    current: cur,
+    opt: opt,
+    optObserved: optObserved,
+    step: step,
+    uplift: uplift,
+    upliftObserved: upliftObserved,
+    costChange: costChange,
+    status: status,
+    flags: flags
+  };
+}
+
+/**
+ * Group normalised rows into per-strategy analyses.
+ * `multipliers` maps account name -> valueToGp2Multiplier; `defaultMultiplier` covers the
+ * rest. Both are optional and both default to 1.0 — see buildStrategy() for when the
+ * escape hatch is legitimate.
+ * `incrementalityCfg` is the payload's config.incrementality (optional; omitted means the
+ * built-in class defaults apply).
+ * `shareIndex` is the impression-share index from buildShareIndex() (optional; omitted or
+ * null means every campaign uses its flat class factor).
+ */
+function buildStrategies(rows, multipliers, defaultMultiplier, incrementalityCfg, shareIndex) {
+  var groups = {};
+  rows.forEach(function (r) {
+    // JSON key: strategy names repeat across accounts, and no plain-text
+    // delimiter is guaranteed absent from a Google Ads strategy name.
+    var k = JSON.stringify([r.account, r.strategy, r.strategyId]);
+    (groups[k] = groups[k] || []).push(r);
+  });
+  var out = [];
+  Object.keys(groups).forEach(function (k) {
+    var g = groups[k];
+    if (!g.length) return;
+    var def = defaultMultiplier == null ? 1 : defaultMultiplier;
+    var mult = multipliers && multipliers[g[0].account] != null ? multipliers[g[0].account] : def;
+    var share = shareFor(shareIndex, g[0].account, g[0].strategy, g[0].strategyId);
+    out.push(buildStrategy(g, mult, resolveIncrementality(g[0].strategy, incrementalityCfg, share)));
+  });
+  return out.sort(function (a, b) { return (b.current ? b.current.cost : 0) - (a.current ? a.current.cost : 0); });
+}
+
+/* ---------- portfolio: equal marginal return ---------- */
+
+/**
+ * Greedily spread `budget` across strategies, always buying the cheapest-priced
+ * marginal GP2 first. Because each strategy's hull has strictly decreasing marginal
+ * ROAS, taking segments in global descending-marginal order yields the allocation
+ * where marginal ROAS is equalised across strategies — the textbook optimum.
+ *
+ * The floor is the lowest cost Google simulated for each strategy: below that we
+ * have no evidence, so we clamp and flag rather than extrapolate.
+ *
+ * The ordering runs on INCREMENTAL marginal return (ΔiGP2 / ΔCost) by default, which is
+ * what moves budget out of brand and private label and into generic: a brand krona that
+ * buys 3.0 of observed GP2 only buys 0.6 of incremental GP2 at factor 0.20, so a generic
+ * krona buying 1.4 outranks it. Pass { observed:true } to run the same allocator on the
+ * unadjusted curves — used only to quantify that shift side by side.
+ */
+function allocateBudget(strategies, budget, opts) {
+  var observed = !!(opts && opts.observed);
+  var valueKey = observed ? 'gp2' : 'igp2';
+  var segKey = observed ? 'mRoasObserved' : 'mRoas';
+  var usable = strategies.filter(function (s) { return s.hull.length >= 1; });
+  var floor = usable.reduce(function (a, s) { return a + s.hull[0].cost; }, 0);
+  var ceiling = usable.reduce(function (a, s) { return a + s.hull[s.hull.length - 1].cost; }, 0);
+
+  var alloc = {};
+  usable.forEach(function (s) { alloc[s.name] = s.hull[0].cost; });
+
+  var pool = [];
+  usable.forEach(function (s) {
+    s.hullSegments.forEach(function (seg) { pool.push({ name: s.name, mRoas: seg[segKey], dCost: seg.dCost }); });
+  });
+  pool.sort(function (a, b) { return b.mRoas - a.mRoas; });
+
+  var remaining = Math.max(0, budget - floor);
+  var marginalAtStop = null;
+  for (var i = 0; i < pool.length && remaining > 1e-9; i++) {
+    var take = Math.min(pool[i].dCost, remaining);
+    alloc[pool[i].name] += take;
+    remaining -= take;
+    marginalAtStop = pool[i].mRoas;
+  }
+
+  var rowsOut = usable.map(function (s) {
+    var cost = alloc[s.name];
+    var at = interpAt(s.hull, 'cost', cost, ['target', 'gp2', 'igp2']);
+    var value = at ? at[valueKey] : 0;        // the profit measure this run optimises
+    return {
+      strategy: s,
+      cost: cost,
+      target: at ? at.target : s.currentTarget,
+      gp2: at ? at.gp2 : 0,
+      igp2: at ? at.igp2 : 0,
+      gp3: at ? at.gp2 - cost : 0,
+      igp3: at ? at.igp2 - cost : 0,
+      value: value,
+      value3: value - cost,
+      costDelta: cost - (s.current ? s.current.cost : 0),
+      gp3Delta: (value - cost) - (s.current ? (observed ? s.current.gp3 : s.current.igp3) : 0)
+    };
+  });
+
+  return {
+    rows: rowsOut,
+    observed: observed,
+    floor: floor,
+    ceiling: ceiling,
+    budget: budget,
+    unspent: remaining,                       // budget above what the simulations can absorb
+    infeasible: budget < floor - 1e-6,        // budget below the simulated floor
+    marginalAtStop: marginalAtStop,
+    totalGp2: rowsOut.reduce(function (a, r) { return a + r.gp2; }, 0),
+    totalIGp2: rowsOut.reduce(function (a, r) { return a + r.igp2; }, 0),
+    totalGp3: rowsOut.reduce(function (a, r) { return a + r.value3; }, 0),
+    totalObservedGp3: rowsOut.reduce(function (a, r) { return a + r.gp3; }, 0),
+    totalCost: rowsOut.reduce(function (a, r) { return a + r.cost; }, 0)
+  };
+}
+
+/**
+ * Total cost implied by every strategy sitting at its own iGP3 maximum, with the
+ * unadjusted (observed GP3 max) totals alongside for comparison.
+ */
+function unconstrainedOptimum(strategies) {
+  return strategies.reduce(function (a, s) {
+    // at the iGP3 optimum
+    a.cost += s.opt.cost; a.gp2 += s.opt.gp2; a.igp2 += s.opt.igp2;
+    a.igp3 += s.opt.igp3; a.gp3AtIOpt += s.opt.gp3;
+    // at the unadjusted GP3 optimum, for the "what we would have said" comparison
+    a.observedCost += s.optObserved.cost; a.observedGp3 += s.optObserved.gp3;
+    return a;
+  }, { cost: 0, gp2: 0, igp2: 0, igp3: 0, gp3AtIOpt: 0, observedCost: 0, observedGp3: 0 });
+}
+
+/* ---------- formatting ---------- */
+
+function fmtPct(v) { return v === null || v === undefined ? '—' : (v * 100).toFixed(0) + '%'; }
+function fmtPct1(v) { return v === null || v === undefined ? '—' : (v * 100).toFixed(1) + '%'; }
+
+/* ==================== CORE MATH END ==================== */
+
+/* ============================== DEMO DATA ==============================
+   One real Babyshop SE snapshot: 92 Target ROAS simulation points across 9
+   portfolio bidding strategies, taken 2026-08-03. Used only when
+   DATA_ENDPOINT is unset or the live fetch fails; the UI says so.
+   ====================================================================== */
+const DEMO_DATA = {
+  generatedAt: "2026-08-03T06:15:00Z",
+  source: "demo",
+  // Conversion value in these accounts is already GP2, so no conversion is needed.
+  // No `incrementality` block on purpose: this exercises the backward-compatible path, where
+  // the dashboard falls back to INCREMENTALITY_DEFAULTS and classifies by name —
+  // p-shopping-se-brand -> brand, *-pb-* -> private-label, everything else -> generic —
+  // and to INCREMENTALITY_SHARE_DEFAULTS for the floors and caps applied to `shares` below.
+  config: { defaultValueToGp2Multiplier: 1, valueToGp2Multipliers: {} },
+  columns: ["Customer Name","Bidding Strategy Name","Current Target Roas","Bidding Strategy Id","Start Date","End Date","TARGET ROAS","Conversions","Conversions Value","Clicks","Cost Micros","Impressions","Top Slot Impressions","Current Campaign Strategy","Currency","Run Date"],
+  rows: [
+  ["Babyshop SE","p-shopping-se-pb-generic",2.5,"21139965046","2026-07-27","2026-08-02",1.5,3239.3,546177.4,51058,392645636289,2786868,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-generic",2.5,"21139965046","2026-07-27","2026-08-02",1.7,2868.2,483594.6,45208,308884642263,2467539,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-generic",2.5,"21139965046","2026-07-27","2026-08-02",1.9,2564.5,432390.4,40421,246766875584,2206270,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-generic",2.5,"21139965046","2026-07-27","2026-08-02",2.1,2319.1,391013.4,36553,201697358104,1995143,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-generic",2.5,"21139965046","2026-07-27","2026-08-02",2.3,2116.6,356877.3,33362,167954373735,1820964,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-generic",2.5,"21139965046","2026-07-27","2026-08-02",2.4,1938.7,326926.9,30566,140653580000,1668209,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-generic",2.5,"21139965046","2026-07-27","2026-08-02",2.51,1938.9,326918.7,30561,140898287338,1668101,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-generic",2.5,"21139965046","2026-07-27","2026-08-02",3,1623.2,273677.3,25584,98790146175,1396436,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-generic",2.5,"21139965046","2026-07-27","2026-08-02",3.6,1352.7,228074.1,21321,68609858195,1163747,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-generic",2.5,"21139965046","2026-07-27","2026-08-02",4.3,1130,190527,17811,47780026050,972161,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-generic",2.5,"21139965046","2026-07-27","2026-08-02",5.2,936,157822.2,14754,32836825586,805286,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-product",6,"21139965049","2026-07-27","2026-08-02",3.7,1042.9,207063.8,13553,61352373801,638842,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-product",6,"21139965049","2026-07-27","2026-08-02",4.1,941.2,186862.4,12231,49965139639,576516,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-product",6,"21139965049","2026-07-27","2026-08-02",4.5,857.5,170252.4,11144,41477234435,525269,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-product",6,"21139965049","2026-07-27","2026-08-02",5,771.8,153227.2,10029,33596559894,472743,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-product",6,"21139965049","2026-07-27","2026-08-02",5.5,701.6,139297.4,9118,27765751979,429767,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-product",6,"21139965049","2026-07-27","2026-08-02",6,629.7,125021.3,8184,22367510000,385766,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-product",6,"21139965049","2026-07-27","2026-08-02",6.13,630.5,125174.2,8193,22453623735,386194,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-product",6,"21139965049","2026-07-27","2026-08-02",7.4,522,103638.2,6784,15384402389,319749,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-product",6,"21139965049","2026-07-27","2026-08-02",8.9,434,86163.4,5640,10632742597,265835,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-product",6,"21139965049","2026-07-27","2026-08-02",11,350.8,69648.7,4559,6941437995,214883,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-pb-product",6,"21139965049","2026-07-27","2026-08-02",13,296.8,58933.5,3857,4969905310,181825,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-rb-categories",2.4,"21516334974","2026-07-27","2026-08-02",1.4,1806.3,264068.7,43289,194784009797,1897185,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-rb-categories",2.4,"21516334974","2026-07-27","2026-08-02",1.6,1580.5,231060.2,37878,149131507500,1660039,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-rb-categories",2.4,"21516334974","2026-07-27","2026-08-02",1.8,1404.9,205386.8,33669,117832302221,1475587,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-rb-categories",2.4,"21516334974","2026-07-27","2026-08-02",2,1264.4,184848.1,30302,95444164800,1328028,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-rb-categories",2.4,"21516334974","2026-07-27","2026-08-02",2.2,1149.4,168043.7,27548,78879475041,1207299,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-rb-categories",2.4,"21516334974","2026-07-27","2026-08-02",2.4,1053.7,154040.1,25252,66280670000,1106691,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-rb-categories",2.4,"21516334974","2026-07-27","2026-08-02",2.9,872,127481.5,20898,45395559953,915882,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-rb-categories",2.4,"21516334974","2026-07-27","2026-08-02",3.5,722.5,105627.5,17316,31165441568,758876,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-rb-categories",2.4,"21516334974","2026-07-27","2026-08-02",4.2,603.2,88180.4,14456,21760895851,633525,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-rb-categories",2.4,"21516334974","2026-07-27","2026-08-02",5,506.4,74031.8,12136,15329249742,531876,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-brand",6,"21700388337","2026-07-27","2026-08-02",3.6,199.5,32766.7,1764,8352901409,183235,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-brand",6,"21700388337","2026-07-27","2026-08-02",4,179.6,29501.4,1589,6774097518,164975,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-brand",6,"21700388337","2026-07-27","2026-08-02",4.4,163.2,26810.1,1444,5592395575,149925,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-brand",6,"21700388337","2026-07-27","2026-08-02",4.9,146.6,24078,1297,4511540907,134646,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-brand",6,"21700388337","2026-07-27","2026-08-02",5.4,133,21841.5,1176,3711046658,122140,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-brand",6,"21700388337","2026-07-27","2026-08-02",6,119.5,19628.8,1057,2992620000,109766,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-brand",6,"21700388337","2026-07-27","2026-08-02",7.2,99.7,16377.7,882,2086172324,91586,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-brand",6,"21700388337","2026-07-27","2026-08-02",8.6,83.5,13717.9,739,1464235174,76712,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-brand",6,"21700388337","2026-07-27","2026-08-02",10,71.9,11810.4,636,1086248755,66045,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-brand",6,"21700388337","2026-07-27","2026-08-02",12,59.8,9814.4,529,748155000,54885,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-pb-all",6,"21778065116","2026-07-25","2026-07-31",1.59,88.7,20094.6,2719,11752500000,15816,10360,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-pb-all",6,"21778065116","2026-07-25","2026-07-31",1.96,87.2,19789.6,2646,10353810000,15020,9910,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-pb-all",6,"21778065116","2026-07-25","2026-07-31",2.38,85.8,19532,2584,9299960000,14336,9548,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-pb-all",6,"21778065116","2026-07-25","2026-07-31",2.79,83.6,19076.9,2487,7775810000,13264,8983,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-pb-all",6,"21778065116","2026-07-25","2026-07-31",3.85,81.9,18731.1,2417,6843900000,12573,8603,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-pb-all",6,"21778065116","2026-07-25","2026-07-31",4.65,79.7,18236,2331,5787610000,11741,8153,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-pb-all",6,"21778065116","2026-07-25","2026-07-31",6,77.6,17764,2250,4929250000,10973,7734,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-pb-all",6,"21778065116","2026-07-25","2026-07-31",7.47,74.6,17047.2,2139,4076530000,9806,7195,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-pb-all",6,"21778065116","2026-07-25","2026-07-31",8.74,71.1,16214.2,2023,3289120000,8776,6682,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-pb-all",6,"21778065116","2026-07-25","2026-07-31",11.42,68.4,15546.5,1936,2745720000,8092,6330,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-generic-hero-categories",2.7,"21780099807","2026-07-25","2026-07-31",0.93,64.5,15626.9,3623,22198190000,83979,43533,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-generic-hero-categories",2.7,"21780099807","2026-07-25","2026-07-31",1.05,57.7,14096.2,3127,18148620000,70988,36938,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-generic-hero-categories",2.7,"21780099807","2026-07-25","2026-07-31",1.06,52.7,12958.7,2776,15380410000,61679,32436,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-generic-hero-categories",2.7,"21780099807","2026-07-25","2026-07-31",1.27,48.6,12014.8,2507,13307310000,54607,29099,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-generic-hero-categories",2.7,"21780099807","2026-07-25","2026-07-31",1.38,45.4,11279.7,2301,11786820000,49151,26488,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-generic-hero-categories",2.7,"21780099807","2026-07-25","2026-07-31",1.54,40.8,10202,2009,9757080000,41648,22958,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-generic-hero-categories",2.7,"21780099807","2026-07-25","2026-07-31",1.72,36.7,9247,1761,8116730000,35420,20141,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-generic-hero-categories",2.7,"21780099807","2026-07-25","2026-07-31",2,31.6,8038.4,1472,6266150000,28079,16836,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-generic-hero-categories",2.7,"21780099807","2026-07-25","2026-07-31",2.27,26.2,6711.5,1173,4716970000,20510,13083,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-search-se-generic-hero-categories",2.7,"21780099807","2026-07-25","2026-07-31",2.73,20.2,5204,868,3155050000,13639,9558,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-dsa-all",2.6,"21868101735","2026-07-25","2026-07-31",1.17,99.4,19065.4,4546,20932380000,104968,46621,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-dsa-all",2.6,"21868101735","2026-07-25","2026-07-31",1.28,87.8,16841.6,3900,17093020000,87039,39248,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-dsa-all",2.6,"21868101735","2026-07-25","2026-07-31",1.29,79.2,15158,3431,14417700000,74240,34108,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-dsa-all",2.6,"21868101735","2026-07-25","2026-07-31",1.46,72.7,13899.6,3080,12516560000,64744,30265,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-dsa-all",2.6,"21868101735","2026-07-25","2026-07-31",1.55,67.7,12935.8,2811,11139790000,57851,27305,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-dsa-all",2.6,"21868101735","2026-07-25","2026-07-31",1.62,60.7,11630.9,2458,9365420000,48467,23484,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-dsa-all",2.6,"21868101735","2026-07-25","2026-07-31",1.81,54.5,10429.3,2142,7860810000,40048,19976,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-dsa-all",2.6,"21868101735","2026-07-25","2026-07-31",2,47.3,9050.2,1798,6268820000,31226,16373,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-dsa-all",2.6,"21868101735","2026-07-25","2026-07-31",2.22,39.1,7504.3,1414,4753310000,20843,11837,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","ps-dsa-all",2.6,"21868101735","2026-07-25","2026-07-31",2.6,31,5915,1057,3311920000,12964,8386,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","p-search-se-competitor",2,"22122450684","2026-07-25","2026-07-31",1.17,2.5,646.7,91,578100000,5299,2797,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","p-search-se-competitor",2,"22122450684","2026-07-25","2026-07-31",1.28,2.2,572,79,463970000,4397,2272,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","p-search-se-competitor",2,"22122450684","2026-07-25","2026-07-31",1.38,2.1,526,72,398760000,3668,1891,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","p-search-se-competitor",2,"22122450684","2026-07-25","2026-07-31",1.47,1.9,495.2,67,355140000,3140,1646,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","p-search-se-competitor",2,"22122450684","2026-07-25","2026-07-31",1.55,1.9,473.9,63,324970000,2765,1459,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","p-search-se-competitor",2,"22122450684","2026-07-25","2026-07-31",1.62,1.7,434.2,57,269290000,2277,1245,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","p-search-se-competitor",2,"22122450684","2026-07-25","2026-07-31",1.77,1.6,393.2,53,227070000,1970,1099,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","p-search-se-competitor",2,"22122450684","2026-07-25","2026-07-31",2,1.4,351.9,46,184560000,1450,869,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","p-search-se-competitor",2,"22122450684","2026-07-25","2026-07-31",2.33,1.2,304.8,39,138460000,831,543,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","p-search-se-competitor",2,"22122450684","2026-07-25","2026-07-31",2.91,1,248.3,32,92790000,480,355,"MAXIMIZE_CONVERSION_VALUE","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-last-season",2.9,"22343428966","2026-07-27","2026-08-02",1.2,436.2,30935.8,9958,33721833333,474233,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-last-season",2.9,"22343428966","2026-07-27","2026-08-02",1.3,405.1,28726.1,9247,29248528911,440360,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-last-season",2.9,"22343428966","2026-07-27","2026-08-02",1.4,373.9,26516.4,8536,24775224489,406486,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-last-season",2.9,"22343428966","2026-07-27","2026-08-02",1.6,328.5,23292.8,7498,19192273864,357071,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-last-season",2.9,"22343428966","2026-07-27","2026-08-02",1.8,290.8,20623.9,6639,14987481481,316155,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-last-season",2.9,"22343428966","2026-07-27","2026-08-02",2,261.7,18561.5,5975,12139860000,284540,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-last-season",2.9,"22343428966","2026-07-27","2026-08-02",2.4,218.1,15467.9,4979,8430458332,237117,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-last-season",2.9,"22343428966","2026-07-27","2026-08-02",2.9,180.5,12801,4121,5774011891,196234,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-last-season",2.9,"22343428966","2026-07-27","2026-08-02",3.5,149.6,10606.6,3414,3964035918,162594,0,"TARGET_ROAS","SEK","2026-08-03"],
+  ["Babyshop SE","p-shopping-se-last-season",2.9,"22343428966","2026-07-27","2026-08-02",4.2,124.9,8854.6,2850,2767840546,135737,0,"TARGET_ROAS","SEK","2026-08-03"]
+  ],
+  /* Impression shares for two of the campaigns above, so the demo exercises the dynamic
+     incrementality path end to end. These two numbers are ILLUSTRATIVE, not measured —
+     unlike the simulation rows, which are a real snapshot. They were chosen to show both
+     ends of the mechanism:
+       p-shopping-se-brand    abs top 0.93 -> headroom 0.07 -> factor 0.10+0.50x0.07 = 0.135
+                              (already owns the brand auction: near the brand FLOOR)
+       p-shopping-se-pb-product  search IS 0.71 -> headroom 0.29 -> 0.40+0.60x0.29 = 0.574
+                              (real presence to win: above the private-label floor)
+     The other private-label campaign, ps-search-se-pb-all, deliberately has NO row here, so
+     the fallback ladder is exercised too — it keeps the flat class factor of 0.50. */
+  shares: {
+    columns: ["Customer Name","Campaign Id","Campaign Name","Search IS","Top IS","Abs Top IS","Currency","Run Date"],
+    rows: [
+      ["Babyshop SE","21700388337","p-shopping-se-brand",0.97,0.96,0.93,"SEK","2026-08-03"],
+      ["Babyshop SE","21139965049","p-shopping-se-pb-product",0.71,0.55,0.34,"SEK","2026-08-03"]
+    ]
+  }
+};
+
+/* ============================== APP STATE ============================== */
+
+const state = {
+  payload: null,      // raw payload as fetched / embedded
+  rows: [],           // normalised rows (all accounts, all runs)
+  shares: [],         // normalised impression-share rows (latest run date only)
+  shareIndex: null,   // (account, campaign id|name) -> share row
+  source: 'demo',     // 'live' | 'cached' | 'demo'
+  fetchedAt: null,    // ISO string of the last successful fetch
+  error: null,
+  account: null,
+  runDate: null,
+  strategyKey: null,
+  mixedCurrency: false,
+  budget: null,
+  strategies: [],
+  charts: {}
+};
+
+function loadPrefs(){
+  try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch(e){ return {}; }
+}
+function savePrefs(){
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({
+      account: state.account, strategyKey: state.strategyKey
+    }));
+  } catch(e){ /* private mode */ }
+}
+
+/* ============================== DATA LOADING ============================== */
+
+function cacheRead(){
+  try {
+    const c = JSON.parse(localStorage.getItem(CACHE_KEY));
+    if (c && c.payload && Array.isArray(c.payload.rows)) return c;
+  } catch(e){}
+  return null;
+}
+function cacheWrite(payload){
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ fetchedAt: new Date().toISOString(), payload })); }
+  catch(e){ /* quota */ }
+}
+
+/* How many run-date snapshots to request. 30 keeps the trend view useful while
+   holding the payload well under the endpoint's row cap (~600 rows/run). */
+const FETCH_RUNS = 30;
+
+async function fetchLive(){
+  const url = DATA_ENDPOINT + (DATA_ENDPOINT.indexOf('?') >= 0 ? '&' : '?') + 'token=' + encodeURIComponent(DATA_TOKEN)
+    + '&runs=' + FETCH_RUNS;
+  const res = await fetch(url, { method: 'GET', redirect: 'follow' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const json = await res.json();
+  if (json.error) throw new Error(json.error);
+  if (!Array.isArray(json.rows)) throw new Error('payload has no rows array');
+  return json;
+}
+
+function adoptPayload(payload, source, fetchedAt){
+  state.payload = payload;
+  state.rows = normalizePayload(payload);
+  /* Impression shares are optional everywhere: a payload from an endpoint that predates the
+     Shares tab, or one whose tab is empty, yields an empty index and every campaign keeps
+     its flat class factor. */
+  state.shares = normalizeShares(payload.shares);
+  state.shareIndex = buildShareIndex(state.shares);
+  state.source = source;
+  state.fetchedAt = fetchedAt || null;
+}
+
+async function loadData(announce){
+  // 1. cached snapshot first, so the page paints immediately
+  const cached = cacheRead();
+  if (cached) adoptPayload(cached.payload, 'cached', cached.fetchedAt);
+  else adoptPayload(DEMO_DATA, 'demo', null);
+
+  if (!DATA_ENDPOINT){
+    if (!cached) state.error = null;
+    rebuild(true);
+    return;
+  }
+  rebuild(true);
+
+  try {
+    const json = await fetchLive();
+    cacheWrite(json);
+    state.error = null;
+    adoptPayload(json, 'live', new Date().toISOString());
+    rebuild(false);
+    if (announce) toast('Loaded ' + state.rows.length + ' simulation rows from the endpoint.');
+  } catch (err){
+    state.error = err.message || String(err);
+    if (!cached){ adoptPayload(DEMO_DATA, 'demo', null); rebuild(true); }
+    else rebuild(false);
+    toast('Live fetch failed (' + state.error + ') — showing ' + (cached ? 'the cached snapshot.' : 'demo data.'));
+  }
+}
+
+/* ============================== SELECTORS / DERIVED ============================== */
+
+function accounts(){ return [...new Set(state.rows.map(r => r.account))].sort(); }
+function runDates(rows){ return [...new Set(rows.map(r => r.runDate))].sort(); }
+
+function scopedRows(){
+  return state.rows.filter(r =>
+    (state.account === '__all' || r.account === state.account) && r.runDate === state.runDate);
+}
+
+/* Optional conversion-value → GP2 multipliers from the endpoint payload.
+   Payload shape (both keys optional, both default to 1.0):
+     config: { defaultValueToGp2Multiplier: 1, valueToGp2Multipliers: { "Some Account": 0.30 } }
+   Only for accounts whose conversion value is revenue rather than GP2. */
+function gp2Multipliers(){
+  const cfg = (state.payload && state.payload.config) || {};
+  return {
+    map: cfg.valueToGp2Multipliers || {},
+    def: cfg.defaultValueToGp2Multiplier != null ? cfg.defaultValueToGp2Multiplier : 1
+  };
+}
+
+/* Incrementality settings from the endpoint payload. Shape (all optional):
+     config: { incrementality: { classes: { brand:0.2, 'private-label':0.5, generic:1.0 },
+                                 overrides: [ { pattern:'p-shopping-se-pb-product', factor:0.65 } ],
+                                 shareWeights: { brand:{floor:0.10,cap:0.60},
+                                                 'private-label':{floor:0.40,cap:1.00} } } }
+   Written by setupConfigTab()/readConfig() in apps-script/webapp.gs — keep the names in
+   sync with that file. A payload without `incrementality` falls back to
+   INCREMENTALITY_DEFAULTS / INCREMENTALITY_SHARE_DEFAULTS, so older endpoints keep working. */
+function incrementalityCfg(){
+  const cfg = (state.payload && state.payload.config) || {};
+  const inc = cfg.incrementality || {};
+  const sw = inc.shareWeights || {};
+  const weights = {};
+  Object.keys(INCREMENTALITY_SHARE_DEFAULTS).forEach(cls => {
+    weights[cls] = Object.assign({}, INCREMENTALITY_SHARE_DEFAULTS[cls], sw[cls] || {});
+  });
+  return {
+    classes: Object.assign({}, INCREMENTALITY_DEFAULTS, inc.classes || {}),
+    overrides: Array.isArray(inc.overrides) ? inc.overrides : [],
+    shareWeights: weights,
+    fromPayload: !!cfg.incrementality,
+    shareWeightsFromPayload: !!inc.shareWeights
+  };
+}
+
+/** True when any strategy in the selection carries an incrementality factor below 1.0. */
+function anyIncAdjusted(){ return state.strategies.some(s => s.incAdjusted); }
+
+/** True when any strategy's factor was derived from impression share rather than assumed. */
+function anyIncDynamic(){ return state.strategies.some(s => s.incDynamic); }
+
+/** Human label for an incrementality factor, e.g. "×0.50". */
+function incLabel(f){ return '×' + f.toFixed(2); }
+
+/** Where a factor came from, for the summary pill: "×0.13 (IS-derived)" vs "×0.20 (assumed)". */
+function incSourceLabel(s){
+  if (s.incrementality.source === 'override') return 'pinned';
+  return s.incDynamic ? 'IS-derived' : 'assumed';
+}
+function incPillLabel(s){ return incLabel(s.incFactor) + ' (' + incSourceLabel(s) + ')'; }
+
+/** An impression share as a percentage, or an em dash when the metric has no data. */
+function sharePct(v){ return v == null ? '—' : (v * 100).toFixed(0) + '%'; }
+
+/** The run date the loaded impression shares describe, or null when there are none. */
+function sharesRunDate(){ return state.shareIndex ? state.shareIndex.runDate : null; }
+
+/** Tooltip behind the factor pill: the whole derivation in one sentence. */
+function incFactorTitle(s){
+  const inc = s.incrementality;
+  if (inc.source === 'override')
+    return 'Incrementality ' + incLabel(s.incFactor) + ' pinned in the Config tab by the pattern "' +
+      inc.pattern + '" — it overrides both the ' + CLASS_LABEL[s.incClass].toLowerCase() +
+      ' class factor and any impression-share-derived factor.';
+  if (inc.dynamic)
+    return 'Incrementality ' + incLabel(s.incFactor) + ' derived from impression share: ' +
+      SHARE_METRIC_LABEL[inc.shareMetric] + ' ' + sharePct(inc.shareValue) + ' leaves ' +
+      sharePct(inc.headroom) + ' headroom, so factor = ' + inc.floor.toFixed(2) + ' + (' +
+      inc.cap.toFixed(2) + ' − ' + inc.floor.toFixed(2) + ') × ' + inc.headroom.toFixed(2) +
+      '. Floor and cap are editable in the Config tab.';
+  return 'Assumed incrementality ' + incLabel(s.incFactor) + ' — ' + CLASS_LABEL[s.incClass] +
+    ' class default, used because this campaign has no impression-share data. Editable in the Config tab.';
+}
+
+const CLASS_LABEL = { generic:'Generic', 'private-label':'Private label', brand:'Brand' };
+const CLASS_BLURB = {
+  generic:
+    'Prospecting against open-market demand — the click is the demand, so observed GP2 is taken at ' +
+    'face value. This is where moving targets on the curve genuinely earns money.',
+  'private-label':
+    'Own-label products sold nowhere else. A shopper who wants the product has one place to buy it, ' +
+    'so a large share of this value would convert without the ad — while the cost is 100% real.',
+  brand:
+    'Only matches babyshop / lekmer brand queries. That demand already chose us and mostly arrives ' +
+    'anyway; the spend is largely defensive. Treat these recommendations as directional only.'
+};
+
+/** Accounts in the current selection whose multiplier is not 1.0 — drives the badges. */
+function adjustedAccounts(){
+  const seen = {};
+  state.strategies.forEach(s => {
+    if (Math.abs(s.valueToGp2Multiplier - 1) > 1e-9) seen[s.account] = s.valueToGp2Multiplier;
+  });
+  return seen;
+}
+
+function multiplierLabel(m){ return 'GP2 = value × ' + m.toFixed(2); }
+
+function rebuild(resetSelections){
+  const accs = accounts();
+  if (resetSelections || !accs.includes(state.account)){
+    const prefs = loadPrefs();
+    state.account = (prefs.account && (accs.includes(prefs.account) || prefs.account === '__all'))
+      ? prefs.account : (accs.length > 1 ? '__all' : accs[0]);
+  }
+  const inAcct = state.rows.filter(r => state.account === '__all' || r.account === state.account);
+  const runs = runDates(inAcct);
+  if (!runs.includes(state.runDate)) state.runDate = runs[runs.length - 1];
+
+  const m = gp2Multipliers();
+  state.strategies = buildStrategies(scopedRows(), m.map, m.def, incrementalityCfg(), state.shareIndex);
+  state.strategies.forEach(s => s.key = s.account + ' · ' + s.name);
+  state.mixedCurrency = new Set(state.strategies.map(s => s.currency)).size > 1;
+
+  const keys = state.strategies.map(s => s.key);
+  if (!keys.includes(state.strategyKey)){
+    const prefs = loadPrefs();
+    state.strategyKey = keys.includes(prefs.strategyKey) ? prefs.strategyKey : keys[0];
+  }
+  if (state.budget == null || resetSelections) state.budget = null; // recomputed to current spend
+  savePrefs();
+  renderAll();
+}
+
+/* ============================== FORMATTING ============================== */
+
+const CURRENCY_LOCALE = { SEK:'sv-SE', NOK:'nb-NO', DKK:'da-DK', EUR:'de-DE', USD:'en-US', GBP:'en-GB' };
+function money(v, cur, decimals){
+  const loc = CURRENCY_LOCALE[cur] || 'en-US';
+  try {
+    return new Intl.NumberFormat(loc, {
+      style:'currency', currency: cur || 'SEK',
+      // SEK, NOK and DKK all print as "kr" — fall back to the ISO code so a mixed
+      // selection can never be misread as a single currency.
+      currencyDisplay: state.mixedCurrency ? 'code' : 'symbol',
+      minimumFractionDigits: decimals || 0, maximumFractionDigits: decimals || 0 }).format(v);
+  } catch(e){ return Math.round(v).toLocaleString('en-US') + ' ' + (cur || ''); }
+}
+function moneyK(v, cur){
+  const a = Math.abs(v);
+  if (a >= 1e6) return money(v/1e6, cur, 1).replace(/(\d)(?=\D*$)/, '$1M');
+  if (a >= 1e4) return money(Math.round(v/1e3), cur, 0).replace(/(\d)(?=\D*$)/, '$1k');
+  return money(v, cur, 0);
+}
+function signedMoney(v, cur){
+  const r = Math.round(v);                 // round first so -0.4 renders "+0", not "−0"
+  return (r >= 0 ? '+' : '−') + money(Math.abs(r), cur, 0);
+}
+function num(v, d){ return v.toLocaleString('en-US', { minimumFractionDigits: d||0, maximumFractionDigits: d||0 }); }
+function signClass(v, tol){ return Math.abs(v) <= (tol||0) ? '' : (v > 0 ? 'pos' : 'neg'); }
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function daysBetween(aIso, bIso){
+  const a = new Date(aIso + 'T00:00:00Z'), b = new Date(bIso + 'T00:00:00Z');
+  return Math.round((b - a) / 86400000);
+}
+function todayIso(){ return new Date().toISOString().slice(0,10); }
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 4200);
+}
+
+/* ============================== RENDER: SHELL ============================== */
+
+function renderAll(){
+  renderSelectors();
+  renderStatus();
+  renderOverview();
+  renderStrategy();
+  renderPortfolio();
+  renderHistory();
+  document.getElementById('footNote').textContent =
+    'Computed in your browser from ' + state.rows.length + ' simulation rows. Nothing is uploaded anywhere.';
+}
+
+function renderSelectors(){
+  const accs = accounts();
+  const accSel = document.getElementById('accountSel');
+  accSel.innerHTML = (accs.length > 1 ? '<option value="__all">All accounts</option>' : '') +
+    accs.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+  accSel.value = state.account;
+
+  const inAcct = state.rows.filter(r => state.account === '__all' || r.account === state.account);
+  const runs = runDates(inAcct).slice().reverse();
+  const runSel = document.getElementById('runSel');
+  runSel.innerHTML = runs.map((d,i) =>
+    `<option value="${d}">${d}${i === 0 ? ' (latest)' : ''}</option>`).join('');
+  runSel.value = state.runDate;
+
+  const stratSel = document.getElementById('stratSel');
+  stratSel.innerHTML = state.strategies.map(s =>
+    `<option value="${esc(s.key)}">${esc(state.account === '__all' ? s.key : s.name)}</option>`).join('');
+  stratSel.value = state.strategyKey;
+}
+
+function renderStatus(){
+  const el = document.getElementById('statusBar');
+  const bits = [];
+  if (state.source === 'live')
+    bits.push('<span class="badge live"><i class="dot"></i>Live data</span>');
+  else if (state.source === 'cached')
+    bits.push('<span class="badge cached"><i class="dot"></i>Cached snapshot</span>');
+  else
+    bits.push('<span class="badge demo"><i class="dot"></i>Demo data</span>');
+
+  if (state.source === 'demo')
+    bits.push('<span>Sample of a real Babyshop SE run — set <span class="mono">DATA_ENDPOINT</span> to go live.</span>');
+
+  if (state.runDate){
+    const age = daysBetween(state.runDate, todayIso());
+    const label = age <= 0 ? 'today' : age === 1 ? '1 day old' : age + ' days old';
+    bits.push(age > STALE_DAYS
+      ? `<span class="badge warn">Snapshot ${label} — re-run the Ads script</span>`
+      : `<span>Snapshot <b>${state.runDate}</b> · ${label}</span>`);
+  }
+  const scoped = scopedRows();
+  const windows = [...new Set(scoped.map(r => r.startDate + ' → ' + r.endDate))];
+  if (windows.length) bits.push('<span class="sep">|</span><span>Simulation window ' +
+    windows.map(w => '<b>' + w + '</b>').join(', ') + '</span>');
+  bits.push('<span class="sep">|</span><span>' + state.strategies.length + ' strategies · ' + scoped.length + ' points</span>');
+  // surfaced only when some account carries a non-1.0 valueToGp2Multiplier
+  const adj = adjustedAccounts();
+  Object.keys(adj).forEach(a => bits.push('<span class="badge warn">' + esc(a) + ': ' +
+    esc(multiplierLabel(adj[a])) + '</span>'));
+  if (state.fetchedAt) bits.push('<span class="sep">|</span><span>fetched ' +
+    new Date(state.fetchedAt).toLocaleString() + '</span>');
+  if (state.error) bits.push('<span class="badge err">Fetch error: ' + esc(state.error) + '</span>');
+  el.innerHTML = bits.join(' ');
+}
+
+/* ============================== RENDER: OVERVIEW ============================== */
+
+function byCurrency(strategies){
+  const g = {};
+  strategies.forEach(s => (g[s.currency] = g[s.currency] || []).push(s));
+  return g;
+}
+
+function renderOverview(){
+  const groups = byCurrency(state.strategies);
+  const curs = Object.keys(groups).sort();
+  const multi = curs.length > 1;
+
+  // Every KPI below is computed on INCREMENTAL GP3. The observed figures are still shown,
+  // as the sub-line of the first two cards, so the haircut is never hidden.
+  const incAdj = anyIncAdjusted();
+  document.getElementById('kpiZone').innerHTML = curs.map(cur => {
+    const ss = groups[cur];
+    const curIGp3 = ss.reduce((a,s) => a + (s.current ? s.current.igp3 : 0), 0);
+    const curGp3  = ss.reduce((a,s) => a + (s.current ? s.current.gp3 : 0), 0);
+    const curCost = ss.reduce((a,s) => a + (s.current ? s.current.cost : 0), 0);
+    const pot     = unconstrainedOptimum(ss);
+    const inc     = pot.igp3 - curIGp3;
+    // A negative current iGP3 has no meaningful "share of the maximum" — floor the
+    // score at 0 and say why, rather than printing a nonsense negative percentage.
+    const scoreRaw  = pot.igp3 > 0 ? curIGp3 / pot.igp3 : 0;
+    const score     = Math.max(0, Math.min(1, scoreRaw));
+    const scoreNote = curIGp3 < 0
+      ? 'currently loss-making at the current targets'
+      : pot.igp3 <= 0 ? 'no profitable target exists in the simulated range'
+      : 'current ' + (incAdj ? 'incremental ' : '') + 'GP3 as a share of the achievable maximum';
+    const costDelta = pot.cost - curCost;
+    return `
+      <div class="kpi-block">
+        ${multi ? `<div class="kpi-cur">${cur} &middot; ${ss.length} strategies</div>` : ''}
+        <div class="kpis">
+          <div class="kpi">
+            <div class="label">Current ${incAdj ? 'incremental ' : ''}GP3 / week</div>
+            <div class="value">${money(curIGp3, cur)}</div>
+            <div class="sub">on ${money(curCost, cur)} cost${incAdj
+              ? ' &middot; observed GP3 ' + moneyK(curGp3, cur)
+              : ' &middot; GP2 ' + moneyK(curGp3 + curCost, cur)}</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Potential ${incAdj ? 'incremental ' : ''}GP3 / week</div>
+            <div class="value">${money(pot.igp3, cur)}</div>
+            <div class="sub">every strategy at its own ${incAdj ? 'iGP3' : 'GP3'} max${incAdj
+              ? ' &middot; observed GP3 there ' + moneyK(pot.gp3AtIOpt, cur) : ''}</div>
+          </div>
+          <div class="kpi accent">
+            <div class="label">Incremental potential</div>
+            <div class="value">${money(inc, cur)}</div>
+            <div class="sub"><span class="delta ${signClass(inc)}">${curIGp3 ? (inc/Math.abs(curIGp3)*100).toFixed(1) : '0.0'}%</span>
+              <span>cost ${signedMoney(costDelta, cur)}</span></div>
+          </div>
+          <div class="kpi">
+            <div class="label">Optimization score</div>
+            <div class="value">${(score*100).toFixed(1)}%</div>
+            <div class="meter"><i style="width:${(score*100).toFixed(1)}%"></i></div>
+            <div class="sub">${scoreNote}</div>
+          </div>
+        </div>
+      </div>`;
+  }).join('') + (multi
+    ? '<div class="note">Multiple currencies in this selection — totals are shown per currency and never summed across them.</div>'
+    : '');
+
+  const adj = adjustedAccounts();
+  const basisNote = Object.keys(adj).length
+    ? ' ' + Object.keys(adj).map(a => `<b>${esc(a)}</b> reports revenue instead, so its value is converted (${
+        esc(multiplierLabel(adj[a]))}).`).join(' ')
+    : '';
+  document.getElementById('caveatNote').innerHTML =
+    `<b>Conversion value in these accounts is GP2 (gross profit)</b> — the primary conversion action sends
+     cart-level profit, so GP3 = GP2 − ad cost, with no margin applied on top. (Revenue is a separate secondary
+     conversion action, which bid simulations do not cover.)${basisNote}
+     ${incAdj ? `<br><b>Recommendations run on incremental GP3 (iGP3), not observed GP3.</b> Brand campaigns only
+     match our own brand queries, and private-label campaigns advertise products sold nowhere else, so much of their
+     conversion value would convert without the ad — while every krona of cost is real. Their GP2 is multiplied by an
+     <b>incrementality factor</b> before any recommendation is read off the curve.
+     ${anyIncDynamic() ? `Where the <span class="mono">Shares</span> tab has impression-share data, that factor is
+     <b>derived per campaign from the headroom left in its auction</b> — brand off absolute-top share, private label off
+     search share — sliding between a floor and a cap (${['brand','private-label'].map(c =>
+        CLASS_LABEL[c].toLowerCase() + ' ' + incrementalityCfg().shareWeights[c].floor.toFixed(2) + '–' +
+        incrementalityCfg().shareWeights[c].cap.toFixed(2)).join(', ')}). A campaign already holding its auction sits at
+     the floor; one being outbid sits nearer the cap. Campaigns with no share data fall back to the flat class
+     assumption (${INCREMENTALITY_CLASSES.map(c =>
+        CLASS_LABEL[c].toLowerCase() + ' ' + incLabel(incrementalityCfg().classes[c])).join(', ')}).`
+     : `The factors are flat class assumptions (${INCREMENTALITY_CLASSES.map(c =>
+        CLASS_LABEL[c].toLowerCase() + ' ' + incLabel(incrementalityCfg().classes[c])).join(', ')}).`}
+     Floors, caps and class factors are all <b>modelling choices, not measurements</b> — a geo holdout or a
+     conversion-lift test is what replaces them — and all of them are editable in the <span class="mono">Config</span>
+     tab without touching code. Observed GP3 stays visible next to the incremental figure everywhere.` : ''}
+     <br><b>Read these as directional step moves.</b> Google’s bid simulator holds everything else constant —
+     same budgets, creatives, competitors, seasonality and the same 7-day window it was measured on. It also does not
+     reconcile exactly with reported ROAS. Move targets one step at a time, let the strategy re-learn for a week or two,
+     then re-check against a fresh snapshot.`;
+
+  renderSummaryTable();
+  renderTrustFlags();
+}
+
+const STATUS_LABEL = { raise:'Raise target', lower:'Lower target', optimum:'At optimum', unknown:'No current target' };
+
+/** Subtotal row helper: sums the money columns for a list of strategies. */
+function summaryTotals(list){
+  return list.reduce((a,s) => ({
+    cost: a.cost + (s.current?s.current.cost:0),
+    gp3:  a.gp3  + (s.current?s.current.gp3:0),
+    igp3: a.igp3 + (s.current?s.current.igp3:0),
+    max:  a.max  + s.opt.igp3,
+    up:   a.up   + s.uplift,
+    dc:   a.dc   + s.costChange
+  }), { cost:0, gp3:0, igp3:0, max:0, up:0, dc:0 });
+}
+
+/**
+ * One row per strategy, SEGMENTED BY INCREMENTALITY CLASS with its own subtotals.
+ * Order is deliberate — generic first, because that is where curve optimisation genuinely
+ * earns money; private label next; brand last, where the recommendation is directional only.
+ */
+function renderSummaryTable(){
+  const ss = state.strategies;
+  const el = document.getElementById('summaryTable');
+  if (!ss.length){ el.innerHTML = '<tr><td class="empty">No strategies in this selection.</td></tr>'; return; }
+  const incAdj = anyIncAdjusted();
+  const NCOL = 11;
+
+  const G3 = incAdj ? 'iGP3' : 'GP3';
+  let html = `<thead><tr>
+      <th>Strategy</th><th>Current</th><th>Rec.</th><th>Breakeven</th>
+      <th>Cost</th><th>&Delta; cost</th><th>GP3 obs.</th>
+      <th>${G3} now</th><th>${G3} max</th><th>${G3} uplift</th><th>Status</th>
+    </tr></thead><tbody>`;
+
+  const rowHtml = s => {
+    const cur = s.current || { cost:0, gp3:0, igp3:0 };
+    const be = s.breakeven.target
+      ? fmtPct(s.breakeven.target)
+      : (s.breakeven.side === 'below' ? '&lt; ' + fmtPct(s.points[0].target)
+        : s.breakeven.side === 'above' ? '&gt; ' + fmtPct(s.points[s.points.length-1].target) : '—');
+    // badge only for accounts whose conversion value had to be converted to GP2
+    const multBadge = Math.abs(s.valueToGp2Multiplier - 1) > 1e-9
+      ? ` &nbsp;<span class="pill mult" title="This account reports revenue, not GP2 — its conversion value is multiplied by ${
+          s.valueToGp2Multiplier}">${esc(multiplierLabel(s.valueToGp2Multiplier))}</span>` : '';
+    /* Badge only when an incrementality factor below 1.0 applies. It always says where the
+       number came from: an IS-derived 0.13 and an assumed 0.20 mean very different things
+       to anyone deciding whether to trust the row. */
+    const incBadge = s.incAdjusted
+      ? ` &nbsp;<span class="pill inc" title="${esc(incFactorTitle(s))}">${esc(incPillLabel(s))}</span>` : '';
+    const acct = state.account === '__all' ? esc(s.account) + ' &middot; ' : '';
+    return `<tr data-strategy="${esc(s.key)}" class="${s.key === state.strategyKey ? 'sel':''}">
+      <td><div class="strat-cell"><span class="nm">${esc(s.name)}</span>
+        <span class="mt">${acct}${s.points.length} points &middot; ${esc(s.biddingType || '')}${multBadge}${incBadge}</span></div></td>
+      <td>${fmtPct(s.currentTarget)}</td>
+      <td><b>${fmtPct(s.opt.target)}</b>${s.incAdjusted && s.optObserved.target !== s.opt.target
+        ? `<span class="assumption" style="display:block" title="Where the unadjusted GP3 maximum sits">obs ${fmtPct(s.optObserved.target)}</span>` : ''}</td>
+      <td class="mono" style="color:var(--muted)">${be}</td>
+      <td>${money(cur.cost, s.currency)}</td>
+      <td style="color:var(--muted)">${signedMoney(s.costChange, s.currency)}</td>
+      <td style="color:var(--muted)" title="Observed GP3 at the current target, before the incrementality haircut">${moneyK(cur.gp3, s.currency)}</td>
+      <td>${money(cur.igp3, s.currency)}</td>
+      <td>${money(s.opt.igp3, s.currency)}</td>
+      <td class="num ${signClass(s.uplift, 1)}"><b>${signedMoney(s.uplift, s.currency)}</b></td>
+      <td><span class="pill ${s.status}">${STATUS_LABEL[s.status]}</span></td>
+    </tr>`;
+  };
+
+  const subtotalHtml = (list, label) => {
+    const curs = [...new Set(list.map(s => s.currency))];
+    if (curs.length !== 1) return `<tr class="sub-row"><td>${label}</td>${'<td></td>'.repeat(NCOL-2)}<td style="color:var(--muted)">mixed currencies</td></tr>`;
+    const c = curs[0], t = summaryTotals(list);
+    return `<tr class="sub-row"><td>${label}</td><td></td><td></td><td></td>
+      <td>${money(t.cost,c)}</td><td style="color:var(--muted)">${signedMoney(t.dc,c)}</td>
+      <td style="color:var(--muted)">${moneyK(t.gp3,c)}</td><td>${money(t.igp3,c)}</td><td>${money(t.max,c)}</td>
+      <td class="num ${signClass(t.up,1)}">${signedMoney(t.up,c)}</td><td></td></tr>`;
+  };
+
+  INCREMENTALITY_CLASSES.forEach(cls => {
+    const list = ss.filter(s => s.incClass === cls);
+    if (!list.length) return;
+    const factors = [...new Set(list.map(s => incLabel(s.incFactor)))].join(' / ');
+    const dynN = list.filter(s => s.incDynamic).length;
+    const srcNote = cls === 'generic' ? ''
+      : dynN === list.length ? ' <span class="assumption">(derived from impression share — floor/cap editable in Config)</span>'
+      : dynN ? ` <span class="assumption">(${dynN} derived from impression share, ${list.length - dynN} assumed — editable in Config)</span>`
+      : ' <span class="assumption">(assumed — editable in Config)</span>';
+    html += `<tr class="sec-row"><td colspan="${NCOL}">
+      <span class="sec-t">${CLASS_LABEL[cls]} &middot; ${list.length} ${list.length === 1 ? 'strategy' : 'strategies'}
+        &middot; incrementality ${factors}${srcNote}</span>
+      <span class="sec-d">${CLASS_BLURB[cls]}</span></td></tr>`;
+    list.forEach(s => { html += rowHtml(s); });
+    html += subtotalHtml(list, CLASS_LABEL[cls] + ' subtotal');
+  });
+
+  // grand total only when the whole selection shares one currency
+  const curs = [...new Set(ss.map(s => s.currency))];
+  if (curs.length === 1){
+    const c = curs[0];
+    const t = summaryTotals(ss);
+    html += `<tr class="total-row"><td>Total (${c})</td><td></td><td></td><td></td>
+      <td>${money(t.cost,c)}</td><td style="color:var(--muted)">${signedMoney(t.dc,c)}</td>
+      <td style="color:var(--muted)">${moneyK(t.gp3,c)}</td><td>${money(t.igp3,c)}</td><td>${money(t.max,c)}</td>
+      <td class="num ${signClass(t.up,1)}">${signedMoney(t.up,c)}</td><td></td></tr>`;
+  }
+  el.innerHTML = html + '</tbody>';
+
+  el.querySelectorAll('tr[data-strategy]').forEach(tr => tr.addEventListener('click', () => {
+    state.strategyKey = tr.dataset.strategy; savePrefs();
+    document.querySelector('.tab[data-view="strategy"]').click();
+  }));
+}
+
+function renderTrustFlags(){
+  const el = document.getElementById('trustFlags');
+  const items = [];
+  const age = state.runDate ? daysBetween(state.runDate, todayIso()) : null;
+  if (age !== null && age > STALE_DAYS)
+    items.push({ t:'Snapshot is ' + age + ' days old',
+      d:'Bid simulations describe the previous 7 days. Re-run the Ads script before acting on these numbers.' });
+  if (state.source === 'demo')
+    items.push({ t:'Running on embedded demo data',
+      d:'This is one real Babyshop SE snapshot baked into the page. Set DATA_ENDPOINT and DATA_TOKEN at the top of the script to read live data.' });
+  if (state.source === 'cached')
+    items.push({ t:'Showing a cached snapshot',
+      d:'The last successful fetch is being replayed from this browser' + (state.error ? ' because the live fetch failed: ' + state.error : '') + '.' });
+
+  // One aggregate entry, not one per strategy: the factors are a single modelling
+  // assumption applied consistently, and repeating it nine times would drown the real flags.
+  const incAdjList = state.strategies.filter(s => s.incAdjusted);
+  if (incAdjList.length){
+    const byCls = {};
+    incAdjList.forEach(s => { (byCls[s.incClass] = byCls[s.incClass] || []).push(s); });
+    const dyn = incAdjList.filter(s => s.incDynamic).length;
+    items.push({
+      t: dyn
+        ? 'Incrementality factors are modelled, not measured'
+        : 'Incrementality factors are assumptions, not measurements',
+      d: Object.keys(byCls).map(c => byCls[c].length + ' ' + CLASS_LABEL[c].toLowerCase() +
+          ' strategy/strategies at ' + [...new Set(byCls[c].map(s => incLabel(s.incFactor)))].join('/')).join('; ') +
+        '. Every recommendation for those runs on GP2 × factor. ' +
+        (dyn ? dyn + ' of them are derived from impression share, which makes the factor campaign-specific but not ' +
+               'measured: the floor and cap it slides between are still assumptions. ' : '') +
+        'Only a geo holdout or a conversion-lift test can replace the numbers; until then treat brand and ' +
+        'private-label targets as directional. Edit them in the Config tab.'
+    });
+  }
+
+  /* Share data is optional, so its absence is not an error — but it silently changes which
+     factor every brand / private-label recommendation used, which has to be visible. */
+  const shareEligible = state.strategies.filter(s => SHARE_METRIC_BY_CLASS[s.incClass]);
+  const shareRun = sharesRunDate();
+  if (shareEligible.length){
+    const missing = shareEligible.filter(s => !s.share);
+    if (!shareRun){
+      items.push({ t: 'No impression-share data loaded',
+        d: 'All ' + shareEligible.length + ' brand / private-label strategies fall back to their flat class factor. ' +
+           'The Shares tab is written by the Ads script (CONFIG.COLLECT_SHARES) and served as payload.shares; ' +
+           'until it arrives, the factors are the same flat assumption for every campaign regardless of how much ' +
+           'of its auction it already owns.' });
+    } else if (missing.length){
+      items.push({ t: missing.length + ' of ' + shareEligible.length + ' brand / private-label strategies have no impression share',
+        d: missing.map(s => s.name).join(', ') + ' — those keep the flat class factor. Campaign types that report ' +
+           'no impression share (Performance Max, Display, video) and campaigns renamed since the last Shares run ' +
+           'both land here.' });
+    }
+    if (shareRun && state.runDate && shareRun !== state.runDate){
+      items.push({ t: 'Impression-share data is from a different run than the simulations',
+        d: 'Shares were collected ' + shareRun + ', the simulations shown are ' + state.runDate +
+           ' (' + Math.abs(daysBetween(shareRun, state.runDate)) + ' day(s) apart). Auction position moves; a factor ' +
+           'derived from stale share data describes a competitive situation that may no longer hold.' });
+    }
+  }
+
+  const windows = [...new Set(state.strategies.map(s => s.startDate + ' → ' + s.endDate))];
+  if (windows.length > 1)
+    items.push({ t:'Strategies were simulated over different windows',
+      d:'Google refreshes simulations per strategy: ' + windows.join(' and ') + '. Totals mix slightly different weeks.' });
+
+  state.strategies.forEach(s => s.flags.forEach(f => items.push({ t: s.name, d: f })));
+
+  if (!items.length){
+    el.innerHTML = '<div class="flag"><div class="ic">&#10003;</div><div><div class="t">No issues detected</div>' +
+      '<div class="d">Every strategy has a full simulation grid, a current target inside the simulated range, and a breakeven crossing within the data.</div></div></div>';
+    return;
+  }
+  el.innerHTML = items.map(i =>
+    `<div class="flag"><div class="ic">&#9888;</div><div><div class="t">${esc(i.t)}</div><div class="d">${esc(i.d)}</div></div></div>`).join('');
+}
+
+/* ============================== CHART HELPERS ============================== */
+
+const FONT = { family:'Inter', size:11 };
+/* Muted teal for the observed-GP3 line once it has been demoted behind iGP3. */
+const OBSERVED_GP3_COLOR = '#96c1bd';
+function killChart(key){ if (state.charts[key]){ state.charts[key].destroy(); delete state.charts[key]; } }
+function css(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+function axis(title, fmt){
+  return { title:{ display:!!title, text:title, font:{ family:'Inter', size:11 }, color:'#6d7986' },
+    grid:{ color:'#eef1f4' }, border:{ display:false },
+    ticks:{ font:FONT, color:'#6d7986', callback: fmt } };
+}
+
+/* ============================== RENDER: STRATEGY ============================== */
+
+function currentStrategy(){ return state.strategies.find(s => s.key === state.strategyKey) || state.strategies[0]; }
+
+/**
+ * The sensitivity line for one campaign: where the iGP3 optimum sits on THIS curve at full
+ * incrementality, at the factor in force, and at half of it. Written out because a
+ * recommendation that swings from 370% to "net-negative" on an unmeasured assumption should
+ * say so on its face rather than hide behind a single number.
+ */
+function sensitivityLine(s){
+  if (!s.sensitivity) return '';
+  const part = o => o == null ? '—'
+    : (o.netNegative ? 'net-negative' : fmtPct(o.target)) + ' <span class="assumption">@' + incLabel(o.factor) + '</span>';
+  return s.sensitivity.map(part).join(' &rarr; ');
+}
+
+/**
+ * The impression-share block for a brand / private-label drill-down: all three metrics,
+ * which one drives the factor, the headroom it leaves, the arithmetic, and the floor/cap in
+ * play. Written out rather than summarised because the factor is the single number the
+ * whole recommendation hangs on, and "×0.13" on its own is not auditable.
+ */
+function shareDetailHtml(s){
+  const inc = s.incrementality;
+  const sh = s.share;
+  const driver = SHARE_METRIC_BY_CLASS[s.incClass];
+  if (!sh){
+    return `<div class="note" style="margin:10px 0 0">
+      <b>No impression-share data for this campaign.</b> The factor above is the flat
+      ${esc(CLASS_LABEL[s.incClass].toLowerCase())} class assumption, not a derivation — either the
+      <span class="mono">Shares</span> tab has no row for it (Performance Max, Display and video campaigns
+      report no impression share) or the Ads script has not collected shares yet.</div>`;
+  }
+  const metricRow = (key) => {
+    const isDriver = key === driver;
+    return `<span style="display:inline-block;margin-right:18px">${esc(SHARE_METRIC_LABEL[key])}
+      <b class="mono">${sharePct(sh[key])}</b>${isDriver
+        ? ' <span class="pill inc" title="This is the metric the factor is derived from for a '
+          + esc(CLASS_LABEL[s.incClass].toLowerCase()) + ' campaign">drives the factor</span>' : ''}</span>`;
+  };
+  const why = s.incClass === 'brand'
+    ? 'Brand is read off <b>absolute top</b> share because on our own brand terms the question is not whether we appear but whether we appear <i>first</i> — a competitor above us is what the spend is defending against.'
+    : 'Private label is read off <b>search</b> impression share: these products are sold nowhere else, so what matters is being present in the auction at all, not the exact slot.';
+
+  if (!inc.dynamic){
+    // share data exists but the metric that matters is missing, or an override pinned the factor
+    const reason = inc.source === 'override'
+      ? 'A pattern override in the <span class="mono">Config</span> tab pins this campaign\'s factor, so the share-derived value is not applied.'
+      : `The driving metric (${esc(SHARE_METRIC_LABEL[driver].toLowerCase())}) has no value for this campaign, so the flat class factor applies.`;
+    return `<div class="note" style="margin:10px 0 0">
+      <b>Impression share (last 7 days, ${esc(sh.runDate)}):</b><br>
+      ${[ 'searchIs','topIs','absTopIs' ].map(metricRow).join('')}
+      <br><span class="assumption">${reason}</span></div>`;
+  }
+
+  const lo = Math.min(inc.floor, inc.cap), hi = Math.max(inc.floor, inc.cap);
+  const atBound = s.incFactor <= lo + 1e-9 ? ' — sitting on the <b>floor</b>: this campaign already owns its auction'
+    : s.incFactor >= hi - 1e-9 ? ' — sitting on the <b>cap</b>: there is nothing it has already won'
+    : '';
+  return `<div class="note" style="margin:10px 0 0">
+    <b>Impression share (last 7 days, ${esc(sh.runDate)}):</b><br>
+    ${[ 'searchIs','topIs','absTopIs' ].map(metricRow).join('')}
+    <br>${why}
+    <br><b>Headroom h = 1 − ${sharePct(inc.shareValue)} = ${sharePct(inc.headroom)}</b>, so
+    <span class="mono">factor = ${inc.floor.toFixed(2)} + (${inc.cap.toFixed(2)} − ${inc.floor.toFixed(2)}) × ${inc.headroom.toFixed(2)}
+    = ${s.incFactor.toFixed(3)}</span>${atBound}. Floor <span class="mono">${inc.floor.toFixed(2)}</span> and cap
+    <span class="mono">${inc.cap.toFixed(2)}</span> are the ${esc(CLASS_LABEL[s.incClass].toLowerCase())} bounds from the
+    <span class="mono">Config</span> tab; the flat class assumption this replaces was
+    <span class="mono">${incLabel(inc.classFactor)}</span>.
+    <br><span class="assumption">Google buckets these metrics at the extremes — anything under 10% is reported as
+    0.0999 and everything above 90% collapses into one bucket — so a headroom near 0 or near 1 is coarser than it
+    looks. The floor and cap are still assumptions; impression share only decides <i>where between them</i> a
+    campaign sits.</span></div>`;
+}
+
+function renderIncrementalityBox(s){
+  const box = document.getElementById('stratIncBox');
+  if (!box) return;
+  if (!s || (!s.incAdjusted && !s.incDynamic)){ box.innerHTML = ''; return; }
+  const dyn = s.incDynamic;
+  const src = s.incrementality.source === 'override'
+    ? `pattern override <span class="mono">${esc(s.incrementality.pattern)}</span>`
+    : dyn
+      ? `${esc(CLASS_LABEL[s.incClass])} class, derived from impression share`
+      : `${esc(CLASS_LABEL[s.incClass])} class default`;
+  const parts = [];
+  parts.push(`<div class="note" style="margin:14px 0 0">
+    <b>${dyn ? 'Impression-share-derived' : 'Assumed'} incrementality ${incLabel(s.incFactor)}</b> — from the ${src};
+    editable in the <span class="mono">Config</span> tab without code changes. Every recommendation on this page for
+    this campaign is read off <b>iGP3 = ${incLabel(s.incFactor)} × GP2 − cost</b>. Cost is never discounted.
+    ${s.sensitivity ? `<br><b>Sensitivity of the optimum to that ${dyn ? 'factor' : 'assumption'}:</b>
+    <span class="sens">${sensitivityLine(s)}</span>
+    <span class="assumption">— same curve, three factors.</span>` : ''}
+    <span class="assumption">${CLASS_BLURB[s.incClass]}</span></div>`);
+  if (SHARE_METRIC_BY_CLASS[s.incClass]) parts.push(shareDetailHtml(s));
+  if (s.incClass === 'brand') parts.push(`<div class="note warn" style="margin:10px 0 0">
+    <b>Brand spend is defensive.</b> Competitors bid on our brand terms; conceding the auction hands them a shopper who
+    had already chosen us. Low measured incrementality therefore does <b>not</b> mean "minimise spend" — the counterfactual
+    behind the factor assumes nobody else shows up, which is exactly what brand bidding prevents. That holds doubly for a
+    factor derived from a <i>high</i> absolute-top share: the share is high <b>because</b> of the current bid, and cutting
+    it is what would make the headroom real.
+    Treat everything above as <b>directional only</b> and change brand targets in small steps, ideally alongside an
+    auction-insights and organic-traffic check.</div>`);
+  box.innerHTML = parts.join('');
+}
+
+function renderStrategy(){
+  const s = currentStrategy();
+  const meta = document.getElementById('stratMeta');
+  if (!s){
+    meta.innerHTML = ''; killChart('curve'); killChart('marginal');
+    renderIncrementalityBox(null);
+    document.getElementById('curveLegend').innerHTML = '';
+    document.getElementById('pointTable').innerHTML = '<tr><td class="empty">No data.</td></tr>';
+    return;
+  }
+  const cur = s.current;
+  const adj = s.incAdjusted;
+  const g3 = adj ? 'iGP3' : 'GP3';
+  meta.innerHTML = `
+    <div>Current target<b>${fmtPct(s.currentTarget)}</b></div>
+    <div>Recommended<b>${fmtPct(s.opt.target)}</b></div>
+    <div>Breakeven (interp.)<b>${s.breakeven.target ? fmtPct1(s.breakeven.target) : '—'}</b></div>
+    <div>${g3} uplift<b class="num ${signClass(s.uplift,1)}">${signedMoney(s.uplift, s.currency)}</b></div>
+    <div>Cost change<b class="num ${signClass(s.costChange,1)}">${signedMoney(s.costChange, s.currency)}</b></div>
+    <div>Class<b>${esc(CLASS_LABEL[s.incClass])} ${adj ? esc(incPillLabel(s)) : '×1.00'}</b></div>
+    <div>Window<b>${s.startDate} &rarr; ${s.endDate}</b></div>`;
+  renderIncrementalityBox(s);
+
+  const fmtMoney = v => moneyK(v, s.currency);
+
+  /* ---- curve: GP2, GP3 and (when the factor bites) iGP3 vs cost ---- */
+  killChart('curve');
+  const pts = s.byCost;
+  const ds = [
+    { label:'GP2', data: pts.map(p => ({ x:p.cost, y:p.gp2, t:p.target })), borderColor:css('--gp2'),
+      backgroundColor:css('--gp2'), pointRadius:3, pointHoverRadius:5, borderWidth:2, tension:.25, yAxisID:'y' },
+    /* Observed GP3 stays on the chart even when it is not what we recommend on, but it is
+       demoted to a faint dashed line so the eye lands on iGP3 — which keeps the familiar
+       GP3 teal, because it is the line the recommendation is read off. Purple stays
+       reserved for "current target" and must not be reused for a series. */
+    { label:'GP3', data: pts.map(p => ({ x:p.cost, y:p.gp3, t:p.target })),
+      borderColor: adj ? OBSERVED_GP3_COLOR : css('--gp3'),
+      backgroundColor: adj ? OBSERVED_GP3_COLOR : 'rgba(13,125,117,.10)',
+      pointRadius:3, pointHoverRadius:5,
+      borderWidth: adj ? 1.5 : 2.5, borderDash: adj ? [5,4] : undefined,
+      tension:.25, fill: !adj, yAxisID:'y' }
+  ];
+  if (adj) ds.push({ label:'iGP3', data: pts.map(p => ({ x:p.cost, y:p.igp3, t:p.target })),
+    borderColor:css('--gp3'), backgroundColor:'rgba(13,125,117,.10)', pointRadius:3, pointHoverRadius:5,
+    borderWidth:2.5, tension:.25, fill:true, yAxisID:'y' });
+  if (cur) ds.push({ label:'Current target ' + fmtPct(s.currentTarget), type:'scatter',
+    data:[{ x:cur.cost, y: adj ? cur.igp3 : cur.gp3, t:s.currentTarget }], borderColor:css('--cur'),
+    backgroundColor:css('--cur'), pointRadius:7, pointHoverRadius:9, pointStyle:'circle', yAxisID:'y' });
+  ds.push({ label:'Recommended ' + fmtPct(s.opt.target), type:'scatter',
+    data:[{ x:s.opt.cost, y: adj ? s.opt.igp3 : s.opt.gp3, t:s.opt.target }], borderColor:css('--accent'),
+    backgroundColor:css('--accent'), pointRadius:8, pointHoverRadius:10, pointStyle:'rectRot', yAxisID:'y' });
+
+  document.getElementById('curveLegend').innerHTML = [
+    '<span><i class="sw" style="background:var(--gp2)"></i>GP2</span>',
+    '<span><i class="sw" style="background:' + (adj ? OBSERVED_GP3_COLOR : 'var(--gp3)') + '"></i>GP3 (observed)</span>',
+    adj ? '<span><i class="sw" style="background:var(--gp3)"></i>iGP3 (incremental, ' + incLabel(s.incFactor) + ')</span>' : '',
+    '<span><i class="sw pt" style="background:var(--cur)"></i>Current target</span>',
+    '<span><i class="sw pt" style="background:var(--accent)"></i>Recommended (' + g3 + ' max)</span>'
+  ].filter(Boolean).join('');
+
+  state.charts.curve = new Chart(document.getElementById('chartCurve'), {
+    type:'line',
+    data:{ datasets: ds },
+    options:{
+      responsive:true, maintainAspectRatio:false, parsing:false, interaction:{ mode:'nearest', intersect:false },
+      plugins:{
+        legend:{ display:false },
+        tooltip:{ callbacks:{
+          title: c => 'Target ROAS ' + fmtPct(c[0].raw.t),
+          label: c => c.dataset.label.split(' ')[0] + ': ' + money(c.raw.y, s.currency) +
+                      '  @ cost ' + money(c.raw.x, s.currency)
+        } }
+      },
+      scales:{
+        x:{ type:'linear', ...axis('Cost (' + s.currency + ') — higher cost means a lower target ROAS', fmtMoney) },
+        y:{ ...axis('GP2 / GP3' + (adj ? ' / iGP3' : '') + ' (' + s.currency + ')', fmtMoney) }
+      }
+    }
+  });
+
+  /* ---- marginal ROAS vs target ---- */
+  killChart('marginal');
+  // y is the INCREMENTAL marginal (ΔiGP2/ΔCost); the observed one is drawn faintly beside it
+  // when they differ, so the size of the haircut is visible rather than asserted.
+  const segPts = s.segments.map(g => ({ x:g.targetMid*100, y:g.mRoas, a:g.from.target, b:g.to.target,
+    dc:g.dCost, dg:g.dIGp2, dgo:g.dGp2, mo:g.mRoasObserved })).sort((p,q) => p.x - q.x);
+  const xs = segPts.map(p => p.x);
+  const xMin = Math.min(...xs, s.currentTarget*100), xMax = Math.max(...xs, s.currentTarget*100);
+  const mds = [
+    { label: adj ? 'Marginal iROAS (ΔiGP2/ΔCost)' : 'Marginal ROAS', data:segPts, borderColor:css('--marg'),
+      backgroundColor:'rgba(180,118,43,.10)', pointRadius:4, pointHoverRadius:6, borderWidth:2.5, tension:.2, fill:false },
+    { label:'Breakeven 1.0', data:[{x:xMin,y:1},{x:xMax,y:1}], borderColor:'#9aa5b1', borderWidth:1.5,
+      borderDash:[6,4], pointRadius:0, fill:false, pointStyle:'line' }
+  ];
+  if (adj) mds.push({ label:'Marginal ROAS (observed)',
+    data: segPts.map(p => ({ x:p.x, y:p.mo })), borderColor:'#c9b28a', borderWidth:1.5, borderDash:[4,4],
+    pointRadius:0, fill:false, tension:.2, pointStyle:'line' });
+  if (s.breakeven.target) mds.push({ label:'Breakeven target ' + fmtPct1(s.breakeven.target), type:'scatter',
+    data:[{ x:s.breakeven.target*100, y:1 }], borderColor:css('--accent'), backgroundColor:css('--accent'),
+    pointRadius:8, pointStyle:'rectRot' });
+  if (s.currentTarget != null) mds.push({ label:'Current target', type:'scatter',
+    data:[{ x:s.currentTarget*100, y: (interpAt(segPts.map(p=>({x:p.x,y:p.y})), 'x', s.currentTarget*100, ['y'])||{y:1}).y }],
+    borderColor:css('--cur'), backgroundColor:css('--cur'), pointRadius:7 });
+
+  state.charts.marginal = new Chart(document.getElementById('chartMarginal'), {
+    type:'line',
+    data:{ datasets: mds },
+    options:{
+      responsive:true, maintainAspectRatio:false, parsing:false, interaction:{ mode:'nearest', intersect:false },
+      plugins:{
+        legend:{ display:true, position:'bottom',
+          labels:{ font:FONT, color:'#6d7986', usePointStyle:true, boxWidth:8, padding:14 } },
+        tooltip:{ callbacks:{
+          title: c => c[0].raw.a != null
+            ? 'Between ' + fmtPct(c[0].raw.a) + ' and ' + fmtPct(c[0].raw.b) + ' target'
+            : 'Target ' + c[0].raw.x.toFixed(0) + '%',
+          label: c => c.raw.dc != null
+            ? ['Marginal ' + (adj ? 'incremental ' : '') + 'ROAS ' + c.raw.y.toFixed(3) +
+                 (adj ? '  (observed ' + c.raw.mo.toFixed(3) + ')' : ''),
+               '+' + money(c.raw.dc, s.currency) + ' cost buys +' + money(c.raw.dg, s.currency) +
+                 (adj ? ' iGP2 (observed +' + money(c.raw.dgo, s.currency) + ' GP2)' : ' GP2')]
+            : 'Marginal ROAS ' + c.raw.y.toFixed(3)
+        } }
+      },
+      scales:{
+        x:{ type:'linear', ...axis('Target ROAS (%)', v => v + '%') },
+        y:{ ...axis('Marginal ROAS (' + (adj ? 'ΔiGP2' : 'ΔGP2') + ' / ΔCost)', v => v.toFixed(1)) }
+      }
+    }
+  });
+
+  /* ---- point table ---- */
+  const rows = s.points.slice().sort((a,b) => b.target - a.target);
+  const segByTo = {};
+  s.segments.forEach(g => segByTo[g.to.target] = g);
+  const kept = new Set(s.efficient.map(p => p.target));
+  let html = `<thead><tr><th>Target ROAS</th><th>Cost</th><th>GP2</th><th>GP3</th>${
+    adj ? '<th>iGP3</th>' : ''}
+    <th>Marginal ${adj ? 'iROAS' : 'ROAS'}</th><th>Conv.</th><th>Clicks</th><th>Impr.</th><th>Actual ROAS</th></tr></thead><tbody>`;
+  rows.forEach(p => {
+    const g = segByTo[p.target];
+    const isOpt = p.target === s.opt.target;
+    const isOptObs = adj && p.target === s.optObserved.target;
+    html += `<tr${isOpt ? ' class="sel"':''}>
+      <td>${fmtPct(p.target)}${isOpt ? ' &nbsp;<span class="pill optimum">' + g3 + ' max</span>':''}${
+        isOptObs && !isOpt ? ' &nbsp;<span class="pill unknown" title="Highest observed GP3 — not the recommendation, which runs on iGP3">GP3 max (obs)</span>':''}${
+        kept.has(p.target) ? '' : ' &nbsp;<span class="pill unknown" title="Costs more than a cheaper point for no extra GP2 — excluded from the marginal analysis">dominated</span>'}</td>
+      <td>${money(p.cost, s.currency)}</td>
+      <td>${money(p.gp2, s.currency)}</td>
+      <td${adj ? ' style="color:var(--muted)"' : ''}>${money(p.gp3, s.currency)}</td>
+      ${adj ? '<td>' + money(p.igp3, s.currency) + '</td>' : ''}
+      <td class="mono ${g ? (g.mRoas >= 1 ? 'num pos':'num neg') : ''}"${
+        g && adj ? ' title="observed ' + g.mRoasObserved.toFixed(3) + '"' : ''}>${g ? g.mRoas.toFixed(3) : '—'}</td>
+      <td>${num(p.conversions,1)}</td><td>${num(p.clicks)}</td><td>${num(p.impressions)}</td>
+      <td>${p.roasActual.toFixed(2)}x</td></tr>`;
+  });
+  document.getElementById('pointTable').innerHTML = html + '</tbody>';
+}
+
+/* ============================== RENDER: PORTFOLIO ============================== */
+
+function portfolioScope(){
+  // allocation only makes sense inside one currency; use the dominant one
+  const groups = byCurrency(state.strategies);
+  const curs = Object.keys(groups).sort((a,b) =>
+    groups[b].reduce((x,s)=>x+(s.current?s.current.cost:0),0) - groups[a].reduce((x,s)=>x+(s.current?s.current.cost:0),0));
+  return { cur: curs[0], list: groups[curs[0]] || [], multi: curs.length > 1 };
+}
+
+function renderPortfolio(){
+  const { cur, list, multi } = portfolioScope();
+  const input = document.getElementById('budgetInput');
+  if (!list.length){
+    document.getElementById('allocTable').innerHTML = '<tr><td class="empty">No data.</td></tr>';
+    document.getElementById('portfolioKpis').innerHTML = '';
+    killChart('alloc'); killChart('budget');
+    return;
+  }
+  const currentCost = list.reduce((a,s) => a + (s.current ? s.current.cost : 0), 0);
+  const currentGp3  = list.reduce((a,s) => a + (s.current ? s.current.gp3 : 0), 0);
+  const currentIGp3 = list.reduce((a,s) => a + (s.current ? s.current.igp3 : 0), 0);
+  if (state.budget == null) state.budget = Math.round(currentCost);
+  input.value = Math.round(state.budget);
+
+  const incAdj = anyIncAdjusted();
+  const g3 = incAdj ? 'iGP3' : 'GP3';
+  const baseGp3 = incAdj ? currentIGp3 : currentGp3;
+  // the live allocation, on incremental marginal returns
+  const a = allocateBudget(list, state.budget);
+  // the same budget allocated on the unadjusted curves — only to size the shift
+  const aObs = allocateBudget(list, state.budget, { observed:true });
+  const optimal = unconstrainedOptimum(list);
+
+  document.getElementById('portfolioKpis').innerHTML = `
+    <div class="kpis" style="margin-top:4px">
+      <div class="kpi"><div class="label">Budget</div><div class="value">${money(a.budget, cur)}</div>
+        <div class="sub">current spend ${money(currentCost, cur)}</div></div>
+      <div class="kpi"><div class="label">Projected ${incAdj ? 'iGP2' : 'GP2'}</div>
+        <div class="value">${money(incAdj ? a.totalIGp2 : a.totalGp2, cur)}</div>
+        <div class="sub">at the optimal split of that budget${incAdj
+          ? ' &middot; observed GP2 ' + moneyK(a.totalGp2, cur) : ''}</div></div>
+      <div class="kpi accent"><div class="label">Projected ${g3}</div><div class="value">${money(a.totalGp3, cur)}</div>
+        <div class="sub"><span class="delta ${signClass(a.totalGp3-baseGp3,1)}">${signedMoney(a.totalGp3-baseGp3, cur)}</span>
+          <span>vs today</span></div></div>
+      <div class="kpi"><div class="label">Marginal ${incAdj ? 'i' : ''}ROAS at stop</div>
+        <div class="value">${a.marginalAtStop != null ? a.marginalAtStop.toFixed(2) : '—'}</div>
+        <div class="sub">${a.marginalAtStop == null ? 'budget sits at the simulated floor'
+          : a.marginalAtStop >= 1 ? 'last krona still profitable' : 'last krona loses money — trim the budget'}</div></div>
+    </div>`;
+
+  const notes = [];
+  if (multi) notes.push('Allocation runs inside <b>' + cur + '</b> only; other currencies are excluded.');
+  notes.push('Simulated range: <b>' + money(a.floor, cur) + '</b> to <b>' + money(a.ceiling, cur) +
+    '</b>. Budgets outside it are clamped, because Google gave us no evidence there.');
+  if (a.infeasible) notes.push('<b>Budget is below the simulated floor</b> — the split shown is the floor, not your budget.');
+  if (a.unspent > 1) notes.push('<b>' + money(a.unspent, cur) + '</b> of the budget could not be placed: every strategy is already at the highest cost Google simulated.');
+  notes.push('Unconstrained profit optimum: <b>' + money(optimal.cost, cur) + '</b> of spend for <b>' +
+    money(optimal.igp3, cur) + '</b> ' + g3 + '.');
+  /* How much the incrementality haircut actually moves. One line: the same budget, split on
+     incremental marginals versus on the raw ones, measured on brand + private label. */
+  if (incAdj){
+    const lowInc = r => r.strategy.incClass !== 'generic';
+    const sum = rows => rows.filter(lowInc).reduce((x,r) => x + r.cost, 0);
+    const incCost = sum(a.rows), obsCost = sum(aObs.rows);
+    const moved = obsCost - incCost;
+    notes.push('<b>Incrementality shifts ' + money(Math.abs(moved), cur) + '</b> of this budget ' +
+      (moved >= 0 ? 'OUT of' : 'INTO') + ' brand + private label ' + (moved >= 0 ? 'and into' : 'and out of') +
+      ' generic: they get <b>' + money(incCost, cur) + '</b> here against <b>' + money(obsCost, cur) +
+      '</b> under the unadjusted allocation.');
+  }
+  document.getElementById('portfolioNote').innerHTML = notes.join(' ');
+
+  let html = `<thead><tr><th>Strategy</th><th>Current target</th><th>Allocated target</th>
+    <th>Current cost</th><th>Allocated cost</th><th>Cost change</th><th>Current ${g3}</th>
+    <th>Projected ${g3}</th><th>${g3} change</th></tr></thead><tbody>`;
+  a.rows.slice().sort((x,y) => y.cost - x.cost).forEach(r => {
+    const s = r.strategy;
+    const clsTag = s.incAdjusted
+      ? ` <span class="pill inc" title="${esc(incFactorTitle(s))}">${esc(incPillLabel(s))}</span>` : '';
+    html += `<tr><td>${esc(s.name)}${clsTag}</td>
+      <td>${fmtPct(s.currentTarget)}</td><td><b>${fmtPct(r.target)}</b></td>
+      <td>${money(s.current ? s.current.cost : 0, cur)}</td><td>${money(r.cost, cur)}</td>
+      <td style="color:var(--muted)">${signedMoney(r.costDelta, cur)}</td>
+      <td>${money(s.current ? (incAdj ? s.current.igp3 : s.current.gp3) : 0, cur)}</td><td>${money(r.value3, cur)}</td>
+      <td class="num ${signClass(r.gp3Delta,1)}"><b>${signedMoney(r.gp3Delta, cur)}</b></td></tr>`;
+  });
+  html += `<tr class="total-row"><td>Total</td><td></td><td></td>
+    <td>${money(currentCost, cur)}</td><td>${money(a.totalCost, cur)}</td>
+    <td style="color:var(--muted)">${signedMoney(a.totalCost-currentCost, cur)}</td>
+    <td>${money(baseGp3, cur)}</td><td>${money(a.totalGp3, cur)}</td>
+    <td class="num ${signClass(a.totalGp3-baseGp3,1)}">${signedMoney(a.totalGp3-baseGp3, cur)}</td></tr>`;
+  document.getElementById('allocTable').innerHTML = html + '</tbody>';
+
+  /* ---- spend shift bars ---- */
+  killChart('alloc');
+  const ordered = a.rows.slice().sort((x,y) => y.cost - x.cost);
+  state.charts.alloc = new Chart(document.getElementById('chartAlloc'), {
+    type:'bar',
+    data:{
+      labels: ordered.map(r => r.strategy.name),
+      datasets:[
+        { label:'Current cost', data: ordered.map(r => r.strategy.current ? r.strategy.current.cost : 0),
+          backgroundColor:'#c8d2dc', borderRadius:4 },
+        { label:'Allocated cost', data: ordered.map(r => r.cost), backgroundColor:css('--accent'), borderRadius:4 }
+      ]
+    },
+    options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:'bottom', labels:{ font:FONT, color:'#6d7986', usePointStyle:true, boxWidth:8, padding:14 } },
+        tooltip:{ callbacks:{ label: c => c.dataset.label + ': ' + money(c.parsed.x, cur) } } },
+      scales:{ x:{ ...axis('Cost (' + cur + ')', v => moneyK(v, cur)) },
+        y:{ grid:{ display:false }, border:{ display:false }, ticks:{ font:FONT, color:'#39434d' } } } }
+  });
+
+  /* ---- GP3 vs budget sweep ---- */
+  killChart('budget');
+  const lo = a.floor, hi = Math.max(a.ceiling, state.budget * 1.05);
+  const sweep = [];
+  for (let i = 0; i <= 60; i++){
+    const b = lo + (hi - lo) * (i / 60);
+    const r = allocateBudget(list, b);
+    sweep.push({ x: r.totalCost, y: r.totalGp3 });
+  }
+  state.charts.budget = new Chart(document.getElementById('chartBudget'), {
+    type:'line',
+    data:{ datasets:[
+      { label:'Portfolio ' + g3, data: sweep, borderColor:css('--gp3'), backgroundColor:'rgba(13,125,117,.10)',
+        pointRadius:0, borderWidth:2.5, fill:true, tension:.2 },
+      { label:'Today', type:'scatter', data:[{ x:currentCost, y:baseGp3 }],
+        borderColor:css('--cur'), backgroundColor:css('--cur'), pointRadius:7 },
+      { label:'Selected budget', type:'scatter', data:[{ x:a.totalCost, y:a.totalGp3 }],
+        borderColor:css('--accent'), backgroundColor:css('--accent'), pointRadius:8, pointStyle:'rectRot' }
+    ] },
+    options:{ responsive:true, maintainAspectRatio:false, parsing:false, interaction:{ mode:'nearest', intersect:false },
+      plugins:{ legend:{ position:'bottom', labels:{ font:FONT, color:'#6d7986', usePointStyle:true, boxWidth:8, padding:14 } },
+        tooltip:{ callbacks:{ label: c => money(c.raw.y, cur) + ' ' + g3 + ' at ' + money(c.raw.x, cur) + ' cost' } } },
+      scales:{ x:{ type:'linear', ...axis('Total cost (' + cur + ')', v => moneyK(v, cur)) },
+        y:{ ...axis('Portfolio ' + g3 + ' (' + cur + ')', v => moneyK(v, cur)) } } }
+  });
+}
+
+/* ============================== RENDER: HISTORY ============================== */
+
+function renderHistory(){
+  const inAcct = state.rows.filter(r => state.account === '__all' || r.account === state.account);
+  const runs = runDates(inAcct);
+  const note = document.getElementById('historyNote');
+  const m = gp2Multipliers();
+  const ic = incrementalityCfg();
+  const incAdj = anyIncAdjusted();
+  const g3 = incAdj ? 'iGP3' : 'GP3';
+
+  /* Impression shares are only ever loaded for one run date, so they are applied to THAT
+     run and no other: back-dating today's auction position onto an old snapshot would
+     rewrite history to agree with the present. Older runs keep their flat class factors. */
+  const shareIdxFor = d => (sharesRunDate() === d ? state.shareIndex : null);
+
+  // per-run table across all strategies — same incremental basis as everywhere else
+  let rt = `<thead><tr><th>Run date</th><th>Age</th><th>Strategies</th><th>Points</th>
+    <th>Current cost</th><th>Current ${g3}</th><th>Potential ${g3}</th><th>Score</th></tr></thead><tbody>`;
+  runs.slice().reverse().forEach(d => {
+    const ss = buildStrategies(inAcct.filter(r => r.runDate === d), m.map, m.def, ic, shareIdxFor(d));
+    const curs = [...new Set(ss.map(s => s.currency))];
+    const c = curs.length === 1 ? curs[0] : null;
+    const cost = ss.reduce((a,s) => a + (s.current?s.current.cost:0), 0);
+    const gp3 = ss.reduce((a,s) => a + (s.current?s.current.igp3:0), 0);
+    const pot = unconstrainedOptimum(ss);
+    const age = daysBetween(d, todayIso());
+    rt += `<tr><td>${d}${d === state.runDate ? ' &nbsp;<span class="pill optimum">shown</span>':''}</td>
+      <td>${age} d</td><td>${ss.length}</td><td>${inAcct.filter(r => r.runDate === d).length}</td>
+      <td>${c ? money(cost,c) : 'mixed'}</td><td>${c ? money(gp3,c) : 'mixed'}</td>
+      <td>${c ? money(pot.igp3,c) : 'mixed'}</td>
+      <td>${pot.igp3 > 0 ? (gp3/pot.igp3*100).toFixed(1)+'%' : '—'}</td></tr>`;
+  });
+  document.getElementById('runTable').innerHTML = rt + '</tbody>';
+
+  killChart('history');
+  if (runs.length < 2){
+    note.className = 'note';
+    note.innerHTML = `Only <b>one snapshot</b> (${runs[0] || '—'}) is loaded. The Ads script appends a new
+      <span class="mono">Run Date</span> block every time it runs and never clears history, so this trend fills in by
+      itself from the second run onward.`;
+    document.getElementById('historyCards').style.display = 'none';
+    return;
+  }
+  document.getElementById('historyCards').style.display = '';
+  note.className = 'note';
+  note.innerHTML = `<b>${runs.length} snapshots</b> loaded (${runs[0]} to ${runs[runs.length-1]}).
+    The chart tracks <b>${esc(state.strategyKey || '')}</b> — switch strategy on the <b>Strategy curves</b> tab.`;
+
+  const key = state.strategyKey;
+  const series = runs.map(d => {
+    const ss = buildStrategies(inAcct.filter(r => r.runDate === d), m.map, m.def, ic, shareIdxFor(d));
+    return ss.find(s => s.account + ' · ' + s.name === key) || null;
+  });
+  const cur = (series.find(Boolean) || {}).currency || 'SEK';
+
+  state.charts.history = new Chart(document.getElementById('chartHistory'), {
+    type:'line',
+    data:{ labels: runs, datasets:[
+      { label:'Recommended target (%)', yAxisID:'y1', data: series.map(s => s ? s.opt.target*100 : null),
+        borderColor:css('--accent'), backgroundColor:css('--accent'), borderWidth:2.5, tension:.25, pointRadius:4, spanGaps:true },
+      { label:'Current target (%)', yAxisID:'y1', data: series.map(s => s && s.currentTarget != null ? s.currentTarget*100 : null),
+        borderColor:css('--cur'), backgroundColor:css('--cur'), borderWidth:2, borderDash:[5,4], tension:.25, pointRadius:3, spanGaps:true },
+      // GP2 blue here, not GP3 teal: the target lines already own the accent colour
+      { label:'Current ' + g3, yAxisID:'y2', data: series.map(s => s && s.current ? s.current.igp3 : null),
+        borderColor:css('--gp2'), backgroundColor:'rgba(59,110,165,.10)', borderWidth:2, tension:.25, pointRadius:3, fill:true, spanGaps:true }
+    ] },
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{ mode:'index', intersect:false },
+      plugins:{ legend:{ position:'bottom', labels:{ font:FONT, color:'#6d7986', usePointStyle:true, boxWidth:8, padding:14 } },
+        tooltip:{ callbacks:{ label: c => c.dataset.yAxisID === 'y2'
+          ? c.dataset.label + ': ' + money(c.parsed.y, cur)
+          : c.dataset.label + ': ' + c.parsed.y.toFixed(0) + '%' } } },
+      scales:{ x:{ grid:{ display:false }, border:{ display:false }, ticks:{ font:FONT, color:'#6d7986' } },
+        y1:{ position:'left', ...axis('Target ROAS (%)', v => v + '%') },
+        y2:{ position:'right', ...axis(g3 + ' (' + cur + ')', v => moneyK(v, cur)), grid:{ display:false } } } }
+  });
+}
+
+/* ============================== EVENTS / BOOT ============================== */
+
+document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  tab.classList.add('active');
+  document.getElementById('view-' + tab.dataset.view).classList.add('active');
+  // charts sized while hidden need a nudge
+  Object.values(state.charts).forEach(c => c && c.resize());
+}));
+
+document.getElementById('accountSel').addEventListener('change', e => {
+  state.account = e.target.value; state.runDate = null; state.budget = null; rebuild(false);
+});
+document.getElementById('runSel').addEventListener('change', e => {
+  state.runDate = e.target.value; state.budget = null; rebuild(false);
+});
+document.getElementById('stratSel').addEventListener('change', e => {
+  state.strategyKey = e.target.value; savePrefs(); renderStrategy(); renderHistory(); renderSummaryTable();
+});
+document.getElementById('budgetInput').addEventListener('change', e => {
+  const v = parseFloat(e.target.value);
+  state.budget = isFinite(v) && v > 0 ? v : null;
+  renderPortfolio();
+});
+document.getElementById('budgetCurrent').addEventListener('click', () => {
+  const { list } = portfolioScope();
+  state.budget = Math.round(list.reduce((a,s) => a + (s.current ? s.current.cost : 0), 0));
+  renderPortfolio();
+});
+document.getElementById('budgetOptimal').addEventListener('click', () => {
+  const { list } = portfolioScope();
+  state.budget = Math.round(unconstrainedOptimum(list).cost);
+  renderPortfolio();
+});
+document.getElementById('refreshBtn').addEventListener('click', () => {
+  if (!DATA_ENDPOINT){ toast('No DATA_ENDPOINT configured — this page is running on demo data.'); return; }
+  loadData(true);
+});
+
+let booted = false;
+function boot(){ if (booted) return; booted = true; loadData(false); }
+if (sessionStorage.getItem('bs_auth') === '1') unlock();
+</script>
+</body>
+</html>
