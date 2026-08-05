@@ -11,3 +11,4 @@ venv
 README.md
 cloudbuild.yaml
 .DS_Store
+pipeline/
