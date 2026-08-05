@@ -1,0 +1,339 @@
+{
+  "year": 2026,
+  "currency": "SEK",
+  "month_status": [
+    "Actual",
+    "Actual",
+    "Forecast",
+    "Forecast",
+    "Forecast",
+    "Forecast",
+    "Forecast",
+    "Forecast",
+    "Forecast",
+    "Forecast",
+    "Forecast",
+    "Forecast"
+  ],
+  "line_order": [
+    "gross_sales",
+    "returns",
+    "net_sales",
+    "cogs",
+    "gp1",
+    "direct_var",
+    "gp2",
+    "marketing",
+    "gp3",
+    "opex",
+    "other_income",
+    "ebitda",
+    "interest_da",
+    "ebt",
+    "eat"
+  ],
+  "lines": {
+    "gross_sales": {
+      "label": "Gross sales",
+      "group": "sales",
+      "is_cost": false,
+      "monthly": [
+        24307798,
+        13698668,
+        31444907,
+        29426077,
+        24451679,
+        23209711,
+        21096904,
+        29249975,
+        34347224,
+        26880309,
+        55765729,
+        27200000
+      ],
+      "fy": 341078981
+    },
+    "returns": {
+      "label": "Sales returns",
+      "group": "sales",
+      "is_cost": true,
+      "monthly": [
+        2691394,
+        1898015,
+        2672817,
+        2501217,
+        2078393,
+        1972825,
+        1793237,
+        2486248,
+        2919514,
+        2284826,
+        4740087,
+        2312000
+      ],
+      "fy": 30350573
+    },
+    "net_sales": {
+      "label": "Net sales",
+      "group": "sales",
+      "is_cost": false,
+      "monthly": [
+        21616404,
+        11800653,
+        28772090,
+        26924861,
+        22373286,
+        21236886,
+        19303667,
+        26763727,
+        31427710,
+        24595482,
+        51025642,
+        24888000
+      ],
+      "fy": 310728408
+    },
+    "cogs": {
+      "label": "Cost of goods sold",
+      "group": "cogs",
+      "is_cost": true,
+      "monthly": [
+        16766458,
+        7610377,
+        17260377,
+        15600264,
+        12969794,
+        13159436,
+        12929403,
+        18212716,
+        17918823,
+        14041561,
+        32687026,
+        15195368
+      ],
+      "fy": 194351605
+    },
+    "gp1": {
+      "label": "Gross profit 1",
+      "group": "profit",
+      "is_cost": false,
+      "monthly": [
+        4849946,
+        4190276,
+        11511713,
+        11324596,
+        9403492,
+        8077450,
+        6374264,
+        8551011,
+        13508887,
+        10553921,
+        18338616,
+        9692632
+      ],
+      "fy": 116376804
+    },
+    "direct_var": {
+      "label": "Direct variable costs",
+      "group": "cost",
+      "is_cost": true,
+      "monthly": [
+        3521849,
+        2587257,
+        3455749,
+        3202907,
+        2661459,
+        2509338,
+        2297136,
+        3184884,
+        3708470,
+        2840779,
+        5930139,
+        2865780
+      ],
+      "fy": 38765746
+    },
+    "gp2": {
+      "label": "Gross profit 2",
+      "group": "profit",
+      "is_cost": false,
+      "monthly": [
+        1328097,
+        1603019,
+        8055964,
+        8121690,
+        6742033,
+        5568111,
+        4077128,
+        5366127,
+        9800417,
+        7713143,
+        12408477,
+        6826852
+      ],
+      "fy": 77611058
+    },
+    "marketing": {
+      "label": "Marketing costs",
+      "group": "cost",
+      "is_cost": true,
+      "monthly": [
+        2947738,
+        1853027,
+        3308790,
+        3096359,
+        2572928,
+        2123689,
+        1930367,
+        3077829,
+        3614187,
+        2828480,
+        5867949,
+        2737680
+      ],
+      "fy": 35959023
+    },
+    "gp3": {
+      "label": "Gross profit 3",
+      "group": "profit",
+      "is_cost": false,
+      "monthly": [
+        -1619641,
+        -250008,
+        4747174,
+        5025331,
+        4169105,
+        3444423,
+        2146761,
+        2288299,
+        6186230,
+        4884662,
+        6540528,
+        4089172
+      ],
+      "fy": 41652035
+    },
+    "opex": {
+      "label": "Operating expenses",
+      "group": "cost",
+      "is_cost": true,
+      "monthly": [
+        2583766,
+        3251927,
+        3305000,
+        3305000,
+        3305000,
+        3305000,
+        3255000,
+        3255000,
+        3255000,
+        3255000,
+        3255000,
+        3255000
+      ],
+      "fy": 38585693
+    },
+    "other_income": {
+      "label": "Other income",
+      "group": "other",
+      "is_cost": false,
+      "monthly": [
+        3905428,
+        15593,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "fy": 3921021
+    },
+    "ebitda": {
+      "label": "EBITDA",
+      "group": "profit",
+      "is_cost": false,
+      "monthly": [
+        -297979,
+        -3486342,
+        1442174,
+        1720331,
+        864105,
+        139423,
+        -1108239,
+        -966701,
+        2931230,
+        1629662,
+        3285528,
+        834172
+      ],
+      "fy": 6987363
+    },
+    "interest_da": {
+      "label": "Interest, D&A",
+      "group": "cost",
+      "is_cost": true,
+      "monthly": [
+        807815,
+        807815,
+        1723000,
+        808000,
+        808000,
+        1723000,
+        808000,
+        808000,
+        1723000,
+        808000,
+        808000,
+        808000
+      ],
+      "fy": 12440630
+    },
+    "ebt": {
+      "label": "EBT",
+      "group": "profit",
+      "is_cost": false,
+      "monthly": [
+        -1105794,
+        -4294157,
+        -280826,
+        912331,
+        56105,
+        -1583577,
+        -1916239,
+        -1774701,
+        1208230,
+        821662,
+        2477528,
+        26172
+      ],
+      "fy": -5453267
+    },
+    "eat": {
+      "label": "Earnings after tax",
+      "group": "profit",
+      "is_cost": false,
+      "monthly": [
+        -1105794,
+        -4294157,
+        -280826,
+        912331,
+        56105,
+        -1583577,
+        -1916239,
+        -1774701,
+        1208230,
+        821662,
+        2477528,
+        26172
+      ],
+      "fy": -5453267
+    }
+  },
+  "source_file": "Forecast v1 (1).xlsx",
+  "note": "Rullande P&L forecast. Costs stored as positive magnitudes."
+}

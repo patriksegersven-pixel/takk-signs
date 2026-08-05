@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inventory Dashboard · Babyshop</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:        #F7F8FA;
+      --card:      #FFFFFF;
+      --border:    #E5E7EB;
+      --border-lt: #F1F3F5;
+      --h:         #0F172A;
+      --body:      #475569;
+      --muted:     #94A3B8;
+      --accent:    #C2410C;
+      --accent-bg: #FFF7ED;
+      --hero:      #B91C1C;
+      --hero-bg:   #FEF2F2;
+      --green:     #047857;
+      --up:        #047857;
+      --up-bg:     #ECFDF5;
+      --down:      #B91C1C;
+      --down-bg:   #FEF2F2;
+      --warn:      #B45309;
+      --warn-bg:   #FFFBEB;
+      --shadow-sm: 0 1px 2px rgba(15,23,42,.04);
+      --shadow:    0 1px 3px rgba(15,23,42,.06);
+      --r:         8px;
+      --r-sm:      4px;
+    }
+    html { font-size: 16px; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--body);
+      min-height: 100vh; -webkit-font-smoothing: antialiased;
+    }
+    header {
+      background: var(--h); color: white; padding: 0 32px; height: 58px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 100;
+    }
+    .logo { display: flex; align-items: center; gap: 12px; }
+    .logo-mark {
+      width: 34px; height: 34px; background: var(--accent); border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; font-weight: 700; color: white;
+    }
+    .logo-wordmark { font-size: 14px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    .logo-sub      { font-size: 10px; font-weight: 400; letter-spacing: .1em; text-transform: uppercase; color: rgba(255,255,255,.45); margin-top: 1px; }
+    .nav-tabs { display: flex; align-items: center; gap: 2px; }
+    .nav-tab {
+      padding: 6px 14px; font-size: 12px; font-weight: 500; letter-spacing: .03em;
+      color: rgba(255,255,255,.5); border-radius: 6px;
+      text-decoration: none; transition: all .15s;
+    }
+    .nav-tab:hover { color: rgba(255,255,255,.8); background: rgba(255,255,255,.08); }
+    .nav-tab.active { color: white; background: rgba(255,255,255,.12); }
+    .live-dot {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; color: rgba(255,255,255,.45); letter-spacing: .04em;
+    }
+    .live-dot::before {
+      content: ''; width: 6px; height: 6px; border-radius: 50%;
+      background: #4E9B65; box-shadow: 0 0 0 2px rgba(78,155,101,.3);
+      animation: blink 2s ease-in-out infinite;
+    }
+    @keyframes blink {
+      0%,100% { box-shadow: 0 0 0 2px rgba(78,155,101,.3); }
+      50%      { box-shadow: 0 0 0 5px rgba(78,155,101,.1); }
+    }
+    main { max-width: 1380px; margin: 0 auto; padding: 26px 32px 56px; }
+    .filter-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 22px;
+    }
+    .page-title { font-size: 21px; font-weight: 700; color: var(--h); letter-spacing: -.3px; }
+    .date-chip {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--r-sm); padding: 7px 13px;
+      font-size: 12px; font-weight: 500; color: var(--h);
+      box-shadow: var(--shadow-sm); white-space: nowrap;
+    }
+    .date-chip svg { color: var(--muted); flex-shrink: 0; }
+    .kpi-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 14px; margin-bottom: 20px;
+    }
+    .kpi-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--r); padding: 18px 20px;
+      box-shadow: var(--shadow-sm); position: relative; overflow: hidden;
+    }
+    .kpi-card.critical { border: 1px solid var(--hero); }
+    .kpi-card.critical::after {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: var(--hero);
+    }
+    .kpi-card.warn::after {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: var(--warn);
+    }
+    .kpi-label {
+      font-size: 10px; font-weight: 600; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 8px;
+    }
+    .kpi-value {
+      font-size: 28px; font-weight: 700; color: var(--h);
+      letter-spacing: -.5px; line-height: 1.1; margin-bottom: 6px;
+      font-variant-numeric: tabular-nums;
+    }
+    .kpi-card.critical .kpi-value { color: var(--hero); }
+    .kpi-card.warn .kpi-value { color: var(--warn); }
+    .kpi-note { font-size: 11px; color: var(--muted); }
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--r); box-shadow: var(--shadow-sm);
+      overflow: hidden; margin-bottom: 20px;
+    }
+    .card-header {
+      padding: 16px 22px 12px;
+      display: flex; align-items: flex-start; justify-content: space-between;
+      border-bottom: 1px solid var(--border-lt);
+    }
+    .chart-title { font-size: 14px; font-weight: 600; color: var(--h); }
+    .chart-sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .chart-badge {
+      font-size: 10px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+      color: var(--muted); background: var(--bg); border: 1px solid var(--border);
+      border-radius: 4px; padding: 3px 8px; white-space: nowrap;
+    }
+    .chart-badge.critical { color: var(--hero); border-color: var(--hero); background: var(--hero-bg); }
+    table { width: 100%; border-collapse: collapse; }
+    thead th {
+      padding: 9px 14px; font-size: 10px; font-weight: 600; letter-spacing: .07em;
+      text-transform: uppercase; color: var(--muted); text-align: right;
+      border-bottom: 1px solid var(--border);
+    }
+    thead th:first-child { text-align: left; padding-left: 22px; }
+    tbody td {
+      padding: 10px 14px; font-size: 13px; font-weight: 500;
+      color: var(--body); border-bottom: 1px solid var(--border-lt); text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    tbody td:first-child { text-align: left; padding-left: 22px; font-weight: 600; color: var(--h); }
+    tbody td a { color: inherit; text-decoration: none; }
+    tbody td a:hover { color: var(--accent); text-decoration: underline; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: var(--bg); }
+    .cell-pos { color: var(--up) !important; }
+    .cell-neg { color: var(--down) !important; }
+    .cell-warn { color: var(--warn) !important; }
+    .stock-badge {
+      display: inline-block; min-width: 22px; text-align: center;
+      padding: 2px 7px; border-radius: 10px;
+      font-size: 11px; font-weight: 700;
+    }
+    .stock-1 { background: #FEE2E2; color: #B91C1C; }
+    .stock-2 { background: #FFEDD5; color: #C2410C; }
+    .stock-3, .stock-4 { background: #FEF3C7; color: #B45309; }
+    .stock-5, .stock-6, .stock-7 { background: #ECFCCB; color: #65A30D; }
+    .stock-8, .stock-9, .stock-10 { background: #DCFCE7; color: #15803D; }
+    table.sortable thead th {
+      cursor: pointer; user-select: none;
+      position: relative; padding-right: 18px;
+    }
+    table.sortable thead th:hover { color: var(--h); }
+    table.sortable thead th::after {
+      content: '⇅'; position: absolute; right: 8px; top: 50%;
+      transform: translateY(-50%); opacity: 0.3; font-size: 9px;
+    }
+    table.sortable thead th.sort-asc::after  { content: '▲'; opacity: 1; color: var(--accent); }
+    table.sortable thead th.sort-desc::after { content: '▼'; opacity: 1; color: var(--accent); }
+    .table-filter {
+      display: flex; gap: 8px; align-items: center; padding: 10px 22px 0;
+    }
+    .table-filter input {
+      flex: 1; max-width: 280px;
+      font-family: inherit; font-size: 12px;
+      padding: 5px 10px; border: 1px solid var(--border);
+      border-radius: var(--r-sm); outline: none; background: var(--bg);
+    }
+    .table-filter input:focus { border-color: var(--accent); background: var(--card); }
+    .table-filter .count { font-size: 11px; color: var(--muted); }
+    .chart-row {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 14px; margin-bottom: 20px;
+    }
+    .chart-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--r); padding: 20px 22px; box-shadow: var(--shadow-sm);
+    }
+    .chart-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .chart-wrap { position: relative; height: 320px; }
+    .section-label {
+      font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 10px; margin-top: 24px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border-lt); }
+    .source-note {
+      display: flex; align-items: center; gap: 6px;
+      margin-top: 10px; padding: 7px 10px;
+      background: var(--accent-bg);
+      border: 1px solid #FFD9B8;
+      border-radius: var(--r-sm);
+      font-size: 11px; color: #9A3412;
+    }
+    .source-note svg { flex-shrink: 0; color: var(--accent); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">bs</div>
+    <div>
+      <div class="logo-wordmark">Babyshop</div>
+      <div class="logo-sub">Inventory &amp; Stockout Insights</div>
+    </div>
+  </div>
+  <nav class="nav-tabs">
+    <a href="/babyshop-dashboard.html" class="nav-tab">KV Overview</a>
+    <a href="/babyshop-product-dashboard.html" class="nav-tab">Products</a>
+    <a href="/babyshop-inventory-dashboard.html" class="nav-tab active">Inventory</a>
+    <a href="/babyshop-stoy-dashboard.html" class="nav-tab">Stoy Test</a>
+    <a href="/babyshop-roas-impact.html" class="nav-tab">ROAS Impact</a>
+    <a href="/babyshop-roas-simulations.html" class="nav-tab">ROAS Simulations</a>
+  </nav>
+  <div class="live-dot">Live · Channable feed · Babyshop SE</div>
+</header>
+
+<main>
+
+  <div class="filter-bar">
+    <div class="page-title">Inventory &amp; Stockout</div>
+    <div class="date-chip">
+      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+      <span id="feed-stamp">Loading…</span>
+    </div>
+  </div>
+
+  <div class="source-note">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+    Source: live Channable Google Shopping feed for Babyshop SE, refreshed hourly by Cloud Scheduler. Per-SKU stock comes from the feed's <code>units_for_sale</code> field — real counts, no estimates. <strong>Archive</strong> = old-season / slow-moving stock flagged in the feed. The only modelled number is <strong>OOS lost revenue</strong>: predicted monthly units come from each product's category sales velocity (Funnel kv-product units ÷ active SKUs in that category) × sale_price.
+  </div>
+
+  <div class="kpi-grid" id="kpi-grid"></div>
+
+  <!-- ── Inventory trends (daily snapshots from Firestore) ───────── -->
+  <div class="card" style="margin-bottom:20px;padding:20px 22px">
+    <div class="chart-header">
+      <div>
+        <div class="chart-title">Inventory Trends</div>
+        <div class="chart-sub">Daily snapshots · pick metrics to overlay · <span id="trend-source">loading…</span></div>
+      </div>
+      <span class="chart-badge" id="trend-axis-badge">SEK + count</span>
+    </div>
+    <div id="trend-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin:12px 0"></div>
+    <div style="position:relative;height:280px"><canvas id="c-inv-trend"></canvas></div>
+  </div>
+
+  <div class="section-label">stockout risk</div>
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="chart-title">Critical Stock — top items at risk</div>
+        <div class="chart-sub">Active SKUs with ≤2 units left, ranked by sale_price × urgency</div>
+      </div>
+      <span class="chart-badge critical" id="risk-badge"></span>
+    </div>
+    <div class="table-filter">
+      <input type="text" id="risk-filter" placeholder="Filter by name / brand / category…" autocomplete="off">
+      <span class="count" id="risk-count"></span>
+    </div>
+    <table class="sortable" id="risk-table">
+      <thead><tr>
+        <th>Product</th><th>Brand</th><th>Category</th><th>Stock</th>
+        <th>Sale price</th><th>COGS</th><th>Margin</th>
+      </tr></thead>
+      <tbody id="risk-tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="section-label">archive concentration</div>
+  <div class="chart-row">
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Archive by Brand</div>
+          <div class="chart-sub">Estimated value tied up · top 12</div>
+        </div>
+        <span class="chart-badge">SEK</span>
+      </div>
+      <div class="chart-wrap"><canvas id="c-dead-brand"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Archive by Category</div>
+          <div class="chart-sub">Estimated value tied up · top 10</div>
+        </div>
+        <span class="chart-badge">SEK</span>
+      </div>
+      <div class="chart-wrap"><canvas id="c-dead-cat"></canvas></div>
+    </div>
+  </div>
+
+  <div class="section-label">out of stock &amp; discount intensity</div>
+  <div class="chart-row">
+    <div class="card" style="margin:0">
+      <div class="card-header">
+        <div>
+          <div class="chart-title">Currently Out of Stock — highest-impact</div>
+          <div class="chart-sub">Predicted monthly units (category velocity) × sale_price</div>
+        </div>
+        <span class="chart-badge" id="oos-badge"></span>
+      </div>
+      <div class="table-filter">
+        <input type="text" id="oos-filter" placeholder="Filter OOS items…" autocomplete="off">
+        <span class="count" id="oos-count"></span>
+      </div>
+      <table class="sortable" id="oos-table">
+        <thead><tr><th>Product</th><th>Brand</th><th>Sale price</th><th>Pred. units/mo</th><th>Lost rev/mo</th></tr></thead>
+        <tbody id="oos-tbody"></tbody>
+      </table>
+    </div>
+    <div class="card" style="margin:0">
+      <div class="card-header">
+        <div>
+          <div class="chart-title">Biggest Active Discounts</div>
+          <div class="chart-sub">Items with the largest absolute price reduction right now</div>
+        </div>
+        <span class="chart-badge" id="disc-badge"></span>
+      </div>
+      <div class="table-filter">
+        <input type="text" id="disc-filter" placeholder="Filter on sale items…" autocomplete="off">
+        <span class="count" id="disc-count"></span>
+      </div>
+      <table class="sortable" id="disc-table">
+        <thead><tr><th>Product</th><th>Brand</th><th>Was</th><th>Now</th><th>−%</th></tr></thead>
+        <tbody id="disc-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="section-label">brand inventory health</div>
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="chart-title">Brand Portfolio — SKU counts, archive share, book value</div>
+        <div class="chart-sub">Brands with ≥5 SKUs · sortable + filterable</div>
+      </div>
+      <span class="chart-badge" id="brand-health-badge"></span>
+    </div>
+    <div class="table-filter">
+      <input type="text" id="health-filter" placeholder="Filter brand…" autocomplete="off">
+      <span class="count" id="health-count"></span>
+    </div>
+    <table class="sortable" id="health-table">
+      <thead><tr>
+        <th>Brand</th><th>Total SKUs</th><th>Active</th><th>Archive</th>
+        <th>OOS</th><th>Archive %</th><th>Stock value</th>
+      </tr></thead>
+      <tbody id="health-tbody"></tbody>
+    </table>
+  </div>
+
+</main>
+
+<script>
+// Embedded snapshot = fallback shown immediately.
+// Cloud Scheduler refreshes the Firestore-backed /api/inventory hourly;
+// fetchLiveAndRender() pulls the fresh data and re-renders.
+const EMBEDDED_DATA = {"kpis": {"active_skus": 21567, "dead_skus": 10544, "oos_count": 107, "low_stock_count": 191, "stock_value_sek": 20614748, "dead_value_sek": 7909541, "oos_lost_revenue_sek": 289965, "avg_discount_pct": 32.4, "on_sale_count": 26909}, "stockout_risk": [{"id": "684565350", "title": "Joolz  Hub² Barnvagn Space Black One Size     unisex", "brand": "Joolz", "cat1": "Uncategorised", "cat2": "Uncategorised", "stock": 1, "sale_price": 8199.0, "cogs": 4251.24, "url": "https://www.babyshop.com/sv-se/p/one-size-33311/PM-72021"}, {"id": "635566279", "title": "Joolz  Hub² Liggdel Sandy Taupe One Size  Beige   unisex", "brand": "Joolz", "cat1": "Uncategorised", "cat2": "Uncategorised", "stock": 1, "sale_price": 2549.0, "cogs": 0.0, "url": "https://www.babyshop.com/sv-se/p/one-size-33314/PM-72024"}, {"id": "142796175", "title": "Ergobaby Omni Deluxe Mesh Bärsele Graphite Grey One Size Grå", "brand": "Ergobaby", "cat1": "Baby", "cat2": "Baby Carriers and Slings", "stock": 1, "sale_price": 2129.0, "cogs": 1323.0, "url": "https://www.babyshop.com/sv-se/p/one-size-106011/PM-76114"}, {"id": "247836979", "title": "Ralph Lauren  Rutig Skjortklänning Belmont Pink LINEN-GINGHAMDRESS-DR…", "brand": "Ralph Lauren", "cat1": "Clothing", "cat2": "Dresses and Skirts", "stock": 1, "sale_price": 1329.0, "cogs": 676.7, "url": "https://www.babyshop.com/sv-se/p/linen-ginghamdress-dr-dad-day-dress-belmont-pink-white-97256/PM-64659"}, {"id": "322020557", "title": "Chloé  Shorts Beige 5 Y  Beige   flicka", "brand": "Chloé", "cat1": "Clothing", "cat2": "Trousers and shorts", "stock": 1, "sale_price": 1319.0, "cogs": 0.0, "url": "https://www.babyshop.com/sv-se/p/5-y-23767/PM-61694"}, {"id": "280541304", "title": "Bugaboo  Dragonfly Breezy Solsufflett Dune Taupe One Size  Beige   Po…", "brand": "Bugaboo", "cat1": "Uncategorised", "cat2": "Uncategorised", "stock": 1, "sale_price": 1189.0, "cogs": 0.0, "url": "https://www.babyshop.com/sv-se/p/one-size-21740/PM-64009"}, {"id": "587104540", "title": "Little Dutch  Babygym Fairy Garden Pink-One Size  Rosa   unisex", "brand": "Little Dutch", "cat1": "Uncategorised", "cat2": "Uncategorised", "stock": 1, "sale_price": 1149.0, "cogs": 536.75, "url": "https://www.babyshop.com/sv-se/p/pink-one-size-31853/PM-71201"}, {"id": "597660226", "title": "Kid's Concept  Rocking horse Sam AIDEN Stripe 2-6 Y     unisex", "brand": "Kid's Concept", "cat1": "Toys", "cat2": "Rocking Horses and Toys", "stock": 1, "sale_price": 1109.0, "cogs": 560.5, "url": "https://www.babyshop.com/sv-se/p/2-6-y-31867/PM-71217"}, {"id": "100720704", "title": "Ralph Lauren  Aubrie Jeans Blå 5 Y  Blå   Flickor", "brand": "Ralph Lauren", "cat1": "Clothing", "cat2": "Trousers and shorts", "stock": 1, "sale_price": 999.0, "cogs": 0.0, "url": "https://www.babyshop.com/sv-se/p/5-y-19567/PM-34303"}, {"id": "889419127", "title": "Konges Sløjd  ALPI BABY SUIT BEECH 6 months  Brun   Pojkar, Flickor", "brand": "Konges Sløjd", "cat1": "Outerwear", "cat2": "Coveralls", "stock": 1, "sale_price": 909.0, "cogs": 0.0, "url": "https://www.babyshop.com/sv-se/p/6-months-66034/PM-69567"}, {"id": "922088453", "title": "Kuling  Milano Blommig Skaloverall Lilac Flower 86 cm Shell Lila   Fl…", "brand": "Kuling", "cat1": "Outerwear", "cat2": "Coveralls", "stock": 1, "sale_price": 799.0, "cogs": 0.0, "url": "https://www.babyshop.com/sv-se/p/86-cm-73475/PM-61177"}, {"id": "734323314", "title": "Reima Reimatec Hiivin Sneakers Cinnamon Brown 33 EU Brun Unisex", "brand": "Reima", "cat1": "Footwear", "cat2": "Trainers", "stock": 1, "sale_price": 759.0, "cogs": 0.0, "url": "https://www.babyshop.com/sv-se/p/33-eu-88891/PM-67329"}, {"id": "100571338", "title": "garbo&friends  Junior Muslin Bäddset Blueberry  Bluberry  100x130cm  …", "brand": "garbo&friends", "cat1": "Home", "cat2": "Baby and Kids Bedding", "stock": 1, "sale_price": 749.0, "cogs": 263.84, "url": "https://www.babyshop.com/sv-se/p/bluberry-100x130cm/PM-11984"}, {"id": "100677049", "title": "DOLLY by Le Petit Tom  Tyllklänning Rosa 4-6 Y  Rosa   flicka", "brand": "DOLLY by Le Petit Tom", "cat1": "Clothing", "cat2": "Dresses and Skirts", "stock": 1, "sale_price": 729.0, "cogs": 363.93, "url": "https://www.babyshop.com/sv-se/p/4-6-y-19464/PM-33728"}, {"id": "100677054", "title": "DOLLY by Le Petit Tom  Tyllklänning Rosa 6-8 Y  Rosa   flicka", "brand": "DOLLY by Le Petit Tom", "cat1": "Clothing", "cat2": "Dresses and Skirts", "stock": 1, "sale_price": 729.0, "cogs": 363.92, "url": "https://www.babyshop.com/sv-se/p/6-8-y-19466/PM-33728"}, {"id": "584040818", "title": "DOLLY by Le Petit Tom  Tyllklänning Rosa 8-10 Y  Rosa   flicka", "brand": "DOLLY by Le Petit Tom", "cat1": "Clothing", "cat2": "Dresses and Skirts", "stock": 1, "sale_price": 729.0, "cogs": 363.92, "url": "https://www.babyshop.com/sv-se/p/8-10-y-19467/PM-33728"}, {"id": "761097524", "title": "Viking  Equip Mid Vattentäta Kängor Svart 31 EU  Svart   Pojkar, Flic…", "brand": "Viking", "cat1": "Footwear", "cat2": "Trainers", "stock": 1, "sale_price": 709.0, "cogs": 0.0, "url": "https://www.babyshop.com/sv-se/p/31-eu-29635/PM-68525"}, {"id": "112834208", "title": "Konges Sløjd Dammig Dammsugare Citron Lemon Beige One Size", "brand": "Konges Sløjd", "cat1": "Toys", "cat2": "Role Play", "stock": 1, "sale_price": 629.0, "cogs": 181.2, "url": "https://www.babyshop.com/sv-se/p/lemon-one-size-22393/PM-65564"}, {"id": "1024258", "title": "Joha Ulloverall Mörkblå Melange Dark Blue 50 cm Wool Marinblå Unisex", "brand": "Joha", "cat1": "Clothing", "cat2": "All-In-Ones", "stock": 1, "sale_price": 599.0, "cogs": 276.3, "url": "https://www.babyshop.com/sv-se/p/dark-blue-50-cm-130719/PM-58574"}, {"id": "174291181", "title": "Joha Ulloverall Mörkblå Melange Dark Blue 90 cm Unisex", "brand": "Joha", "cat1": "Clothing", "cat2": "All-In-Ones", "stock": 1, "sale_price": 599.0, "cogs": 276.3, "url": "https://www.babyshop.com/sv-se/p/dark-blue-90-cm-24066/PM-58574"}, {"id": "230240955", "title": "Joha Ulloverall Mörkblå Melange Dark Blue 70 cm Wool Unisex", "brand": "Joha", "cat1": "Clothing", "cat2": "All-In-Ones", "stock": 1, "sale_price": 599.0, "cogs": 276.3, "url": "https://www.babyshop.com/sv-se/p/dark-blue-70-cm-24065/PM-58574"}, {"id": "358802318", "title": "Joha  Ulloverall Mörkblå Melange Blue 60 cm Wool Blå   Pojkar, Flickor", "brand": "Joha", "cat1": "Clothing", "cat2": "All-In-Ones", "stock": 1, "sale_price": 599.0, "cogs": 276.3, "url": "https://www.babyshop.com/sv-se/p/blue-60-cm-138709/PM-58574"}, {"id": "767091775", "title": "Joha Ulloverall Mörkblå Melange Dark Blue 80 cm Wool Unisex", "brand": "Joha", "cat1": "Clothing", "cat2": "All-In-Ones", "stock": 1, "sale_price": 599.0, "cogs": 276.3, "url": "https://www.babyshop.com/sv-se/p/dark-blue-80-cm-24068/PM-58574"}, {"id": "585972766", "title": "Kavat  Ängskär XC Sandaler White 23 EU  Vit   Pojkar, Flickor", "brand": "Kavat", "cat1": "Footwear", "cat2": "Sandals", "stock": 1, "sale_price": 599.0, "cogs": 300.48, "url": "https://www.babyshop.com/sv-se/p/23-eu-73021/PM-74344"}, {"id": "677210794", "title": "Kavat  Ängskär XC Sandaler White 22 EU  Vit   Pojkar, Flickor", "brand": "Kavat", "cat1": "Footwear", "cat2": "Sandals", "stock": 1, "sale_price": 599.0, "cogs": 300.48, "url": "https://www.babyshop.com/sv-se/p/22-eu-73020/PM-74344"}, {"id": "100499654", "title": "Djeco  Activity Tåg 1-2 Y     unisex", "brand": "Djeco", "cat1": "Toys", "cat2": "First Toys and Baby Toys", "stock": 1, "sale_price": 569.0, "cogs": 266.0, "url": "https://www.babyshop.com/sv-se/p/1-2-y-11137/806940"}, {"id": "100761865", "title": "Cam Cam  Blöjkorg Classic Stripes Blue  Classic Stripes Blue One Size…", "brand": "Cam Cam", "cat1": "Baby", "cat2": "Baby Changing", "stock": 1, "sale_price": 509.0, "cogs": 233.84, "url": "https://www.babyshop.com/sv-se/p/classic-stripes-blue-one-size/PM-50737"}, {"id": "628029559", "title": "Kuling  Seychelles Randig UV-Dräkt Blå 110/116 cm  Vit   Pojkar, Flic…", "brand": "Kuling", "cat1": "Clothing", "cat2": "Swimwear and UV Clothing", "stock": 1, "sale_price": 499.0, "cogs": 0.0, "url": "https://www.babyshop.com/sv-se/p/110-116-cm-67841/PM-54020"}, {"id": "100761874", "title": "Cam Cam Randig Quiltad Skötmatta Classic Stripes Blue Praline", "brand": "Cam Cam", "cat1": "Baby", "cat2": "Baby Changing", "stock": 1, "sale_price": 479.0, "cogs": 178.72, "url": "https://www.babyshop.com/sv-se/p/classic-stripes-blue-praline-one-size-14250/PM-50747"}, {"id": "257621793", "title": "Liewood Max UV-baddräkt Sea Creature Sandy 104 cm Beige Unisex", "brand": "Liewood", "cat1": "Clothing", "cat2": "Swimwear and UV Clothing", "stock": 1, "sale_price": 449.0, "cogs": 246.92, "url": "https://www.babyshop.com/sv-se/p/sea-creature-sandy-104-cm/PM-72116"}], "dead_by_brand": [{"brand": "Molo", "count": 2476, "value": 1575750}, {"brand": "Reima", "count": 643, "value": 636588}, {"brand": "Tartine et Chocolat", "count": 292, "value": 492182}, {"brand": "The Animals Observatory", "count": 270, "value": 384683}, {"brand": "Louise Misha", "count": 236, "value": 268964}, {"brand": "Bobo Choses", "count": 330, "value": 226398}, {"brand": "Wynken", "count": 229, "value": 221109}, {"brand": "Paade Mode", "count": 119, "value": 213999}, {"brand": "Wheat", "count": 258, "value": 209212}, {"brand": "Minymo", "count": 525, "value": 184297}, {"brand": "Copenhagen Colors", "count": 388, "value": 177142}, {"brand": "Småfolk", "count": 278, "value": 160016}, {"brand": "Hust&Claire", "count": 411, "value": 157446}, {"brand": "New Balance", "count": 155, "value": 146913}, {"brand": "Mini Rodini", "count": 252, "value": 141883}, {"brand": "Kenzo", "count": 54, "value": 125202}, {"brand": "Stella McCartney Kids", "count": 51, "value": 122661}, {"brand": "Didriksons", "count": 120, "value": 121813}, {"brand": "Bardot Junior", "count": 78, "value": 117668}, {"brand": "Moon Boot", "count": 49, "value": 117596}], "dead_by_cat": [{"cat": "Tops and Sweaters", "count": 2583, "value": 1635396}, {"cat": "Dresses and Skirts", "count": 1113, "value": 1192950}, {"cat": "Coats and Jackets", "count": 712, "value": 1082633}, {"cat": "Trousers and shorts", "count": 1788, "value": 1041147}, {"cat": "Boots", "count": 466, "value": 529216}, {"cat": "Swimwear and UV Clothing", "count": 557, "value": 316154}, {"cat": "Trainers", "count": 306, "value": 306371}, {"cat": "Sandals", "count": 322, "value": 290184}, {"cat": "All-In-Ones", "count": 604, "value": 278929}, {"cat": "Fleeces and Teddys", "count": 173, "value": 141804}, {"cat": "Coveralls", "count": 79, "value": 132341}, {"cat": "Hats and Caps", "count": 368, "value": 125921}, {"cat": "Pants", "count": 100, "value": 99723}, {"cat": "Uncategorised", "count": 72, "value": 87530}, {"cat": "Underwear", "count": 263, "value": 67427}], "oos_items": [{"id": "100581534", "title": "Bugaboo Donkey 5 Mono Barnvagn Graphite/Stormy Blue Stroller", "brand": "Bugaboo", "cat1": "Uncategorised", "cat2": "Uncategorised", "sale_price": 15999.0, "cogs": 8463.46, "url": "https://www.babyshop.com/sv-se/p/stroller-11480/PM-14322"}, {"id": "1029060", "title": "Bugaboo  Donkey 6 Komplett Förlängningssats Desert Taupe Melange  Des…", "brand": "Bugaboo", "cat1": "Uncategorised", "cat2": "Uncategorised", "sale_price": 4399.0, "cogs": 2327.74, "url": "https://www.babyshop.com/sv-se/p/desert-taupe-melange-one-size-135397/BGB-100375013-DTM"}, {"id": "1031938", "title": "SUNNYLiFE  Sammy The Seagull Uppblåsbar Hoppborg  Green-One Size  Grö…", "brand": "SUNNYLiFE", "cat1": "Toys", "cat2": "Outdoor Play and Sports", "sale_price": 1929.0, "cogs": 732.68, "url": "https://www.babyshop.com/sv-se/p/green-one-size-138346/SL-S61BHSSG"}, {"id": "1026683", "title": "Gullkorn  Skaloverall Pink  Pink 98 cm  Rosa   flicka", "brand": "Gullkorn", "cat1": "Outerwear", "cat2": "Coveralls", "sale_price": 1429.0, "cogs": 779.94, "url": "https://www.babyshop.com/sv-se/p/pink-98-cm-133135/GD-GK-12268-Pink"}, {"id": "1000475", "title": "Bobo Choses Multicolor Tiles Vändbar Fårskinn Jacka Brun 6-7 Years", "brand": "Bobo Choses", "cat1": "Outerwear", "cat2": "Coats and Jackets", "sale_price": 1219.0, "cogs": 0.0, "url": "https://www.babyshop.com/sv-se/p/multicolor-6-7-years-107093/BC-B225AC122"}, {"id": "1017314", "title": "Molo Horizon Skaljacka Faded Crocus 152 cm Lila flicka", "brand": "Molo", "cat1": "Outerwear", "cat2": "Coats and Jackets", "sale_price": 879.0, "cogs": 405.45, "url": "https://www.babyshop.com/sv-se/p/faded-crocus-152-cm/MO-5S26M101-5669"}, {"id": "762775671", "title": "Wheat  Mingi Sandaler Ivory Flower Meadow 27 EU  Rosa   unisex", "brand": "Wheat", "cat1": "Footwear", "cat2": "Sandals", "sale_price": 709.0, "cogs": 364.83, "url": "https://www.babyshop.com/sv-se/p/27-eu-89096/PM-75581"}, {"id": "1016698", "title": "Molo Burt Cardigan Basket Comics 134/140 cm Blå pojke", "brand": "Molo", "cat1": "Clothing", "cat2": "Tops and Sweaters", "sale_price": 639.0, "cogs": 300.61, "url": "https://www.babyshop.com/sv-se/p/basket-comics-134-140-cm/MO-1S26K301-9864"}, {"id": "1012496", "title": "Liewood Dayana Plush Rabbit Backpack Mist Vit flicka", "brand": "Liewood", "cat1": "Accessories", "cat2": "Bags and Backpacks", "sale_price": 609.0, "cogs": 256.14, "url": "https://www.babyshop.com/sv-se/p/backpack-os/LIE-LW20745-1500"}, {"id": "312465219", "title": "Pom Dapi  Stand-Up Strap Sandaler Platinum 20 EU  Guld   flicka", "brand": "Pom Dapi", "cat1": "Footwear", "cat2": "Sandals", "sale_price": 579.0, "cogs": 418.64, "url": "https://www.babyshop.com/sv-se/p/20-eu-79088/PM-61371"}, {"id": "1022011", "title": "Konges Sløjd Ballerina Klänning Cherry Glitter 4Y Röd Flicka", "brand": "Konges Sløjd", "cat1": "Clothing", "cat2": "Dresses and Skirts", "sale_price": 579.0, "cogs": 296.81, "url": "https://www.babyshop.com/sv-se/p/cherry-glitter-4-y/KS-KS104658-P00013"}, {"id": "575914121", "title": "Kuling Gisborn Baselayer Set Ull Bambu Woody Rose Cherry 110/116", "brand": "Kuling", "cat1": "Clothing", "cat2": "Baselayers", "sale_price": 559.0, "cogs": 227.17, "url": "https://www.babyshop.com/sv-se/p/110-116-cm-66492/PM-74134"}, {"id": "1002324", "title": "Molo Alfred Jeans Vegetation Wash 152 cm Grön pojke", "brand": "Molo", "cat1": "Clothing", "cat2": "Trousers and shorts", "sale_price": 559.0, "cogs": 319.55, "url": "https://www.babyshop.com/sv-se/p/vegetation-wash-152-cm/MO-1W25I1025567"}, {"id": "1020104", "title": "Reima Sulkava Reimatec Jacka Blooming Lilac 104 cm Lila unisex", "brand": "Reima", "cat1": "Outerwear", "cat2": "Coats and Jackets", "sale_price": 559.0, "cogs": 301.91, "url": "https://www.babyshop.com/sv-se/p/blooming-lilac-104-cm-126586/RMA-5100416A-545A"}, {"id": "238489138", "title": "Småfolk  Mönstrad Badrock Med Äpplen Bison 1-2 Y  Brun   unisex", "brand": "Småfolk", "cat1": "Clothing", "cat2": "Nightwear", "sale_price": 519.0, "cogs": 274.35, "url": "https://www.babyshop.com/sv-se/p/1-2-y-57174/PM-60472"}, {"id": "1019146", "title": "Flöss Mille Klänning Sky Berry Gingham 92 cm Blå flicka", "brand": "Flöss", "cat1": "Clothing", "cat2": "Dresses and Skirts", "sale_price": 519.0, "cogs": 265.06, "url": "https://www.babyshop.com/sv-se/p/sky-berry-gingham-92-cm-125626/FLO-F10926-Sky.B.G"}, {"id": "224269736", "title": "Tartine et Chocolat  Randig Skjorta Grön 1 Y  Grön   pojke", "brand": "Tartine et Chocolat", "cat1": "Clothing", "cat2": "Tops and Sweaters", "sale_price": 499.0, "cogs": 430.65, "url": "https://www.babyshop.com/sv-se/p/1-y-28705/PM-61890"}, {"id": "1019332", "title": "Tinycottons Color Block Shorts Multicolor 6Y Blå Pojke", "brand": "Tinycottons", "cat1": "Clothing", "cat2": "Trousers and shorts", "sale_price": 499.0, "cogs": 254.08, "url": "https://www.babyshop.com/sv-se/p/multicolor-6-y/TC-SS26-427-108"}, {"id": "700437522", "title": "Molo  Nai Baddräkt Glowing 152 cm  Rosa   unisex", "brand": "Molo", "cat1": "Clothing", "cat2": "Swimwear and UV Clothing", "sale_price": 489.0, "cogs": 224.41, "url": "https://www.babyshop.com/sv-se/p/152-cm-44259/PM-71605"}, {"id": "1022605", "title": "Konges Sløjd Coeur Eclipse Baddräkt 4Y Blå pojke/flicka", "brand": "Konges Sløjd", "cat1": "Clothing", "cat2": "Swimwear and UV Clothing", "sale_price": 489.0, "cogs": 259.15, "url": "https://www.babyshop.com/sv-se/p/coeur-eclipse-4-y/KS-KS104984-P15020"}, {"id": "242454275", "title": "Reima  Tröja Moomin Idelar-Cool green 92 cm  Grön   unisex", "brand": "Reima", "cat1": "Clothing", "cat2": "Tops and Sweaters", "sale_price": 479.0, "cogs": 339.48, "url": "https://www.babyshop.com/sv-se/p/92-cm-95435/PM-67906"}, {"id": "721399211", "title": "Flöss Mia Klänning Velvet Rose 116 cm Rosa flicka", "brand": "Flöss", "cat1": "Clothing", "cat2": "Dresses and Skirts", "sale_price": 479.0, "cogs": 0.0, "url": "https://www.babyshop.com/sv-se/p/velvet-rose-116-cm-102669/PM-76479"}, {"id": "1000852", "title": "Bobo Choses Bobo Choo Choo Pojkechesterbyxa Red 12 Months", "brand": "Bobo Choses", "cat1": "Clothing", "cat2": "Trousers and shorts", "sale_price": 459.0, "cogs": 248.08, "url": "https://www.babyshop.com/sv-se/p/red-12-months-107470/BC-B225AB084"}, {"id": "227011350", "title": "Molo  Neka UV-Dräkt Apricot 110/116 cm  Blå   unisex", "brand": "Molo", "cat1": "Clothing", "cat2": "Swimwear and UV Clothing", "sale_price": 449.0, "cogs": 239.55, "url": "https://www.babyshop.com/sv-se/p/110-116-cm-23230/PM-58478"}, {"id": "625732052", "title": "Bobo Choses pojkechesterbyxor Rosa 6-7 Y flicka", "brand": "Bobo Choses", "cat1": "Clothing", "cat2": "Trousers and shorts", "sale_price": 449.0, "cogs": 218.56, "url": "https://www.babyshop.com/sv-se/p/6-7-y-27310/PM-68380"}, {"id": "163513954", "title": "Molo  Maureen Huvtröja Vibrant Blue 116 cm  Blå   flicka", "brand": "Molo", "cat1": "Clothing", "cat2": "Tops and Sweaters", "sale_price": 449.0, "cogs": 299.55, "url": "https://www.babyshop.com/sv-se/p/116-cm-32823/PM-65781"}, {"id": "937953708", "title": "Molo  Nika Baddräkt Glitter Strawberry 146 cm  Röd   unisex", "brand": "Molo", "cat1": "Clothing", "cat2": "Swimwear and UV Clothing", "sale_price": 449.0, "cogs": 239.55, "url": "https://www.babyshop.com/sv-se/p/146-cm-43929/PM-71600"}, {"id": "222525534", "title": "Molo  Neka baddräkt Coquitos 92/98 cm  Blå   unisex", "brand": "Molo", "cat1": "Clothing", "cat2": "Swimwear and UV Clothing", "sale_price": 449.0, "cogs": 194.76, "url": "https://www.babyshop.com/sv-se/p/92-98-cm-45170/PM-71634"}, {"id": "1011786", "title": "Hunter Kids First Gummistövlar Navy 28 EU Marinblå Unisex", "brand": "Hunter", "cat1": "Footwear", "cat2": "Boots", "sale_price": 449.0, "cogs": 240.0, "url": "https://www.babyshop.com/sv-se/p/hunter-navy-28-eu/HUN-HFRK0032252-NVY"}, {"id": "1019576", "title": "Liewood Dove Badväst Sweethearts Pale Tuscany 11-15 kg Beige", "brand": "Liewood", "cat1": "Toys", "cat2": "Outdoor Water Toys", "sale_price": 439.0, "cogs": 215.76, "url": "https://www.babyshop.com/sv-se/p/sweethearts-pale-tuscany-11-15-kg/LIE-LW20501-2620"}], "top_discounts": [{"id": "397869356", "title": "Bonpoint Bluebell Prickig Klänning Gräddvit 12Y Krämfärgad", "brand": "Bonpoint", "cat1": "Clothing", "cat2": "Dresses and Skirts", "price": 5025.0, "sale_price": 1509.0, "discount_pct": 70.0, "url": "https://www.babyshop.com/sv-se/p/12-y-86053/PM-56093"}, {"id": "780652126", "title": "Bonpoint Bluebell Prickig Klänning Gräddvit 10Y Krämfärgad", "brand": "Bonpoint", "cat1": "Clothing", "cat2": "Dresses and Skirts", "price": 5025.0, "sale_price": 1509.0, "discount_pct": 70.0, "url": "https://www.babyshop.com/sv-se/p/10-y-86054/PM-56093"}, {"id": "162274389", "title": "Bonpoint Bluebell Prickig Klänning Gräddvit 8Y Flicka", "brand": "Bonpoint", "cat1": "Clothing", "cat2": "Dresses and Skirts", "price": 4895.0, "sale_price": 1469.0, "discount_pct": 70.0, "url": "https://www.babyshop.com/sv-se/p/8-y-86051/PM-56093"}, {"id": "432956464", "title": "Stella McCartney Kids Cape Med Regnbåge Svart 12Y Flicka", "brand": "Stella McCartney Kids", "cat1": "Outerwear", "cat2": "Coats and Jackets", "price": 4219.0, "sale_price": 839.0, "discount_pct": 80.1, "url": "https://www.babyshop.com/sv-se/p/12-y-84445/PM-55366"}, {"id": "442808487", "title": "Stella McCartney Kids Cape Med Regnbåge Svart 8Y Flicka", "brand": "Stella McCartney Kids", "cat1": "Outerwear", "cat2": "Coats and Jackets", "price": 4219.0, "sale_price": 839.0, "discount_pct": 80.1, "url": "https://www.babyshop.com/sv-se/p/8-y-84440/PM-55366"}, {"id": "627319625", "title": "Stella McCartney Kids Cape Med Regnbåge Svart 14 Y flicka", "brand": "Stella McCartney Kids", "cat1": "Outerwear", "cat2": "Coats and Jackets", "price": 4219.0, "sale_price": 839.0, "discount_pct": 80.1, "url": "https://www.babyshop.com/sv-se/p/14-y-84444/PM-55366"}, {"id": "750007892", "title": "Stella McCartney Kids Cape Med Regnbåge Svart 6Y Flicka", "brand": "Stella McCartney Kids", "cat1": "Outerwear", "cat2": "Coats and Jackets", "price": 4219.0, "sale_price": 839.0, "discount_pct": 80.1, "url": "https://www.babyshop.com/sv-se/p/6-y-84442/PM-55366"}, {"id": "875597480", "title": "Stella McCartney Kids Cape Med Regnbåge Svart 4 Y flicka", "brand": "Stella McCartney Kids", "cat1": "Outerwear", "cat2": "Coats and Jackets", "price": 4219.0, "sale_price": 839.0, "discount_pct": 80.1, "url": "https://www.babyshop.com/sv-se/p/4-y-84441/PM-55366"}, {"id": "804635265", "title": "Stella McCartney Kids Klänning Brodyr Ljusrosa 4Y Rosa flicka", "brand": "Stella McCartney Kids", "cat1": "Clothing", "cat2": "Dresses and Skirts", "price": 3899.0, "sale_price": 779.0, "discount_pct": 80.0, "url": "https://www.babyshop.com/sv-se/p/4-y-84417/PM-55352"}, {"id": "821698170", "title": "Stella McCartney Kids Klänning Brodyr Ljusrosa 6Y Rosa", "brand": "Stella McCartney Kids", "cat1": "Clothing", "cat2": "Dresses and Skirts", "price": 3899.0, "sale_price": 779.0, "discount_pct": 80.0, "url": "https://www.babyshop.com/sv-se/p/6-y-84419/PM-55352"}, {"id": "264812670", "title": "Stella McCartney Kids Klänning Med Brodyr Svart 10Y Flicka", "brand": "Stella McCartney Kids", "cat1": "Clothing", "cat2": "Dresses and Skirts", "price": 3899.0, "sale_price": 779.0, "discount_pct": 80.0, "url": "https://www.babyshop.com/sv-se/p/10-y-84421/PM-55353"}, {"id": "540632291", "title": "Stella McCartney Kids Klänning Brodyr Svart 8 Y flicka", "brand": "Stella McCartney Kids", "cat1": "Clothing", "cat2": "Dresses and Skirts", "price": 3899.0, "sale_price": 779.0, "discount_pct": 80.0, "url": "https://www.babyshop.com/sv-se/p/8-y-84422/PM-55353"}, {"id": "593610290", "title": "Stella McCartney Kids Klänning Brodyr Svart 12 Y Flicka", "brand": "Stella McCartney Kids", "cat1": "Clothing", "cat2": "Dresses and Skirts", "price": 3899.0, "sale_price": 779.0, "discount_pct": 80.0, "url": "https://www.babyshop.com/sv-se/p/12-y-84423/PM-55353"}, {"id": "100612340", "title": "Bonpoint  Shorts Gräddvita 10 Y  Krämfärgad   flicka", "brand": "Bonpoint", "cat1": "Clothing", "cat2": "Trousers and shorts", "price": 4175.0, "sale_price": 1259.0, "discount_pct": 69.8, "url": "https://www.babyshop.com/sv-se/p/10-y-15575/PM-20752"}, {"id": "155694308", "title": "Stella McCartney Kids Hjärtmönstrad Klänning Svart 12 Y", "brand": "Stella McCartney Kids", "cat1": "Clothing", "cat2": "Dresses and Skirts", "price": 3259.0, "sale_price": 649.0, "discount_pct": 80.1, "url": "https://www.babyshop.com/sv-se/p/12-y-84434/PM-55356"}, {"id": "202799210", "title": "Stella McCartney Kids Hjärtmönstrad Klänning Svart 14Y", "brand": "Stella McCartney Kids", "cat1": "Clothing", "cat2": "Dresses and Skirts", "price": 3259.0, "sale_price": 649.0, "discount_pct": 80.1, "url": "https://www.babyshop.com/sv-se/p/14-y-84433/PM-55356"}, {"id": "729868462", "title": "Stella McCartney Kids Hjärtmönstrad Klänning Svart 8 Y", "brand": "Stella McCartney Kids", "cat1": "Clothing", "cat2": "Dresses and Skirts", "price": 3259.0, "sale_price": 649.0, "discount_pct": 80.1, "url": "https://www.babyshop.com/sv-se/p/8-y-84430/PM-55356"}, {"id": "779945140", "title": "Stella McCartney Kids Hjärtmönstrad Klänning Svart 6Y flicka", "brand": "Stella McCartney Kids", "cat1": "Clothing", "cat2": "Dresses and Skirts", "price": 3259.0, "sale_price": 649.0, "discount_pct": 80.1, "url": "https://www.babyshop.com/sv-se/p/6-y-84432/PM-55356"}, {"id": "429300174", "title": "Tartine et Chocolat Konstpälsjacka Marinblå 12 Y flicka", "brand": "Tartine et Chocolat", "cat1": "Outerwear", "cat2": "Coats and Jackets", "price": 3509.0, "sale_price": 1059.0, "discount_pct": 69.8, "url": "https://www.babyshop.com/sv-se/p/12-y-82048/PM-54839"}, {"id": "842062928", "title": "Colmar Dunjacka Incense/Dark Steel Lila Flicka 8Y", "brand": "Colmar", "cat1": "Outerwear", "cat2": "Coats and Jackets", "price": 4799.0, "sale_price": 2399.0, "discount_pct": 50.0, "url": "https://www.babyshop.com/sv-se/p/8-y-75764/PM-69800"}, {"id": "913737821", "title": "Colmar Dunjacka Incense/Dark Steel Flickor 4 Y Lila", "brand": "Colmar", "cat1": "Outerwear", "cat2": "Coats and Jackets", "price": 4799.0, "sale_price": 2399.0, "discount_pct": 50.0, "url": "https://www.babyshop.com/sv-se/p/4-y-75765/PM-69800"}, {"id": "298070815", "title": "Colmar Dunjacka Black/Dark Steel Flickor 6 Y Svart", "brand": "Colmar", "cat1": "Outerwear", "cat2": "Coats and Jackets", "price": 4799.0, "sale_price": 2399.0, "discount_pct": 50.0, "url": "https://www.babyshop.com/sv-se/p/6-y-75781/PM-69804"}, {"id": "495335296", "title": "Colmar Dunjacka Black/Dark Steel Flickor 4 Y Svart", "brand": "Colmar", "cat1": "Outerwear", "cat2": "Coats and Jackets", "price": 4799.0, "sale_price": 2399.0, "discount_pct": 50.0, "url": "https://www.babyshop.com/sv-se/p/4-y-75782/PM-69804"}, {"id": "1029063", "title": "Bugaboo Donkey 6 Komplett Barnvagn Deep Indigo Marinblå Unisex", "brand": "Bugaboo", "cat1": "Uncategorised", "cat2": "Uncategorised", "price": 16299.0, "sale_price": 13899.0, "discount_pct": 14.7, "url": "https://www.babyshop.com/sv-se/p/deep-indigo-one-size-135400/BGB-100370003-DI"}, {"id": "753274585", "title": "Colmar  Flickor Ned Jkt Incense/Dark Steel 6 Y  Lila   flicka", "brand": "Colmar", "cat1": "Outerwear", "cat2": "Coats and Jackets", "price": 4699.0, "sale_price": 2349.0, "discount_pct": 50.0, "url": "https://www.babyshop.com/sv-se/p/6-y-75786/PM-69805"}, {"id": "759147681", "title": "Colmar  Flickor Ned Jkt Incense/Dark Steel 4 Y  Lila   flicka", "brand": "Colmar", "cat1": "Outerwear", "cat2": "Coats and Jackets", "price": 4699.0, "sale_price": 2349.0, "discount_pct": 50.0, "url": "https://www.babyshop.com/sv-se/p/4-y-75787/PM-69805"}, {"id": "953320252", "title": "Colmar  Dunjacka Black/Dark Steel 4 Y  Svart   flicka", "brand": "Colmar", "cat1": "Outerwear", "cat2": "Coats and Jackets", "price": 4699.0, "sale_price": 2349.0, "discount_pct": 50.0, "url": "https://www.babyshop.com/sv-se/p/4-y-75791/PM-69806"}, {"id": "227092350", "title": "Colmar Dunjacka Rosemary/Dark Steel Flickor 8 Y Grå", "brand": "Colmar", "cat1": "Outerwear", "cat2": "Coats and Jackets", "price": 4699.0, "sale_price": 2349.0, "discount_pct": 50.0, "url": "https://www.babyshop.com/sv-se/p/8-y-75797/PM-69807"}, {"id": "325281082", "title": "Colmar Dunjacka Rosemary/Dark Steel Flicka 4Y Grå", "brand": "Colmar", "cat1": "Outerwear", "cat2": "Coats and Jackets", "price": 4699.0, "sale_price": 2349.0, "discount_pct": 50.0, "url": "https://www.babyshop.com/sv-se/p/4-y-75796/PM-69807"}, {"id": "550853507", "title": "Kenzo  Blommig Klänning Ljusrosa 14 Y  Rosa   flicka", "brand": "Kenzo", "cat1": "Clothing", "cat2": "Dresses and Skirts", "price": 3879.0, "sale_price": 1559.0, "discount_pct": 59.8, "url": "https://www.babyshop.com/sv-se/p/14-y-71045/PM-63382"}], "brand_health": [{"brand": "Molo", "total_skus": 5316, "active": 2832, "dead": 2476, "oos": 8, "dead_pct": 46.6, "stock_value": 2908707}, {"brand": "Reima", "total_skus": 2749, "active": 2104, "dead": 643, "oos": 2, "dead_pct": 23.4, "stock_value": 3584404}, {"brand": "Kuling", "total_skus": 2521, "active": 2394, "dead": 114, "oos": 13, "dead_pct": 4.5, "stock_value": 1484819}, {"brand": "Konges Sløjd", "total_skus": 1939, "active": 1868, "dead": 68, "oos": 3, "dead_pct": 3.5, "stock_value": 398918}, {"brand": "Bobo Choses", "total_skus": 1183, "active": 849, "dead": 330, "oos": 4, "dead_pct": 27.9, "stock_value": 290328}, {"brand": "Wheat", "total_skus": 1068, "active": 810, "dead": 258, "oos": 0, "dead_pct": 24.2, "stock_value": 864742}, {"brand": "Copenhagen Colors", "total_skus": 1025, "active": 637, "dead": 388, "oos": 0, "dead_pct": 37.9, "stock_value": 527019}, {"brand": "Joha", "total_skus": 814, "active": 655, "dead": 159, "oos": 0, "dead_pct": 19.5, "stock_value": 173863}, {"brand": "Småfolk", "total_skus": 744, "active": 465, "dead": 278, "oos": 1, "dead_pct": 37.4, "stock_value": 326630}, {"brand": "Mini Rodini", "total_skus": 704, "active": 452, "dead": 252, "oos": 0, "dead_pct": 35.8, "stock_value": 369296}, {"brand": "Kavat", "total_skus": 601, "active": 504, "dead": 96, "oos": 1, "dead_pct": 16.0, "stock_value": 1049917}, {"brand": "The Animals Observatory", "total_skus": 576, "active": 306, "dead": 270, "oos": 0, "dead_pct": 46.9, "stock_value": 137346}, {"brand": "Minymo", "total_skus": 525, "active": 0, "dead": 525, "oos": 0, "dead_pct": 100.0, "stock_value": 0}, {"brand": "Viking", "total_skus": 519, "active": 407, "dead": 112, "oos": 0, "dead_pct": 21.6, "stock_value": 1194294}, {"brand": "Louise Misha", "total_skus": 519, "active": 283, "dead": 236, "oos": 0, "dead_pct": 45.5, "stock_value": 515706}, {"brand": "Gullkorn", "total_skus": 507, "active": 349, "dead": 156, "oos": 2, "dead_pct": 30.8, "stock_value": 400605}, {"brand": "Liewood", "total_skus": 495, "active": 389, "dead": 104, "oos": 2, "dead_pct": 21.0, "stock_value": 145852}, {"brand": "Tretorn", "total_skus": 462, "active": 438, "dead": 24, "oos": 0, "dead_pct": 5.2, "stock_value": 414311}, {"brand": "Flöss", "total_skus": 443, "active": 425, "dead": 14, "oos": 4, "dead_pct": 3.2, "stock_value": 24294}, {"brand": "New Balance", "total_skus": 438, "active": 283, "dead": 155, "oos": 0, "dead_pct": 35.4, "stock_value": 264161}, {"brand": "Hust&Claire", "total_skus": 411, "active": 0, "dead": 411, "oos": 0, "dead_pct": 100.0, "stock_value": 0}, {"brand": "The New", "total_skus": 384, "active": 217, "dead": 167, "oos": 0, "dead_pct": 43.5, "stock_value": 122952}, {"brand": "The New Siblings", "total_skus": 368, "active": 255, "dead": 113, "oos": 0, "dead_pct": 30.7, "stock_value": 38525}, {"brand": "Didriksons", "total_skus": 363, "active": 243, "dead": 120, "oos": 0, "dead_pct": 33.1, "stock_value": 847297}, {"brand": "Lacoste", "total_skus": 329, "active": 329, "dead": 0, "oos": 0, "dead_pct": 0.0, "stock_value": 0}, {"brand": "FUB", "total_skus": 326, "active": 237, "dead": 86, "oos": 3, "dead_pct": 26.4, "stock_value": 159016}, {"brand": "Name It", "total_skus": 295, "active": 294, "dead": 0, "oos": 1, "dead_pct": 0.0, "stock_value": 0}, {"brand": "Tartine et Chocolat", "total_skus": 293, "active": 1, "dead": 292, "oos": 0, "dead_pct": 99.7, "stock_value": 8059}, {"brand": "Ralph Lauren", "total_skus": 292, "active": 248, "dead": 44, "oos": 0, "dead_pct": 15.1, "stock_value": 518360}, {"brand": "Wynken", "total_skus": 229, "active": 0, "dead": 229, "oos": 0, "dead_pct": 100.0, "stock_value": 0}, {"brand": "Petit Bateau", "total_skus": 197, "active": 82, "dead": 115, "oos": 0, "dead_pct": 58.4, "stock_value": 85369}, {"brand": "Levi's", "total_skus": 187, "active": 187, "dead": 0, "oos": 0, "dead_pct": 0.0, "stock_value": 0}, {"brand": "Stella McCartney Kids", "total_skus": 178, "active": 127, "dead": 51, "oos": 0, "dead_pct": 28.7, "stock_value": 61886}, {"brand": "Buddy & Hope", "total_skus": 175, "active": 35, "dead": 140, "oos": 0, "dead_pct": 80.0, "stock_value": 15529}, {"brand": "Tinycottons", "total_skus": 159, "active": 155, "dead": 3, "oos": 1, "dead_pct": 1.9, "stock_value": 0}, {"brand": "Elodie", "total_skus": 154, "active": 91, "dead": 61, "oos": 2, "dead_pct": 39.6, "stock_value": 105406}, {"brand": "Veja", "total_skus": 152, "active": 133, "dead": 19, "oos": 0, "dead_pct": 12.5, "stock_value": 147865}, {"brand": "BIBS", "total_skus": 151, "active": 129, "dead": 22, "oos": 0, "dead_pct": 14.6, "stock_value": 18250}, {"brand": "Fanga Fontana", "total_skus": 145, "active": 123, "dead": 22, "oos": 0, "dead_pct": 15.2, "stock_value": 36567}, {"brand": "Bugaboo", "total_skus": 139, "active": 115, "dead": 22, "oos": 2, "dead_pct": 15.8, "stock_value": 868213}], "generated_at": "2026-05-25T12:24:44Z", "feed_skus_total": 32164};
+let DATA = EMBEDDED_DATA;
+let charts = { deadBrand: null, deadCat: null };
+
+const fmtSEK = v => {
+  const n = Math.round(v);
+  if (Math.abs(n) >= 1e6) return (n/1e6).toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})+'M kr';
+  if (Math.abs(n) >= 1e3) return (n/1e3).toLocaleString('sv-SE',{minimumFractionDigits:0,maximumFractionDigits:0})+'K kr';
+  return n.toLocaleString('sv-SE')+' kr';
+};
+const fmtNum = v => v.toLocaleString('sv-SE');
+
+function updateFeedStamp(suffix) {
+  const d = new Date(DATA.generated_at);
+  document.getElementById('feed-stamp').textContent =
+    'Feed updated ' + d.toLocaleString('sv-SE', {dateStyle:'short', timeStyle:'short'}) +
+    ' · ' + fmtNum(DATA.feed_skus_total) + ' SKUs' + (suffix ? ' · ' + suffix : '');
+}
+
+function renderKPIs() {
+  const K = DATA.kpis;
+  const cards = [
+    { label:'Active SKUs',           value: fmtNum(K.active_skus),         note: 'in stock · in_stock × not dead' },
+    { label:'Stock Value (book)',    value: fmtSEK(K.stock_value_sek),     note: 'Σ stock units × COGS · in-stock SKUs' },
+    { label:'Archive Value',         value: fmtSEK(K.dead_value_sek),      note: fmtNum(K.dead_skus) + ' SKUs · units × COGS', cls:'warn' },
+    { label:'OOS Lost Revenue / mo', value: fmtSEK(K.oos_lost_revenue_sek),note: fmtNum(K.oos_count) + ' SKUs out · ' + fmtNum(K.low_stock_count) + ' low-stock', cls:'critical' },
+  ];
+  const grid = document.getElementById('kpi-grid');
+  grid.innerHTML = '';
+  cards.forEach(k => grid.innerHTML += `
+    <div class="kpi-card${k.cls?' '+k.cls:''}">
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-value">${k.value}</div>
+      <div class="kpi-note">${k.note}</div>
+    </div>`);
+}
+
+function renderRisk() {
+  const tbody = document.getElementById('risk-tbody');
+  tbody.innerHTML = '';
+  DATA.stockout_risk.forEach(r => {
+    const margin = r.sale_price - r.cogs;
+    const marginPct = r.sale_price > 0 ? (margin / r.sale_price) : 0;
+    const mcls = margin < 0 ? 'cell-neg' : marginPct > 0.4 ? 'cell-pos' : '';
+    tbody.innerHTML += `<tr>
+      <td><a href="${r.url}" target="_blank">${r.title}</a></td>
+      <td>${r.brand}</td>
+      <td>${r.cat2 || r.cat1}</td>
+      <td data-val="${r.stock}"><span class="stock-badge stock-${r.stock}">${r.stock}</span></td>
+      <td data-val="${r.sale_price}">${fmtSEK(r.sale_price)}</td>
+      <td data-val="${r.cogs}">${fmtSEK(r.cogs)}</td>
+      <td data-val="${margin}" class="${mcls}">${fmtSEK(margin)} (${(marginPct*100).toFixed(0)}%)</td>
+    </tr>`;
+  });
+  document.getElementById('risk-badge').textContent = DATA.stockout_risk.length + ' SKUs';
+}
+
+function renderDeadCharts() {
+  if (charts.deadBrand) charts.deadBrand.destroy();
+  if (charts.deadCat)   charts.deadCat.destroy();
+  charts.deadBrand = new Chart(document.getElementById('c-dead-brand'), {
+    type: 'bar',
+    data: {
+      labels: DATA.dead_by_brand.slice(0,12).map(r => r.brand),
+      datasets: [{ label:'Archive value',
+        data: DATA.dead_by_brand.slice(0,12).map(r => r.value),
+        backgroundColor: '#C2410C', borderRadius: 3 }]
+    },
+    options: { indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins: { legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>' '+fmtSEK(ctx.parsed.x)+' · '+fmtNum(DATA.dead_by_brand[ctx.dataIndex].count)+' SKUs'}}},
+      scales: { x:{grid:{color:'rgba(15,23,42,.05)'},ticks:{callback:v=>fmtSEK(v),font:{size:10},color:'#94A3B8'}},
+                y:{grid:{display:false},ticks:{font:{size:11},color:'#475569'}}}}
+  });
+  charts.deadCat = new Chart(document.getElementById('c-dead-cat'), {
+    type: 'bar',
+    data: {
+      labels: DATA.dead_by_cat.slice(0,10).map(r => r.cat),
+      datasets: [{ label:'Archive value',
+        data: DATA.dead_by_cat.slice(0,10).map(r => r.value),
+        backgroundColor: '#B45309', borderRadius: 3 }]
+    },
+    options: { indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins: { legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>' '+fmtSEK(ctx.parsed.x)+' · '+fmtNum(DATA.dead_by_cat[ctx.dataIndex].count)+' SKUs'}}},
+      scales: { x:{grid:{color:'rgba(15,23,42,.05)'},ticks:{callback:v=>fmtSEK(v),font:{size:10},color:'#94A3B8'}},
+                y:{grid:{display:false},ticks:{font:{size:11},color:'#475569'}}}}
+  });
+}
+
+function renderOos() {
+  const tbody = document.getElementById('oos-tbody');
+  tbody.innerHTML = '';
+  DATA.oos_items.forEach(r => {
+    const pred = (r.predicted_units != null) ? r.predicted_units : 5;
+    const lostMo = (r.lost_mo != null) ? r.lost_mo : r.sale_price * pred;
+    tbody.innerHTML += `<tr>
+      <td><a href="${r.url}" target="_blank">${r.title}</a></td>
+      <td>${r.brand}</td>
+      <td data-val="${r.sale_price}">${fmtSEK(r.sale_price)}</td>
+      <td data-val="${pred}">${pred.toFixed(1)}</td>
+      <td data-val="${lostMo}" class="cell-neg">${fmtSEK(lostMo)}</td>
+    </tr>`;
+  });
+  document.getElementById('oos-badge').textContent = DATA.oos_items.length + ' shown';
+}
+
+function renderDiscounts() {
+  const tbody = document.getElementById('disc-tbody');
+  tbody.innerHTML = '';
+  DATA.top_discounts.forEach(r => {
+    tbody.innerHTML += `<tr>
+      <td><a href="${r.url}" target="_blank">${r.title}</a></td>
+      <td>${r.brand}</td>
+      <td data-val="${r.price}">${fmtSEK(r.price)}</td>
+      <td data-val="${r.sale_price}">${fmtSEK(r.sale_price)}</td>
+      <td data-val="${r.discount_pct}" class="cell-neg">−${r.discount_pct.toFixed(0)}%</td>
+    </tr>`;
+  });
+  document.getElementById('disc-badge').textContent = DATA.top_discounts.length + ' shown';
+}
+
+function renderHealth() {
+  const tbody = document.getElementById('health-tbody');
+  tbody.innerHTML = '';
+  DATA.brand_health.forEach(b => {
+    const deadcls = b.dead_pct > 50 ? 'cell-neg' : b.dead_pct > 30 ? 'cell-warn' : '';
+    tbody.innerHTML += `<tr>
+      <td>${b.brand}</td>
+      <td data-val="${b.total_skus}">${fmtNum(b.total_skus)}</td>
+      <td data-val="${b.active}">${fmtNum(b.active)}</td>
+      <td data-val="${b.dead}">${fmtNum(b.dead)}</td>
+      <td data-val="${b.oos}">${fmtNum(b.oos)}</td>
+      <td data-val="${b.dead_pct}" class="${deadcls}">${b.dead_pct.toFixed(1)}%</td>
+      <td data-val="${b.stock_value}">${fmtSEK(b.stock_value)}</td>
+    </tr>`;
+  });
+  document.getElementById('brand-health-badge').textContent = DATA.brand_health.length + ' brands';
+}
+
+function renderAll() {
+  updateFeedStamp();
+  renderKPIs();
+  renderRisk();
+  renderDeadCharts();
+  renderOos();
+  renderDiscounts();
+  renderHealth();
+}
+
+// Sort + filter helpers
+function tableCellValue(td) {
+  if (td.hasAttribute('data-val')) {
+    const n = parseFloat(td.getAttribute('data-val'));
+    return isNaN(n) ? td.textContent.trim().toLowerCase() : n;
+  }
+  return td.textContent.trim().toLowerCase();
+}
+function makeSortable(tableEl) {
+  if (tableEl.dataset.sortable) return;
+  tableEl.dataset.sortable = '1';
+  const headers = tableEl.querySelectorAll('thead th');
+  const tbody = tableEl.querySelector('tbody');
+  headers.forEach((th, idx) => {
+    th.addEventListener('click', () => {
+      const dir = th.classList.contains('sort-asc') ? 'desc' : 'asc';
+      headers.forEach(h => h.classList.remove('sort-asc','sort-desc'));
+      th.classList.add('sort-' + dir);
+      const rows = Array.from(tbody.rows);
+      rows.sort((a,b) => {
+        const av = tableCellValue(a.cells[idx]);
+        const bv = tableCellValue(b.cells[idx]);
+        if (typeof av === 'number' && typeof bv === 'number') return dir==='asc' ? av-bv : bv-av;
+        const cmp = String(av).localeCompare(String(bv),'sv');
+        return dir==='asc' ? cmp : -cmp;
+      });
+      rows.forEach(r => tbody.appendChild(r));
+    });
+  });
+}
+function makeFilterable(inputEl, tableEl, countEl) {
+  if (inputEl.dataset.filtered) {
+    inputEl.dispatchEvent(new Event('input'));
+    return;
+  }
+  inputEl.dataset.filtered = '1';
+  const tbody = tableEl.querySelector('tbody');
+  const update = () => {
+    const q = inputEl.value.toLowerCase().trim();
+    const rows = Array.from(tbody.rows);
+    let shown = 0;
+    rows.forEach(row => {
+      const text = Array.from(row.cells).map(c => c.textContent).join(' ').toLowerCase();
+      const match = !q || text.includes(q);
+      row.hidden = !match;
+      if (match) shown++;
+    });
+    countEl.textContent = `showing ${shown} of ${rows.length}`;
+  };
+  inputEl.addEventListener('input', update);
+  update();
+}
+function wireSortFilter() {
+  [
+    ['risk-table',   'risk-filter',   'risk-count'],
+    ['oos-table',    'oos-filter',    'oos-count'],
+    ['disc-table',   'disc-filter',   'disc-count'],
+    ['health-table', 'health-filter', 'health-count'],
+  ].forEach(([t,f,c]) => {
+    makeSortable(document.getElementById(t));
+    makeFilterable(document.getElementById(f), document.getElementById(t), document.getElementById(c));
+  });
+}
+
+// Initial render from embedded snapshot
+renderAll();
+wireSortFilter();
+
+// Then attempt to pull fresher data from the cron-refreshed Firestore cache
+async function fetchLiveAndRender() {
+  try {
+    const r = await fetch('/api/inventory', { cache: 'no-store' });
+    if (!r.ok) {
+      updateFeedStamp('embedded (live unavailable)');
+      return;
+    }
+    const fresh = await r.json();
+    if (!fresh || !fresh.kpis) return;
+    DATA = fresh;
+    renderAll();
+    wireSortFilter();
+    updateFeedStamp('live');
+  } catch (e) {
+    updateFeedStamp('embedded (live unavailable)');
+  }
+}
+fetchLiveAndRender();
+
+/* ── Inventory Trends (daily snapshots from /api/inventory-trends) ─── */
+const TREND_METRICS = {
+  stock_value_sek:      { label:'Stock value',       color:'#1E3A8A', unit:'sek',   fmt:fmtSEK },
+  dead_value_sek:       { label:'Archive value',  color:'#C2410C', unit:'sek',   fmt:fmtSEK },
+  oos_lost_revenue_sek: { label:'OOS lost / mo',     color:'#B91C1C', unit:'sek',   fmt:fmtSEK },
+  active_skus:          { label:'Active SKUs',       color:'#047857', unit:'count', fmt:fmtNum },
+  dead_skus:            { label:'Dead SKUs',         color:'#B45309', unit:'count', fmt:fmtNum },
+  oos_count:            { label:'OOS SKUs',          color:'#BE185D', unit:'count', fmt:fmtNum },
+  low_stock_count:      { label:'Low stock SKUs',    color:'#0891B2', unit:'count', fmt:fmtNum },
+  avg_discount_pct:     { label:'Avg discount %',    color:'#6D28D9', unit:'pct',   fmt:v=>v.toFixed(1)+'%' },
+};
+let activeTrends = new Set(['stock_value_sek', 'dead_value_sek']);
+let trendChart = null;
+let trendHistory = null;
+
+function renderTrendChips() {
+  const wrap = document.getElementById('trend-chips');
+  wrap.innerHTML = '';
+  Object.entries(TREND_METRICS).forEach(([key, m]) => {
+    const on = activeTrends.has(key);
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.dataset.key = key;
+    chip.style.cssText = `display:inline-flex;align-items:center;gap:6px;padding:3px 10px;
+      font-size:11px;font-weight:500;border:1px solid ${on?'transparent':'var(--border)'};
+      border-radius:999px;cursor:pointer;font-family:inherit;
+      background:${on?m.color:'var(--card)'};color:${on?'white':m.color};white-space:nowrap`;
+    chip.innerHTML = `<span style="width:7px;height:7px;border-radius:50%;background:${on?'white':m.color}"></span>${m.label}`;
+    chip.addEventListener('click', () => {
+      if (activeTrends.has(key)) {
+        if (activeTrends.size > 1) activeTrends.delete(key);
+      } else { activeTrends.add(key); }
+      renderTrendChips();
+      renderTrendChart();
+    });
+    wrap.appendChild(chip);
+  });
+}
+
+function renderTrendChart() {
+  if (!trendHistory) return;
+  const hasSek   = [...activeTrends].some(k => TREND_METRICS[k].unit === 'sek');
+  const hasCount = [...activeTrends].some(k => TREND_METRICS[k].unit === 'count');
+  const hasPct   = [...activeTrends].some(k => TREND_METRICS[k].unit === 'pct');
+  const axisParts = [];
+  if (hasSek) axisParts.push('SEK');
+  if (hasCount) axisParts.push('count');
+  if (hasPct) axisParts.push('%');
+  document.getElementById('trend-axis-badge').textContent = axisParts.join(' + ');
+
+  const labels = trendHistory.history.map(r => r.date.slice(5));  // MM-DD
+  const datasets = [...activeTrends].map(key => {
+    const m = TREND_METRICS[key];
+    return {
+      label: m.label,
+      data: trendHistory.history.map(r => r[key]),
+      borderColor: m.color,
+      backgroundColor: m.color + '14',
+      fill: activeTrends.size === 1 && m.unit === 'sek',
+      tension: .3,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      borderWidth: 2,
+      yAxisID: m.unit === 'pct' ? 'yPct' : (m.unit === 'count' ? 'yCount' : 'ySek'),
+      _unit: m.unit, _fmt: m.fmt,
+    };
+  });
+
+  const scales = {
+    x: { grid:{display:false}, ticks:{font:{size:10},color:'#94A3B8',maxRotation:0,maxTicksLimit:10} },
+  };
+  if (hasSek) scales.ySek = {
+    type:'linear', position:'left',
+    grid:{color:'rgba(15,23,42,.05)'},
+    ticks:{callback:v=>fmtSEK(v),font:{size:10},color:'#94A3B8'},
+  };
+  if (hasCount) scales.yCount = {
+    type:'linear', position: hasSek ? 'right' : 'left',
+    grid:{drawOnChartArea: !hasSek, color:'rgba(15,23,42,.05)'},
+    ticks:{callback:v=>fmtNum(v),font:{size:10},color:'#94A3B8'},
+  };
+  if (hasPct) scales.yPct = {
+    type:'linear', position: 'right',
+    grid:{drawOnChartArea: false},
+    ticks:{callback:v=>v.toFixed(0)+'%',font:{size:10},color:'#94A3B8'},
+  };
+
+  if (trendChart) trendChart.destroy();
+  trendChart = new Chart(document.getElementById('c-inv-trend'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'bottom',
+                  labels: { boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569', padding:12 } },
+        tooltip: { callbacks: { label: ctx => {
+          if (ctx.parsed.y == null) return null;
+          return ' ' + ctx.dataset.label + ': ' + ctx.dataset._fmt(ctx.parsed.y);
+        } } },
+      },
+      scales,
+    },
+  });
+}
+
+async function loadTrends() {
+  try {
+    const r = await fetch('/api/inventory-trends?days=30', { cache: 'no-store' });
+    if (!r.ok) {
+      document.getElementById('trend-source').textContent = 'history unavailable';
+      return;
+    }
+    trendHistory = await r.json();
+    const real = trendHistory.real_count || 0;
+    const synth = trendHistory.synth_count || 0;
+    document.getElementById('trend-source').textContent =
+      real >= trendHistory.days
+        ? `${real} days · live`
+        : `${real} of ${trendHistory.days} days live · ${synth} synthesised while history builds up`;
+    renderTrendChips();
+    renderTrendChart();
+  } catch (e) {
+    document.getElementById('trend-source').textContent = 'history unavailable (offline)';
+  }
+}
+loadTrends();
+</script>
+</body>
+</html>

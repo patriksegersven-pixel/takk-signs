@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ROAS Impact · Babyshop</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#F7F8FA; --card:#FFFFFF; --border:#E5E7EB; --border-lt:#F1F3F5;
+      --h:#0F172A; --body:#475569; --muted:#94A3B8;
+      --accent:#1E3A8A; --accent-bg:#EEF2FF;
+      --hero:#047857; --hero-bg:#ECFDF5;        /* green — GP3/savings is the win */
+      --spend:#B45309; --rev:#2563EB; --gp3:#047857; --proj:#94A3B8;
+      --up:#047857; --up-bg:#ECFDF5; --down:#B91C1C; --down-bg:#FEF2F2;
+      --warn:#B45309; --warn-bg:#FEF5E7;
+      --shadow-sm:0 1px 2px rgba(15,23,42,.04); --r:8px; --r-sm:4px;
+    }
+    html { font-size:16px; }
+    body { font-family:'Inter',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--body); min-height:100vh; -webkit-font-smoothing:antialiased; }
+
+    header { background:var(--h); color:#fff; padding:0 32px; height:58px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; }
+    .logo { display:flex; align-items:center; gap:12px; }
+    .logo-mark { width:34px; height:34px; background:var(--accent); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; color:#fff; letter-spacing:-.5px; }
+    .logo-wordmark { font-size:14px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+    .logo-sub { font-size:10px; font-weight:400; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,.45); margin-top:1px; }
+    .header-right { display:flex; align-items:center; gap:20px; }
+    .nav-tabs { display:flex; align-items:center; gap:2px; }
+    .nav-tab { padding:6px 14px; font-size:12px; font-weight:500; letter-spacing:.03em; color:rgba(255,255,255,.5); border-radius:6px; text-decoration:none; transition:all .15s; }
+    .nav-tab:hover { color:rgba(255,255,255,.8); background:rgba(255,255,255,.08); }
+    .nav-tab.active { color:#fff; background:rgba(255,255,255,.12); }
+    .live-dot { display:flex; align-items:center; gap:6px; font-size:11px; color:rgba(255,255,255,.45); letter-spacing:.04em; }
+    .live-dot::before { content:''; width:6px; height:6px; border-radius:50%; background:#4E9B65; box-shadow:0 0 0 2px rgba(78,155,101,.3); animation:blink 2s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{box-shadow:0 0 0 2px rgba(78,155,101,.3);} 50%{box-shadow:0 0 0 5px rgba(78,155,101,.1);} }
+    .refresh-pill { display:none; align-items:center; gap:6px; font-size:11px; padding:4px 10px; border-radius:12px; letter-spacing:.03em; cursor:help; background:rgba(220,80,80,.15); color:#ff8a8a; border:1px solid rgba(220,80,80,.35); }
+    .refresh-pill.show { display:inline-flex; }
+    .refresh-pill.stale { background:rgba(220,170,60,.12); color:#f0c060; border-color:rgba(220,170,60,.35); }
+    .refresh-pill.unknown { background:rgba(120,120,130,.12); color:rgba(255,255,255,.55); border-color:rgba(120,120,130,.3); }
+    .refresh-pill::before { content:''; width:6px; height:6px; border-radius:50%; background:currentColor; }
+
+    main { max-width:1380px; margin:0 auto; padding:26px 32px 56px; }
+    .filter-bar { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:18px; gap:18px; flex-wrap:wrap; }
+    .page-title { font-size:20px; font-weight:700; color:var(--h); letter-spacing:-.3px; }
+    .page-sub { font-size:12px; color:var(--muted); margin-top:3px; max-width:760px; line-height:1.5; }
+    .change-chip { display:flex; align-items:center; gap:8px; background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:8px 14px; font-size:12px; }
+    .change-chip b { color:var(--h); }
+    .change-chip .dot { width:8px; height:8px; border-radius:50%; background:var(--accent); }
+
+    .note-bar { background:var(--warn-bg); border:1px solid #F4D7A8; color:#7C4A11; border-radius:var(--r); padding:11px 16px; font-size:12px; line-height:1.5; margin-bottom:20px; display:flex; gap:9px; align-items:flex-start; }
+    .note-bar svg { flex-shrink:0; margin-top:1px; }
+
+    .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }
+    .kpi-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:18px 20px; box-shadow:var(--shadow-sm); position:relative; overflow:hidden; }
+    .kpi-card.hero { border:1px solid var(--hero); }
+    .kpi-card.hero::after { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--hero); }
+    .kpi-label { font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+    .kpi-badge { display:inline-flex; align-items:center; font-size:9px; font-weight:700; letter-spacing:.04em; padding:2px 6px; border-radius:3px; text-transform:uppercase; color:#fff; background:var(--hero); }
+    .kpi-badge.risk { background:var(--warn); }
+    .kpi-value { font-size:27px; font-weight:700; color:var(--h); letter-spacing:-.5px; line-height:1.1; margin-bottom:9px; font-variant-numeric:tabular-nums; }
+    .kpi-card.hero .kpi-value { color:var(--hero); }
+    .kpi-delta { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; padding:3px 7px; border-radius:var(--r-sm); }
+    .kpi-delta.up { color:var(--up); background:var(--up-bg); }
+    .kpi-delta.down { color:var(--down); background:var(--down-bg); }
+    .kpi-delta.flat { color:var(--muted); background:var(--bg); }
+    .kpi-delta svg { width:10px; height:10px; flex-shrink:0; }
+    .kpi-note { font-size:10.5px; color:var(--muted); margin-top:7px; line-height:1.45; }
+
+    .chart-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:20px 22px; box-shadow:var(--shadow-sm); margin-bottom:20px; }
+    .chart-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:14px; gap:12px; flex-wrap:wrap; }
+    .chart-title { font-size:14px; font-weight:600; color:var(--h); }
+    .chart-sub { font-size:11px; color:var(--muted); margin-top:2px; }
+    .chart-badge { font-size:10px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:3px 8px; white-space:nowrap; }
+    .chart-wrap { position:relative; height:300px; }
+    .chart-row { display:grid; grid-template-columns:1.45fr 1fr; gap:14px; }
+    @media(max-width:1080px){ .chart-row{grid-template-columns:1fr;} .kpi-grid{grid-template-columns:1fr 1fr;} }
+
+    .metric-chips { display:flex; gap:6px; flex-wrap:wrap; }
+    .metric-chip { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; font-size:11px; font-weight:500; border:1px solid var(--border); border-radius:999px; cursor:pointer; color:var(--muted); background:var(--card); font-family:inherit; transition:all .15s; white-space:nowrap; }
+    .metric-chip:hover { color:var(--h); border-color:var(--muted); }
+    .metric-chip.active { color:#fff; border-color:transparent; }
+    .metric-chip .dot { width:7px; height:7px; border-radius:50%; background:currentColor; flex-shrink:0; }
+
+    .card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); overflow:hidden; }
+    .card-header { padding:16px 22px 12px; display:flex; align-items:flex-start; justify-content:space-between; border-bottom:1px solid var(--border-lt); }
+    table { width:100%; border-collapse:collapse; }
+    thead th { padding:10px 14px; font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); text-align:right; border-bottom:1px solid var(--border); }
+    thead th:first-child { text-align:left; padding-left:22px; }
+    tbody td { padding:11px 14px; font-size:13px; font-weight:500; color:var(--body); border-bottom:1px solid var(--border-lt); text-align:right; font-variant-numeric:tabular-nums; }
+    tbody td:first-child { text-align:left; padding-left:22px; font-weight:600; color:var(--h); }
+    tbody tr:last-child td { border-bottom:none; }
+    tbody tr:hover td { background:var(--bg); }
+    tbody tr.risk td:first-child { box-shadow:inset 3px 0 0 var(--warn); }
+    .tfoot-row td { font-weight:700; color:var(--h); border-top:1px solid var(--border); border-bottom:none; background:var(--bg); }
+    .cell-pos { color:var(--up)!important; } .cell-neg { color:var(--down)!important; }
+    .cell-delta { font-size:10px; font-weight:600; margin-left:6px; font-variant-numeric:tabular-nums; }
+    .cell-delta.up { color:var(--up); } .cell-delta.down { color:var(--down); } .cell-delta.muted { color:var(--muted); opacity:.6; }
+    .pill { display:inline-block; padding:2px 7px; border-radius:3px; font-size:10px; font-weight:600; letter-spacing:.02em; }
+    .pill-risk { background:var(--warn-bg); color:var(--warn); }
+    .pill-safe { background:var(--up-bg); color:var(--up); }
+    .roas-arrow { color:var(--muted); margin:0 3px; }
+    .sub-cell { font-size:10px; color:var(--muted); font-weight:400; }
+
+    .section-head { margin:28px 0 14px; display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
+    .section-title { font-size:15px; font-weight:700; color:var(--h); letter-spacing:-.2px; display:flex; align-items:center; gap:8px; }
+    .section-tag { font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--accent); background:var(--accent-bg); border-radius:3px; padding:2px 7px; }
+    .section-sub { font-size:12px; color:var(--muted); margin-top:3px; max-width:820px; line-height:1.5; }
+    .pp-delta { display:inline-flex; align-items:center; gap:4px; font-size:12px; font-weight:600; padding:3px 7px; border-radius:var(--r-sm); }
+    .pp-delta.up { color:var(--up); background:var(--up-bg); } .pp-delta.down { color:var(--down); background:var(--down-bg); }
+    .maturity-banner { font-size:11.5px; line-height:1.5; padding:11px 22px; display:flex; gap:9px; align-items:flex-start; background:var(--warn-bg); color:#7C4A11; border-bottom:1px solid #F4D7A8; }
+    .maturity-banner.ok { background:var(--up-bg); color:#15603F; border-bottom-color:#BBE8D0; }
+    .maturity-banner svg { flex-shrink:0; margin-top:1px; }
+    .grp-row td { background:var(--bg); font-size:10px!important; font-weight:700!important; letter-spacing:.06em; text-transform:uppercase; color:var(--muted)!important; padding:7px 14px 7px 22px!important; text-align:left!important; }
+    tbody tr.grp-row:hover td { background:var(--bg); }
+  </style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <div class="logo-mark">bs</div>
+    <div>
+      <div class="logo-wordmark">Babyshop</div>
+      <div class="logo-sub">ROAS Impact Monitor</div>
+    </div>
+  </div>
+  <nav class="nav-tabs">
+    <a href="/babyshop-dashboard.html" class="nav-tab">KV Overview</a>
+    <a href="/babyshop-product-dashboard.html" class="nav-tab">Products</a>
+    <a href="/babyshop-inventory-dashboard.html" class="nav-tab">Inventory</a>
+    <a href="/babyshop-stoy-dashboard.html" class="nav-tab">Stoy Test</a>
+    <a href="/babyshop-roas-impact.html" class="nav-tab active">ROAS Impact</a>
+    <a href="/babyshop-roas-simulations.html" class="nav-tab">ROAS Simulations</a>
+  </nav>
+  <div class="header-right">
+    <div class="refresh-pill" id="refreshPill" title=""></div>
+    <div class="live-dot">Live · Funnel.io · AA/BS/LM/MJ Combo</div>
+  </div>
+</header>
+
+<main>
+  <div class="filter-bar">
+    <div>
+      <div class="page-title">ROAS Impact</div>
+      <div class="page-sub" id="page-sub">—</div>
+    </div>
+    <div class="change-chip">
+      <span class="dot"></span>
+      <div>tROAS raised on <b id="chip-date">2026-06-15</b> · <b id="chip-n">29</b> campaigns<br>
+        <span class="sub-cell" id="chip-range">Babyshop SE/NO/FI/DK · ROW · Lekmer SE</span></div>
+    </div>
+  </div>
+
+  <div class="note-bar">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+    <div><b>Forward-looking monitor.</b> Targets were just raised — there is almost no post-change data yet, so the cards show the pre-change baseline run-rate and the projected trajectory; actuals accrue daily. Smart Bidding takes ~1–2 weeks to re-stabilise, so the first days are noisy. Profit-ROAS = GP2 ÷ Cost (the value targets are set in). Currency: SEK.</div>
+  </div>
+
+  <div class="kpi-grid" id="kpi-grid"></div>
+
+  <div class="chart-row">
+    <div class="chart-card" style="margin-bottom:0">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Daily spend on the changed set</div>
+          <div class="chart-sub">vs pre-change baseline run-rate · marker = tROAS change · toggle revenue / GP3</div>
+        </div>
+        <div class="metric-chips" id="trend-chips"></div>
+      </div>
+      <div class="chart-wrap"><canvas id="c-trend"></canvas></div>
+    </div>
+    <div class="chart-card" style="margin-bottom:0">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Cumulative spend saved</div>
+          <div class="chart-sub">actual vs ~1.3M kr/mo projection since the change</div>
+        </div>
+        <span class="chart-badge">SEK</span>
+      </div>
+      <div class="chart-wrap"><canvas id="c-savings"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── Bigger picture: total business across all channels ── -->
+  <div class="section-head" id="total-section-head">
+    <div>
+      <div class="section-title">Bigger picture — total business <span class="section-tag">all channels</span></div>
+      <div class="section-sub" id="total-sub">Babyshop + Lekmer · all markets · every channel. The cards above are siloed to the changed campaigns; this tests whether revenue the paid pullback gives up is recovered through organic &amp; direct rather than lost.</div>
+    </div>
+  </div>
+  <div class="kpi-grid" id="total-kpi-grid"></div>
+
+  <div class="card" id="channel-card" style="margin-top:20px">
+    <div class="card-header">
+      <div>
+        <div class="chart-title">Channel shift — where revenue comes from</div>
+        <div class="chart-sub">revenue / day · baseline run-rate vs since change · earned/unpaid channels are the substitution targets</div>
+      </div>
+      <span class="chart-badge" id="channel-badge">maturing</span>
+    </div>
+    <div id="maturity-banner" class="maturity-banner"></div>
+    <table>
+      <thead>
+        <tr><th>Channel</th><th>Baseline / day</th><th>Since change / day</th><th>Δ</th></tr>
+      </thead>
+      <tbody id="channel-tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="card" style="margin-top:20px">
+    <div class="card-header">
+      <div>
+        <div class="chart-title">Per-group impact</div>
+        <div class="chart-sub">new target · baseline spend run-rate · spend since change · profit-ROAS pre → post · revenue-risk groups flagged</div>
+      </div>
+      <span class="chart-badge" id="group-badge">6 groups</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Group</th>
+          <th>New target</th>
+          <th>Baseline spend / mo</th>
+          <th>Spend since change</th>
+          <th>Run-rate Δ</th>
+          <th>Profit-ROAS pre → post</th>
+          <th>Revenue risk</th>
+        </tr>
+      </thead>
+      <tbody id="group-tbody"></tbody>
+      <tfoot id="group-tfoot"></tfoot>
+    </table>
+  </div>
+</main>
+
+<script>
+/* ── Embedded snapshot (rendered instantly; /api/roas-impact overlays live) ── */
+const SNAP = {"change_date":"2026-06-15","data_end":"2026-06-22","complete_end":"2026-06-21","currency":"SEK","source":"bigquery-export","n_campaigns":29,"projection":{"monthly_cut":1300000,"cut_pct":0.53},"baseline":{"window":"18 maj – 14 jun 2026","days":28,"spend_day":74484,"rev_day":354601,"gp2_day":79587,"gp3_day":5102,"spend_mo":2234534,"rev_mo":10638020,"gp3_mo":153065,"proj_spend_day":35008,"proj_spend_mo":1050231},"kpis":{"days_elapsed":7,"spend":{"actual":307095,"projected":245053.8875,"baseline":521391.25},"revenue":{"actual":1479429,"baseline":2482204.75},"gp3":{"actual":47924,"baseline":35715.25}},"daily":[{"iso":"2026-04-01","d":"1/4","post":false,"partial":false,"spend":70654,"rev":280330,"gp2":85811,"gp3":15157},{"iso":"2026-04-02","d":"2/4","post":false,"partial":false,"spend":60882,"rev":265820,"gp2":79477,"gp3":18595},{"iso":"2026-04-03","d":"3/4","post":false,"partial":false,"spend":61120,"rev":285435,"gp2":78943,"gp3":17823},{"iso":"2026-04-04","d":"4/4","post":false,"partial":false,"spend":63304,"rev":250916,"gp2":72933,"gp3":9628},{"iso":"2026-04-05","d":"5/4","post":false,"partial":false,"spend":78801,"rev":393683,"gp2":121086,"gp3":42285},{"iso":"2026-04-06","d":"6/4","post":false,"partial":false,"spend":91938,"rev":479572,"gp2":146437,"gp3":54498},{"iso":"2026-04-07","d":"7/4","post":false,"partial":false,"spend":102935,"rev":472847,"gp2":150288,"gp3":47353},{"iso":"2026-04-08","d":"8/4","post":false,"partial":false,"spend":87206,"rev":402657,"gp2":122998,"gp3":35792},{"iso":"2026-04-09","d":"9/4","post":false,"partial":false,"spend":40316,"rev":199445,"gp2":66606,"gp3":26290},{"iso":"2026-04-10","d":"10/4","post":false,"partial":false,"spend":85478,"rev":300276,"gp2":95838,"gp3":10360},{"iso":"2026-04-11","d":"11/4","post":false,"partial":false,"spend":113142,"rev":313110,"gp2":97035,"gp3":-16107},{"iso":"2026-04-12","d":"12/4","post":false,"partial":false,"spend":128438,"rev":495540,"gp2":156231,"gp3":27793},{"iso":"2026-04-13","d":"13/4","post":false,"partial":false,"spend":89743,"rev":340661,"gp2":106650,"gp3":16907},{"iso":"2026-04-14","d":"14/4","post":false,"partial":false,"spend":84143,"rev":297737,"gp2":99153,"gp3":15010},{"iso":"2026-04-15","d":"15/4","post":false,"partial":false,"spend":86465,"rev":352297,"gp2":115532,"gp3":29067},{"iso":"2026-04-16","d":"16/4","post":false,"partial":false,"spend":72816,"rev":303597,"gp2":100643,"gp3":27827},{"iso":"2026-04-17","d":"17/4","post":false,"partial":false,"spend":64167,"rev":209950,"gp2":70322,"gp3":6154},{"iso":"2026-04-18","d":"18/4","post":false,"partial":false,"spend":74326,"rev":293581,"gp2":95371,"gp3":21045},{"iso":"2026-04-19","d":"19/4","post":false,"partial":false,"spend":78843,"rev":358336,"gp2":116724,"gp3":37881},{"iso":"2026-04-20","d":"20/4","post":false,"partial":false,"spend":65292,"rev":353695,"gp2":119823,"gp3":54531},{"iso":"2026-04-21","d":"21/4","post":false,"partial":false,"spend":63739,"rev":338381,"gp2":114126,"gp3":50387},{"iso":"2026-04-22","d":"22/4","post":false,"partial":false,"spend":65716,"rev":286905,"gp2":93927,"gp3":28211},{"iso":"2026-04-23","d":"23/4","post":false,"partial":false,"spend":69754,"rev":302151,"gp2":66756,"gp3":-2998},{"iso":"2026-04-24","d":"24/4","post":false,"partial":false,"spend":64358,"rev":320440,"gp2":78014,"gp3":13656},{"iso":"2026-04-25","d":"25/4","post":false,"partial":false,"spend":66355,"rev":262508,"gp2":70447,"gp3":4092},{"iso":"2026-04-26","d":"26/4","post":false,"partial":false,"spend":93674,"rev":391882,"gp2":94625,"gp3":951},{"iso":"2026-04-27","d":"27/4","post":false,"partial":false,"spend":74698,"rev":302788,"gp2":86935,"gp3":12237},{"iso":"2026-04-28","d":"28/4","post":false,"partial":false,"spend":71245,"rev":327889,"gp2":90701,"gp3":19456},{"iso":"2026-04-29","d":"29/4","post":false,"partial":false,"spend":66313,"rev":262216,"gp2":74512,"gp3":8200},{"iso":"2026-04-30","d":"30/4","post":false,"partial":false,"spend":56435,"rev":236636,"gp2":64214,"gp3":7779},{"iso":"2026-05-01","d":"1/5","post":false,"partial":false,"spend":63217,"rev":305263,"gp2":77796,"gp3":14579},{"iso":"2026-05-02","d":"2/5","post":false,"partial":false,"spend":74373,"rev":310392,"gp2":80668,"gp3":6296},{"iso":"2026-05-03","d":"3/5","post":false,"partial":false,"spend":99178,"rev":480253,"gp2":126880,"gp3":27703},{"iso":"2026-05-04","d":"4/5","post":false,"partial":false,"spend":99230,"rev":407103,"gp2":113662,"gp3":14432},{"iso":"2026-05-05","d":"5/5","post":false,"partial":false,"spend":74106,"rev":364443,"gp2":107197,"gp3":33090},{"iso":"2026-05-06","d":"6/5","post":false,"partial":false,"spend":81055,"rev":323417,"gp2":85828,"gp3":4773},{"iso":"2026-05-07","d":"7/5","post":false,"partial":false,"spend":76068,"rev":293139,"gp2":81637,"gp3":5570},{"iso":"2026-05-08","d":"8/5","post":false,"partial":false,"spend":67878,"rev":214440,"gp2":58821,"gp3":-9057},{"iso":"2026-05-09","d":"9/5","post":false,"partial":false,"spend":70519,"rev":239157,"gp2":66783,"gp3":-3736},{"iso":"2026-05-10","d":"10/5","post":false,"partial":false,"spend":78697,"rev":331082,"gp2":96872,"gp3":18175},{"iso":"2026-05-11","d":"11/5","post":false,"partial":false,"spend":71950,"rev":279672,"gp2":84320,"gp3":12370},{"iso":"2026-05-12","d":"12/5","post":false,"partial":false,"spend":77934,"rev":356773,"gp2":89218,"gp3":11284},{"iso":"2026-05-13","d":"13/5","post":false,"partial":false,"spend":72038,"rev":328184,"gp2":78250,"gp3":6212},{"iso":"2026-05-14","d":"14/5","post":false,"partial":false,"spend":86064,"rev":378521,"gp2":85639,"gp3":-425},{"iso":"2026-05-15","d":"15/5","post":false,"partial":false,"spend":66692,"rev":439832,"gp2":87015,"gp3":20324},{"iso":"2026-05-16","d":"16/5","post":false,"partial":false,"spend":80407,"rev":461114,"gp2":90858,"gp3":10451},{"iso":"2026-05-17","d":"17/5","post":false,"partial":false,"spend":73355,"rev":586869,"gp2":108608,"gp3":35253},{"iso":"2026-05-18","d":"18/5","post":false,"partial":false,"spend":84715,"rev":380231,"gp2":89278,"gp3":4563},{"iso":"2026-05-19","d":"19/5","post":false,"partial":false,"spend":90682,"rev":368480,"gp2":95524,"gp3":4842},{"iso":"2026-05-20","d":"20/5","post":false,"partial":false,"spend":86939,"rev":383801,"gp2":95668,"gp3":8729},{"iso":"2026-05-21","d":"21/5","post":false,"partial":false,"spend":89427,"rev":385882,"gp2":99413,"gp3":9985},{"iso":"2026-05-22","d":"22/5","post":false,"partial":false,"spend":71897,"rev":389308,"gp2":82007,"gp3":10110},{"iso":"2026-05-23","d":"23/5","post":false,"partial":false,"spend":84415,"rev":379239,"gp2":68095,"gp3":-16319},{"iso":"2026-05-24","d":"24/5","post":false,"partial":false,"spend":114296,"rev":641327,"gp2":110751,"gp3":-3545},{"iso":"2026-05-25","d":"25/5","post":false,"partial":false,"spend":87384,"rev":477987,"gp2":91282,"gp3":3898},{"iso":"2026-05-26","d":"26/5","post":false,"partial":false,"spend":87084,"rev":360972,"gp2":75755,"gp3":-11329},{"iso":"2026-05-27","d":"27/5","post":false,"partial":false,"spend":70648,"rev":339773,"gp2":73755,"gp3":3107},{"iso":"2026-05-28","d":"28/5","post":false,"partial":false,"spend":60289,"rev":294520,"gp2":62660,"gp3":2371},{"iso":"2026-05-29","d":"29/5","post":false,"partial":false,"spend":46157,"rev":302942,"gp2":65109,"gp3":18951},{"iso":"2026-05-30","d":"30/5","post":false,"partial":false,"spend":53629,"rev":291098,"gp2":58329,"gp3":4701},{"iso":"2026-05-31","d":"31/5","post":false,"partial":false,"spend":68122,"rev":432501,"gp2":90337,"gp3":22215},{"iso":"2026-06-01","d":"1/6","post":false,"partial":false,"spend":67040,"rev":346080,"gp2":91123,"gp3":24084},{"iso":"2026-06-02","d":"2/6","post":false,"partial":false,"spend":60233,"rev":319189,"gp2":81714,"gp3":21481},{"iso":"2026-06-03","d":"3/6","post":false,"partial":false,"spend":58336,"rev":315452,"gp2":81274,"gp3":22938},{"iso":"2026-06-04","d":"4/6","post":false,"partial":false,"spend":65585,"rev":301825,"gp2":79072,"gp3":13488},{"iso":"2026-06-05","d":"5/6","post":false,"partial":false,"spend":60185,"rev":285290,"gp2":72392,"gp3":12207},{"iso":"2026-06-06","d":"6/6","post":false,"partial":false,"spend":62697,"rev":244431,"gp2":62327,"gp3":-370},{"iso":"2026-06-07","d":"7/6","post":false,"partial":false,"spend":79398,"rev":369832,"gp2":102282,"gp3":22884},{"iso":"2026-06-08","d":"8/6","post":false,"partial":false,"spend":75514,"rev":239774,"gp2":63734,"gp3":-11780},{"iso":"2026-06-09","d":"9/6","post":false,"partial":false,"spend":103354,"rev":355519,"gp2":101091,"gp3":-2263},{"iso":"2026-06-10","d":"10/6","post":false,"partial":false,"spend":78833,"rev":361963,"gp2":94391,"gp3":15558},{"iso":"2026-06-11","d":"11/6","post":false,"partial":false,"spend":52842,"rev":300195,"gp2":56711,"gp3":3869},{"iso":"2026-06-12","d":"12/6","post":false,"partial":false,"spend":58895,"rev":283861,"gp2":48770,"gp3":-10125},{"iso":"2026-06-13","d":"13/6","post":false,"partial":false,"spend":77948,"rev":307707,"gp2":50360,"gp3":-27587},{"iso":"2026-06-14","d":"14/6","post":false,"partial":false,"spend":89021,"rev":469640,"gp2":85219,"gp3":-3802},{"iso":"2026-06-15","d":"15/6","post":true,"partial":false,"spend":53799,"rev":359900,"gp2":84498,"gp3":30699},{"iso":"2026-06-16","d":"16/6","post":true,"partial":false,"spend":42101,"rev":245182,"gp2":64204,"gp3":22103},{"iso":"2026-06-17","d":"17/6","post":true,"partial":false,"spend":36083,"rev":239527,"gp2":54097,"gp3":18014},{"iso":"2026-06-18","d":"18/6","post":true,"partial":false,"spend":38591,"rev":175027,"gp2":39025,"gp3":434},{"iso":"2026-06-19","d":"19/6","post":true,"partial":false,"spend":30833,"rev":201775,"gp2":48513,"gp3":17680},{"iso":"2026-06-20","d":"20/6","post":true,"partial":false,"spend":45415,"rev":246147,"gp2":62248,"gp3":16833},{"iso":"2026-06-21","d":"21/6","post":true,"partial":false,"spend":60273,"rev":11871,"gp2":2433,"gp3":-57839}],"savings":[{"day":1,"label":"Day 1","projected":43333,"actual":20685},{"day":2,"label":"Day 2","projected":86667,"actual":53069},{"day":3,"label":"Day 3","projected":130000,"actual":91470},{"day":4,"label":"Day 4","projected":173333,"actual":127364},{"day":5,"label":"Day 5","projected":216667,"actual":171015},{"day":6,"label":"Day 6","projected":260000,"actual":200085},{"day":7,"label":"Day 7","projected":303333,"actual":214296},{"day":8,"label":"Day 8","projected":346667,"actual":null},{"day":9,"label":"Day 9","projected":390000,"actual":null},{"day":10,"label":"Day 10","projected":433333,"actual":null},{"day":11,"label":"Day 11","projected":476667,"actual":null},{"day":12,"label":"Day 12","projected":520000,"actual":null},{"day":13,"label":"Day 13","projected":563333,"actual":null},{"day":14,"label":"Day 14","projected":606667,"actual":null},{"day":15,"label":"Day 15","projected":650000,"actual":null},{"day":16,"label":"Day 16","projected":693333,"actual":null},{"day":17,"label":"Day 17","projected":736667,"actual":null},{"day":18,"label":"Day 18","projected":780000,"actual":null},{"day":19,"label":"Day 19","projected":823333,"actual":null},{"day":20,"label":"Day 20","projected":866667,"actual":null},{"day":21,"label":"Day 21","projected":910000,"actual":null},{"day":22,"label":"Day 22","projected":953333,"actual":null},{"day":23,"label":"Day 23","projected":996667,"actual":null},{"day":24,"label":"Day 24","projected":1040000,"actual":null},{"day":25,"label":"Day 25","projected":1083333,"actual":null},{"day":26,"label":"Day 26","projected":1126667,"actual":null},{"day":27,"label":"Day 27","projected":1170000,"actual":null},{"day":28,"label":"Day 28","projected":1213333,"actual":null},{"day":29,"label":"Day 29","projected":1256667,"actual":null},{"day":30,"label":"Day 30","projected":1300000,"actual":null}],"groups":[{"key":"pb-product","label":"PB-Product","target":"6.0","risk":false,"note":"Sole seller — minimal revenue risk","baseline_spend_mo":180363.98253535715,"actual_spend":16140.985618999997,"actual_spend_day":2305.855088428571,"pct_change":-0.6164663716088855,"proas_pre":1.6094271076497586,"proas_post":1.8690834520345159},{"key":"brand","label":"Brand","target":"6.0","risk":false,"note":"Brand demand — minimal revenue risk","baseline_spend_mo":45434.044713214345,"actual_spend":8512.101026999999,"actual_spend_day":1216.0144324285714,"pct_change":-0.19706833932293674,"proas_pre":1.4647685518819407,"proas_post":1.488349220458565},{"key":"pb-generic","label":"PB-Generic / Generic","target":"2.0–2.2","risk":true,"note":"Incremental — revenue risk","baseline_spend_mo":843870.8780432151,"actual_spend":114236.472543,"actual_spend_day":16319.496077571428,"pct_change":-0.4198343667666288,"proas_pre":1.1164498811235817,"proas_post":1.0967368229515342},{"key":"rb-categories","label":"RB-Categories","target":"1.5–3.0","risk":true,"note":"Incremental — revenue risk","baseline_spend_mo":842829.2189303568,"actual_spend":152133.303001,"actual_spend_day":21733.329000142858,"pct_change":-0.22641520327006998,"proas_pre":1.0552523830812712,"proas_post":1.0949679646928132},{"key":"last-season","label":"Last-Season","target":"2.0","risk":false,"note":"Clearance / seasonal","baseline_spend_mo":280996.7772385715,"actual_spend":10522.226951999999,"actual_spend_day":1503.1752788571428,"pct_change":-0.8395168129368702,"proas_pre":0.5357683717656339,"proas_post":1.0278904513596538},{"key":"search-dsa","label":"Search / DSA","target":"1.8–2.0","risk":false,"note":"Search, DSA & remarketing","baseline_spend_mo":41038.052970000004,"actual_spend":5549.687772,"actual_spend_day":792.8125388571428,"pct_change":-0.4204311743761005,"proas_pre":1.186196726370736,"proas_post":1.7111174021196804}],"total":{"scope":"Babyshop + Lekmer · all markets · all channels","baseline_window":"18 maj – 14 jun 2026","baseline":{"rev_day":660572,"gp3_day":116280,"spend_day":90738,"days":28,"margin":0.17602978111288603},"post":{"rev_day":524818,"gp3_day":103198,"spend_day":58841,"days":7,"margin":0.19663567907041568},"delta":{"rev":-0.20550942370406441,"gp3":-0.11250702581507135,"spend":-0.35152576916249484},"daily":[{"iso":"2026-04-01","d":"1/4","post":false,"partial":false,"rev":572555,"gp3":136162,"spend":84856},{"iso":"2026-04-02","d":"2/4","post":false,"partial":false,"rev":482572,"gp3":113262,"spend":75619},{"iso":"2026-04-03","d":"3/4","post":false,"partial":false,"rev":595573,"gp3":140265,"spend":74276},{"iso":"2026-04-04","d":"4/4","post":false,"partial":false,"rev":447075,"gp3":98267,"spend":74352},{"iso":"2026-04-05","d":"5/4","post":false,"partial":false,"rev":766752,"gp3":187292,"spend":91656},{"iso":"2026-04-06","d":"6/4","post":false,"partial":false,"rev":878726,"gp3":230890,"spend":110903},{"iso":"2026-04-07","d":"7/4","post":false,"partial":false,"rev":849965,"gp3":206620,"spend":121561},{"iso":"2026-04-08","d":"8/4","post":false,"partial":false,"rev":753520,"gp3":182074,"spend":110279},{"iso":"2026-04-09","d":"9/4","post":false,"partial":false,"rev":562610,"gp3":162837,"spend":73322},{"iso":"2026-04-10","d":"10/4","post":false,"partial":false,"rev":580408,"gp3":116486,"spend":107346},{"iso":"2026-04-11","d":"11/4","post":false,"partial":false,"rev":589847,"gp3":92025,"spend":138480},{"iso":"2026-04-12","d":"12/4","post":false,"partial":false,"rev":943296,"gp3":229015,"spend":156310},{"iso":"2026-04-13","d":"13/4","post":false,"partial":false,"rev":665238,"gp3":163645,"spend":116359},{"iso":"2026-04-14","d":"14/4","post":false,"partial":false,"rev":587202,"gp3":140400,"spend":108965},{"iso":"2026-04-15","d":"15/4","post":false,"partial":false,"rev":649259,"gp3":154831,"spend":108503},{"iso":"2026-04-16","d":"16/4","post":false,"partial":false,"rev":599886,"gp3":173000,"spend":87876},{"iso":"2026-04-17","d":"17/4","post":false,"partial":false,"rev":423079,"gp3":98602,"spend":78674},{"iso":"2026-04-18","d":"18/4","post":false,"partial":false,"rev":496723,"gp3":110483,"spend":88992},{"iso":"2026-04-19","d":"19/4","post":false,"partial":false,"rev":646406,"gp3":176799,"spend":96763},{"iso":"2026-04-20","d":"20/4","post":false,"partial":false,"rev":635819,"gp3":189130,"spend":80850},{"iso":"2026-04-21","d":"21/4","post":false,"partial":false,"rev":584676,"gp3":172864,"spend":78898},{"iso":"2026-04-22","d":"22/4","post":false,"partial":false,"rev":535933,"gp3":136952,"spend":78841},{"iso":"2026-04-23","d":"23/4","post":false,"partial":false,"rev":584844,"gp3":81510,"spend":87166},{"iso":"2026-04-24","d":"24/4","post":false,"partial":false,"rev":579233,"gp3":127168,"spend":79382},{"iso":"2026-04-25","d":"25/4","post":false,"partial":false,"rev":465141,"gp3":97173,"spend":78459},{"iso":"2026-04-26","d":"26/4","post":false,"partial":false,"rev":720646,"gp3":131620,"spend":112753},{"iso":"2026-04-27","d":"27/4","post":false,"partial":false,"rev":591198,"gp3":128614,"spend":89846},{"iso":"2026-04-28","d":"28/4","post":false,"partial":false,"rev":661576,"gp3":128296,"spend":84886},{"iso":"2026-04-29","d":"29/4","post":false,"partial":false,"rev":497062,"gp3":93120,"spend":77786},{"iso":"2026-04-30","d":"30/4","post":false,"partial":false,"rev":481849,"gp3":89626,"spend":70045},{"iso":"2026-05-01","d":"1/5","post":false,"partial":false,"rev":1083326,"gp3":256162,"spend":74470},{"iso":"2026-05-02","d":"2/5","post":false,"partial":false,"rev":723718,"gp3":157916,"spend":87042},{"iso":"2026-05-03","d":"3/5","post":false,"partial":false,"rev":1027496,"gp3":224119,"spend":116247},{"iso":"2026-05-04","d":"4/5","post":false,"partial":false,"rev":847659,"gp3":183350,"spend":114419},{"iso":"2026-05-05","d":"5/5","post":false,"partial":false,"rev":749886,"gp3":185563,"spend":86618},{"iso":"2026-05-06","d":"6/5","post":false,"partial":false,"rev":626629,"gp3":129244,"spend":95405},{"iso":"2026-05-07","d":"7/5","post":false,"partial":false,"rev":558386,"gp3":119628,"spend":88959},{"iso":"2026-05-08","d":"8/5","post":false,"partial":false,"rev":435336,"gp3":70727,"spend":79936},{"iso":"2026-05-09","d":"9/5","post":false,"partial":false,"rev":432127,"gp3":72921,"spend":81651},{"iso":"2026-05-10","d":"10/5","post":false,"partial":false,"rev":699999,"gp3":116684,"spend":92846},{"iso":"2026-05-11","d":"11/5","post":false,"partial":false,"rev":527151,"gp3":128367,"spend":82529},{"iso":"2026-05-12","d":"12/5","post":false,"partial":false,"rev":672851,"gp3":138545,"spend":90393},{"iso":"2026-05-13","d":"13/5","post":false,"partial":false,"rev":570399,"gp3":94640,"spend":84327},{"iso":"2026-05-14","d":"14/5","post":false,"partial":false,"rev":635196,"gp3":88506,"spend":98045},{"iso":"2026-05-15","d":"15/5","post":false,"partial":false,"rev":749506,"gp3":120651,"spend":79848},{"iso":"2026-05-16","d":"16/5","post":false,"partial":false,"rev":830049,"gp3":140319,"spend":94007},{"iso":"2026-05-17","d":"17/5","post":false,"partial":false,"rev":1076842,"gp3":194065,"spend":91645},{"iso":"2026-05-18","d":"18/5","post":false,"partial":false,"rev":737126,"gp3":130635,"spend":101658},{"iso":"2026-05-19","d":"19/5","post":false,"partial":false,"rev":702880,"gp3":132806,"spend":109038},{"iso":"2026-05-20","d":"20/5","post":false,"partial":false,"rev":663854,"gp3":113321,"spend":107885},{"iso":"2026-05-21","d":"21/5","post":false,"partial":false,"rev":663078,"gp3":121546,"spend":107485},{"iso":"2026-05-22","d":"22/5","post":false,"partial":false,"rev":683729,"gp3":107334,"spend":86545},{"iso":"2026-05-23","d":"23/5","post":false,"partial":false,"rev":780141,"gp3":104834,"spend":98867},{"iso":"2026-05-24","d":"24/5","post":false,"partial":false,"rev":1168428,"gp3":168482,"spend":134418},{"iso":"2026-05-25","d":"25/5","post":false,"partial":false,"rev":843390,"gp3":123163,"spend":103666},{"iso":"2026-05-26","d":"26/5","post":false,"partial":false,"rev":659506,"gp3":86050,"spend":105390},{"iso":"2026-05-27","d":"27/5","post":false,"partial":false,"rev":600724,"gp3":89221,"spend":89719},{"iso":"2026-05-28","d":"28/5","post":false,"partial":false,"rev":598708,"gp3":82808,"spend":80319},{"iso":"2026-05-29","d":"29/5","post":false,"partial":false,"rev":542672,"gp3":99485,"spend":61459},{"iso":"2026-05-30","d":"30/5","post":false,"partial":false,"rev":523621,"gp3":80363,"spend":69290},{"iso":"2026-05-31","d":"31/5","post":false,"partial":false,"rev":772804,"gp3":138014,"spend":86751},{"iso":"2026-06-01","d":"1/6","post":false,"partial":false,"rev":654192,"gp3":145415,"spend":83616},{"iso":"2026-06-02","d":"2/6","post":false,"partial":false,"rev":629735,"gp3":153282,"spend":78160},{"iso":"2026-06-03","d":"3/6","post":false,"partial":false,"rev":664521,"gp3":163880,"spend":76054},{"iso":"2026-06-04","d":"4/6","post":false,"partial":false,"rev":631488,"gp3":149681,"spend":78690},{"iso":"2026-06-05","d":"5/6","post":false,"partial":false,"rev":608528,"gp3":162671,"spend":71555},{"iso":"2026-06-06","d":"6/6","post":false,"partial":false,"rev":476544,"gp3":83006,"spend":75149},{"iso":"2026-06-07","d":"7/6","post":false,"partial":false,"rev":713945,"gp3":179800,"spend":95102},{"iso":"2026-06-08","d":"8/6","post":false,"partial":false,"rev":498424,"gp3":85296,"spend":89469},{"iso":"2026-06-09","d":"9/6","post":false,"partial":false,"rev":642439,"gp3":116803,"spend":118372},{"iso":"2026-06-10","d":"10/6","post":false,"partial":false,"rev":614331,"gp3":119707,"spend":91748},{"iso":"2026-06-11","d":"11/6","post":false,"partial":false,"rev":590489,"gp3":97602,"spend":67786},{"iso":"2026-06-12","d":"12/6","post":false,"partial":false,"rev":487091,"gp3":54773,"spend":71533},{"iso":"2026-06-13","d":"13/6","post":false,"partial":false,"rev":524997,"gp3":48087,"spend":92823},{"iso":"2026-06-14","d":"14/6","post":false,"partial":false,"rev":818633,"gp3":117785,"spend":108106},{"iso":"2026-06-15","d":"15/6","post":true,"partial":false,"rev":686525,"gp3":154284,"spend":69346},{"iso":"2026-06-16","d":"16/6","post":true,"partial":false,"rev":632903,"gp3":120748,"spend":56236},{"iso":"2026-06-17","d":"17/6","post":true,"partial":false,"rev":530959,"gp3":95954,"spend":49496},{"iso":"2026-06-18","d":"18/6","post":true,"partial":false,"rev":416556,"gp3":74914,"spend":52117},{"iso":"2026-06-19","d":"19/6","post":true,"partial":false,"rev":426121,"gp3":73666,"spend":44201},{"iso":"2026-06-20","d":"20/6","post":true,"partial":false,"rev":530354,"gp3":107974,"spend":60565},{"iso":"2026-06-21","d":"21/6","post":true,"partial":false,"rev":450310,"gp3":94846,"spend":79926}],"channels":[{"channel":"Google Shopping","group":"paid","base_rev_day":356201,"post_rev_day":343109,"delta_pct":-0.03675470789662478},{"channel":"Organic Search","group":"unpaid","base_rev_day":69159,"post_rev_day":42494,"delta_pct":-0.3855619583905981},{"channel":"Kuvio","group":"unattributed","base_rev_day":51476,"post_rev_day":65616,"delta_pct":0.27469617860876777},{"channel":"Direct","group":"unpaid","base_rev_day":49127,"post_rev_day":47465,"delta_pct":-0.03384329061404355},{"channel":"Paid Social Prospecting","group":"paid","base_rev_day":26102,"post_rev_day":43453,"delta_pct":0.6647116119699932},{"channel":"Other","group":"unattributed","base_rev_day":21147,"post_rev_day":21979,"delta_pct":0.039312205419087996},{"channel":"Affiliate","group":"paid","base_rev_day":20726,"post_rev_day":20334,"delta_pct":-0.018928321916835977},{"channel":"Google Brand Search","group":"paid","base_rev_day":18696,"post_rev_day":11131,"delta_pct":-0.4046567674017054},{"channel":"Google Generic Search","group":"paid","base_rev_day":12403,"post_rev_day":21273,"delta_pct":0.7151090245846046},{"channel":"Referral","group":"unpaid","base_rev_day":11319,"post_rev_day":38001,"delta_pct":2.3572820216703083},{"channel":"Google Shopping Brand","group":"paid","base_rev_day":9899,"post_rev_day":13769,"delta_pct":0.3909025542032841},{"channel":"Email","group":"unpaid","base_rev_day":9250,"post_rev_day":10693,"delta_pct":0.15602548348939496},{"channel":"Social Organic","group":"unpaid","base_rev_day":2297,"post_rev_day":5691,"delta_pct":1.4775319594829894},{"channel":"Paid Social Retargeting","group":"paid","base_rev_day":1204,"post_rev_day":0,"delta_pct":-1.0},{"channel":"Dynamic Remarketing","group":"paid","base_rev_day":619,"post_rev_day":1519,"delta_pct":1.4544848420302994},{"channel":"Bing Brand Search","group":"paid","base_rev_day":552,"post_rev_day":0,"delta_pct":-1.0},{"channel":"Price Comparison","group":"paid","base_rev_day":322,"post_rev_day":0,"delta_pct":-1.0},{"channel":"Kakao","group":"paid","base_rev_day":64,"post_rev_day":0,"delta_pct":-1.0},{"channel":"Brand Naver","group":"paid","base_rev_day":9,"post_rev_day":0,"delta_pct":-1.0},{"channel":"Naver Organic","group":"unpaid","base_rev_day":0,"post_rev_day":0,"delta_pct":null},{"channel":"Generic Naver","group":"paid","base_rev_day":0,"post_rev_day":0,"delta_pct":null},{"channel":"Google Performance Max","group":"paid","base_rev_day":0,"post_rev_day":0,"delta_pct":null}],"maturity":{"threshold_pct":0.2,"min_days":3,"post_days_total":7,"post_days_mature":1,"mature":false,"daily":[{"iso":"2026-06-15","d":"15/6","amb_pct":0.128,"mature":true},{"iso":"2026-06-16","d":"16/6","amb_pct":0.364,"mature":false},{"iso":"2026-06-17","d":"17/6","amb_pct":0.272,"mature":false},{"iso":"2026-06-18","d":"18/6","amb_pct":0.288,"mature":false},{"iso":"2026-06-19","d":"19/6","amb_pct":0.268,"mature":false},{"iso":"2026-06-20","d":"20/6","amb_pct":0.266,"mature":false},{"iso":"2026-06-21","d":"21/6","amb_pct":0.952,"mature":false}]}}};
+let DATA = SNAP;
+
+/* ── Formatters (match KV dashboard) ── */
+const fmtSEK = v => {
+  const n = Math.round(v);
+  if (Math.abs(n) >= 1e6) return (n/1e6).toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})+'M kr';
+  if (Math.abs(n) >= 1e3) return (n/1e3).toLocaleString('sv-SE',{minimumFractionDigits:0,maximumFractionDigits:0})+'K kr';
+  return n.toLocaleString('sv-SE')+' kr';
+};
+const fmtPctChg = d => (d>=0?'+':'')+(d*100).toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';
+const fmtRoas = v => v==null ? '—' : v.toLocaleString('sv-SE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const arrowUp = `<svg viewBox="0 0 10 10" fill="currentColor"><path d="M5 2 9 8H1z"/></svg>`;
+const arrowDown = `<svg viewBox="0 0 10 10" fill="currentColor"><path d="M5 8 1 2h8z"/></svg>`;
+function kdelta(diffFrac, lowerIsBetter=false){
+  if (diffFrac==null || !isFinite(diffFrac)) return `<span class="kpi-delta flat">— accruing</span>`;
+  const good = lowerIsBetter ? diffFrac<0 : diffFrac>0;
+  const cls = Math.abs(diffFrac)<1e-6 ? 'flat' : (good?'up':'down');
+  const icon = diffFrac>=0 ? arrowUp : arrowDown;
+  return `<span class="kpi-delta ${cls}">${icon}${fmtPctChg(diffFrac)}</span>`;
+}
+
+/* ── KPI cards ── */
+function renderKPIs(){
+  const d=DATA, k=d.kpis, b=d.baseline, de=k.days_elapsed||0;
+  const spendCutFrac = k.spend.baseline ? (k.spend.actual - k.spend.baseline)/k.spend.baseline : null;
+  const revFrac = k.revenue.baseline ? (k.revenue.actual - k.revenue.baseline)/k.revenue.baseline : null;
+  const gp3Frac = k.gp3.baseline ? (k.gp3.actual - k.gp3.baseline)/k.gp3.baseline : null;
+  const zero = de === 0;
+  const cards = [
+    { label:'Spend since change', value:zero?'—':fmtSEK(k.spend.actual),
+      delta:zero?`<span class="kpi-delta flat">accrues daily</span>`:kdelta(spendCutFrac, true),
+      note:zero ? `0 complete days yet · baseline ${fmtSEK(b.spend_day)}/day → target ${fmtSEK(b.proj_spend_day)}/day`
+                : `vs baseline ${fmtSEK(k.spend.baseline)} · target ${fmtSEK(k.spend.projected)} · ${de} day${de===1?'':'s'}` },
+    { label:'Revenue since change', value:zero?'—':fmtSEK(k.revenue.actual),
+      delta:zero?`<span class="kpi-delta flat">accrues daily</span>`:kdelta(revFrac, false),
+      note:zero ? `Baseline ${fmtSEK(b.rev_day)}/day · held-revenue assumption (risk in rb-categories + generic)`
+                : `vs baseline run-rate ${fmtSEK(k.revenue.baseline)} · held-revenue assumption` },
+    { label:'GP3 since change', hero:true, badge:'GOAL',
+      value:zero?'—':fmtSEK(k.gp3.actual),
+      delta:zero?`<span class="kpi-delta flat">accrues daily</span>`:kdelta(gp3Frac, false),
+      note:zero ? `Baseline ${fmtSEK(b.gp3_day)}/day · should rise as sub-1.0 profit-ROAS spend is cut`
+                : `vs baseline run-rate ${fmtSEK(k.gp3.baseline)} · rises even where revenue dips` },
+    { label:'Projected monthly spend cut', value:'−'+fmtSEK(d.projection.monthly_cut),
+      delta:`<span class="kpi-delta flat">≈${Math.round(d.projection.cut_pct*100)}% of set</span>`,
+      note:`baseline ${fmtSEK(b.spend_mo)}/mo → target ${fmtSEK(b.proj_spend_mo)}/mo on these ${d.n_campaigns} campaigns` },
+  ];
+  document.getElementById('kpi-grid').innerHTML = cards.map(c=>`
+    <div class="kpi-card${c.hero?' hero':''}">
+      <div class="kpi-label">${c.label}${c.badge?`<span class="kpi-badge">${c.badge}</span>`:''}</div>
+      <div class="kpi-value">${c.value}</div>
+      ${c.delta||''}
+      <div class="kpi-note">${c.note}</div>
+    </div>`).join('');
+}
+
+/* ── Main daily chart ── */
+const TREND_METRICS = {
+  spend: { label:'Spend', color:'#B45309', key:'spend' },
+  rev:   { label:'Revenue', color:'#2563EB', key:'rev' },
+  gp3:   { label:'GP3', color:'#047857', key:'gp3' },
+};
+let activeTrend = new Set(['spend']);
+let trendChart = null;
+
+const changeMarker = {
+  id:'changeMarker',
+  afterDraw(ch){
+    const idx = ch.$changeIdx;
+    if (idx==null || idx<0) return;
+    const x = ch.scales.x.getPixelForValue(idx), a = ch.chartArea, c = ch.ctx;
+    c.save();
+    c.strokeStyle='#1E3A8A'; c.setLineDash([5,4]); c.lineWidth=1.5;
+    c.beginPath(); c.moveTo(x,a.top); c.lineTo(x,a.bottom); c.stroke();
+    c.setLineDash([]); c.fillStyle='#1E3A8A'; c.font='700 10px Inter,sans-serif';
+    c.textAlign = x > (a.left+a.right)/2 ? 'right' : 'left';
+    c.fillText('tROAS ↑', x + (c.textAlign==='right'?-5:5), a.top+11);
+    c.restore();
+  }
+};
+
+function renderTrendChips(){
+  const wrap=document.getElementById('trend-chips');
+  wrap.innerHTML = Object.entries(TREND_METRICS).map(([k,m])=>{
+    const on=activeTrend.has(k);
+    return `<button class="metric-chip${on?' active':''}" data-key="${k}"
+      style="${on?`color:#fff;background:${m.color};border-color:transparent`:`color:${m.color}`}">
+      <span class="dot" style="background:${on?'#fff':m.color}"></span>${m.label}</button>`;
+  }).join('');
+  wrap.querySelectorAll('.metric-chip').forEach(ch=>ch.onclick=()=>{
+    const k=ch.dataset.key;
+    if (activeTrend.has(k)) { if (activeTrend.size>1) activeTrend.delete(k); }
+    else activeTrend.add(k);
+    renderTrendChips(); renderTrend();
+  });
+}
+
+function renderTrend(){
+  const d=DATA, daily=d.daily||[];
+  const labels = daily.map(x=>x.d);
+  const datasets = [];
+  if (activeTrend.has('spend')){
+    datasets.push({ label:'Spend', data:daily.map(x=>x.spend), borderColor:'#B45309',
+      backgroundColor:'#B4530912', fill:true, tension:.3, pointRadius:0, pointHoverRadius:4, borderWidth:2 });
+    datasets.push({ label:'Baseline spend/day', data:daily.map(()=>d.baseline.spend_day),
+      borderColor:'#94A3B8', borderDash:[6,5], borderWidth:1.5, pointRadius:0, fill:false, tension:0 });
+  }
+  if (activeTrend.has('rev'))
+    datasets.push({ label:'Revenue', data:daily.map(x=>x.rev), borderColor:'#2563EB',
+      backgroundColor:'#2563EB10', fill:false, tension:.3, pointRadius:0, pointHoverRadius:4, borderWidth:2 });
+  if (activeTrend.has('gp3'))
+    datasets.push({ label:'GP3', data:daily.map(x=>x.gp3), borderColor:'#047857',
+      backgroundColor:'#04785710', fill:false, tension:.3, pointRadius:0, pointHoverRadius:4, borderWidth:2 });
+
+  if (trendChart) trendChart.destroy();
+  trendChart = new Chart(document.getElementById('c-trend'), {
+    type:'line', data:{ labels, datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{ display:true, position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569', padding:12 } },
+        tooltip:{ callbacks:{ label: ctx => ctx.parsed.y==null?null:` ${ctx.dataset.label}: ${fmtSEK(ctx.parsed.y)}` } },
+      },
+      scales:{
+        x:{ grid:{display:false}, ticks:{ maxTicksLimit:11, font:{size:10}, color:'#94A3B8', maxRotation:0 } },
+        y:{ grid:{ color:'rgba(15,23,42,.05)' }, ticks:{ callback:v=>fmtSEK(v), font:{size:10}, color:'#94A3B8' } },
+      },
+    },
+    plugins:[changeMarker],
+  });
+  trendChart.$changeIdx = daily.findIndex(x=>x.iso===d.change_date);
+  trendChart.update();
+}
+
+/* ── Cumulative savings tracker ── */
+let savingsChart=null;
+function renderSavings(){
+  const d=DATA, s=d.savings||[];
+  const labels = s.map(x=>x.label);
+  const actual = s.map(x=>x.actual), proj = s.map(x=>x.projected);
+  const nActual = actual.filter(v=>v!=null).length;
+  if (savingsChart) savingsChart.destroy();
+  savingsChart = new Chart(document.getElementById('c-savings'), {
+    type:'line',
+    data:{ labels, datasets:[
+      { label:'Actual saved', data:actual, borderColor:'#047857', backgroundColor:'#04785714',
+        fill:true, tension:.25, pointRadius:nActual<=2?3:0, pointHoverRadius:4, borderWidth:2.5, spanGaps:false },
+      { label:'Projection (~1.3M/mo)', data:proj, borderColor:'#94A3B8', borderDash:[6,5],
+        borderWidth:1.5, pointRadius:0, fill:false, tension:0 },
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{ display:true, position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569', padding:12 } },
+        tooltip:{ callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${fmtSEK(ctx.parsed.y)}` } },
+      },
+      scales:{
+        x:{ grid:{display:false}, ticks:{ maxTicksLimit:8, font:{size:10}, color:'#94A3B8', maxRotation:0 } },
+        y:{ grid:{ color:'rgba(15,23,42,.05)' }, ticks:{ callback:v=>fmtSEK(v), font:{size:10}, color:'#94A3B8' } },
+      },
+    },
+  });
+}
+
+/* ── Per-group table ── */
+function renderGroups(){
+  const d=DATA, g=d.groups||[];
+  const cellChg = (frac) => {
+    if (frac==null || !isFinite(frac)) return '<span class="cell-delta muted">accruing</span>';
+    const good = frac<0; // spend down = good
+    return `<span class="cell-delta ${good?'up':'down'}">${frac>=0?'▲':'▼'} ${fmtPctChg(frac)}</span>`;
+  };
+  const roasCell = (pre,post) =>
+    `${fmtRoas(pre)} <span class="roas-arrow">→</span> ${post==null?'<span class="sub-cell">pending</span>':fmtRoas(post)}`;
+  document.getElementById('group-tbody').innerHTML = g.map(r=>`
+    <tr class="${r.risk?'risk':''}">
+      <td>${r.label}<div class="sub-cell">${r.note}</div></td>
+      <td>${r.target}</td>
+      <td>${fmtSEK(r.baseline_spend_mo)}</td>
+      <td>${fmtSEK(r.actual_spend)}</td>
+      <td>${cellChg(r.pct_change)}</td>
+      <td>${roasCell(r.proas_pre, r.proas_post)}</td>
+      <td>${r.risk?'<span class="pill pill-risk">at risk</span>':'<span class="pill pill-safe">minimal</span>'}</td>
+    </tr>`).join('');
+  const sum = (k)=>g.reduce((a,r)=>a+(r[k]||0),0);
+  document.getElementById('group-tfoot').innerHTML = `<tr class="tfoot-row">
+    <td>All ${d.n_campaigns} campaigns</td><td>—</td>
+    <td>${fmtSEK(sum('baseline_spend_mo'))}</td>
+    <td>${fmtSEK(sum('actual_spend'))}</td>
+    <td colspan="3"></td></tr>`;
+  document.getElementById('group-badge').textContent = `${g.length} groups`;
+}
+
+/* ── Header / sub copy ── */
+function renderMeta(){
+  const d=DATA;
+  document.getElementById('chip-date').textContent = d.change_date;
+  document.getElementById('chip-n').textContent = d.n_campaigns;
+  const ce = d.complete_end || d.data_end;
+  const partialNote = (d.data_end && ce && d.data_end !== ce) ? ` (${d.data_end} still partial)` : '';
+  document.getElementById('page-sub').textContent =
+    `Tracking the profit-ROAS (GP2/Cost) target increases on ${d.n_campaigns} shopping & search campaigns — pushing efficiency back toward last-year levels. Actuals through ${ce}${partialNote}. Baseline run-rate from ${d.baseline.window}.`;
+  document.getElementById('group-badge').textContent = `${(d.groups||[]).length} groups`;
+}
+
+/* ── Total business (all channels) ── */
+function fmtPP(d){ return (d>=0?'+':'')+(d*100).toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})+' pp'; }
+function ppDelta(diffFrac, lowerIsBetter=false){
+  if (diffFrac==null || !isFinite(diffFrac)) return `<span class="pp-delta">—</span>`;
+  const good = lowerIsBetter ? diffFrac<0 : diffFrac>0;
+  return `<span class="pp-delta ${good?'up':'down'}">${diffFrac>=0?arrowUp:arrowDown}${fmtPP(diffFrac)}</span>`;
+}
+function renderTotal(){
+  const t = DATA.total;
+  const head=document.getElementById('total-section-head'), grid=document.getElementById('total-kpi-grid'),
+        card=document.getElementById('channel-card');
+  if (!t){ [head,grid,card].forEach(el=>{ if(el) el.style.display='none'; }); return; }
+  [head,card].forEach(el=>{ if(el) el.style.display=''; });
+  if (grid) grid.style.display='';
+  const b=t.baseline, p=t.post, dl=t.delta, days=p.days||0;
+  const marginPP = (p.margin!=null && b.margin!=null) ? (p.margin-b.margin) : null;
+  document.getElementById('total-sub').innerHTML =
+    `${t.scope} · baseline run-rate (${t.baseline_window}) vs ${days} day${days===1?'':'s'} since change. `
+    + `The cards above are siloed to the changed campaigns; this tests whether revenue the paid pullback gives up is recovered through organic &amp; direct rather than lost.`;
+  const cards = [
+    { label:'Total revenue / day', value:fmtSEK(p.rev_day), delta:kdelta(dl.rev,false),
+      note:`all channels · vs baseline ${fmtSEK(b.rev_day)}/day · recent days still under-attributed` },
+    { label:'Total GP3 / day', hero:true, badge:'PROFIT', value:fmtSEK(p.gp3_day), delta:kdelta(dl.gp3,false),
+      note:`whole business · vs baseline ${fmtSEK(b.gp3_day)}/day · falls far less than spend` },
+    { label:'Total spend / day', value:fmtSEK(p.spend_day), delta:kdelta(dl.spend,true),
+      note:`all paid channels · vs baseline ${fmtSEK(b.spend_day)}/day · the pullback` },
+    { label:'GP3 margin', value:(p.margin==null?'—':(p.margin*100).toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})+'%'),
+      delta:ppDelta(marginPP,false),
+      note:`profit ÷ revenue · baseline ${b.margin==null?'—':(b.margin*100).toFixed(1)+'%'} · efficiency of the whole business` },
+  ];
+  grid.innerHTML = cards.map(c=>`
+    <div class="kpi-card${c.hero?' hero':''}">
+      <div class="kpi-label">${c.label}${c.badge?`<span class="kpi-badge">${c.badge}</span>`:''}</div>
+      <div class="kpi-value">${c.value}</div>
+      ${c.delta||''}
+      <div class="kpi-note">${c.note}</div>
+    </div>`).join('');
+  renderChannels();
+}
+
+const GROUP_META_FE = [
+  ['unpaid',       'Earned / unpaid — organic · direct · email · referral'],
+  ['paid',         'Paid channels'],
+  ['unattributed', 'Unattributed — Other / Kuvio (holding buckets)'],
+];
+function renderChannels(){
+  const t=DATA.total; if(!t) return;
+  const m=t.maturity||{}, chs=t.channels||[], showPost=!!m.mature;
+  const badge=document.getElementById('channel-badge');
+  badge.textContent = showPost ? `${m.post_days_mature}/${m.post_days_total} days matured` : 'maturing';
+
+  const banner=document.getElementById('maturity-banner');
+  const warnSvg=`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>`;
+  if (showPost){
+    banner.className='maturity-banner ok';
+    banner.innerHTML = `${warnSvg}<div><b>Attribution matured on ${m.post_days_mature} of ${m.post_days_total} post-change days.</b> The “since change” column reflects only those days; the rest are still backfilling from the Other/Kuvio holding buckets.</div>`;
+  } else {
+    banner.className='maturity-banner';
+    banner.innerHTML = `${warnSvg}<div><b>Channel split still maturing — only ${m.post_days_mature||0} of ${m.post_days_total||0} post-change day(s) have fully attributed</b> (need ≥${m.min_days||3}). Conversions land in “Other/Kuvio” first and reassign to organic/direct over the following days, so a since-change split now would understate exactly the channels we’re watching. Baseline channel mix shown for reference; the right column fills in as attribution settles.</div>`;
+  }
+
+  const chanDelta = (frac) => {
+    if (frac==null || !isFinite(frac)) return '<span class="cell-delta muted">—</span>';
+    return `<span class="cell-delta ${frac>=0?'up':'down'}">${frac>=0?'▲':'▼'} ${fmtPctChg(frac)}</span>`;
+  };
+  let html='';
+  GROUP_META_FE.forEach(([gk,glabel])=>{
+    const rows=chs.filter(c=>c.group===gk && (c.base_rev_day>0 || c.post_rev_day));
+    if(!rows.length) return;
+    const subBase=rows.reduce((a,c)=>a+(c.base_rev_day||0),0);
+    html += `<tr class="grp-row"><td>${glabel}</td><td>${fmtSEK(subBase)}</td><td colspan="2"></td></tr>`;
+    rows.forEach(c=>{
+      const post = (!showPost || c.post_rev_day==null) ? '<span class="sub-cell">maturing</span>' : fmtSEK(c.post_rev_day);
+      const dl   = (!showPost) ? '' : chanDelta(c.delta_pct);
+      html += `<tr><td>${c.channel}</td><td>${fmtSEK(c.base_rev_day)}</td><td>${post}</td><td>${dl}</td></tr>`;
+    });
+  });
+  document.getElementById('channel-tbody').innerHTML = html;
+}
+
+/* ── Render all ── */
+function renderAll(){ renderMeta(); renderKPIs(); renderTrendChips(); renderTrend(); renderSavings(); renderGroups(); renderTotal(); }
+renderAll();
+
+/* ── Live overlay (silent fallback to embedded snapshot) ── */
+async function fetchLiveAndOverlay(){
+  try {
+    const r = await fetch('/api/roas-impact', { cache:'no-store' });
+    if (!r.ok) return;
+    const live = await r.json();
+    if (!live || !live.kpis || !Array.isArray(live.daily)) return;
+    DATA = live;
+    renderAll();
+    const dot = document.querySelector('.live-dot');
+    if (dot){ dot.title = `Live · BigQuery snapshot · source: ${live.source||'cron'} · data ${live.data_end}`; dot.style.color='rgba(255,255,255,.75)'; }
+  } catch(e){ /* keep embedded */ }
+}
+fetchLiveAndOverlay();
+
+/* ── Refresh status pill (shared with the other dashboards) ── */
+async function checkRefreshStatus(){
+  const pill=document.getElementById('refreshPill'); if(!pill) return;
+  try {
+    const r=await fetch('/api/refresh-status',{cache:'no-store'}); if(!r.ok) return;
+    const s=await r.json();
+    const fmtAgo=(e)=>{ if(!e) return 'never'; const m=Math.max(0,Math.round((Date.now()/1000-e)/60));
+      return m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago'; };
+    if (s.ok===null || s.ok===undefined){ pill.classList.add('show','unknown'); pill.textContent='refresh status unknown'; pill.title=s.reason||''; return; }
+    const ageH = s.last_run ? (Date.now()/1000 - s.last_run)/3600 : 999;
+    const errs = s.errors||[];
+    if (!s.ok || errs.length){
+      pill.classList.remove('stale','unknown'); pill.classList.add('show');
+      pill.textContent = errs.length ? `${errs.length} refresh error${errs.length>1?'s':''} (24 h)` : 'refresh failed';
+      pill.title = [`Last run: ${fmtAgo(s.last_run)} · stage: ${s.last_stage||'—'}`, s.last_message||'',
+        ...errs.slice(0,5).map(e=>`• [${e.stage}] ${(e.error||'').slice(0,120)}`)].filter(Boolean).join('\n');
+    } else if (ageH>30){
+      pill.classList.remove('unknown'); pill.classList.add('show','stale');
+      pill.textContent=`refresh stale · ${fmtAgo(s.last_run)}`; pill.title=`Last successful run ${fmtAgo(s.last_run)} — expected daily.`;
+    } else pill.classList.remove('show','stale','unknown');
+  } catch(e){ /* ignore */ }
+}
+checkRefreshStatus();
+</script>
+</body>
+</html>

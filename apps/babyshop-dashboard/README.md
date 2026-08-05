@@ -16,9 +16,11 @@ Simulations page was originally developed is archived and read-only.)
 
 ## Layout
 - `babyshop-dashboard.html` + sibling `babyshop-*.html` pages — the dashboard
-- `app.py`, `requirements.txt`, `Dockerfile` — the server (placeholder until
-  the full backend with the `/api/*` routes and `refresh_funnel.py` is
-  committed; see repo history)
+- `app.py` — FastAPI server: page routes, `/api/*`, `/internal/*`, `/healthz`
+- `funnel_client.py`, `bq_source.py`, `inventory_client.py`,
+  `budget_source.py`, `refresh_roas_impact.py`, `budget_2026.json` — backend
+  data sources (Funnel.io OAuth, BigQuery, Channable feed, budget plan)
+- `requirements.txt`, `Dockerfile` — runtime (uvicorn on `python:3.12-slim`)
 - `pipeline/` — the Google Ads GP3 data pipeline (dockerignored, not deployed):
   - `gp3-simulations.js` — MCC script: Target ROAS bid simulations + impression
     shares → Google Sheet ("Raw" and "Shares" tabs, append-only snapshots)
@@ -29,5 +31,9 @@ Simulations page was originally developed is archived and read-only.)
 ## Endpoints
 - `GET /` and `GET /babyshop-dashboard.html` — KV Overview
 - `GET /babyshop-*.html` — sibling dashboard pages
-- `GET /api/*` — live data (Firestore-backed; requires the full backend)
-- `GET /health` — liveness probe
+- `GET /api/*` — live data (Firestore-backed)
+- `POST /internal/refresh` — Cloud Scheduler refresh (`X-Internal-Token`)
+- `GET /healthz` — liveness probe (unauthenticated)
+
+All routes except `/healthz` require HTTP Basic auth (`DASH_USER` / `DASH_PASS`);
+set `DEV_MODE=true` to bypass locally.

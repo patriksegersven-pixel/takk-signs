@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stoy Funnel-Shift Test · Babyshop</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --bg:#f1f5f9; --card:#fff;
+    --pos:#047857; --neg:#be123c; --meta:#6D28D9; --rev:#1E3A8A; --warn:#b45309;
+  }
+  *{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+  .topbar{background:#0b1220;color:#fff;display:flex;align-items:center;gap:24px;padding:14px 28px}
+  .brand{font-weight:800;letter-spacing:.5px} .brand small{display:block;font-weight:500;color:#94a3b8;font-size:11px;letter-spacing:1px}
+  .nav{display:flex;gap:4px;margin-left:8px}
+  .nav a{color:#cbd5e1;text-decoration:none;font-size:13px;font-weight:600;padding:6px 12px;border-radius:8px}
+  .nav a.active{background:#1e293b;color:#fff} .nav a:hover{color:#fff}
+  .live{margin-left:auto;font-size:12px;color:#94a3b8;display:flex;align-items:center;gap:7px}
+  .dot{width:8px;height:8px;border-radius:50%;background:#22c55e}
+  .wrap{max-width:1280px;margin:0 auto;padding:26px}
+  h1{font-size:26px;margin:0 0 2px}
+  .sub{color:var(--muted);font-size:13px}
+  .ctx{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:18px 0;display:grid;grid-template-columns:1fr auto;gap:18px;align-items:center}
+  .ctx .hyp{font-size:14px;line-height:1.5}
+  .ctx .hyp b{color:var(--ink)}
+  .realloc{min-width:260px}
+  .realloc .bar{height:10px;background:#ede9fe;border-radius:6px;overflow:hidden;margin:6px 0}
+  .realloc .bar > i{display:block;height:100%;background:var(--meta)}
+  .realloc .lab{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+  .grid{display:grid;grid-template-columns:repeat(6,1fr);gap:14px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .kpi.spot{border-color:#c7b9f3;box-shadow:0 0 0 1px #c7b9f3}
+  .kpi .k{font-size:11px;font-weight:700;letter-spacing:.6px;color:var(--muted);text-transform:uppercase}
+  .kpi .v{font-size:27px;font-weight:800;margin:6px 0 2px}
+  .kpi .d{font-size:13px;font-weight:700} .kpi .n{font-size:11px;color:var(--muted);margin-top:3px}
+  .up{color:var(--pos)} .down{color:var(--neg)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-top:18px}
+  .card h3{margin:0 0 2px;font-size:16px} .card .csub{color:var(--muted);font-size:12px;margin-bottom:12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:right;padding:9px 10px;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  thead th{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .mkt{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .note{background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:14px 16px;font-size:12.5px;color:#78350f;margin-top:18px;line-height:1.55}
+  .pill{display:inline-block;background:#eef2ff;color:#3730a3;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700}
+  .yt{border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:8px;padding:5px 12px;font-weight:700;cursor:pointer}
+  .yt.on{background:var(--rev);border-color:var(--rev);color:#fff}
+  @media(max-width:1180px){.grid{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.two{grid-template-columns:1fr}.ctx{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">BABYSHOP<small>BI DASHBOARDS</small></div>
+  <nav class="nav">
+    <a href="/babyshop-dashboard.html">KV Overview</a>
+    <a href="/babyshop-product-dashboard.html">Products</a>
+    <a href="/babyshop-inventory-dashboard.html">Inventory</a>
+    <a href="/babyshop-stoy-dashboard.html" class="active">Stoy Test</a>
+    <a href="/babyshop-roas-impact.html">ROAS Impact</a>
+    <a href="/babyshop-roas-simulations.html">ROAS Simulations</a>
+  </nav>
+  <div class="live"><span class="dot"></span><span id="live-src">Live · BigQuery</span></div>
+</div>
+
+<div class="wrap">
+  <h1>Stoy Funnel-Shift Test</h1>
+  <div class="sub" id="period-sub">—</div>
+  <div id="status-banner" class="note" style="display:none"></div>
+
+  <div class="ctx">
+    <div class="hyp">
+      <b>Hypothesis:</b> reallocating <b>150 000 SEK</b> from Google Ads into <b>Meta upper-funnel</b> for
+      <b>Stoy</b> in <b>SE + NO</b> lifts overall efficiency &amp; sales — testing whether less demand-capture /
+      more demand-generation grows the brand. Read on <b>total Stoy outcome vs the controls</b> — Kuling and Stoy's own non-test markets (DK+FI) — not Meta's own ROAS.
+    </div>
+    <div class="realloc">
+      <div class="lab"><span>Meta reallocation</span><span id="rl-pct">—</span></div>
+      <div class="bar"><i id="rl-fill" style="width:0%"></i></div>
+      <div class="lab"><span id="rl-spent">—</span><span>target 150 000 kr</span></div>
+    </div>
+  </div>
+
+  <div class="grid" id="kpis"></div>
+
+  <div class="card">
+    <h3>Channel reallocation — Google Shopping → Meta</h3>
+    <div class="csub">The lever: shifting brand ad spend from demand-capture (Google Shopping) to demand-generation (Meta)</div>
+    <table id="mix-tbl"><thead><tr><th>Channel</th><th>Baseline</th><th>Test</th><th>Δ</th><th>Share now</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="card">
+    <h3>Cost per click — demand capture vs demand generation</h3>
+    <div class="csub">What a click costs on each channel. The reallocation thesis: Meta buys cheaper, higher-funnel reach.</div>
+    <table id="cpc-tbl"><thead><tr><th>Channel</th><th>Spend</th><th>Clicks</th><th>CPC</th></tr></thead><tbody></tbody></table>
+    <div class="csub" id="cpc-note" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div>
+        <h3>Stoy daily — revenue &amp; ad spend (SE+NO)</h3>
+        <div class="csub">Total spend and the Google ▼ / Meta ▲ crossover, against revenue. Vertical marker = test start.</div>
+      </div>
+      <div id="trend-toggle" style="display:flex;gap:4px;font-size:12px">
+        <button data-d="30" class="yt on">30d</button><button data-d="60" class="yt">60d</button><button data-d="90" class="yt">90d</button>
+      </div>
+    </div>
+    <div style="position:relative;height:300px"><canvas id="c-trend"></canvas></div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div>
+        <h3>Year over year — 2026 vs 2025 (SE+NO)</h3>
+        <div class="csub" id="yoy-sub">7-day rolling average · aligned on calendar date · vertical marker = test start</div>
+      </div>
+      <div id="yoy-toggle" style="display:flex;gap:4px;font-size:12px">
+        <button data-m="rev" class="yt on">Revenue</button><button data-m="gp2" class="yt">GP2</button><button data-m="gm1" class="yt">GM1 %</button>
+      </div>
+    </div>
+    <div id="yoy-stat" class="csub" style="margin:2px 0 10px"></div>
+    <div style="position:relative;height:300px"><canvas id="c-yoy"></canvas></div>
+  </div>
+
+  <div class="two">
+    <div class="card" style="margin-top:0">
+      <h3>Stoy vs controls</h3>
+      <div class="csub">Two diff-in-diff baselines isolate the test from June seasonality: Kuling (different brand, same markets) and Stoy's non-test markets DK+FI (same brand, no reallocation)</div>
+      <table id="ctrl-tbl"><thead><tr><th>Group</th><th>Revenue Δ</th><th>GP2 Δ</th><th>COS% Δ</th></tr></thead><tbody></tbody></table>
+      <div style="margin-top:12px" id="did"></div>
+    </div>
+    <div class="card" style="margin-top:0">
+      <h3>Market split — SE vs NO</h3>
+      <div class="csub">Stoy revenue &amp; GP2, test vs baseline</div>
+      <table id="mkt-tbl"><thead><tr><th>Market</th><th>Revenue</th><th>vs base</th><th>Ad spend</th><th>COS%</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Flagship products — Vintage Bicycles <span class="pill">test period</span></h3>
+    <div class="csub">Where Meta discovery should show up first (units &amp; revenue on the hero range)</div>
+    <table id="flag-tbl"><thead><tr><th>Product</th><th>Revenue (test)</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="note" id="note"></div>
+</div>
+
+<script>
+const STOY = {"test_period":{"start":"2026-06-10","end":"2026-06-12","label":"10 jun – 12 jun 2026","days":3},"baseline_period":{"start":"2026-06-07","end":"2026-06-09","label":"7 jun – 9 jun 2026"},"reallocation":{"meta_spent":11014,"target":150000},"brands":{"stoy":{"rev_test":179341,"gp1_test":94988,"gp2_test":68241,"google_test":17278,"meta_test":11014,"spend_test":28292,"meta_clicks_test":2694,"rev_base":324279,"gp1_base":171950,"gp2_base":122457,"google_base":33427,"meta_base":6404,"spend_base":39831,"meta_clicks_base":1770},"kuling":{"rev_base":444962,"gp1_base":301455,"gp2_base":147956,"google_base":51213,"meta_base":2854,"spend_base":54067,"meta_clicks_base":1953,"rev_test":310465,"gp1_test":203120,"gp2_test":89727,"google_test":34861,"meta_test":2394,"spend_test":37255,"meta_clicks_test":1938},"stoy_other":{"rev_test":33640,"gp1_test":17036,"gp2_test":13224,"google_test":3180,"meta_test":0,"spend_test":3180,"rev_base":40138,"gp1_base":20654,"gp2_base":16353,"google_base":4423,"meta_base":0,"spend_base":4423,"markets":["DK","FI"]}},"markets":{"SE":{"rev_base":269113,"gp1_base":141685,"gp2_base":99434,"google_base":27018,"meta_base":3019,"spend_base":30037,"meta_clicks_base":987,"rev_test":140373,"gp1_test":74280,"gp2_test":52519,"google_test":13805,"meta_test":5355,"spend_test":19160,"meta_clicks_test":1658},"NO":{"rev_test":38968,"gp1_test":20709,"gp2_test":15721,"google_test":3473,"meta_test":5660,"spend_test":9133,"meta_clicks_test":1036,"rev_base":55165,"gp1_base":30265,"gp2_base":23023,"google_base":6410,"meta_base":3384,"spend_base":9794,"meta_clicks_base":783}},"daily":[{"d":"15/3","iso":"2026-03-15","rev":180143,"google":20309,"meta":461,"spend":20770},{"d":"16/3","iso":"2026-03-16","rev":134528,"google":15806,"meta":426,"spend":16232},{"d":"17/3","iso":"2026-03-17","rev":97966,"google":14698,"meta":56,"spend":14754},{"d":"18/3","iso":"2026-03-18","rev":114757,"google":16574,"meta":0,"spend":16574},{"d":"19/3","iso":"2026-03-19","rev":125600,"google":15340,"meta":0,"spend":15340},{"d":"20/3","iso":"2026-03-20","rev":101121,"google":17673,"meta":0,"spend":17673},{"d":"21/3","iso":"2026-03-21","rev":160527,"google":25361,"meta":0,"spend":25361},{"d":"22/3","iso":"2026-03-22","rev":275962,"google":31962,"meta":0,"spend":31962},{"d":"23/3","iso":"2026-03-23","rev":196521,"google":20526,"meta":375,"spend":20901},{"d":"24/3","iso":"2026-03-24","rev":140115,"google":15992,"meta":801,"spend":16793},{"d":"25/3","iso":"2026-03-25","rev":155115,"google":13936,"meta":696,"spend":14632},{"d":"26/3","iso":"2026-03-26","rev":137870,"google":16452,"meta":616,"spend":17068},{"d":"27/3","iso":"2026-03-27","rev":126341,"google":17301,"meta":525,"spend":17826},{"d":"28/3","iso":"2026-03-28","rev":155907,"google":25055,"meta":479,"spend":25534},{"d":"29/3","iso":"2026-03-29","rev":198484,"google":30639,"meta":490,"spend":31129},{"d":"30/3","iso":"2026-03-30","rev":134695,"google":17335,"meta":516,"spend":17851},{"d":"31/3","iso":"2026-03-31","rev":121803,"google":14695,"meta":506,"spend":15201},{"d":"1/4","iso":"2026-04-01","rev":105313,"google":13596,"meta":481,"spend":14077},{"d":"2/4","iso":"2026-04-02","rev":78158,"google":11897,"meta":495,"spend":12392},{"d":"3/4","iso":"2026-04-03","rev":93964,"google":13306,"meta":503,"spend":13809},{"d":"4/4","iso":"2026-04-04","rev":82483,"google":14101,"meta":505,"spend":14606},{"d":"5/4","iso":"2026-04-05","rev":113120,"google":14999,"meta":522,"spend":15521},{"d":"6/4","iso":"2026-04-06","rev":152472,"google":16341,"meta":553,"spend":16894},{"d":"7/4","iso":"2026-04-07","rev":158209,"google":15287,"meta":554,"spend":15841},{"d":"8/4","iso":"2026-04-08","rev":160964,"google":10357,"meta":935,"spend":11292},{"d":"9/4","iso":"2026-04-09","rev":110275,"google":2135,"meta":905,"spend":3040},{"d":"10/4","iso":"2026-04-10","rev":125422,"google":19767,"meta":892,"spend":20659},{"d":"11/4","iso":"2026-04-11","rev":157066,"google":29138,"meta":1059,"spend":30197},{"d":"12/4","iso":"2026-04-12","rev":235285,"google":32200,"meta":1110,"spend":33310},{"d":"13/4","iso":"2026-04-13","rev":184404,"google":22071,"meta":979,"spend":23050},{"d":"14/4","iso":"2026-04-14","rev":132630,"google":19394,"meta":890,"spend":20284},{"d":"15/4","iso":"2026-04-15","rev":125171,"google":20561,"meta":885,"spend":21446},{"d":"16/4","iso":"2026-04-16","rev":130695,"google":20178,"meta":900,"spend":21078},{"d":"17/4","iso":"2026-04-17","rev":118394,"google":19253,"meta":903,"spend":20156},{"d":"18/4","iso":"2026-04-18","rev":134312,"google":21966,"meta":981,"spend":22947},{"d":"19/4","iso":"2026-04-19","rev":182432,"google":21386,"meta":1076,"spend":22462},{"d":"20/4","iso":"2026-04-20","rev":153399,"google":17304,"meta":1030,"spend":18334},{"d":"21/4","iso":"2026-04-21","rev":173165,"google":15736,"meta":930,"spend":16666},{"d":"22/4","iso":"2026-04-22","rev":121843,"google":15517,"meta":880,"spend":16397},{"d":"23/4","iso":"2026-04-23","rev":108332,"google":16997,"meta":895,"spend":17892},{"d":"24/4","iso":"2026-04-24","rev":148859,"google":17705,"meta":907,"spend":18612},{"d":"25/4","iso":"2026-04-25","rev":124302,"google":19515,"meta":913,"spend":20428},{"d":"26/4","iso":"2026-04-26","rev":158620,"google":26177,"meta":1050,"spend":27227},{"d":"27/4","iso":"2026-04-27","rev":154205,"google":19701,"meta":940,"spend":20641},{"d":"28/4","iso":"2026-04-28","rev":138702,"google":18895,"meta":933,"spend":19828},{"d":"29/4","iso":"2026-04-29","rev":119315,"google":15914,"meta":922,"spend":16836},{"d":"30/4","iso":"2026-04-30","rev":101322,"google":12701,"meta":1470,"spend":14171},{"d":"1/5","iso":"2026-05-01","rev":138761,"google":15594,"meta":725,"spend":16319},{"d":"2/5","iso":"2026-05-02","rev":125234,"google":18965,"meta":610,"spend":19575},{"d":"3/5","iso":"2026-05-03","rev":181799,"google":21186,"meta":1150,"spend":22336},{"d":"4/5","iso":"2026-05-04","rev":147485,"google":16956,"meta":959,"spend":17915},{"d":"5/5","iso":"2026-05-05","rev":128274,"google":14879,"meta":995,"spend":15874},{"d":"6/5","iso":"2026-05-06","rev":96621,"google":17849,"meta":867,"spend":18716},{"d":"7/5","iso":"2026-05-07","rev":112270,"google":15796,"meta":831,"spend":16627},{"d":"8/5","iso":"2026-05-08","rev":80083,"google":14785,"meta":852,"spend":15637},{"d":"9/5","iso":"2026-05-09","rev":114074,"google":17120,"meta":953,"spend":18073},{"d":"10/5","iso":"2026-05-10","rev":160873,"google":18531,"meta":1215,"spend":19746},{"d":"11/5","iso":"2026-05-11","rev":128648,"google":12888,"meta":957,"spend":13845},{"d":"12/5","iso":"2026-05-12","rev":99644,"google":11005,"meta":911,"spend":11916},{"d":"13/5","iso":"2026-05-13","rev":79361,"google":9947,"meta":839,"spend":10786},{"d":"14/5","iso":"2026-05-14","rev":107271,"google":14363,"meta":873,"spend":15236},{"d":"15/5","iso":"2026-05-15","rev":113683,"google":11473,"meta":959,"spend":12432},{"d":"16/5","iso":"2026-05-16","rev":143913,"google":13048,"meta":895,"spend":13943},{"d":"17/5","iso":"2026-05-17","rev":177923,"google":14443,"meta":1147,"spend":15590},{"d":"18/5","iso":"2026-05-18","rev":128541,"google":15607,"meta":1053,"spend":16660},{"d":"19/5","iso":"2026-05-19","rev":110457,"google":16078,"meta":845,"spend":16923},{"d":"20/5","iso":"2026-05-20","rev":122319,"google":14080,"meta":910,"spend":14990},{"d":"21/5","iso":"2026-05-21","rev":83526,"google":13061,"meta":854,"spend":13915},{"d":"22/5","iso":"2026-05-22","rev":117356,"google":11586,"meta":782,"spend":12368},{"d":"23/5","iso":"2026-05-23","rev":123305,"google":14656,"meta":1058,"spend":15714},{"d":"24/5","iso":"2026-05-24","rev":185898,"google":18687,"meta":1270,"spend":19957},{"d":"25/5","iso":"2026-05-25","rev":164205,"google":16018,"meta":1127,"spend":17145},{"d":"26/5","iso":"2026-05-26","rev":112429,"google":16092,"meta":841,"spend":16933},{"d":"27/5","iso":"2026-05-27","rev":104942,"google":12511,"meta":801,"spend":13312},{"d":"28/5","iso":"2026-05-28","rev":97659,"google":12070,"meta":1714,"spend":13784},{"d":"29/5","iso":"2026-05-29","rev":72796,"google":9366,"meta":2036,"spend":11402},{"d":"30/5","iso":"2026-05-30","rev":129577,"google":11493,"meta":2119,"spend":13612},{"d":"31/5","iso":"2026-05-31","rev":155983,"google":14773,"meta":2257,"spend":17030},{"d":"1/6","iso":"2026-06-01","rev":118485,"google":11112,"meta":2070,"spend":13182},{"d":"2/6","iso":"2026-06-02","rev":92279,"google":10057,"meta":2019,"spend":12076},{"d":"3/6","iso":"2026-06-03","rev":95036,"google":9457,"meta":1897,"spend":11354},{"d":"4/6","iso":"2026-06-04","rev":55461,"google":8476,"meta":1987,"spend":10463},{"d":"5/6","iso":"2026-06-05","rev":65491,"google":7754,"meta":1914,"spend":9668},{"d":"6/6","iso":"2026-06-06","rev":70795,"google":10808,"meta":2083,"spend":12891},{"d":"7/6","iso":"2026-06-07","rev":142808,"google":13635,"meta":2349,"spend":15984},{"d":"8/6","iso":"2026-06-08","rev":84595,"google":9813,"meta":2059,"spend":11872},{"d":"9/6","iso":"2026-06-09","rev":96876,"google":9979,"meta":1996,"spend":11975},{"d":"10/6","iso":"2026-06-10","rev":80763,"google":6767,"meta":1973,"spend":8740},{"d":"11/6","iso":"2026-06-11","rev":73057,"google":4967,"meta":4695,"spend":9662},{"d":"12/6","iso":"2026-06-12","rev":25521,"google":5543,"meta":4347,"spend":9890}],"yoy":[{"d":"29/4","iso":"2026-04-29","rev":119315,"gp1":62526,"gp2":45642,"rev_ly":76046,"gp1_ly":37959,"gp2_ly":23199},{"d":"30/4","iso":"2026-04-30","rev":101322,"gp1":53219,"gp2":39041,"rev_ly":51497,"gp1_ly":25829,"gp2_ly":16297},{"d":"1/5","iso":"2026-05-01","rev":138761,"gp1":70592,"gp2":51371,"rev_ly":92616,"gp1_ly":46578,"gp2_ly":27837},{"d":"2/5","iso":"2026-05-02","rev":125234,"gp1":67555,"gp2":49721,"rev_ly":85044,"gp1_ly":43062,"gp2_ly":26655},{"d":"3/5","iso":"2026-05-03","rev":181799,"gp1":94723,"gp2":68393,"rev_ly":88207,"gp1_ly":44719,"gp2_ly":27562},{"d":"4/5","iso":"2026-05-04","rev":147485,"gp1":77150,"gp2":55588,"rev_ly":123221,"gp1_ly":61931,"gp2_ly":39717},{"d":"5/5","iso":"2026-05-05","rev":128274,"gp1":67761,"gp2":48853,"rev_ly":88191,"gp1_ly":44530,"gp2_ly":27648},{"d":"6/5","iso":"2026-05-06","rev":96621,"gp1":49657,"gp2":34435,"rev_ly":98359,"gp1_ly":49994,"gp2_ly":33644},{"d":"7/5","iso":"2026-05-07","rev":112270,"gp1":59807,"gp2":43557,"rev_ly":88406,"gp1_ly":46241,"gp2_ly":30522},{"d":"8/5","iso":"2026-05-08","rev":80083,"gp1":41918,"gp2":29479,"rev_ly":91308,"gp1_ly":43510,"gp2_ly":26852},{"d":"9/5","iso":"2026-05-09","rev":114074,"gp1":58833,"gp2":42274,"rev_ly":77601,"gp1_ly":36116,"gp2_ly":20181},{"d":"10/5","iso":"2026-05-10","rev":160873,"gp1":84166,"gp2":60766,"rev_ly":89358,"gp1_ly":41025,"gp2_ly":24562},{"d":"11/5","iso":"2026-05-11","rev":128648,"gp1":66987,"gp2":48424,"rev_ly":156424,"gp1_ly":71986,"gp2_ly":42502},{"d":"12/5","iso":"2026-05-12","rev":99644,"gp1":51619,"gp2":35549,"rev_ly":123695,"gp1_ly":59137,"gp2_ly":34916},{"d":"13/5","iso":"2026-05-13","rev":79361,"gp1":41446,"gp2":28110,"rev_ly":103011,"gp1_ly":48733,"gp2_ly":28736},{"d":"14/5","iso":"2026-05-14","rev":107271,"gp1":54305,"gp2":38090,"rev_ly":130381,"gp1_ly":62682,"gp2_ly":38559},{"d":"15/5","iso":"2026-05-15","rev":113683,"gp1":55695,"gp2":37482,"rev_ly":80334,"gp1_ly":38984,"gp2_ly":22932},{"d":"16/5","iso":"2026-05-16","rev":143913,"gp1":71588,"gp2":48608,"rev_ly":79320,"gp1_ly":37758,"gp2_ly":23517},{"d":"17/5","iso":"2026-05-17","rev":177923,"gp1":84755,"gp2":55525,"rev_ly":92517,"gp1_ly":44095,"gp2_ly":25588},{"d":"18/5","iso":"2026-05-18","rev":128541,"gp1":63510,"gp2":43966,"rev_ly":152937,"gp1_ly":73739,"gp2_ly":41773},{"d":"19/5","iso":"2026-05-19","rev":110457,"gp1":54965,"gp2":38288,"rev_ly":128577,"gp1_ly":58861,"gp2_ly":33667},{"d":"20/5","iso":"2026-05-20","rev":122319,"gp1":60936,"gp2":42764,"rev_ly":112502,"gp1_ly":55124,"gp2_ly":30937},{"d":"21/5","iso":"2026-05-21","rev":83526,"gp1":41952,"gp2":29068,"rev_ly":123294,"gp1_ly":56656,"gp2_ly":31354},{"d":"22/5","iso":"2026-05-22","rev":117356,"gp1":58623,"gp2":41062,"rev_ly":92272,"gp1_ly":45696,"gp2_ly":26049},{"d":"23/5","iso":"2026-05-23","rev":123305,"gp1":60170,"gp2":41550,"rev_ly":66205,"gp1_ly":32762,"gp2_ly":18341},{"d":"24/5","iso":"2026-05-24","rev":185898,"gp1":92557,"gp2":62302,"rev_ly":72629,"gp1_ly":35326,"gp2_ly":20189},{"d":"25/5","iso":"2026-05-25","rev":164205,"gp1":79864,"gp2":54068,"rev_ly":114702,"gp1_ly":54958,"gp2_ly":35344},{"d":"26/5","iso":"2026-05-26","rev":112429,"gp1":58830,"gp2":38215,"rev_ly":103384,"gp1_ly":49801,"gp2_ly":30951},{"d":"27/5","iso":"2026-05-27","rev":104942,"gp1":52441,"gp2":36521,"rev_ly":91567,"gp1_ly":46479,"gp2_ly":26381},{"d":"28/5","iso":"2026-05-28","rev":97659,"gp1":49166,"gp2":33382,"rev_ly":81633,"gp1_ly":41076,"gp2_ly":24963},{"d":"29/5","iso":"2026-05-29","rev":72796,"gp1":36487,"gp2":24863,"rev_ly":108581,"gp1_ly":51615,"gp2_ly":29220},{"d":"30/5","iso":"2026-05-30","rev":129577,"gp1":61546,"gp2":42188,"rev_ly":101054,"gp1_ly":46943,"gp2_ly":26940},{"d":"31/5","iso":"2026-05-31","rev":155983,"gp1":75297,"gp2":52183,"rev_ly":102665,"gp1_ly":46655,"gp2_ly":26832},{"d":"1/6","iso":"2026-06-01","rev":118485,"gp1":58557,"gp2":40228,"rev_ly":179424,"gp1_ly":75528,"gp2_ly":41751},{"d":"2/6","iso":"2026-06-02","rev":92279,"gp1":45775,"gp2":31973,"rev_ly":115701,"gp1_ly":51445,"gp2_ly":28448},{"d":"3/6","iso":"2026-06-03","rev":95036,"gp1":50384,"gp2":36088,"rev_ly":139281,"gp1_ly":60418,"gp2_ly":31885},{"d":"4/6","iso":"2026-06-04","rev":55461,"gp1":31152,"gp2":22546,"rev_ly":122391,"gp1_ly":54549,"gp2_ly":29069},{"d":"5/6","iso":"2026-06-05","rev":65491,"gp1":35024,"gp2":24505,"rev_ly":101175,"gp1_ly":45061,"gp2_ly":24895},{"d":"6/6","iso":"2026-06-06","rev":70795,"gp1":37584,"gp2":26344,"rev_ly":116395,"gp1_ly":48037,"gp2_ly":27487},{"d":"7/6","iso":"2026-06-07","rev":142808,"gp1":75050,"gp2":53473,"rev_ly":110432,"gp1_ly":45869,"gp2_ly":22537},{"d":"8/6","iso":"2026-06-08","rev":84595,"gp1":45173,"gp2":31692,"rev_ly":169254,"gp1_ly":70442,"gp2_ly":34975},{"d":"9/6","iso":"2026-06-09","rev":96876,"gp1":51727,"gp2":37291,"rev_ly":135376,"gp1_ly":57539,"gp2_ly":31728},{"d":"10/6","iso":"2026-06-10","rev":80763,"gp1":42759,"gp2":31127,"rev_ly":123813,"gp1_ly":54105,"gp2_ly":29945},{"d":"11/6","iso":"2026-06-11","rev":73057,"gp1":38824,"gp2":28019,"rev_ly":122843,"gp1_ly":50160,"gp2_ly":26713},{"d":"12/6","iso":"2026-06-12","rev":25521,"gp1":13405,"gp2":9094,"rev_ly":64371,"gp1_ly":29095,"gp2_ly":18086}],"yoy_sum":{"rev":5066714,"gp1":2586060,"gp2":1813708,"rev_ly":4767994,"gp1_ly":2222808,"gp2_ly":1291886,"window":"29 apr – 12 jun 2026"},"flagship":[{"title":"12\" Vintage Bicycle Candy Pink 2-4 Y","rev":10533},{"title":"16\" Vintage Bicycle Red 4-6 Y","rev":10337},{"title":"14\" Vintage Bicycle Yellow 3-5 Y","rev":8457},{"title":"14\" Classic Bicycle Black 3-5 Y","rev":8163},{"title":"12\" Vintage Bicycle Beige 2-4 Y","rev":8012},{"title":"18\" Vintage Bicycle Candy Pink Candy Pink 5-8 Y","rev":6338},{"title":"16\" Vintage Bicycle Candy Pink 4-6 Y","rev":6302},{"title":"12\" Vintage Bicycle Red 2-4 Y","rev":5688},{"title":"14\" Vintage Bicycle Candy Pink 3-5 Y","rev":5640},{"title":"16\" Vintage Bicycle Beige 4-6 Y","rev":5547}],"cpc_ref":{"period":"1–9 Jun 2026","google":{"cost":91092,"clicks":13906,"cpc":6.55},"meta":{"cost":18374,"clicks":5517,"cpc":3.33},"source":"Google = Google Ads API (shopping_performance_view, brand=stoy); Meta = Funnel→BQ (Paid Social). Both SE+NO."},"note_google":"Fully SE+NO scoped. Spend is brand-attributed: Meta via market, Google Shopping via campaign (p-shopping-se / -no). Meta clicks/CPC are live; the Google CPC is a fixed pre-test reference (brand-level Google clicks aren't in the export). The reallocation — Google Shopping ↓, Meta ↑ — is the lever; judge on revenue / GP3-after-ad-spend vs the Kuling control.","source":"bigquery-export"};
+let DATA = STOY;
+
+const fmtSEK = v => (Math.abs(v)>=1e6? (v/1e6).toFixed(1).replace('.',',')+'M' : Math.round(v/1000)+'k')+' kr';
+const fmtFull = v => Math.round(v).toLocaleString('sv-SE')+' kr';
+const pct = (a,b) => b? (a-b)/b*100 : 0;
+const sgn = x => (x>=0?'+':'')+x.toFixed(1);
+const cls = (x,goodUp=true) => (goodUp? x>=0:x<=0)?'up':'down';
+
+function render(){
+  const d=DATA, s=d.brands.stoy, k=d.brands.kuling, g=d.brands.stoy_other;
+  document.getElementById('period-sub').textContent =
+    `Test ${d.test_period.label} · day ${d.test_period.days} · vs baseline ${d.baseline_period.label} · markets SE + NO`;
+  const sb=document.getElementById('status-banner');
+  if((s.rev_test||0) > 0){ sb.style.display='none'; }
+  else { sb.style.display='block'; sb.innerHTML=`<b>Test started ${d.test_period.start}.</b> Today's sales aren't loaded yet (Funnel has a ~1-day lag), so the outcome scorecard fills in from tomorrow — the reallocation tracker and the spend chart below are already live.`; }
+
+  // reallocation
+  const spent=d.reallocation.meta_spent, tgt=d.reallocation.target, p=Math.min(100,spent/tgt*100);
+  document.getElementById('rl-pct').textContent = p.toFixed(0)+'%';
+  document.getElementById('rl-fill').style.width = p+'%';
+  document.getElementById('rl-spent').textContent = fmtFull(spent)+' spent';
+
+  // KPI cards — Stoy SE+NO outcome + brand-attributed efficiency + control
+  const revD=pct(s.rev_test,s.rev_base), gp2D=pct(s.gp2_test,s.gp2_base);
+  const spendT=s.spend_test||0, spendB=s.spend_base||0;
+  const gp3T=s.gp2_test-spendT, gp3B=s.gp2_base-spendB, gp3D=pct(gp3T,gp3B);
+  const cosT=s.rev_test? spendT/s.rev_test*100:0, cosB=s.rev_base? spendB/s.rev_base*100:0;
+  const poasT=spendT? s.gp2_test/spendT:0, poasB=spendB? s.gp2_base/spendB:0;
+  const gm1T=s.rev_test? (s.gp1_test||0)/s.rev_test*100:0, gm1B=s.rev_base? (s.gp1_base||0)/s.rev_base*100:0;
+  const did = revD - pct(k.rev_test,k.rev_base);
+  const didGeo = g ? revD - pct(g.rev_test,g.rev_base) : null;
+  const cards=[
+    {k:'Stoy Revenue',v:fmtSEK(s.rev_test),d:sgn(revD)+'%',cl:cls(revD),n:'brand total · vs '+fmtSEK(s.rev_base)},
+    {k:'GM1 (after discounts)',v:gm1T.toFixed(1)+'%',d:sgn(gm1T-gm1B)+' pp',cl:cls(gm1T-gm1B),n:'GP1 ÷ rev · ↑ = lighter discounts · prev '+gm1B.toFixed(1)+'%'},
+    {k:'GP3 (after ad spend)',v:fmtSEK(gp3T),d:sgn(gp3D)+'%',cl:cls(gp3D),n:'GP2 − total ad spend'},
+    {k:'Blended COS%',v:cosT.toFixed(1)+'%',d:sgn(cosT-cosB)+' pp',cl:cls(cosT-cosB,false),n:'total spend ÷ rev · ↓ better · prev '+cosB.toFixed(1)+'%'},
+    {k:'POAS',v:poasT.toFixed(2),d:sgn(poasT-poasB),cl:cls(poasT-poasB),n:'GP2 ÷ total spend · prev '+poasB.toFixed(2)},
+    {k:'Lift vs Kuling',v:sgn(did)+' pp',d:'diff-in-diff',cl:cls(did),n:'Stoy revΔ − Kuling revΔ',spot:true},
+  ];
+  if(didGeo!=null) cards.push({k:'Lift vs DK+FI',v:sgn(didGeo)+' pp',d:'geo diff-in-diff',cl:cls(didGeo),n:'Stoy revΔ − non-test-market revΔ',spot:true});
+  document.getElementById('kpis').innerHTML = cards.map(c=>`
+    <div class="kpi${c.spot?' spot':''}"><div class="k">${c.k}</div><div class="v">${c.v}</div>
+    <div class="d ${c.cl}">${c.d}</div><div class="n">${c.n}</div></div>`).join('');
+
+  // channel reallocation (funnel mix)
+  const mixRow=(name,bt,bb)=>{const dd=pct(bt,bb), sh=spendT? bt/spendT*100:0;
+    return `<tr><td>${name}</td><td>${fmtSEK(bb)}</td><td>${fmtSEK(bt)}</td><td class="${cls(dd,name==='Meta')}">${sgn(dd)}%</td><td>${sh.toFixed(0)}%</td></tr>`;};
+  document.querySelector('#mix-tbl tbody').innerHTML =
+    mixRow('Google Shopping', s.google_test||0, s.google_base||0) +
+    mixRow('Meta', s.meta_test||0, s.meta_base||0) +
+    `<tr style="font-weight:700"><td>Total ad spend</td><td>${fmtSEK(spendB)}</td><td>${fmtSEK(spendT)}</td><td class="${cls(pct(spendT,spendB),false)}">${sgn(pct(spendT,spendB))}%</td><td>100%</td></tr>`;
+
+  // cost per click — Google vs Meta benchmark (+ live Meta test CPC)
+  const ref=d.cpc_ref;
+  if(ref){
+    const cpc=v=>v!=null?v.toFixed(2):'—';
+    const cpcRow=(name,o,muted)=>`<tr${muted?' style="opacity:.85"':''}><td>${name}</td><td>${fmtSEK(o.cost)}</td><td>${(o.clicks||0).toLocaleString('sv-SE')}</td><td style="font-weight:700">${cpc(o.cpc)}</td></tr>`;
+    let rows=cpcRow(`Google Shopping <span class="sub">(ref ${ref.period})</span>`, ref.google, false)
+            +cpcRow(`Meta <span class="sub">(ref ${ref.period})</span>`, ref.meta, false);
+    const mc=s.meta_clicks_test||0, ms=s.meta_test||0;
+    if(mc>0) rows+=cpcRow(`Meta <span class="sub">(test, live)</span>`, {cost:ms, clicks:mc, cpc:ms/mc}, true);
+    document.querySelector('#cpc-tbl tbody').innerHTML=rows;
+    const mult=(ref.google.cpc&&ref.meta.cpc)?(ref.google.cpc/ref.meta.cpc).toFixed(1):'—';
+    document.getElementById('cpc-note').innerHTML=`Meta clicks come <b>${mult}× cheaper</b> than Google demand-capture clicks over the pre-test window — the efficiency the reallocation is buying. ${ref.source}`;
+  }
+
+  // control table — blended COS%
+  const row=(name,b)=>{const r=pct(b.rev_test,b.rev_base),g=pct(b.gp2_test,b.gp2_base);
+    const ct=b.rev_test?(b.spend_test||0)/b.rev_test*100:0, cb=b.rev_base?(b.spend_base||0)/b.rev_base*100:0;
+    return `<tr><td>${name}</td><td class="${cls(r)}">${sgn(r)}%</td><td class="${cls(g)}">${sgn(g)}%</td><td class="${cls(ct-cb,false)}">${sgn(ct-cb)} pp</td></tr>`;};
+  document.querySelector('#ctrl-tbl tbody').innerHTML =
+    row('Stoy SE+NO (test)',s)+row('Kuling — all markets (control)',k)+(g? row('Stoy DK+FI (control)',g):'');
+  document.getElementById('did').innerHTML =
+    `<span class="pill">vs Kuling: ${sgn(did)} pp</span>`+(didGeo!=null? ` &nbsp;<span class="pill">vs DK+FI: ${sgn(didGeo)} pp</span>`:'')+
+    ` &nbsp;<span class="sub">Positive = Stoy SE+NO outperforming the control during the test.</span>`;
+
+  // market split — revenue + ad spend + COS%
+  document.querySelector('#mkt-tbl tbody').innerHTML = Object.entries(d.markets).map(([m,x])=>{
+    const r=pct(x.rev_test,x.rev_base), sp=x.spend_test||0;
+    const ct=x.rev_test? sp/x.rev_test*100:0, cb=x.rev_base?(x.spend_base||0)/x.rev_base*100:0;
+    return `<tr><td>${m}</td><td>${fmtSEK(x.rev_test)}</td><td class="${cls(r)}">${sgn(r)}%</td><td>${fmtSEK(sp)}</td><td class="${cls(ct-cb,false)}">${ct.toFixed(1)}% <span class="sub">(${sgn(ct-cb)}pp)</span></td></tr>`;
+  }).join('');
+
+  // flagship
+  document.querySelector('#flag-tbl tbody').innerHTML = d.flagship.map(f=>
+    `<tr><td>${f.title}</td><td>${fmtFull(f.rev)}</td></tr>`).join('');
+
+  document.getElementById('note').innerHTML =
+    `<b>Reading this dashboard.</b> ${d.note_google} Meta upper-funnel is structurally under-credited by last-click, so the outcome (revenue/GP vs control) matters more than POAS. `+
+    `It is <b>early</b> — only ${(spent/tgt*100).toFixed(0)}% of the 150k is deployed and Stoy bicycles are seasonal, so day-level swings are noise; watch the trend over the full June run.`;
+
+  renderTrend();
+  renderYoY();
+}
+
+// ── Year-over-year chart ──────────────────────────────────────────────
+let yoyMetric='rev', yoyChart=null;
+const roll=(a,n=7)=>a.map((_,i)=>{const s=a.slice(Math.max(0,i-n+1),i+1);return s.reduce((x,y)=>x+y,0)/s.length;});
+function renderYoY(){
+  const d=DATA, y=d.yoy||[]; if(!y.length) return;
+  const cur=yoyMetric, isPct=cur==='gm1';
+  const labels=y.map(x=>x.d), testIdx=y.findIndex(x=>x.iso===d.test_period.start);
+  const s=d.yoy_sum||{};
+  let cy, py, lab, statHtml;
+  if(isPct){
+    lab='GM1';
+    // ratio of 7-day-rolled sums (smooths low-revenue days), shown as a margin %
+    const rc=roll(y.map(x=>x.rev)), rp=roll(y.map(x=>x.rev_ly));
+    const gc=roll(y.map(x=>x.gp1||0)), gp=roll(y.map(x=>x.gp1_ly||0));
+    cy=gc.map((g,i)=>rc[i]? g/rc[i]*100:0); py=gp.map((g,i)=>rp[i]? g/rp[i]*100:0);
+    const m26=s.rev? (s.gp1||0)/s.rev*100:0, m25=s.rev_ly? (s.gp1_ly||0)/s.rev_ly*100:0;
+    statHtml=`<b>${s.window||''}:</b> GM1 <b>${m26.toFixed(1)}%</b> vs <b>${m25.toFixed(1)}%</b> last year `+
+      `<span class="${m26>=m25?'up':'down'}" style="font-weight:700">(${sgn(m26-m25)} pp · ↑ = lighter discounts)</span>`;
+  } else {
+    const ly=cur+'_ly'; lab=cur==='rev'?'Revenue':'GP2';
+    cy=roll(y.map(x=>x[cur])); py=roll(y.map(x=>x[ly]));
+    const tot26=s[cur]||0, tot25=s[ly]||0, yo=tot25? (tot26-tot25)/tot25*100:0;
+    statHtml=`<b>${s.window||''}:</b> ${lab} <b>${fmtFull(tot26)}</b> vs <b>${fmtFull(tot25)}</b> last year `+
+      `<span class="${yo>=0?'up':'down'}" style="font-weight:700">(${yo>=0?'+':''}${yo.toFixed(0)}% YoY)</span>`;
+  }
+  document.getElementById('yoy-stat').innerHTML=statHtml;
+  const fmtY=v=>isPct? v.toFixed(0)+'%' : fmtSEK(v);
+  const fmtT=v=>isPct? v.toFixed(1)+'%' : fmtFull(v);
+  const marker={id:'yoyMarker',afterDraw(ch){if(testIdx<0)return;const x=ch.scales.x.getPixelForValue(testIdx),a=ch.chartArea,c=ch.ctx;
+    c.save();c.strokeStyle='#6D28D9';c.setLineDash([5,4]);c.lineWidth=1.5;c.beginPath();c.moveTo(x,a.top);c.lineTo(x,a.bottom);c.stroke();
+    c.setLineDash([]);c.fillStyle='#6D28D9';c.font='700 10px sans-serif';c.fillText('test start',x+4,a.top+11);c.restore();}};
+  const yc=document.getElementById('c-yoy'); const ex=Chart.getChart(yc); if(ex) ex.destroy();
+  yoyChart=new Chart(yc,{
+    type:'line',
+    data:{labels,datasets:[
+      {label:lab+' 2026',data:cy,borderColor:'#1E3A8A',backgroundColor:'rgba(30,58,138,.06)',fill:!isPct,tension:.35,pointRadius:0,borderWidth:2.5},
+      {label:lab+' 2025',data:py,borderColor:'#94a3b8',tension:.35,pointRadius:0,borderWidth:2,borderDash:[5,4]},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{position:'top',labels:{boxWidth:12,font:{size:11}}},
+        tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+fmtT(c.parsed.y)}}},
+      scales:{y:{grid:{color:'rgba(0,0,0,.05)'},ticks:{callback:fmtY,font:{size:10}}},
+        x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:12}}}},
+    plugins:[marker]});
+}
+document.getElementById('yoy-toggle').addEventListener('click',e=>{
+  const b=e.target.closest('.yt'); if(!b) return;
+  yoyMetric=b.dataset.m;
+  document.querySelectorAll('#yoy-toggle .yt').forEach(x=>x.classList.toggle('on',x===b));
+  renderYoY();
+});
+
+let trendDays=30, trendChart=null;
+function renderTrend(){
+  const d=DATA, data=(d.daily||[]).slice(-trendDays);
+  const labels=data.map(x=>x.d);
+  const testIdx=data.findIndex(x=>x.iso===d.test_period.start);
+  const marker={id:'trendMarker',afterDraw(ch){if(testIdx<0)return;const x=ch.scales.x.getPixelForValue(testIdx),a=ch.chartArea,c=ch.ctx;
+    c.save();c.strokeStyle='#6D28D9';c.setLineDash([5,4]);c.lineWidth=1.5;c.beginPath();c.moveTo(x,a.top);c.lineTo(x,a.bottom);c.stroke();
+    c.setLineDash([]);c.fillStyle='#6D28D9';c.font='700 10px sans-serif';c.fillText('test start',x+4,a.top+11);c.restore();}};
+  const tc=document.getElementById('c-trend'); const tex=Chart.getChart(tc); if(tex) tex.destroy();
+  trendChart=new Chart(tc,{
+    type:'line',
+    data:{labels,datasets:[
+      {label:'Revenue',yAxisID:'y',data:data.map(x=>x.rev),borderColor:'#1E3A8A',backgroundColor:'rgba(30,58,138,.08)',fill:true,tension:.3,pointRadius:0,borderWidth:2},
+      {label:'Total ad spend',yAxisID:'y2',data:data.map(x=>x.spend),borderColor:'#0F766E',tension:.3,pointRadius:0,borderWidth:2.5},
+      {label:'Google spend',yAxisID:'y2',data:data.map(x=>x.google),borderColor:'#B45309',tension:.3,pointRadius:0,borderWidth:1.5},
+      {label:'Meta spend',yAxisID:'y2',data:data.map(x=>x.meta),borderColor:'#6D28D9',tension:.3,pointRadius:0,borderWidth:1.5,borderDash:[4,3]},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{position:'top',labels:{boxWidth:12,font:{size:11}}},
+        tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+fmtFull(c.parsed.y)}}},
+      scales:{
+        y:{position:'left',grid:{color:'rgba(0,0,0,.05)'},ticks:{callback:v=>fmtSEK(v),font:{size:10}}},
+        y2:{position:'right',grid:{display:false},ticks:{callback:v=>fmtSEK(v),font:{size:10},color:'#0F766E'}},
+        x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:14}}
+      }},
+    plugins:[marker]
+  });
+}
+document.getElementById('trend-toggle').addEventListener('click',e=>{
+  const b=e.target.closest('.yt'); if(!b) return;
+  trendDays=+b.dataset.d;
+  document.querySelectorAll('#trend-toggle .yt').forEach(x=>x.classList.toggle('on',x===b));
+  renderTrend();
+});
+
+async function fetchLive(){
+  try{
+    const r=await fetch('/api/stoy-data',{cache:'no-store'}); if(!r.ok) return;
+    const live=await r.json(); if(live && live.brands){ DATA=live; render();
+      document.getElementById('live-src').textContent='Live · BigQuery · '+(live.source||'');}
+  }catch(e){}
+}
+render();
+fetchLive();
+</script>
+</body>
+</html>

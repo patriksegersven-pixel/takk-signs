@@ -43,7 +43,9 @@ steps:
       - --allow-unauthenticated
       - --max-instances=${_MAX_INSTANCES}
       - --min-instances=${_MIN_INSTANCES}
-      - --set-env-vars=GCP_PROJECT=$PROJECT_ID
+      # --update-env-vars (NOT --set-env-vars): --set-env-vars replaces the entire
+      # env, wiping DASH_PASS / FUNNEL_* / INTERNAL_TOKEN wired from Secret Manager.
+      - --update-env-vars=GCP_PROJECT=$PROJECT_ID
 
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
