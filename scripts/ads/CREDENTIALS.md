@@ -48,11 +48,22 @@ GOOGLE_ADS_LOGIN_CUSTOMER_ID=6899790415
 - [x] Developer token exists — access level **Explorer** (test accounts only)
 - [x] Basic Access application submitted (advertiser / internal tool /
       Campaign Management + Reporting / Search, Shopping, Performance Max)
-- [ ] Basic Access approval email (expected 1–3 business days)
-- [ ] `gcloud services enable googleads.googleapis.com` on the project
-- [ ] SA key created + env vars set in Claude environment
-- [ ] Token↔project association call (first API call with token + SA cred)
-- [ ] Smoke test: `set_troas.py accounts` → `list` → `set --validate-only`
+- [ ] Basic Access approval email (submitted; API already working meanwhile)
+- [x] `googleads.googleapis.com` enabled on the project
+- [x] SA key created (id `806baa1d…`, 2026-08-06; org policy
+      `iam.disableServiceAccountKeyCreation` temporarily lifted then re-armed)
+- [ ] Env vars set in Claude environment settings (key JSON + token + MCC id)
+- [x] Token↔project association (first authenticated API call made)
+- [x] Smoke test PASSED (2026-08-06): `accounts` lists MCC; `list` returns
+      105 campaigns + 31 portfolio strategies for Babyshop SE (4851485396);
+      `set --validate-only` accepted a write → mutations are authorized
+      even at Explorer access level
+- [ ] Key hygiene: SA carries 3 older keys (2× 2026-05-26, 1× 2026-07-08) —
+      disable the unaccounted-for ones in IAM console once stable
+
+Client accounts under the MCC (active): Babyshop SE 4851485396,
+NO 8623945183, DK 2054294342, FI 6161399704, ROW 5541487401,
+RU 1929201802; Lekmer SE 7780114635, NO 8308232278, DK 2756397225.
 
 OAuth consent app ("Babyshop Internal Ads Tool", formerly "Google Ads MCP")
 stays in **Testing** publishing status on purpose — SA auth bypasses the
