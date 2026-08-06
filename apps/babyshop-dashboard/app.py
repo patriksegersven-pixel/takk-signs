@@ -224,21 +224,34 @@ def api_breakdown(dataset: str, start: str, end: str, cstart: str, cend: str,
 @app.get("/api/filtered")
 def api_filtered(start: str, end: str, cstart: str, cend: str,
                  market: str = "", shop: str = "", channel: str = "",
+                 series: str = "", sstart: str = "", send: str = "",
                  _: str = Depends(verify)):
     """KV totals for an AND-combination of market/shop/channel filters, computed
     live from BigQuery. Lets the KV Overview cards reflect more than one filter
     at once (e.g. market=SE AND channel=Google) — the single-dimension breakdown
-    snapshots can't express a cross-filter, so this queries the combination."""
+    snapshots can't express a cross-filter, so this queries the combination.
+
+    Optional `series=daily` additionally returns `days` — the filtered daily KV
+    series over [sstart, send] (defaults to [start, end]) — so the Daily Trend
+    and Weekly Waterfall charts can describe the filter too, instead of staying
+    on all-markets totals. Without `series` the response is unchanged."""
     import datetime as _dt
     try:
         import bq_source as bs
         cs, ce = _dt.date.fromisoformat(start), _dt.date.fromisoformat(end)
         ps, pe = _dt.date.fromisoformat(cstart), _dt.date.fromisoformat(cend)
+        # Series window — independent of the KPI range (the charts show a fixed
+        # ~30-day window), so it is requested separately and falls back to it.
+        ss = _dt.date.fromisoformat(sstart) if sstart else cs
+        se = _dt.date.fromisoformat(send) if send else ce
     except Exception as e:
         return JSONResponse({"error": f"bad params: {e}"}, status_code=400)
+    filters = {"market": market, "shop": shop, "channel": channel}
     try:
-        return bs._kv_filtered({"market": market, "shop": shop, "channel": channel},
-                               cs, ce, ps, pe)
+        out = bs._kv_filtered(filters, cs, ce, ps, pe)
+        if series == "daily":
+            out["days"] = bs.filtered_daily(filters, ss, se)
+        return out
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 

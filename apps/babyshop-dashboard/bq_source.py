@@ -113,6 +113,30 @@ def _kv_filtered(filters, cs, ce, ps, pe):
                 "cost": I(r["cost"]) if r else 0}
     return {"cur": q(cs, ce), "prev": q(ps, pe)}
 
+def filtered_daily(filters, start: datetime.date, end: datetime.date):
+    """Daily KV series for an arbitrary AND-combination of market/shop/channel.
+
+    Same `filters` shape as _kv_filtered ({"market": "SE", "channel": "Google"} —
+    only the keys present are constrained). Returns one row per day that has
+    data, ordered by date:
+
+        [{"d": "2026-05-24", "rev": …, "gp2": …, "gp3": …, "cost": …}, …]
+
+    Same metric aliases as build_payloads' daily query, but `d` stays the ISO
+    date (the caller buckets it) instead of the dd/m display label. Fully
+    parameterised — no user-supplied value is interpolated into the SQL."""
+    conds = ["Date BETWEEN @start AND @end"]
+    params = [bigquery.ScalarQueryParameter("start", "DATE", start),
+              bigquery.ScalarQueryParameter("end", "DATE", end)]
+    for i, dim in enumerate(d for d in _KV_FILTER_COLS if filters.get(d)):
+        pname = f"f{i}"
+        conds.append(f"{_KV_FILTER_COLS[dim]} = @{pname}")
+        params.append(bigquery.ScalarQueryParameter(pname, "STRING", filters[dim]))
+    rows = _rows(f"SELECT CAST(Date AS STRING) d, {KV} FROM `{BQ_TABLE}` "
+                 f"WHERE {' AND '.join(conds)} GROUP BY d ORDER BY d", params)
+    return [{"d": r["d"], "rev": I(r["rev"]), "gp2": I(r["gp2"]),
+             "gp3": I(r["gp3"]), "cost": I(r["cost"])} for r in rows]
+
 def _merge_prod(cur, prev):
     pm = {r["name"]: r for r in prev}
     out = []

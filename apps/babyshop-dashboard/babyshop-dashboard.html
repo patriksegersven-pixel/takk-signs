@@ -664,7 +664,7 @@
       <div class="chart-header">
         <div>
           <div class="chart-title">Weekly P&amp;L Waterfall</div>
-          <div class="chart-sub">kv-revenue stacked → COGS · ops costs · ad spend · kv-gp3</div>
+          <div class="chart-sub" id="wf-sub">kv-revenue stacked → COGS · ops costs · ad spend · kv-gp3</div>
         </div>
         <span class="chart-badge">SEK</span>
       </div>
@@ -1111,6 +1111,16 @@ const DAILY = [
   {d:'24/5', rev:1161919, gp2:229609, gp3:110913, cost:118696},
 ];
 
+/* Pristine (unfiltered) copies of the chart series. DAILY/WEEKS get spliced in
+ * place by the live overlay, so these are re-captured right after that lands.
+ * Kept referentially stable so _trendSeries can point straight at them. */
+const DAILY_ALL = [], WEEKS_ALL = [];
+function _captureAllSeries() {
+  DAILY_ALL.splice(0, DAILY_ALL.length, ...DAILY);
+  WEEKS_ALL.splice(0, WEEKS_ALL.length, ...WEEKS);
+}
+_captureAllSeries();
+
 const MARKETS = [
   { name:'SE',      revenue:11579066, gp2:2914466, gp3:1365480, cost:1548986, gp3_prev:1901742 },
   { name:'NO',      revenue:4044420,  gp2:1096835, gp3:534423,  cost:562412,  gp3_prev:714749  },
@@ -1405,6 +1415,7 @@ async function fetchLiveAndOverlay() {
     if (Array.isArray(live.channels)) CHANNELS.splice(0, CHANNELS.length, ...live.channels);
     if (Array.isArray(live.daily))    DAILY.splice   (0, DAILY.length,    ...live.daily);
     if (Array.isArray(live.weeks))    WEEKS.splice   (0, WEEKS.length,    ...live.weeks);
+    _captureAllSeries();   // charts' "all markets" baseline = the live series
 
     // Long-term chart: swap placeholder monthly totals for real BigQuery data
     if (live.monthly && live.monthly['2025'] && live.monthly['2026']) {
@@ -1691,28 +1702,118 @@ function _renderFiltered() {
   }
 }
 
+/* ── Chart series under an active filter ───────────────────────────────
+ * The Daily Trend and Weekly Waterfall read whatever _trendSeries points at:
+ * the pristine all-markets arrays, or a filtered series fetched from BigQuery
+ * (/api/filtered?series=daily). The KPI cards have their own source (embedded
+ * snapshot for one dimension, /api/filtered totals for a cross-filter). */
+const _trendSeries = window._trendSeries = { daily: DAILY_ALL, weeks: WEEKS_ALL };
+let _seriesState = 'all';                 // 'all' | 'filtered' | 'fallback'
+
+function _useAllSeries() {
+  _trendSeries.daily = DAILY_ALL;
+  _trendSeries.weeks = WEEKS_ALL;
+  _seriesState = 'all';
+}
+// Note appended to both chart subtitles so the series' provenance is visible.
+function _seriesSuffix() {
+  if (!window._trendSeries) return '';    // called before this block ran → unfiltered
+  return _seriesState === 'filtered' ? ' · filtered'
+       : _seriesState === 'fallback' ? ' · charts: totals (filtered series unavailable)'
+       : '';
+}
+
+// DAILY labels are "25/4" — resolve to a real ISO date against the data end.
+function _dailyISO(label) { return _isoLocal(_parseDailyD(label, _dataEndDate())); }
+
+// Full span the two charts need: first day of WEEKS' first week → last DAILY day.
+function _seriesSpan() {
+  if (!DAILY_ALL.length) return null;
+  return { sstart: _dailyISO(DAILY_ALL[0].d),
+           send:   _dailyISO(DAILY_ALL[DAILY_ALL.length - 1].d) };
+}
+
+/* Reshape the fetched daily rows ([{d:'2026-05-24',rev,gp2,gp3,cost}]) into the
+ * two shapes the charts read. Days are keyed off DAILY_ALL so the x-axis stays
+ * label-for-label identical (a day with no rows under the filter → 0), and the
+ * weeks reuse WEEKS_ALL's labels, summing by each bucket's date range. */
+function _buildFilteredSeries(days) {
+  const n = (r, k) => (r && typeof r[k] === 'number' ? r[k] : 0);
+  const by = Object.create(null);
+  for (const r of days) by[r.d] = r;
+
+  const daily = DAILY_ALL.map(o => {
+    const r = by[_dailyISO(o.d)];
+    return { d: o.d, rev: n(r, 'rev'), gp2: n(r, 'gp2'), gp3: n(r, 'gp3'), cost: n(r, 'cost') };
+  });
+
+  const weeks = WEEKS_ALL.map((w, i) => {
+    const chunk = DAILY_ALL.slice(i * 7, i * 7 + 7);   // same 7-day bucketing the snapshot uses
+    const acc = { label: w.label, revenue: 0, gp2: 0, gp3: 0, cost: 0 };
+    if (!chunk.length) return acc;
+    const from = _dailyISO(chunk[0].d), to = _dailyISO(chunk[chunk.length - 1].d);
+    for (const r of days) {
+      if (r.d < from || r.d > to) continue;
+      acc.revenue += n(r, 'rev'); acc.gp2 += n(r, 'gp2');
+      acc.gp3 += n(r, 'gp3');     acc.cost += n(r, 'cost');
+    }
+    return acc;
+  });
+  return { daily, weeks };
+}
+
+function _applySeries(daily, weeks, state) {
+  _trendSeries.daily = daily;
+  _trendSeries.weeks = weeks;
+  _seriesState = state;
+  if (typeof renderTrend === 'function') renderTrend();
+  if (typeof refreshWaterfall === 'function') refreshWaterfall();
+}
+
 /* Fetch KPI totals for a 2+ dimension AND-combination (e.g. market=SE AND
  * channel=Google). The single-dimension breakdown snapshots can't express a
  * cross-filter, so this is computed live from BigQuery. Seq-guarded against
- * out-of-order responses when the user changes filters quickly. */
+ * out-of-order responses when the user changes filters quickly.
+ *
+ * The same request carries the filtered daily series for the charts, which is
+ * why the single-dimension path calls this too (with applyTotals=false): its
+ * KPI cards stay instant from the embedded snapshot, and only the charts wait
+ * for BigQuery. Until the series lands the charts keep showing what they had. */
 let _filtSeq = 0;
-async function _fetchCombined(af) {
+async function _fetchCombined(af, applyTotals = true) {
   const r = _curRange(), c = _cmpRange(r);
   const p = new URLSearchParams({
     start: _isoLocal(r.start), end: _isoLocal(r.end),
     cstart: _isoLocal(c.start), cend: _isoLocal(c.end),
   });
   af.forEach(f => p.set(f.dim, f.val));
+  const span = _seriesSpan();
+  if (span) { p.set('series', 'daily'); p.set('sstart', span.sstart); p.set('send', span.send); }
   const seq = ++_filtSeq;
   try {
     const res = await fetch(`/api/filtered?${p}`, { cache: 'no-store' });
-    if (!res.ok || seq !== _filtSeq) return;
+    if (seq !== _filtSeq) return;
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const d = await res.json();
-    if (seq !== _filtSeq || d.error) return;
-    CUR  = { revenue: d.cur.revenue, gp2: d.cur.gp2, gp3: d.cur.gp3, adCost: d.cur.cost, txns: d.cur.txns };
-    PREV = { revenue: d.prev.revenue, gp2: d.prev.gp2, gp3: d.prev.gp3, adCost: d.prev.cost, txns: d.prev.txns };
+    if (seq !== _filtSeq) return;
+    if (d.error) throw new Error(d.error);
+    if (applyTotals) {
+      CUR  = { revenue: d.cur.revenue, gp2: d.cur.gp2, gp3: d.cur.gp3, adCost: d.cur.cost, txns: d.cur.txns };
+      PREV = { revenue: d.prev.revenue, gp2: d.prev.gp2, gp3: d.prev.gp3, adCost: d.prev.cost, txns: d.prev.txns };
+    }
+    if (span && Array.isArray(d.days)) {
+      const s = _buildFilteredSeries(d.days);
+      _trendSeries.daily = s.daily; _trendSeries.weeks = s.weeks; _seriesState = 'filtered';
+    } else {
+      _useAllSeries();                      // no series in the response → charts show totals
+    }
     _renderFiltered();
-  } catch (e) { /* keep current cards on network error */ }
+  } catch (e) {
+    // Cards keep their current values; the charts fall back to the unfiltered
+    // series and say so, rather than silently implying they're filtered.
+    if (seq !== _filtSeq) return;
+    _applySeries(DAILY_ALL, WEEKS_ALL, 'fallback');
+  }
 }
 
 function applyFilter() {
@@ -1739,6 +1840,7 @@ function applyFilter() {
     _filtSeq++;                           // cancel any in-flight combined fetch
     CUR  = periodBase.cur;
     PREV = cmpBase;
+    _useAllSeries();                      // charts back to all markets — no refetch needed
     _renderFiltered();
     return;
   }
@@ -1767,6 +1869,9 @@ function applyFilter() {
       };
     }
     _renderFiltered();
+    // KPIs are already right from the snapshot; the charts still need a real
+    // filtered daily series, so fetch it (totals from the response are ignored).
+    _fetchCombined(af, false);
     return;
   }
 
@@ -1844,18 +1949,23 @@ let waterfallChart = new Chart(document.getElementById('c-waterfall'), {
   }
 });
 
-// Rebuild the waterfall datasets from the (possibly live-overlaid) WEEKS array
+// Rebuild the waterfall datasets from the active week series — the live-overlaid
+// all-markets WEEKS, or the filtered equivalent when a filter is on.
+const WF_SUB_BASE = 'kv-revenue stacked → COGS · ops costs · ad spend · kv-gp3';
 function refreshWaterfall() {
   if (!waterfallChart) return;
+  const W = (window._trendSeries && _trendSeries.weeks) || WEEKS;
+  const sub = document.getElementById('wf-sub');
+  if (sub) sub.textContent = WF_SUB_BASE + _seriesSuffix();
   const ds = waterfallChart.data.datasets;
-  waterfallChart.data.labels = WEEKS.map(w=>w.label);
-  ds[0].data = WEEKS.map(w=>w.gp3);
-  ds[1].data = WEEKS.map(w=>w.cost);
-  ds[2].data = WEEKS.map(w=>(w.revenue-w.gp2)*OPS_PAYMENT);
-  ds[3].data = WEEKS.map(w=>(w.revenue-w.gp2)*OPS_PICKPACK);
-  ds[4].data = WEEKS.map(w=>(w.revenue-w.gp2)*OPS_SHIPPING);
-  ds[5].data = WEEKS.map(w=>(w.revenue-w.gp2)*OPS_RETURNS);
-  ds[6].data = WEEKS.map(w=>(w.revenue-w.gp2)*COGS_OF_OTHER);
+  waterfallChart.data.labels = W.map(w=>w.label);
+  ds[0].data = W.map(w=>w.gp3);
+  ds[1].data = W.map(w=>w.cost);
+  ds[2].data = W.map(w=>(w.revenue-w.gp2)*OPS_PAYMENT);
+  ds[3].data = W.map(w=>(w.revenue-w.gp2)*OPS_PICKPACK);
+  ds[4].data = W.map(w=>(w.revenue-w.gp2)*OPS_SHIPPING);
+  ds[5].data = W.map(w=>(w.revenue-w.gp2)*OPS_RETURNS);
+  ds[6].data = W.map(w=>(w.revenue-w.gp2)*COGS_OF_OTHER);
   waterfallChart.update();
 }
 
@@ -1916,16 +2026,22 @@ function _parseDailyD(s, ref) {
   if (m > ref.getMonth() + 1) y -= 1;
   return new Date(y, m - 1, d);
 }
+// The active daily series: all-markets, or the filtered equivalent.
+function _trendDaily() {
+  return (window._trendSeries && _trendSeries.daily) || DAILY;
+}
 function _updateTrendSub() {
   const sub = document.getElementById('trend-sub');
-  if (!sub || !DAILY.length) return;
-  const first = _parseDailyD(DAILY[0].d, _YESTERDAY);
-  const last  = _parseDailyD(DAILY[DAILY.length-1].d, _YESTERDAY);
-  sub.textContent = `${_fmtRange(first, last)} · pick metrics to overlay`;
+  const D = _trendDaily();
+  if (!sub || !D.length) return;
+  const first = _parseDailyD(D[0].d, _YESTERDAY);
+  const last  = _parseDailyD(D[D.length-1].d, _YESTERDAY);
+  sub.textContent = `${_fmtRange(first, last)} · pick metrics to overlay` + _seriesSuffix();
 }
 
 function renderTrend() {
   _updateTrendSub();
+  const D = _trendDaily();
   // Refresh chip visuals
   document.querySelectorAll('#trend-chips .metric-chip').forEach(chip => {
     const key = chip.dataset.key;
@@ -1948,7 +2064,7 @@ function renderTrend() {
     const yAxisID = m.unit === 'pct' ? 'yPct' : 'ySek';
     return {
       label: m.label,
-      data: DAILY.map(m.compute),
+      data: D.map(m.compute),
       borderColor: m.color,
       backgroundColor: m.color + '0F',
       fill: activeTrendMetrics.size <= 2 && m.unit === 'sek',
@@ -1985,7 +2101,7 @@ function renderTrend() {
   if (trendChart) trendChart.destroy();
   trendChart = new Chart(document.getElementById('c-trend'), {
     type: 'line',
-    data: { labels: DAILY.map(d => d.d), datasets },
+    data: { labels: D.map(d => d.d), datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
