@@ -6,10 +6,12 @@ ROAS Impact, ROAS Simulations) with a backend serving live Funnel.io
 snapshots from Firestore (`/api/kv-data`, `/api/breakdown`, `/api/filtered`,
 `/api/budget`, `/api/refresh-status`).
 
-**This directory is the single source of truth.** Edit here, push to `main`,
-and the `babyshop-dashboard-main` Cloud Build trigger builds and deploys a new
-revision. Traffic may be pinned to a specific revision — after a deploy, move
-traffic deliberately (Cloud Run → Revisions → Manage traffic).
+**This directory is the single source of truth, and deploys are fully
+automatic.** Edit here and push to `main`: the `babyshop-dashboard-main`
+Cloud Build trigger builds the image, deploys a new revision, and a final
+`promote` step routes 100% of traffic to it. **Green builds go live on their
+own**; a failed build never takes traffic. Rollback is one click: Cloud Run →
+Revisions → Manage traffic → pick an older revision.
 
 (The old standalone `patriksegersven-pixel/babyshop` repo where the ROAS
 Simulations page was originally developed is archived and read-only.)
@@ -31,9 +33,15 @@ Simulations page was originally developed is archived and read-only.)
 ## Endpoints
 - `GET /` and `GET /babyshop-dashboard.html` — KV Overview
 - `GET /babyshop-*.html` — sibling dashboard pages
-- `GET /api/*` — live data (Firestore-backed)
+- `GET /api/*` — live data (Firestore snapshots; `/api/breakdown` and
+  `/api/filtered` query BigQuery live — `/api/filtered` also returns a
+  per-day series (`series=daily`) so the KV Overview charts follow the
+  market/shop/channel filter)
 - `POST /internal/refresh` — Cloud Scheduler refresh (`X-Internal-Token`)
 - `GET /healthz` — liveness probe (unauthenticated)
 
-All routes except `/healthz` require HTTP Basic auth (`DASH_USER` / `DASH_PASS`);
-set `DEV_MODE=true` to bypass locally.
+All routes except `/healthz` support HTTP Basic auth (`DASH_USER` /
+`DASH_PASS`); `DEV_MODE=true` bypasses it. NOTE: the live service currently
+runs with auth bypassed — to enforce a password, set `DEV_MODE=false` and a
+strong `DASH_PASS` on the Cloud Run service (via Secret Manager), then let
+the next deploy promote.
