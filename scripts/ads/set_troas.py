@@ -3,17 +3,26 @@
 Google Ads target-ROAS CLI — inspect and change tROAS on campaigns and
 portfolio bidding strategies via the Google Ads REST API.
 
-Auth: OAuth 2.0 refresh-token flow (mint one with
-`bootstrap_google_ads_oauth.py`, see README.md in this directory).
-A GCP service account will NOT work here: the Google Ads API only accepts
-service accounts through Google Workspace domain-wide delegation, which a
-consumer (@gmail.com) login can't set up.
+Auth — three modes, tried in this order (first match wins):
 
-Required env vars:
+1. Service-account key file (works headless, e.g. remote sessions):
+       GOOGLE_ADS_SA_KEY_FILE (or GOOGLE_APPLICATION_CREDENTIALS)
+   Path to the SA's JSON key. The SA email must be added as a user
+   (Standard access) on the Google Ads account — supported directly,
+   no Workspace domain-wide delegation needed. Optionally set
+   GOOGLE_ADS_SUBJECT_EMAIL to impersonate a Workspace user via DWD.
+   Signing shells out to `openssl` (no pip installs).
+
+2. Keyless gcloud impersonation (local machines with gcloud login):
+       GOOGLE_ADS_IMPERSONATE_SA=<sa-email>
+   Your gcloud user needs roles/iam.serviceAccountTokenCreator on the SA.
+
+3. OAuth refresh token (mint with bootstrap_google_ads_oauth.py):
+       GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET,
+       GOOGLE_ADS_REFRESH_TOKEN
+
+Always required:
     GOOGLE_ADS_DEVELOPER_TOKEN    from the manager account's API Center
-    GOOGLE_ADS_CLIENT_ID          OAuth client of type "Desktop app"
-    GOOGLE_ADS_CLIENT_SECRET
-    GOOGLE_ADS_REFRESH_TOKEN      minted by bootstrap_google_ads_oauth.py
 
 Optional env vars:
     GOOGLE_ADS_LOGIN_CUSTOMER_ID  manager (MCC) customer ID, digits only.
@@ -48,6 +57,7 @@ import urllib.request
 API_VERSION = os.environ.get("GOOGLE_ADS_API_VERSION", "v24")
 API_BASE = f"https://googleads.googleapis.com/{API_VERSION}"
 OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
+ADWORDS_SCOPE = "https://www.googleapis.com/auth/adwords"
 
 
 def _env(name: str) -> str:
@@ -73,7 +83,84 @@ def _post_form(url: str, form: dict) -> dict:
         return json.load(resp)
 
 
+def _b64url(data: bytes) -> bytes:
+    import base64
+    return base64.urlsafe_b64encode(data).rstrip(b"=")
+
+
+def _sa_key_token(key_path: str) -> str:
+    """OAuth2 JWT-bearer flow with a service-account key. RS256 signing is
+    delegated to the openssl binary so no crypto pip package is needed."""
+    import subprocess
+    import tempfile
+    import time
+
+    try:
+        with open(key_path) as f:
+            info = json.load(f)
+        sa_email, private_key = info["client_email"], info["private_key"]
+    except (OSError, ValueError, KeyError) as e:
+        sys.exit(f"Cannot read SA key file {key_path!r}: {e}")
+
+    now = int(time.time())
+    claims = {"iss": sa_email, "scope": ADWORDS_SCOPE, "aud": OAUTH_TOKEN_URL,
+              "iat": now, "exp": now + 3600}
+    subject = os.environ.get("GOOGLE_ADS_SUBJECT_EMAIL")
+    if subject:  # Workspace domain-wide delegation only
+        claims["sub"] = subject
+    enc = lambda obj: _b64url(json.dumps(obj, separators=(",", ":")).encode())
+    signing_input = enc({"alg": "RS256", "typ": "JWT"}) + b"." + enc(claims)
+
+    pem = tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False)
+    try:
+        pem.write(private_key)
+        pem.close()
+        sig = subprocess.run(
+            ["openssl", "dgst", "-sha256", "-sign", pem.name],
+            input=signing_input, capture_output=True, check=True).stdout
+    except FileNotFoundError:
+        sys.exit("openssl binary not found — needed to sign the SA JWT")
+    except subprocess.CalledProcessError as e:
+        sys.exit(f"openssl signing failed: {e.stderr.decode(errors='replace')}")
+    finally:
+        os.unlink(pem.name)
+
+    assertion = (signing_input + b"." + _b64url(sig)).decode()
+    try:
+        tok = _post_form(OAUTH_TOKEN_URL, {
+            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "assertion": assertion,
+        })
+    except urllib.error.HTTPError as e:
+        sys.exit(f"SA token exchange failed ({e.code}): {e.read().decode(errors='replace')}")
+    return tok["access_token"]
+
+
+def _impersonation_token(sa_email: str) -> str:
+    """Keyless: shell out to gcloud to mint an SA token with the Ads scope."""
+    import subprocess
+    try:
+        res = subprocess.run(
+            ["gcloud", "auth", "print-access-token",
+             f"--impersonate-service-account={sa_email}",
+             f"--scopes={ADWORDS_SCOPE}"],
+            capture_output=True, text=True, check=True)
+    except FileNotFoundError:
+        sys.exit("gcloud not found — GOOGLE_ADS_IMPERSONATE_SA needs a local "
+                 "gcloud login, or use GOOGLE_ADS_SA_KEY_FILE instead")
+    except subprocess.CalledProcessError as e:
+        sys.exit(f"gcloud impersonation failed: {e.stderr.strip()}")
+    return res.stdout.strip()
+
+
 def get_access_token() -> str:
+    key_file = (os.environ.get("GOOGLE_ADS_SA_KEY_FILE")
+                or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
+    if key_file:
+        return _sa_key_token(key_file)
+    impersonate = os.environ.get("GOOGLE_ADS_IMPERSONATE_SA")
+    if impersonate:
+        return _impersonation_token(impersonate)
     try:
         tok = _post_form(OAUTH_TOKEN_URL, {
             "client_id": _env("GOOGLE_ADS_CLIENT_ID"),

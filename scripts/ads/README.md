@@ -3,44 +3,66 @@
 CLI to inspect and change target ROAS (tROAS) on Google Ads campaigns and
 portfolio bidding strategies, via the Google Ads REST API (`v24`).
 
-Why this exists: the connectors already in place can't do it —
+Why this exists: **Funnel** (the connector in place) is a data-ingestion
+platform; its API is read-only and cannot push changes back to Google Ads.
 
-- **Funnel** is a data-ingestion platform; its API is read-only and cannot
-  push changes back to Google Ads.
-- A plain **GCP service account** cannot be granted Google Ads access. The
-  Google Ads API only accepts service accounts through Google Workspace
-  **domain-wide delegation** (impersonating a Workspace user). The accounts
-  here are consumer `@gmail.com`, so that path is unavailable. The supported
-  route is a user OAuth refresh token — same pattern as the Funnel client
-  (`apps/babyshop-dashboard/funnel_client.py`).
+## Auth: service account (preferred)
 
-## One-time setup
+Google Ads supports adding a service-account email **directly as a user**
+on the Ads account — no Workspace domain-wide delegation needed.
+The SA in use: `google-ads-mcp@project-a7ade44e-e7e3-4871-a83.iam.gserviceaccount.com`.
 
-1. **Developer token** — in the Google Ads *manager* (MCC) account:
+One-time setup:
+
+1. **Add the SA to the Ads account** — Google Ads UI, signed in as an
+   account admin: **Admin → Access and security → Users → ⊕** → paste the
+   SA email → access level **Standard** → Add. ("Email" and "Admin" levels
+   are not supported for service accounts; Standard is enough to change
+   bidding. Do this on the manager account to cover all client accounts.)
+2. **Developer token** — in the Google Ads *manager* (MCC) account:
    Tools & settings → API Center. "Basic access" is enough for managing
    your own accounts. (No manager account yet? Create one free at
    ads.google.com/home/tools/manager-accounts and link the client account.)
-2. **OAuth client** — GCP console (project `project-a7ade44e-e7e3-4871-a83`):
-   APIs & Services → Credentials → Create credentials → OAuth client ID →
-   type **Desktop app**. Also enable the "Google Ads API" on the project.
-3. **Refresh token** — locally, on a machine with a browser:
+3. **Enable the API + get credentials for the SA** (locally):
 
    ```bash
-   python3 scripts/ads/bootstrap_google_ads_oauth.py \
-     --client-id <id> --client-secret <secret>
+   PROJ=project-a7ade44e-e7e3-4871-a83
+   gcloud services enable googleads.googleapis.com --project=$PROJ
+
+   # keyless (local use): let your user mint tokens as the SA
+   gcloud iam service-accounts add-iam-policy-binding \
+     google-ads-mcp@$PROJ.iam.gserviceaccount.com --project=$PROJ \
+     --member="user:patrik.segersven@gmail.com" \
+     --role="roles/iam.serviceAccountTokenCreator"
+
+   # OR a JSON key (for headless use, e.g. Claude remote sessions):
+   gcloud iam service-accounts keys create google-ads-mcp.json \
+     --iam-account=google-ads-mcp@$PROJ.iam.gserviceaccount.com
    ```
 
-   Log in with the Google account that has access to the Ads account.
-   The script prints the refresh token and the Secret Manager commands
-   to store all four credentials.
+## Auth: OAuth refresh token (fallback)
+
+Create a **Desktop app** OAuth client in the GCP console, then mint a
+refresh token locally, on a machine with a browser:
+
+```bash
+python3 scripts/ads/bootstrap_google_ads_oauth.py \
+  --client-id <id> --client-secret <secret>
+```
+
+Log in with the Google account that has access to the Ads account. The
+script prints the refresh token and Secret Manager storage commands.
 
 ## Usage
 
 ```bash
 export GOOGLE_ADS_DEVELOPER_TOKEN=…
-export GOOGLE_ADS_CLIENT_ID=…
-export GOOGLE_ADS_CLIENT_SECRET=…
-export GOOGLE_ADS_REFRESH_TOKEN=…
+
+# Pick ONE auth mode (checked in this order):
+export GOOGLE_ADS_SA_KEY_FILE=/path/to/google-ads-mcp.json   # SA key (headless)
+export GOOGLE_ADS_IMPERSONATE_SA=google-ads-mcp@project-a7ade44e-e7e3-4871-a83.iam.gserviceaccount.com  # keyless, needs local gcloud
+export GOOGLE_ADS_CLIENT_ID=… GOOGLE_ADS_CLIENT_SECRET=… GOOGLE_ADS_REFRESH_TOKEN=…  # fallback
+
 # Only if the account is reached through a manager account:
 export GOOGLE_ADS_LOGIN_CUSTOMER_ID=<MCC id, digits only>
 
