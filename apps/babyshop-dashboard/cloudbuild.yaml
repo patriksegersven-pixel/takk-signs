@@ -47,6 +47,20 @@ steps:
       # env, wiping DASH_PASS / FUNNEL_* / INTERNAL_TOKEN wired from Secret Manager.
       - --update-env-vars=GCP_PROJECT=$PROJECT_ID
 
+  # Promote: route all traffic to the just-deployed revision. Runs ONLY if the
+  # build and deploy steps succeeded, so a broken build can never take traffic.
+  # Rollback remains one click: Cloud Run -> Revisions -> Manage traffic.
+  - id: promote
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - services
+      - update-traffic
+      - ${_SERVICE}
+      - --region=${_REGION}
+      - --to-latest
+
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
 
