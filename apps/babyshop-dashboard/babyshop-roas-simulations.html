@@ -27,6 +27,8 @@
       --green:       #047857;
       --amber:       #B45309;
       --purple:      #6D28D9;
+      --cal:         #0E7490;   /* teal — calibration, measured against the warehouse */
+      --cal-bg:      #ECFEFF;
       --up:          #047857;
       --up-bg:       #ECFDF5;
       --down:        #B91C1C;
@@ -402,6 +404,13 @@
     .pill-accent  { background: var(--accent-bg); color: var(--accent); }
     /* incrementality factor pill — purple, the colour reserved for "assumption" here */
     .pill-inc     { background: #F5F3FF; color: var(--purple); font-weight: 600; cursor: help; }
+    /* calibration / lag pill — blue, the colour reserved for "measured against the warehouse" */
+    .pill-cal     { background: var(--cal-bg); color: var(--cal); font-weight: 600; cursor: help; }
+
+    /* sub-table heading inside a card, for the stacked calibration tables */
+    .sub-head { padding: 16px 22px 8px; border-top: 1px solid var(--border-lt); }
+    .sub-head:first-child { border-top: none; }
+    .sub-head .chart-title { font-size: 12.5px; }
 
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .95em; }
     .assumption { font-size: 10.5px; color: var(--muted); font-weight: 400; }
@@ -578,6 +587,9 @@
 
   <!-- ── KPI Cards ─────────────────────────────────── -->
   <div class="kpi-grid" id="kpi-grid"></div>
+  <!-- calibrated twins of the KPI row — additive, hidden until a factor is actually measured -->
+  <div class="section-label" id="kpi-cal-label" style="display:none">calibrated view · warehouse GP2 &amp; conversion lag applied</div>
+  <div class="kpi-grid" id="kpi-grid-cal" style="display:none"></div>
   <div class="note accent" id="basis-note"></div>
 
   <!-- ── Campaign summary ──────────────────────────── -->
@@ -678,6 +690,20 @@
       <div class="chart-wrap" style="height:280px"><canvas id="c-history"></canvas></div>
     </div>
     <div class="tscroll"><table id="run-table"></table></div>
+  </div>
+
+  <!-- ── Calibration & backtest ────────────────────── -->
+  <div class="section-label">calibration &amp; backtest</div>
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="chart-title">What an Ads krona of value is really worth — and how the model has scored</div>
+        <div class="chart-sub" id="cal-sub">conversion lag · Ads value vs warehouse GP2 · realized vs predicted POAS</div>
+      </div>
+      <span class="chart-badge" id="cal-badge">—</span>
+    </div>
+    <div class="card-body" id="cal-intro"></div>
+    <div id="cal-tables"></div>
   </div>
 
   <!-- ── Trust panel ───────────────────────────────── -->
@@ -974,6 +1000,344 @@ function shareFor(index, account, name, id) {
   return index.byName[JSON.stringify([account, String(name || '').trim().toLowerCase()])] || null;
 }
 
+/* ---------- conversion lag (the `Lag` tab) -----------------------------------
+
+   WHY THIS EXISTS
+   A Target ROAS bid simulation is built on the last 7 days of CLICK-TIME data: value is
+   credited to the day the click happened, but conversions that click has not produced yet
+   are simply missing from it. Google's conversion-time series says how much value the same
+   window eventually holds, so
+
+     lag = conversions value BY CONVERSION DATE (7d) / conversions value (7d)
+
+   is the multiplier that turns a click-time simulated GP2 into the value that window will
+   actually end up carrying. It is ≥ 1 while conversions are still maturing.
+
+   The `mature` window (D−90..D−31) is a CONTROL, not an input: old enough that both series
+   should have converged, so its ratio ought to be ≈1.0. When it is not, attribution itself
+   is moving and the 7-day ratio measures non-stationarity as much as lag — which is flagged,
+   never silently corrected.
+
+   Missing Lag tab, missing campaign, zero value: all mean lag = 1.0 exactly, i.e. the
+   behaviour that predates this feature.
+   ---------------------------------------------------------------------------- */
+
+/* Lag tab header -> canonical field, same forgiving matching as COLUMN_MAP. */
+var LAG_COLUMN_MAP = {
+  customername: 'account',
+  campaignid: 'campaignId',
+  campaignname: 'campaignName',
+  window: 'window',
+  windowstart: 'windowStart',
+  windowend: 'windowEnd',
+  costmicros: 'costMicros',
+  convvalue: 'convValue',
+  convvalueconvtime: 'convValueConvTime',
+  conversions: 'conversions',
+  conversionsconvtime: 'conversionsConvTime',
+  currency: 'currency',
+  rundate: 'runDate'
+};
+
+var LAG_WINDOWS = ['7d', '14d', '30d', 'mature'];
+
+/** '7', '7 d', '7D' and '7d' all mean the 7-day window; anything else is passed through. */
+function canonLagWindow(v) {
+  var s = String(v == null ? '' : v).trim().toLowerCase();
+  var m = s.match(/^(\d+)\s*d?$/);
+  return m ? m[1] + 'd' : s;
+}
+
+/**
+ * Normalise `payload.lag` — { columns, rows } from the Lag tab — into a flat list, keeping
+ * ONLY the most recent run date present, exactly like normalizeShares. A lag ratio is a
+ * statement about how conversions are landing right now; an old one describes a different
+ * attribution regime.
+ *
+ * A missing/empty/malformed block yields [], and every campaign falls back to lag = 1.0.
+ */
+function normalizeLag(lag) {
+  if (!lag || !Array.isArray(lag.rows) || !lag.rows.length) return [];
+  var cols = lag.columns || null;
+
+  var recs = lag.rows.map(function (r) {
+    var o = {};
+    if (Array.isArray(r)) {
+      if (!cols) return o;
+      for (var i = 0; i < cols.length; i++) {
+        var key = LAG_COLUMN_MAP[canonKey(cols[i])];
+        if (key) o[key] = r[i];
+      }
+      return o;
+    }
+    Object.keys(r).forEach(function (k) {
+      var key2 = LAG_COLUMN_MAP[canonKey(k)] || k;
+      o[key2] = r[k];
+    });
+    return o;
+  }).map(function (r) {
+    return {
+      account: String(r.account || '').trim(),
+      campaignId: String(r.campaignId == null ? '' : r.campaignId).trim(),
+      campaignName: String(r.campaignName || '').trim(),
+      window: canonLagWindow(r.window),
+      windowStart: toIsoDate(r.windowStart),
+      windowEnd: toIsoDate(r.windowEnd),
+      cost: parseNum(r.costMicros) / 1e6,
+      convValue: parseNum(r.convValue),
+      convValueConvTime: parseNum(r.convValueConvTime),
+      conversions: parseNum(r.conversions),
+      conversionsConvTime: parseNum(r.conversionsConvTime),
+      currency: String(r.currency || '').trim().toUpperCase() || 'SEK',
+      runDate: toIsoDate(r.runDate)
+    };
+  }).filter(function (r) {
+    return r.account && r.window && (r.campaignId || r.campaignName);
+  });
+
+  var latest = recs.reduce(function (a, r) { return r.runDate > a ? r.runDate : a; }, '');
+  return recs.filter(function (r) { return r.runDate === latest; });
+}
+
+/**
+ * Index lag rows by (account, campaign id, window) with an (account, lowercased name, window)
+ * fallback — the same join ladder buildShareIndex uses — plus a per-(account, window)
+ * aggregate that backs the account-level fallback rung.
+ */
+function buildLagIndex(list) {
+  var byId = {}, byName = {}, accounts = {}, windows = {};
+  (list || []).forEach(function (r) {
+    if (r.campaignId) byId[JSON.stringify([r.account, r.campaignId, r.window])] = r;
+    if (r.campaignName) byName[JSON.stringify([r.account, r.campaignName.toLowerCase(), r.window])] = r;
+    var a = accounts[r.account] || (accounts[r.account] = {});
+    var w = a[r.window] || (a[r.window] = {
+      window: r.window, cost: 0, convValue: 0, convValueConvTime: 0, campaigns: 0,
+      windowStart: r.windowStart, windowEnd: r.windowEnd, currency: r.currency
+    });
+    w.cost += r.cost;
+    w.convValue += r.convValue;
+    w.convValueConvTime += r.convValueConvTime;
+    w.campaigns++;
+    if (r.windowStart && (!w.windowStart || r.windowStart < w.windowStart)) w.windowStart = r.windowStart;
+    if (r.windowEnd && (!w.windowEnd || r.windowEnd > w.windowEnd)) w.windowEnd = r.windowEnd;
+    if (w.currency !== r.currency) w.mixedCurrency = true;
+    windows[r.window] = true;
+  });
+  return {
+    byId: byId, byName: byName, accounts: accounts,
+    windows: Object.keys(windows),
+    count: (list || []).length,
+    runDate: (list && list.length) ? list[0].runDate : null
+  };
+}
+
+/** One campaign's row for one window; null when it has none. */
+function lagRowFor(index, account, name, id, window) {
+  if (!index) return null;
+  if (id) {
+    var hit = index.byId[JSON.stringify([account, String(id).trim(), window])];
+    if (hit) return hit;
+  }
+  return index.byName[JSON.stringify([account, String(name || '').trim().toLowerCase(), window])] || null;
+}
+
+/** Lag is bounded: below 1 conversions would have to un-happen, above 1.6 it is a data fault. */
+var LAG_CLAMP = { lo: 0.90, hi: 1.60 };
+/** How far the mature-window ratio may sit from 1.0 before the 7-day ratio stops being trustworthy. */
+var LAG_MATURE_TOLERANCE = 0.10;
+
+/**
+ * Resolve one campaign's conversion-lag factor.
+ *
+ * LADDER, strongest first:
+ *   1. this campaign's own `7d` row, both value series > 0;
+ *   2. the account-level aggregate over every campaign's `7d` rows;
+ *   3. 1.0 — no lag data, which is exactly the pre-feature behaviour.
+ * Clamped to [0.90, 1.60]. The `mature` window is read separately and only ever sets
+ * `nonStationary`; it never changes the factor.
+ *
+ * Returns { factor, raw, source:'campaign'|'account'|'none', window, convValue,
+ *           convValueConvTime, clamped, matureRatio, matureSource, nonStationary }.
+ */
+function resolveLag(account, name, id, lagIndex) {
+  var out = {
+    factor: 1, raw: null, source: 'none', window: '7d', account: account,
+    convValue: null, convValueConvTime: null, cost: null, campaigns: null,
+    windowStart: null, windowEnd: null, clamped: false,
+    matureRatio: null, matureSource: null, nonStationary: false
+  };
+  if (!lagIndex || !lagIndex.count) return out;
+
+  var row = lagRowFor(lagIndex, account, name, id, '7d');
+  var agg = (lagIndex.accounts[account] || {})['7d'];
+  if (row && row.convValue > 0 && row.convValueConvTime > 0) {
+    out.raw = row.convValueConvTime / row.convValue;
+    out.source = 'campaign';
+    out.convValue = row.convValue;
+    out.convValueConvTime = row.convValueConvTime;
+    out.cost = row.cost;
+    out.windowStart = row.windowStart;
+    out.windowEnd = row.windowEnd;
+  } else if (agg && agg.convValue > 0 && agg.convValueConvTime > 0) {
+    out.raw = agg.convValueConvTime / agg.convValue;
+    out.source = 'account';
+    out.convValue = agg.convValue;
+    out.convValueConvTime = agg.convValueConvTime;
+    out.cost = agg.cost;
+    out.campaigns = agg.campaigns;
+    out.windowStart = agg.windowStart;
+    out.windowEnd = agg.windowEnd;
+  }
+  if (out.raw !== null && isFinite(out.raw)) {
+    out.factor = clamp(out.raw, LAG_CLAMP.lo, LAG_CLAMP.hi);
+    out.clamped = Math.abs(out.factor - out.raw) > 1e-12;
+  } else {
+    out.raw = null;
+  }
+
+  var mat = lagRowFor(lagIndex, account, name, id, 'mature');
+  var matAgg = (lagIndex.accounts[account] || {}).mature;
+  if (mat && mat.convValue > 0 && mat.convValueConvTime > 0) {
+    out.matureRatio = mat.convValueConvTime / mat.convValue;
+    out.matureSource = 'campaign';
+  } else if (matAgg && matAgg.convValue > 0 && matAgg.convValueConvTime > 0) {
+    out.matureRatio = matAgg.convValueConvTime / matAgg.convValue;
+    out.matureSource = 'account';
+  }
+  if (out.matureRatio !== null && isFinite(out.matureRatio)) {
+    out.nonStationary = Math.abs(out.matureRatio - 1) > LAG_MATURE_TOLERANCE;
+  } else {
+    out.matureRatio = null;
+  }
+  return out;
+}
+
+/* ---------- BigQuery campaign actuals (GET /api/campaign-actuals) -------------
+
+   Daily Google-channel rows per campaign: KV gross profit (`gp2`, SEK-normalised) and ad
+   `cost`. Two things read them: the value-calibration factor (what a krona of Ads-reported
+   conversion value is really worth in KV GP2) and the backtest (what a past recommendation
+   actually earned). The API groups by (date, campaign, shop, market), so one campaign can
+   arrive as several rows on the same date — they are summed here, before anything else
+   touches them.
+
+   Everything is stored per campaign as a date-ascending day list plus prefix sums, so a
+   window sum over any date range is two binary searches and a subtraction.
+   ---------------------------------------------------------------------------- */
+
+var ACTUALS_COLUMNS_DEFAULT = ['date', 'campaign', 'shop', 'market', 'cost', 'gp2'];
+
+function buildActualsIndex(payload) {
+  if (!payload || !Array.isArray(payload.rows) || !payload.rows.length) return null;
+  var cols = Array.isArray(payload.columns) && payload.columns.length ? payload.columns : ACTUALS_COLUMNS_DEFAULT;
+  var at = {};
+  for (var i = 0; i < cols.length; i++) at[canonKey(cols[i])] = i;
+  var iDate = at.date, iCamp = at.campaign, iCost = at.cost, iGp2 = at.gp2;
+  if (iDate == null || iCamp == null || iCost == null || iGp2 == null) return null;
+
+  var acc = {};
+  payload.rows.forEach(function (r) {
+    if (!Array.isArray(r)) return;
+    var name = String(r[iCamp] == null ? '' : r[iCamp]).trim();
+    if (!name) return;
+    var date = toIsoDate(r[iDate]);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    var key = name.toLowerCase();
+    var e = acc[key] || (acc[key] = { name: name, days: {} });
+    var d = e.days[date] || (e.days[date] = { date: date, cost: 0, gp2: 0 });
+    d.cost += parseNum(r[iCost]);
+    d.gp2 += parseNum(r[iGp2]);
+  });
+
+  var campaigns = {}, min = null, max = null, rowCount = 0;
+  Object.keys(acc).forEach(function (k) {
+    var e = acc[k];
+    var days = Object.keys(e.days).sort().map(function (d) { return e.days[d]; });
+    if (!days.length) return;
+    var pc = [0], pg = [0];
+    days.forEach(function (d, j) { pc.push(pc[j] + d.cost); pg.push(pg[j] + d.gp2); });
+    campaigns[k] = { name: e.name, days: days, pc: pc, pg: pg };
+    rowCount += days.length;
+    if (min === null || days[0].date < min) min = days[0].date;
+    if (max === null || days[days.length - 1].date > max) max = days[days.length - 1].date;
+  });
+  if (!min) return null;
+
+  /* Coverage is the INTERSECTION of what the API declares and what actually arrived, and it
+     is what actualsCovers() answers on. The declared span alone is not safe: a payload
+     truncated to fit the Firestore document limit would still claim to reach yesterday, and
+     a backtest window ending in the missing days would then be scored against nothing. The
+     data extent alone is not safe either: it is the max across all campaigns, so a single
+     always-on campaign would vouch for days everything else is missing. Taking the tighter
+     of the two can only refuse to score a window, never invent one. */
+  var declStart = toIsoDate(payload.start), declEnd = toIsoDate(payload.end);
+  return {
+    campaigns: campaigns,
+    names: Object.keys(campaigns),
+    count: Object.keys(campaigns).length,
+    days: rowCount,
+    start: declStart && declStart > min ? declStart : min,
+    end: declEnd && declEnd < max ? declEnd : max,
+    declaredStart: declStart || null,
+    declaredEnd: declEnd || null,
+    dataStart: min,
+    dataEnd: max,
+    generatedAt: payload.generated_at || payload.generatedAt || null
+  };
+}
+
+/** First index whose date is >= iso (or > iso when `after`). Days are date-ascending. */
+function dayIndexAtOrAfter(days, iso, after) {
+  var lo = 0, hi = days.length;
+  while (lo < hi) {
+    var mid = (lo + hi) >> 1;
+    var cmp = days[mid].date;
+    if (after ? cmp <= iso : cmp < iso) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
+/** Σcost and Σgp2 for one campaign over [startIso, endIso] inclusive; null when unknown. */
+function actualsSum(index, name, startIso, endIso) {
+  if (!index || !name || !startIso || !endIso || startIso > endIso) return null;
+  var e = index.campaigns[String(name).trim().toLowerCase()];
+  if (!e) return null;
+  var lo = dayIndexAtOrAfter(e.days, startIso, false);
+  var hi = dayIndexAtOrAfter(e.days, endIso, true);
+  if (hi <= lo) return { cost: 0, gp2: 0, days: 0, first: null, last: null };
+  return {
+    cost: e.pc[hi] - e.pc[lo],
+    gp2: e.pg[hi] - e.pg[lo],
+    days: hi - lo,
+    first: e.days[lo].date,
+    last: e.days[hi - 1].date
+  };
+}
+
+/** True when the whole [startIso, endIso] window sits inside the actuals' declared coverage. */
+function actualsCovers(index, startIso, endIso) {
+  if (!index || !index.start || !index.end || !startIso || !endIso) return false;
+  return startIso >= index.start && endIso <= index.end;
+}
+
+/** ISO date n days after `iso`, in UTC so no timezone can shift a day boundary. */
+function addDaysIso(iso, n) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ''))) return null;
+  var d = new Date(iso + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return null;
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Median of the finite numbers in `values`; null when there are none. */
+function medianOf(values) {
+  var v = (values || []).filter(function (x) { return typeof x === 'number' && isFinite(x); })
+    .sort(function (a, b) { return a - b; });
+  if (!v.length) return null;
+  var m = Math.floor(v.length / 2);
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+}
+
 /* ---------- incrementality ----------------------------------------------------
 
    WHY THIS EXISTS
@@ -1190,6 +1554,188 @@ function optimumAtFactor(points, factor) {
   return best;
 }
 
+/* ---------- value calibration -------------------------------------------------
+
+   WHY THIS EXISTS
+   The bid simulator speaks in Google Ads conversion value. That value is supposed to be
+   cart-level gross profit, and mostly is — but reconciliation against the funnel warehouse
+   shows Ads reporting roughly twice the KV GP2 the same campaign actually delivered over the
+   same days (pb-generic: 2.23 against 1.10). Attribution windows, cross-device credit,
+   returns and the value snapshot taken at order time all pull in the same direction.
+
+   So a simulated curve is in "Ads value units", not in money the business banks. The
+   calibration factor converts it:
+
+     cal = POAS_bq / ROAS_ads       POAS_bq = Σ kv_gp2 / Σ cost   (BigQuery, Google channel)
+                                    ROAS_ads = conv value / cost  (Google Ads, same days)
+
+   RATIO OF RATIOS ON PURPOSE. Each side is already unitless, so `cal` is unitless too and
+   the SEK-normalised warehouse figures can be compared with an account reporting in EUR or
+   NOK without any FX conversion ever entering the arithmetic. Never subtract or sum across
+   the two sides — only divide.
+
+   LADDER, strongest first:
+     1. the `30d` Lag row (Ads side) against BigQuery over exactly the same date span;
+     2. no Lag tab: the simulation's own `roasActual` interpolated at the current target
+        (which anchors on the last 7 days) against BigQuery over the snapshot window —
+        weaker, because a 7-day window is noisy;
+     3. the median cal of the other campaigns in the same incrementality class (min 2);
+     4. 1.0, uncalibrated — exactly the pre-feature behaviour.
+   Clamped to [0.20, 1.50]. Rungs 1 and 2 additionally require a real amount of warehouse
+   spend in the window, because a ratio built on a few hundred kronor is noise.
+   ------------------------------------------------------------------------------ */
+
+var CAL_CLAMP = { lo: 0.20, hi: 1.50 };
+/** Minimum BigQuery cost (SEK-normalised) in the matching window before a ratio is believed. */
+var CAL_MIN_BQ_COST = 1000;
+
+/**
+ * `roasActual` (conversion value / cost, exactly as Google measures it) interpolated at the
+ * strategy's currently configured target — the Ads-side anchor for calibration rung 2.
+ * Computed straight off the raw rows so it does not depend on buildStrategy having run.
+ */
+function simRoasAtCurrentTarget(rows) {
+  if (!rows || !rows.length) return null;
+  var head = rows[0];
+  if (head.currentTarget === null || head.currentTarget === undefined) return null;
+  var pts = rows.map(function (r) {
+    var cost = r.costMicros / 1e6;
+    return { target: r.target, roasActual: cost > 0 ? r.convValue / cost : 0 };
+  }).sort(function (a, b) { return a.target - b.target; });
+  var at = interpAt(pts, 'target', head.currentTarget, ['roasActual']);
+  return at ? at.roasActual : null;
+}
+
+/**
+ * Rungs 1 and 2 of the calibration ladder for one strategy's raw rows — the rungs that are
+ * actually MEASURED for this campaign. Returns `{ factor: null }` with a `reason` when
+ * neither rung is available, which is what sends it on to the class median.
+ */
+function measureCalibration(rows, calCtx) {
+  var out = {
+    factor: null, raw: null, source: null, poasBq: null, roasAds: null,
+    windowStart: null, windowEnd: null, windowLabel: null, windowDays: null,
+    bqCost: null, bqGp2: null, adsCost: null, adsValue: null,
+    clamped: false, reason: null
+  };
+  if (!rows || !rows.length) { out.reason = 'no rows'; return out; }
+  var head = rows[0];
+  var act = calCtx && calCtx.actualsIndex;
+  var lagIndex = calCtx && calCtx.lagIndex;
+  if (!act) { out.reason = 'no campaign actuals loaded'; return out; }
+  if (!act.campaigns[String(head.strategy || '').trim().toLowerCase()]) {
+    // Portfolio bidding strategies carry the strategy name, not a campaign name, so they
+    // legitimately never join. So does a campaign renamed since the warehouse last saw it.
+    out.reason = 'no BigQuery campaign matches this name';
+    return out;
+  }
+
+  // --- rung 1: the 30-day Lag row against the same 30 days of warehouse data ---
+  var row = lagRowFor(lagIndex, head.account, head.strategy, head.strategyId, '30d');
+  if (row && row.cost > 0 && row.convValue > 0) {
+    var roasAds = row.convValue / row.cost;
+    var bq = actualsSum(act, head.strategy, row.windowStart, row.windowEnd);
+    if (roasAds > 0 && bq && bq.cost >= CAL_MIN_BQ_COST) {
+      out.raw = (bq.gp2 / bq.cost) / roasAds;
+      out.source = 'lag30';
+      out.poasBq = bq.gp2 / bq.cost;
+      out.roasAds = roasAds;
+      out.adsCost = row.cost; out.adsValue = row.convValue;
+      out.bqCost = bq.cost; out.bqGp2 = bq.gp2; out.windowDays = bq.days;
+      out.windowStart = row.windowStart; out.windowEnd = row.windowEnd;
+      out.windowLabel = '30d';
+    } else if (!(bq && bq.cost >= CAL_MIN_BQ_COST)) {
+      out.reason = 'under ' + CAL_MIN_BQ_COST + ' of warehouse spend in the 30-day window';
+    }
+  }
+
+  // --- rung 2: the simulation's own current-target ROAS against the snapshot window ---
+  if (out.raw === null) {
+    var roasSim = simRoasAtCurrentTarget(rows);
+    var bq2 = actualsSum(act, head.strategy, head.startDate, head.endDate);
+    if (roasSim > 0 && bq2 && bq2.cost >= CAL_MIN_BQ_COST) {
+      out.raw = (bq2.gp2 / bq2.cost) / roasSim;
+      out.source = 'sim7';
+      out.poasBq = bq2.gp2 / bq2.cost;
+      out.roasAds = roasSim;
+      out.bqCost = bq2.cost; out.bqGp2 = bq2.gp2; out.windowDays = bq2.days;
+      out.windowStart = head.startDate; out.windowEnd = head.endDate;
+      out.windowLabel = 'sim window';
+      out.reason = null;
+    } else if (!out.reason) {
+      out.reason = roasSim > 0
+        ? 'under ' + CAL_MIN_BQ_COST + ' of warehouse spend in the simulation window'
+        : 'no current target to anchor the Ads-side ROAS on';
+    }
+  }
+
+  if (out.raw !== null && isFinite(out.raw) && out.raw > 0) {
+    out.factor = clamp(out.raw, CAL_CLAMP.lo, CAL_CLAMP.hi);
+    out.clamped = Math.abs(out.factor - out.raw) > 1e-12;
+  } else if (out.raw !== null) {
+    /* Zero or negative warehouse gross profit over the window is a real state (returns can
+       exceed sales), but it is not a calibration factor — clamping it to the 0.20 floor would
+       silently assert "this campaign is 20% as good as Ads says". Send it to the class median
+       instead and say why. */
+    out.reason = (out.poasBq !== null && out.poasBq <= 0)
+      ? 'warehouse gross profit is zero or negative over the window'
+      : (out.reason || 'ratio is not a finite positive number');
+    out.raw = null;
+    out.poasBq = null; out.roasAds = null;
+  }
+  return out;
+}
+
+/** Median measured calibration per incrementality class, for the class-median rung. */
+function calibrationClassMedians(entries) {
+  var byCls = {};
+  (entries || []).forEach(function (e) {
+    if (!e || !e.measured || e.measured.factor == null) return;
+    (byCls[e.cls] = byCls[e.cls] || []).push(e.measured.factor);
+  });
+  var out = {};
+  Object.keys(byCls).forEach(function (c) {
+    out[c] = { n: byCls[c].length, value: medianOf(byCls[c]) };
+  });
+  return out;
+}
+
+/**
+ * Final rung resolution: take what measureCalibration found for this campaign and, when it
+ * found nothing, fall back to the class median (min 2 measured campaigns) and then to 1.0.
+ *
+ * Returns { factor, raw, source:'lag30'|'sim7'|'class-median'|'none', measured, clamped,
+ *           poasBq, roasAds, windowStart, windowEnd, windowLabel, bqCost, bqGp2, classN,
+ *           reason }.
+ */
+function resolveCalibration(measured, cls, classMedians) {
+  var m = measured || { factor: null };
+  if (m.factor != null) {
+    return {
+      factor: m.factor, raw: m.raw, source: m.source, measured: m, clamped: m.clamped,
+      poasBq: m.poasBq, roasAds: m.roasAds, windowStart: m.windowStart, windowEnd: m.windowEnd,
+      windowLabel: m.windowLabel, windowDays: m.windowDays, bqCost: m.bqCost, bqGp2: m.bqGp2,
+      classN: null, reason: null
+    };
+  }
+  var med = (classMedians || {})[cls];
+  if (med && med.n >= 2 && med.value != null && isFinite(med.value)) {
+    var f = clamp(med.value, CAL_CLAMP.lo, CAL_CLAMP.hi);
+    return {
+      factor: f, raw: med.value, source: 'class-median', measured: m,
+      clamped: Math.abs(f - med.value) > 1e-12,
+      poasBq: null, roasAds: null, windowStart: null, windowEnd: null, windowLabel: null,
+      windowDays: null, bqCost: null, bqGp2: null, classN: med.n, reason: m.reason
+    };
+  }
+  return {
+    factor: 1, raw: null, source: 'none', measured: m, clamped: false,
+    poasBq: null, roasAds: null, windowStart: null, windowEnd: null, windowLabel: null,
+    windowDays: null, bqCost: null, bqGp2: null, classN: med ? med.n : 0,
+    reason: m.reason || 'no calibration inputs'
+  };
+}
+
 /* ---------- curve construction ---------- */
 
 /**
@@ -1235,6 +1781,8 @@ function concaveHull(pts) {
  * (ΔGP2 / ΔCost) is what Google's raw numbers say, kept for display and for the
  * unadjusted comparison in the portfolio allocator. At factor 1.0 the two are identical,
  * so generic campaigns behave exactly as they did before incrementality existed.
+ * `mRoasCal` (ΔcGP2 / ΔCost) is the same marginal on the calibration- and lag-adjusted
+ * curve; at cal = lag = 1.0 it is identical to `mRoas`.
  */
 function marginalSegments(pts) {
   var segs = [];
@@ -1247,8 +1795,10 @@ function marginalSegments(pts) {
       dCost: dCost,
       dGp2: b.gp2 - a.gp2,
       dIGp2: b.igp2 - a.igp2,
+      dCGp2: b.cgp2 - a.cgp2,
       mRoas: (b.igp2 - a.igp2) / dCost,
       mRoasObserved: (b.gp2 - a.gp2) / dCost,
+      mRoasCal: (b.cgp2 - a.cgp2) / dCost,
       costMid: (a.cost + b.cost) / 2,
       targetMid: (a.target + b.target) / 2
     });
@@ -1261,18 +1811,22 @@ function marginalSegments(pts) {
  * adjacent segments (each segment's marginal is attributed to its midpoint target —
  * a central difference). Returns null when the whole simulated range sits on one
  * side of breakeven, with `side` saying which.
+ *
+ * `key` selects which marginal series to cross against 1.0 and defaults to the incremental
+ * one, so every existing caller is unchanged; the calibrated breakeven passes 'mRoasCal'.
  */
-function breakevenTarget(segs) {
+function breakevenTarget(segs, key) {
+  var k = key || 'mRoas';
   if (segs.length < 1) return { target: null, cost: null, side: 'unknown' };
   // segments are cost-ascending, i.e. target-descending; walk from high target down
   var ordered = segs.slice().sort(function (a, b) { return b.targetMid - a.targetMid; });
   if (ordered.length === 1) {
-    return { target: null, cost: null, side: ordered[0].mRoas >= 1 ? 'below' : 'above' };
+    return { target: null, cost: null, side: ordered[0][k] >= 1 ? 'below' : 'above' };
   }
   for (var i = 1; i < ordered.length; i++) {
     var hi = ordered[i - 1], lo = ordered[i]; // hi has the higher target => higher marginal
-    if ((hi.mRoas - 1) * (lo.mRoas - 1) <= 0 && hi.mRoas !== lo.mRoas) {
-      var t = (hi.mRoas - 1) / (hi.mRoas - lo.mRoas);
+    if ((hi[k] - 1) * (lo[k] - 1) <= 0 && hi[k] !== lo[k]) {
+      var t = (hi[k] - 1) / (hi[k] - lo[k]);
       return {
         target: lerp(hi.targetMid, lo.targetMid, t),
         cost: lerp(hi.costMid, lo.costMid, t),
@@ -1282,8 +1836,8 @@ function breakevenTarget(segs) {
   }
   // no crossing inside the simulated window
   var highest = ordered[0], lowest = ordered[ordered.length - 1];
-  if (lowest.mRoas > 1) return { target: null, cost: null, side: 'below' };  // even the cheapest marginal krona pays: spend more
-  if (highest.mRoas < 1) return { target: null, cost: null, side: 'above' }; // nothing pays: spend less
+  if (lowest[k] > 1) return { target: null, cost: null, side: 'below' };  // even the cheapest marginal krona pays: spend more
+  if (highest[k] < 1) return { target: null, cost: null, side: 'above' }; // nothing pays: spend less
   return { target: null, cost: null, side: 'unknown' };
 }
 
@@ -1300,17 +1854,36 @@ function breakevenTarget(segs) {
  * the multiplier answers "is this number GP2?", incrementality answers "how much of this
  * GP2 did the ad actually cause?". Chain:  GP2 = value × mult  ->  iGP2 = GP2 × factor.
  * Cost is never scaled — it is 100% real regardless of class — so iGP3 = iGP2 − cost.
+ *
+ * `calibration` is the third, strictly ADDITIVE layer: { cal, lag } as returned by
+ * resolveCalibration / resolveLag. It answers "is an Ads krona of value worth a krona of KV
+ * gross profit, and has all of it landed yet?" and produces a PARALLEL curve —
+ * cGP2 = iGP2 × cal × lag, cGP3 = cGP2 − cost — beside the original one. iGP2/iGP3, `opt`,
+ * `breakeven`, `uplift` and `status` are untouched by it and stay the reference
+ * recommendation. When cal and lag are both 1.0 (or absent) every calibrated field is
+ * numerically identical to its incremental twin, so the page behaves exactly as before.
  */
-function buildStrategy(rows, valueToGp2Multiplier, incrementality) {
+function buildStrategy(rows, valueToGp2Multiplier, incrementality, calibration) {
   var mult = valueToGp2Multiplier == null ? 1 : valueToGp2Multiplier;
   var head = rows[0];
   var inc = incrementality || resolveIncrementality(head.strategy, null);
   var factor = inc.factor == null || !isFinite(inc.factor) ? 1 : inc.factor;
   var adjusted = Math.abs(factor - 1) > 1e-9;
+
+  var calInfo = (calibration && calibration.cal) || resolveCalibration(null, inc.cls, null);
+  var lagInfo = (calibration && calibration.lag) || resolveLag(head.account, head.strategy, head.strategyId, null);
+  var calFactor = calInfo.factor == null || !isFinite(calInfo.factor) ? 1 : calInfo.factor;
+  var lagFactor = lagInfo.factor == null || !isFinite(lagInfo.factor) ? 1 : lagInfo.factor;
+  var calLag = calFactor * lagFactor;
+  var calAdjusted = Math.abs(calLag - 1) > 1e-9;
+
   var points = rows.map(function (r) {
     var cost = r.costMicros / 1e6;
     var gp2 = r.convValue * mult;
     var igp2 = gp2 * factor;
+    // cGP2 = GP2 × incrementality × calibration × lag. Written as igp2 × calLag so that at
+    // cal = lag = 1.0 it is bit-for-bit igp2 and cgp3 is bit-for-bit igp3.
+    var cgp2 = igp2 * calLag;
     return {
       target: r.target,
       cost: cost,
@@ -1318,6 +1891,8 @@ function buildStrategy(rows, valueToGp2Multiplier, incrementality) {
       gp3: gp2 - cost,
       igp2: igp2,
       igp3: igp2 - cost,
+      cgp2: cgp2,
+      cgp3: cgp2 - cost,
       conversions: r.conversions,
       clicks: r.clicks,
       impressions: r.impressions,
@@ -1337,9 +1912,11 @@ function buildStrategy(rows, valueToGp2Multiplier, incrementality) {
   var segs = marginalSegments(eff);
   var hullSegs = marginalSegments(hull);
   var be = breakevenTarget(segs);                       // crossing of INCREMENTAL marginal 1.0
+  var cbe = breakevenTarget(segs, 'mRoasCal');          // the same crossing on the calibrated curve
 
   // current position: interpolate the curve at the currently configured target
-  var cur = interpAt(points, 'target', head.currentTarget, ['cost', 'gp2', 'gp3', 'igp2', 'igp3']);
+  var cur = interpAt(points, 'target', head.currentTarget,
+    ['cost', 'gp2', 'gp3', 'igp2', 'igp3', 'cgp2', 'cgp3', 'roasActual']);
   var curInRange = head.currentTarget !== null &&
     head.currentTarget >= points[0].target - 1e-9 &&
     head.currentTarget <= points[points.length - 1].target + 1e-9;
@@ -1349,23 +1926,30 @@ function buildStrategy(rows, valueToGp2Multiplier, incrementality) {
   var opt = points.reduce(function (best, p) { return p.igp3 > best.igp3 ? p : best; }, points[0]);
   // The unadjusted GP3 maximum, kept so the observed recommendation stays visible.
   var optObserved = points.reduce(function (best, p) { return p.gp3 > best.gp3 ? p : best; }, points[0]);
+  // The calibrated recommendation — ADDITIONAL to `opt`, never a replacement for it. Same
+  // reduce shape, so ties break on the same point and at cal = lag = 1.0 copt === opt.
+  var copt = points.reduce(function (best, p) { return p.cgp3 > best.cgp3 ? p : best; }, points[0]);
 
   var step = points.length > 1
     ? Math.min.apply(null, points.slice(1).map(function (p, i) { return p.target - points[i].target; }))
     : 0;
 
+  /* Same rule for both recommendations: a move smaller than half a simulated step, or worth
+     less than 0.2% of the current profit, is not a move. */
+  function stepStatus(optTarget, upliftAt, currentAt) {
+    if (!cur || head.currentTarget === null) return 'unknown';
+    var d = optTarget - head.currentTarget;
+    if (Math.abs(d) <= step / 2 + 1e-9 || Math.abs(upliftAt) < Math.max(1, Math.abs(currentAt) * 0.002)) return 'optimum';
+    return d > 0 ? 'raise' : 'lower';
+  }
+
   var uplift = cur ? opt.igp3 - cur.igp3 : 0;
   var upliftObserved = cur ? optObserved.gp3 - cur.gp3 : 0;
+  var cUplift = cur ? copt.cgp3 - cur.cgp3 : 0;
   var costChange = cur ? opt.cost - cur.cost : 0;
-  var status = 'optimum';
-  if (cur && head.currentTarget !== null) {
-    var d = opt.target - head.currentTarget;
-    if (Math.abs(d) <= step / 2 + 1e-9 || Math.abs(uplift) < Math.max(1, Math.abs(cur.igp3) * 0.002)) status = 'optimum';
-    else if (d > 0) status = 'raise';
-    else status = 'lower';
-  } else {
-    status = 'unknown';
-  }
+  var cCostChange = cur ? copt.cost - cur.cost : 0;
+  var status = stepStatus(opt.target, uplift, cur ? cur.igp3 : 0);
+  var cStatus = stepStatus(copt.target, cUplift, cur ? cur.cgp3 : 0);
 
   /* Sensitivity to the assumption itself: the optimum on this very curve at full
      incrementality, at the factor in force, and at half of it. Rendered for every campaign
@@ -1403,6 +1987,12 @@ function buildStrategy(rows, valueToGp2Multiplier, incrementality) {
     incDynamic: !!inc.dynamic,
     share: inc.share || null,
     sensitivity: sensitivity,
+    calibration: calInfo,
+    calFactor: calFactor,
+    lag: lagInfo,
+    lagFactor: lagFactor,
+    calLagFactor: calLag,
+    calAdjusted: calAdjusted,
     points: points,
     byCost: byCost,
     efficient: eff,
@@ -1410,14 +2000,19 @@ function buildStrategy(rows, valueToGp2Multiplier, incrementality) {
     segments: segs,
     hullSegments: hullSegs,
     breakeven: be,
+    cbreakeven: cbe,
     current: cur,
     opt: opt,
     optObserved: optObserved,
+    copt: copt,
     step: step,
     uplift: uplift,
     upliftObserved: upliftObserved,
+    cUplift: cUplift,
     costChange: costChange,
+    cCostChange: cCostChange,
     status: status,
+    cStatus: cStatus,
     flags: flags
   };
 }
@@ -1431,8 +2026,13 @@ function buildStrategy(rows, valueToGp2Multiplier, incrementality) {
  * built-in class defaults apply).
  * `shareIndex` is the impression-share index from buildShareIndex() (optional; omitted or
  * null means every campaign uses its flat class factor).
+ * `calCtx` is { lagIndex, actualsIndex } (optional; omitted or null means every campaign
+ * gets cal = lag = 1.0, i.e. the calibrated curve coincides with the incremental one).
+ *
+ * Calibration resolves in TWO PASSES because its third rung is a class median: every
+ * campaign's own measurement has to exist before any campaign can borrow the class's.
  */
-function buildStrategies(rows, multipliers, defaultMultiplier, incrementalityCfg, shareIndex) {
+function buildStrategies(rows, multipliers, defaultMultiplier, incrementalityCfg, shareIndex, calCtx) {
   var groups = {};
   rows.forEach(function (r) {
     // JSON key: strategy names repeat across accounts, and no plain-text
@@ -1440,14 +2040,26 @@ function buildStrategies(rows, multipliers, defaultMultiplier, incrementalityCfg
     var k = JSON.stringify([r.account, r.strategy, r.strategyId]);
     (groups[k] = groups[k] || []).push(r);
   });
-  var out = [];
+
+  var prep = [];
   Object.keys(groups).forEach(function (k) {
     var g = groups[k];
     if (!g.length) return;
     var def = defaultMultiplier == null ? 1 : defaultMultiplier;
     var mult = multipliers && multipliers[g[0].account] != null ? multipliers[g[0].account] : def;
     var share = shareFor(shareIndex, g[0].account, g[0].strategy, g[0].strategyId);
-    out.push(buildStrategy(g, mult, resolveIncrementality(g[0].strategy, incrementalityCfg, share)));
+    var inc = resolveIncrementality(g[0].strategy, incrementalityCfg, share);
+    prep.push({
+      group: g, mult: mult, inc: inc, cls: inc.cls,
+      lag: resolveLag(g[0].account, g[0].strategy, g[0].strategyId, calCtx && calCtx.lagIndex),
+      measured: measureCalibration(g, calCtx)
+    });
+  });
+
+  var medians = calibrationClassMedians(prep);
+  var out = prep.map(function (p) {
+    return buildStrategy(p.group, p.mult, p.inc,
+      { cal: resolveCalibration(p.measured, p.cls, medians), lag: p.lag });
   });
   return out.sort(function (a, b) { return (b.current ? b.current.cost : 0) - (a.current ? a.current.cost : 0); });
 }
@@ -1544,6 +2156,168 @@ function unconstrainedOptimum(strategies) {
     a.observedCost += s.optObserved.cost; a.observedGp3 += s.optObserved.gp3;
     return a;
   }, { cost: 0, gp2: 0, igp2: 0, igp3: 0, gp3AtIOpt: 0, observedCost: 0, observedGp3: 0 });
+}
+
+/* ---------- backtest ----------------------------------------------------------
+
+   WHAT THIS ANSWERS
+   Every recommendation on this page is a claim about the future made from a 7-day simulated
+   window. The snapshot history contains dozens of those claims whose future has since
+   happened, and the warehouse knows what the campaign really earned. So: at each past run
+   date, what POAS did the model predict at the target that was actually live, and what POAS
+   did the campaign actually deliver over the following 7 / 14 / 30 days?
+
+     predicted (raw) = roasActual interpolated at the then-current target   (Ads value units)
+     predicted (cal) = predicted (raw) × cal                                (KV GP2 units)
+     realized        = Σ kv_gp2 / Σ cost over [T+1, T+w]                    (KV GP2 units)
+
+   median(realized / predicted raw) is the calibration the data implies, straight out. Compare
+   it with the `cal` the ladder resolved and you can see whether the model is calibrated.
+
+   THIS IS DISPLAY ONLY. The ratio is never fed back into a recommendation: it is measured on
+   the very windows the recommendations were made for, so applying it would be fitting the
+   model to its own scoreboard. It is a scoreboard, and it stays one.
+
+   HONEST CAVEAT, surfaced in the UI: each historical snapshot is rebuilt with TODAY'S
+   incrementality, calibration and lag factors, because those are the only ones we have. A
+   factor that has changed since therefore rewrites what the model "would have said".
+   ------------------------------------------------------------------------------ */
+
+var BACKTEST_WINDOWS = [7, 14, 30];
+
+/**
+ * Score every (run date, strategy) pair in `rows` against the warehouse actuals.
+ *
+ * `opts` = { multipliers, defaultMultiplier, incrementalityCfg, shareIndexFor(runDate),
+ *            calibrationCtx, actualsIndex }.
+ * A window is scored only when it lies ENTIRELY inside the actuals' coverage — a partly
+ * covered window would silently read as under-performance — and only when it carries spend.
+ */
+function runBacktest(rows, opts) {
+  var o = opts || {};
+  var act = o.actualsIndex;
+  var out = {
+    records: [], summary: null, windows: BACKTEST_WINDOWS.slice(), runDates: [],
+    skipped: 0, partial: 0, unmatched: 0, available: !!act,
+    coverage: act ? { start: act.start, end: act.end } : null
+  };
+  if (!act || !rows || !rows.length) return out;
+
+  var byRun = {};
+  rows.forEach(function (r) { (byRun[r.runDate] = byRun[r.runDate] || []).push(r); });
+  var dates = Object.keys(byRun).sort();
+  out.runDates = dates;
+
+  dates.forEach(function (d) {
+    var ss = buildStrategies(byRun[d], o.multipliers, o.defaultMultiplier, o.incrementalityCfg,
+      o.shareIndexFor ? o.shareIndexFor(d) : null, o.calibrationCtx);
+    ss.forEach(function (s) {
+      if (!s.current || s.currentTarget === null || s.currentTarget === undefined) { out.skipped++; return; }
+      var predictedRaw = s.current.roasActual;
+      if (!(predictedRaw > 0)) { out.skipped++; return; }
+      if (!act.campaigns[String(s.name).trim().toLowerCase()]) { out.unmatched++; return; }
+
+      var rec = {
+        runDate: d, account: s.account, name: s.name, key: s.account + ' · ' + s.name,
+        cls: s.incClass, currency: s.currency,
+        currentTarget: s.currentTarget,
+        /* A current target outside the simulated grid means `roasActual` was read off a
+           clamped endpoint, so the prediction is weaker. Scored anyway — dropping it would
+           throw away the cases most worth looking at — but marked. */
+        currentInRange: s.currentInRange,
+        recommendedThen: s.opt.target,        // original iGP3 maximum on that snapshot
+        calRecommendedThen: s.copt.target,    // calibrated cGP3 maximum on that snapshot
+        incFactor: s.incFactor, cal: s.calFactor, lag: s.lagFactor,
+        calSource: s.calibration.source, lagSource: s.lag.source,
+        predictedRaw: predictedRaw,
+        predictedCal: predictedRaw * s.calFactor,
+        realized: {}, ratioRaw: {}, ratioCal: {}, cost: {}, gp2: {}, covered: {},
+        primary: null, windowStart: addDaysIso(d, 1), windowEnd: null
+      };
+
+      var anyHit = false, anyMissing = false;
+      BACKTEST_WINDOWS.forEach(function (w) {
+        rec.covered[w] = false;
+        var a = rec.windowStart, b = addDaysIso(d, w);
+        if (!a || !b || !actualsCovers(act, a, b)) { anyMissing = true; return; }
+        var sum = actualsSum(act, s.name, a, b);
+        if (!sum || !(sum.cost > 0)) { anyMissing = true; return; }
+        rec.covered[w] = true;
+        anyHit = true;
+        rec.cost[w] = sum.cost;
+        rec.gp2[w] = sum.gp2;
+        rec.realized[w] = sum.gp2 / sum.cost;
+        rec.ratioRaw[w] = rec.realized[w] / predictedRaw;
+        rec.ratioCal[w] = rec.predictedCal > 0 ? rec.realized[w] / rec.predictedCal : null;
+        rec.primary = w;    // windows ascending, so this ends on the longest covered one
+        rec.windowEnd = b;
+      });
+      if (!anyHit) { out.skipped++; return; }
+      if (anyMissing) out.partial++;
+      out.records.push(rec);
+    });
+  });
+
+  out.summary = summarizeBacktest(out.records);
+  return out;
+}
+
+/**
+ * Per-window and per-incrementality-class medians of realized/predicted.
+ * `suggestedCorrection` is median(realized / predicted RAW) — the calibration the data
+ * implies — and `calibrationGap` is median(realized / predicted CAL), which should sit at
+ * 1.0 if the resolved calibration is right. Neither is ever applied.
+ */
+function summarizeBacktest(records) {
+  var recs = records || [];
+  var byWindow = {};
+  BACKTEST_WINDOWS.forEach(function (w) {
+    var rs = recs.filter(function (r) { return r.covered[w]; });
+    var byClass = {};
+    INCREMENTALITY_CLASSES.forEach(function (c) {
+      var sub = rs.filter(function (r) { return r.cls === c; });
+      if (!sub.length) return;
+      byClass[c] = {
+        n: sub.length,
+        medianRatioRaw: medianOf(sub.map(function (r) { return r.ratioRaw[w]; })),
+        medianRatioCal: medianOf(sub.map(function (r) { return r.ratioCal[w]; })),
+        medianRealized: medianOf(sub.map(function (r) { return r.realized[w]; })),
+        medianPredictedCal: medianOf(sub.map(function (r) { return r.predictedCal; })),
+        medianCal: medianOf(sub.map(function (r) { return r.cal; }))
+      };
+    });
+    byWindow[w] = {
+      window: w, n: rs.length,
+      campaigns: Object.keys(rs.reduce(function (a, r) { a[r.key] = 1; return a; }, {})).length,
+      medianRatioRaw: medianOf(rs.map(function (r) { return r.ratioRaw[w]; })),
+      medianRatioCal: medianOf(rs.map(function (r) { return r.ratioCal[w]; })),
+      medianRealized: medianOf(rs.map(function (r) { return r.realized[w]; })),
+      medianPredictedCal: medianOf(rs.map(function (r) { return r.predictedCal; })),
+      medianCal: medianOf(rs.map(function (r) { return r.cal; })),
+      byClass: byClass
+    };
+  });
+
+  /* Headline on the longest window that has enough records to have a median worth printing,
+     falling back to the longest with any at all. */
+  var primary = null, i;
+  for (i = BACKTEST_WINDOWS.length - 1; i >= 0; i--) {
+    if (byWindow[BACKTEST_WINDOWS[i]].n >= 3) { primary = BACKTEST_WINDOWS[i]; break; }
+  }
+  if (primary === null) {
+    for (i = BACKTEST_WINDOWS.length - 1; i >= 0; i--) {
+      if (byWindow[BACKTEST_WINDOWS[i]].n) { primary = BACKTEST_WINDOWS[i]; break; }
+    }
+  }
+  return {
+    byWindow: byWindow,
+    primaryWindow: primary,
+    n: recs.length,
+    campaigns: Object.keys(recs.reduce(function (a, r) { a[r.key] = 1; return a; }, {})).length,
+    runDates: Object.keys(recs.reduce(function (a, r) { a[r.runDate] = 1; return a; }, {})).length,
+    suggestedCorrection: primary ? byWindow[primary].medianRatioRaw : null,
+    calibrationGap: primary ? byWindow[primary].medianRatioCal : null
+  };
 }
 
 /* ---------- formatting ---------- */
@@ -1671,6 +2445,13 @@ const state = {
   rows: [],           // normalised rows (all accounts, all runs)
   shares: [],         // normalised impression-share rows (latest run date only)
   shareIndex: null,   // (account, campaign id|name) -> share row
+  lag: [],            // normalised conversion-lag rows (latest run date only)
+  lagIndex: null,     // (account, campaign id|name, window) -> lag row + account aggregates
+  actuals: null,      // BigQuery daily campaign actuals index, or null
+  actualsError: null, // why the actuals fetch failed, when it did
+  actualsLoaded: false,
+  calCtx: null,       // { lagIndex, actualsIndex } handed to buildStrategies
+  backtest: null,     // runBacktest() output for the current account selection
   source: 'demo',     // 'live' | 'cached' | 'demo'
   fetchedAt: null,
   error: null,
@@ -1742,8 +2523,51 @@ function adoptPayload(payload, source, fetchedAt){
      its flat class factor. */
   state.shares = normalizeShares(payload.shares);
   state.shareIndex = buildShareIndex(state.shares);
+  /* Conversion lag is optional in exactly the same way: an endpoint that predates the Lag tab
+     serves `lag: null`, which yields an empty index and a factor of 1.0 for every campaign. */
+  state.lag = normalizeLag(payload.lag);
+  state.lagIndex = buildLagIndex(state.lag);
   state.source = source;
   state.fetchedAt = fetchedAt || null;
+}
+
+/* ---- BigQuery campaign actuals: same-origin, never on the critical path ----
+   The page paints from the simulation payload alone; when (and if) the warehouse snapshot
+   arrives it re-renders with calibration and the backtest filled in. A failure here degrades
+   to the calibration ladder's lower rungs and a hidden backtest — never to a broken page. */
+const ACTUALS_ENDPOINT = '/api/campaign-actuals';
+const ACTUALS_TIMEOUT_MS = 8000;
+
+async function loadActuals(){
+  let timer = null;
+  try {
+    const opts = { cache:'no-store' };
+    /* AbortController is universal in the browsers this dashboard targets, but the fetch must
+       still work if it is missing rather than throwing before the request is made. */
+    if (typeof AbortController === 'function'){
+      const ctl = new AbortController();
+      opts.signal = ctl.signal;
+      timer = setTimeout(() => ctl.abort(), ACTUALS_TIMEOUT_MS);
+    }
+    const res = await fetch(ACTUALS_ENDPOINT, opts);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    if (json && json.error) throw new Error(json.error);
+    const idx = buildActualsIndex(json);
+    if (!idx) throw new Error('payload has no usable rows');
+    state.actuals = idx;
+    state.actualsError = null;
+  } catch (err){
+    state.actuals = null;
+    state.actualsError = (err && err.name === 'AbortError')
+      ? 'timed out after ' + (ACTUALS_TIMEOUT_MS / 1000) + 's'
+      : (err && err.message) || String(err);
+  } finally {
+    if (timer) clearTimeout(timer);
+    state.actualsLoaded = true;
+  }
+  // re-render only once the first paint has happened, exactly like the live-payload path
+  if (state.rows.length) rebuild(false);
 }
 
 async function loadData(announce){
@@ -1849,6 +2673,47 @@ function incFactorTitle(s){
     ' class default, used because this campaign has no impression-share data. Editable in the Config tab.';
 }
 
+/* ---- calibration & lag labels: same voice as the incrementality pill above ---- */
+
+function anyCalAdjusted(){ return state.strategies.some(s => s.calAdjusted); }
+function anyLagData(){ return !!(state.lagIndex && state.lagIndex.count); }
+function anyCalData(){ return anyLagData() || !!state.actuals; }
+function xLabel(f){ return '×' + f.toFixed(2); }
+
+const CAL_SOURCE_LABEL = {
+  lag30: 'measured · 30d',
+  sim7:  'measured · 7d sim',
+  'class-median': 'class median',
+  none:  'uncalibrated'
+};
+const LAG_SOURCE_LABEL = { campaign: 'measured', account: 'account average', none: 'no lag data' };
+
+function calSourceLabel(s){ return CAL_SOURCE_LABEL[s.calibration.source] || s.calibration.source; }
+function lagSourceLabel(s){ return LAG_SOURCE_LABEL[s.lag.source] || s.lag.source; }
+
+/** `×0.14 inc · ×0.50 cal · ×1.12 lag` — the whole chain, decomposed. */
+function factorChainLabel(s){
+  return xLabel(s.incFactor) + ' inc · ' + xLabel(s.calFactor) + ' cal · ' + xLabel(s.lagFactor) + ' lag';
+}
+function factorChainTitle(s){
+  const inc = 'Incrementality ' + xLabel(s.incFactor) + ' (' + incSourceLabel(s) + ')';
+  const c = s.calibration;
+  const cal = 'calibration ' + xLabel(s.calFactor) + ' (' + calSourceLabel(s) +
+    (c.poasBq != null && c.roasAds != null
+      ? ': warehouse POAS ' + c.poasBq.toFixed(2) + ' ÷ Ads ROAS ' + c.roasAds.toFixed(2) +
+        ' over ' + c.windowStart + '–' + c.windowEnd
+      : c.reason ? ': ' + c.reason : '') + ')';
+  const lag = 'conversion lag ' + xLabel(s.lagFactor) + ' (' + lagSourceLabel(s) +
+    (s.lag.raw != null ? ': conversion-time value ÷ click-time value = ' + s.lag.raw.toFixed(3) : '') + ')';
+  return inc + ' × ' + cal + ' × ' + lag + ' = ' + (s.incFactor * s.calLagFactor).toFixed(3) +
+    ' applied to GP2. Cost is never scaled. The calibrated figures sit BESIDE the original ' +
+    'incremental ones — they never replace them.';
+}
+/** The compact decomposition pill used in tables and the drill-down meta strip. */
+function factorPillHtml(s){
+  return `<span class="pill pill-cal" title="${esc(factorChainTitle(s))}">${esc(factorChainLabel(s))}</span>`;
+}
+
 const CLASS_LABEL = { generic:'Generic', 'private-label':'Private label', brand:'Brand' };
 const CLASS_BLURB = {
   generic:
@@ -1882,8 +2747,18 @@ function rebuild(resetSelections){
   if (!runs.includes(state.runDate)) state.runDate = runs[runs.length - 1];
 
   const m = gp2Multipliers();
-  state.strategies = buildStrategies(scopedRows(), m.map, m.def, incrementalityCfg(), state.shareIndex);
+  state.calCtx = { lagIndex: state.lagIndex, actualsIndex: state.actuals };
+  state.strategies = buildStrategies(scopedRows(), m.map, m.def, incrementalityCfg(), state.shareIndex, state.calCtx);
   state.strategies.forEach(s => s.key = s.account + ' · ' + s.name);
+  /* Scored across every run date in the account selection, not just the one on screen — the
+     whole point is to compare past claims with what actually happened afterwards. */
+  state.backtest = state.actuals
+    ? runBacktest(inAccountRows(), {
+        multipliers: m.map, defaultMultiplier: m.def, incrementalityCfg: incrementalityCfg(),
+        shareIndexFor: d => (sharesRunDate() === d ? state.shareIndex : null),
+        calibrationCtx: state.calCtx, actualsIndex: state.actuals
+      })
+    : null;
   state.mixedCurrency = new Set(state.strategies.map(s => s.currency)).size > 1;
   /* Which money symbols are genuinely ambiguous IN THIS SELECTION — i.e. claimed by two
      different currencies at once. Only those fall back to the ISO code; everything else keeps
@@ -1978,6 +2853,7 @@ function renderAll(){
   renderStrategy();
   renderPortfolio();
   renderHistory();
+  renderCalibration();
   renderTrustFlags();
   document.getElementById('foot-note').textContent =
     'Computed in your browser from ' + state.rows.length + ' simulation rows. Nothing is uploaded anywhere.';
@@ -2059,7 +2935,7 @@ function renderKPIs(){
   const G3 = incAdj ? 'iGP3' : 'GP3';
   const grid = document.getElementById('kpi-grid');
 
-  if (!curs.length){ grid.innerHTML = ''; return; }
+  if (!curs.length){ grid.innerHTML = ''; renderCalKPIs(groups, curs, multi); return; }
 
   grid.innerHTML = curs.map(c => {
     const ss = groups[c];
@@ -2115,6 +2991,72 @@ function renderKPIs(){
         <div class="kpi-note">${scoreNote}</div>
       </div>`;
   }).join('');
+
+  renderCalKPIs(groups, curs, multi);
+}
+
+/**
+ * The same four KPIs read off the CALIBRATED curve — cGP3 = GP2 × incrementality × cal × lag
+ * − cost. A separate grid rather than extra cards in the first one, so the original row keeps
+ * its rhythm and nothing above is displaced. Hidden entirely until a factor is actually
+ * measured, which is what keeps demo mode identical to before.
+ */
+function renderCalKPIs(groups, curs, multi){
+  const grid = document.getElementById('kpi-grid-cal');
+  const label = document.getElementById('kpi-cal-label');
+  if (!anyCalAdjusted()){
+    grid.style.display = 'none'; label.style.display = 'none'; grid.innerHTML = ''; return;
+  }
+  grid.style.display = ''; label.style.display = '';
+
+  grid.innerHTML = curs.map(c => {
+    const ss = groups[c];
+    const curC  = ss.reduce((a,s) => a + (s.current ? s.current.cgp3 : 0), 0);
+    const curCost = ss.reduce((a,s) => a + (s.current ? s.current.cost : 0), 0);
+    const potC  = ss.reduce((a,s) => a + s.copt.cgp3, 0);
+    const potCost = ss.reduce((a,s) => a + s.copt.cost, 0);
+    const inc   = potC - curC;
+    const score = Math.max(0, Math.min(1, potC > 0 ? curC / potC : 0));
+    const moved = ss.filter(s => s.copt.target !== s.opt.target).length;
+    const facs  = [...new Set(ss.map(s => xLabel(s.calLagFactor)))].sort();
+    const tag = multi ? ` <span class="kpi-badge" style="background:var(--accent)">${esc(c)}</span>` : '';
+
+    return `
+      <div class="kpi-card">
+        <div class="kpi-label" title="every campaign at its current target, valued in warehouse GP2">Current cGP3${tag}</div>
+        <div class="kpi-value">${fmtMoney(curC, c)}</div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          ${deltaBadge(curC, ss.reduce((a,s) => a + (s.current ? s.current.igp3 : 0), 0))}
+          <span class="kpi-sub">vs iGP3</span>
+        </div>
+        <div class="kpi-note">on ${fmtMoney(curCost, c)} ad cost · cal × lag ${esc(facs.join(' / '))}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label" title="every campaign moved to its own calibrated cGP3 maximum">Potential cGP3${tag}</div>
+        <div class="kpi-value">${fmtMoney(potC, c)}</div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          ${deltaBadge(potC, curC)}<span class="kpi-sub">vs current targets</span>
+        </div>
+        <div class="kpi-note">at ${fmtMoney(potCost, c)} ad cost</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label" title="calibrated potential minus calibrated current">Calibrated uplift${tag}</div>
+        <div class="kpi-value">${signedMoney(inc, c)}</div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span class="kpi-delta ${potCost - curCost >= 0 ? 'up' : 'down'}">${signedMoney(potCost - curCost, c)}</span>
+          <span class="kpi-sub">ad cost change</span>
+        </div>
+        <div class="kpi-note">${moved} of ${ss.length} campaign${ss.length===1?'':'s'} land on a different target than the original recommendation</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label" title="calibrated current profit as a share of the calibrated maximum">Calibrated score${tag}</div>
+        <div class="kpi-value">${fmtPctSv(score)}</div>
+        <div class="kpi-meter"><i style="width:${(score*100).toFixed(1)}%"></i></div>
+        <div class="kpi-note">${curC < 0 ? 'loss-making once Ads value is converted to warehouse GP2'
+          : potC <= 0 ? 'no calibrated target in the simulated range pays for itself'
+          : 'current cGP3 as a share of the achievable calibrated maximum'}</div>
+      </div>`;
+  }).join('');
 }
 
 function renderBasisNote(){
@@ -2147,6 +3089,16 @@ function renderBasisNote(){
         ` Floors, caps and class factors are <b>modelling choices, not measurements</b> — a geo holdout or a
           conversion-lift test is what replaces them. Observed GP3 stays visible next to the incremental figure.`
       : '') +
+    (anyCalAdjusted()
+      ? `<br><b>A second, calibrated recommendation sits beside the original — it never replaces it.</b> Google Ads reports more
+         conversion value than the funnel warehouse credits the same campaign with over the same days, and a simulated week is built on
+         click-time data that has not finished converting. So GP2 is additionally multiplied by a <b>value-calibration factor</b>
+         (<span class="mono">POAS from BigQuery ÷ ROAS from Ads</span>, a ratio of ratios and therefore unitless) and a
+         <b>conversion-lag factor</b>, giving <span class="mono">cGP3 = GP2 × incrementality × cal × lag − cost</span>. Every KPI,
+         breakeven, allocation and status pill above still runs on iGP3; the calibrated figures are shown as an additional column, an
+         additional curve and their own KPI row, and the <b>Calibration &amp; backtest</b> section below shows every input and scores the
+         model against what actually happened.`
+      : '') +
     `<br><b>Read these as directional step moves.</b> Google's bid simulator holds everything else constant — same
      budgets, creatives, competitors, seasonality and the same 7-day window it was measured on. Move targets one step at
      a time, let the strategy re-learn for a week or two, then re-check against a fresh snapshot.`;
@@ -2178,13 +3130,15 @@ function renderSummaryTable(){
   const el = document.getElementById('summary-table');
   if (!ss.length){ el.innerHTML = '<tbody><tr><td class="empty">No campaigns in this selection.</td></tr></tbody>'; return; }
   const incAdj = anyIncAdjusted();
+  const calAdj = anyCalAdjusted();
   const G3 = incAdj ? 'iGP3' : 'GP3';
-  const NCOL = 11;
+  const NCOL = calAdj ? 12 : 11;
 
   let html = `<thead><tr>
       <th>Campaign</th>
       <th title="the Target ROAS configured right now">Current</th>
-      <th title="the simulated target with the highest ${G3}">Rec.</th>
+      <th title="the simulated target with the highest ${G3} — the reference recommendation, unchanged by calibration">Rec.</th>${calAdj
+      ? `<th title="the simulated target with the highest cGP3, i.e. after Ads value is converted to warehouse GP2 and conversion lag is added">Rec. cal.</th>` : ''}
       <th title="target where the marginal krona returns exactly 1.0, interpolated">Breakeven</th>
       <th>Cost</th><th title="ad cost change at the recommended target">&Delta; cost</th>
       <th title="observed GP3 at the current target, before any incrementality haircut">GP3 obs.</th>
@@ -2205,14 +3159,20 @@ function renderSummaryTable(){
        number came from: an IS-derived 0.15 and an assumed 0.20 mean very different things. */
     const incBadge = s.incAdjusted
       ? ` <span class="pill pill-inc" title="${esc(incFactorTitle(s))}">${esc(incPillLabel(s))}</span>` : '';
+    /* The factor decomposition rides next to the incrementality pill, never instead of it —
+       the two answer different questions and both have to stay legible. */
+    const calBadge = calAdj && s.calAdjusted ? ' ' + factorPillHtml(s) : '';
     const acct = state.account === '__all' ? esc(s.account) + ' · ' : '';
     return `<tr data-strategy="${esc(s.key)}" class="${s.key === state.strategyKey ? 'row-sel' : ''}">
       <td><div class="strat-cell"><span class="nm">${esc(s.name)}</span>
-        <span class="mt">${acct}${s.points.length} points · ${esc(s.biddingType || '')}${multBadge}${incBadge}</span></div></td>
+        <span class="mt">${acct}${s.points.length} points · ${esc(s.biddingType || '')}${multBadge}${incBadge}${calBadge}</span></div></td>
       <td>${fmtPct(s.currentTarget)}</td>
       <td><b style="color:var(--accent)">${fmtPct(s.opt.target)}</b>${
         s.incAdjusted && s.optObserved.target !== s.opt.target
-          ? `<div class="assumption" title="where the unadjusted GP3 maximum sits">obs ${fmtPct(s.optObserved.target)}</div>` : ''}</td>
+          ? `<div class="assumption" title="where the unadjusted GP3 maximum sits">obs ${fmtPct(s.optObserved.target)}</div>` : ''}</td>${calAdj
+      ? `<td><b style="color:var(--cal)">${fmtPct(s.copt.target)}</b>${s.calAdjusted
+          ? `<div class="assumption" title="calibrated cGP3 at that target">${fmtMoney(s.copt.cgp3, s.currency)}</div>`
+          : `<div class="assumption" title="no calibration factor could be measured for this campaign — the calibrated curve is the incremental one">uncalibrated</div>`}</td>` : ''}
       <td class="cell-muted mono">${be}</td>
       <td>${fmtMoney(cur.cost, s.currency)}</td>
       <td class="cell-muted">${signedMoney(s.costChange, s.currency)}</td>
@@ -2220,7 +3180,9 @@ function renderSummaryTable(){
       <td class="${cur.igp3 < 0 ? 'cell-neg' : ''}">${fmtMoney(cur.igp3, s.currency)}</td>
       <td>${fmtMoney(s.opt.igp3, s.currency)}</td>
       <td class="${signCell(s.uplift, 1)}"><b>${signedMoney(s.uplift, s.currency)}</b></td>
-      <td><span class="pill ${STATUS_PILL[s.status]}">${STATUS_LABEL[s.status]}</span></td>
+      <td><span class="pill ${STATUS_PILL[s.status]}">${STATUS_LABEL[s.status]}</span>${calAdj && s.calAdjusted
+        ? `<div class="assumption" style="margin-top:4px" title="the same rule read off the calibrated curve">cal: <span class="pill ${
+            STATUS_PILL[s.cStatus]}" style="font-size:10px">${STATUS_LABEL[s.cStatus]}</span></div>` : ''}</td>
     </tr>`;
   };
 
@@ -2229,7 +3191,8 @@ function renderSummaryTable(){
     if (curs.length !== 1)
       return `<tr class="${cls}"><td>${label}</td>${'<td></td>'.repeat(NCOL-2)}<td class="cell-muted">mixed currencies</td></tr>`;
     const c = curs[0], t = summaryTotals(list);
-    return `<tr class="${cls}"><td>${label}</td><td></td><td></td><td></td>
+    // label + current + rec (+ rec cal) + breakeven, then the money columns
+    return `<tr class="${cls}"><td>${label}</td>${'<td></td>'.repeat(calAdj ? 4 : 3)}
       <td>${fmtMoney(t.cost,c)}</td><td class="cell-muted">${signedMoney(t.dc,c)}</td>
       <td class="cell-muted">${fmtMoney(t.gp3,c)}</td><td>${fmtMoney(t.igp3,c)}</td><td>${fmtMoney(t.max,c)}</td>
       <td class="${signCell(t.up,1)}">${signedMoney(t.up,c)}</td><td></td></tr>`;
@@ -2271,7 +3234,10 @@ function renderSummaryTable(){
 
 const CHART_FONT = { family:'Inter', size:11 };
 const C = { gp2:'#2563EB', gp3:'#047857', gp3obs:'#9CC5B8', cur:'#6D28D9', rec:'#1E3A8A',
-            marg:'#B45309', margObs:'#DDB784', grid:'#CBD5E1', bar:'#CBD5E1' };
+            marg:'#B45309', margObs:'#DDB784', grid:'#CBD5E1', bar:'#CBD5E1',
+            /* calibration blue — the same hue the .pill-cal badge uses, one step darker so it
+               reads against the GP2 line it shares the chart with */
+            cal:'#0E7490' };
 
 function killChart(k){ if (state.charts[k]){ state.charts[k].destroy(); delete state.charts[k]; } }
 function axis(title, fmt){
@@ -2338,9 +3304,57 @@ function shareDetailHtml(s){
     and everything above 90% collapses into one bucket — so a headroom near 0 or near 1 is coarser than it looks.</span></div>`;
 }
 
+/**
+ * The calibration / lag derivation for one campaign, in the same voice as shareDetailHtml:
+ * the arithmetic in full, the rung it landed on, and what it would have taken to do better.
+ * Returns '' when there is no calibration data on the page at all.
+ */
+function calDetailHtml(s){
+  if (!anyCalData()) return '';
+  const cal = s.calibration, lag = s.lag;
+  const rung = {
+    lag30: 'the <b>30-day Lag window</b> against the same 30 days of warehouse data — the strongest rung',
+    sim7: 'the <b>simulation\'s own current-target ROAS</b> against the snapshot window, because no <span class="mono">Lag</span> row was available. A 7-day window is noisy',
+    'class-median': 'the <b>median calibration of the other ' + esc(CLASS_LABEL[s.incClass].toLowerCase()) +
+      ' campaigns</b> (' + cal.classN + ' measured), because this campaign could not be measured itself',
+    none: '<b>nothing</b> — it is uncalibrated and runs at ×1.00'
+  }[cal.source] || cal.source;
+
+  const arithmetic = (cal.poasBq != null && cal.roasAds != null)
+    ? `<br><span class="mono">cal = POAS(warehouse) ${cal.poasBq.toFixed(3)} ÷ ROAS(Ads) ${cal.roasAds.toFixed(3)}
+        = ${cal.raw.toFixed(3)}</span>${cal.clamped ? ' <b>clamped to ' + cal.factor.toFixed(2) + '</b>' : ''}
+       over <span class="mono">${esc(cal.windowStart)} → ${esc(cal.windowEnd)}</span>
+       (${cal.windowDays} day${cal.windowDays === 1 ? '' : 's'} of warehouse rows,
+       ${num(cal.bqCost, 0)} SEK-normalised spend).
+       <br><span class="assumption">Both sides are ratios, so the factor is unitless — the warehouse is
+       SEK-normalised and the account may not be, and no exchange rate ever enters the arithmetic.</span>`
+    : (cal.reason ? `<br><span class="assumption">Could not be measured here: ${esc(cal.reason)}.</span>` : '');
+
+  const lagLine = lag.raw != null
+    ? `<span class="mono">lag = ${num(lag.convValueConvTime, 0)} ÷ ${num(lag.convValue, 0)} = ${lag.raw.toFixed(3)}</span>${
+        lag.clamped ? ' <b>clamped to ' + lag.factor.toFixed(2) + '</b>' : ''} — ${
+        lag.source === 'campaign' ? 'this campaign\'s own 7-day window' :
+        'the account-level average over ' + lag.campaigns + ' campaigns, because this one has no Lag row'}.` +
+      (lag.matureRatio != null
+        ? ` The mature control window (D−90…D−31) sits at <span class="mono">${lag.matureRatio.toFixed(3)}</span>${
+            lag.nonStationary ? ' — <b>more than 0.10 off 1.0</b>, so attribution itself is moving and this lag ratio is measuring that too.'
+            : ', close enough to 1.0 that the ratio is measuring lag rather than drift.'}`
+        : '')
+    : 'No conversion-lag data, so the simulated curve is taken at click time — <b>×1.00</b>.';
+
+  return `<div class="note"><b>Value calibration ${xLabel(s.calFactor)} (${esc(calSourceLabel(s))})</b> — read off ${rung}.${arithmetic}
+    <br><b>Conversion lag ${xLabel(s.lagFactor)} (${esc(lagSourceLabel(s))})</b> — ${lagLine}
+    <br><b>Applied to GP2:</b> <span class="mono">${factorChainLabel(s)} = ${(s.incFactor * s.calLagFactor).toFixed(3)}</span>,
+    giving <span class="mono">cGP3 = cGP2 − cost</span>. Cost is never scaled.
+    ${s.calAdjusted ? `The calibrated recommendation is <b>${fmtPct(s.copt.target)}</b> against the reference
+      <b>${fmtPct(s.opt.target)}</b>; both stay on the page and the original is what every KPI, breakeven and
+      allocation above still runs on.` : ''}</div>`;
+}
+
 function renderIncrementalityBox(s){
   const box = document.getElementById('drill-inc');
-  if (!s || (!s.incAdjusted && !s.incDynamic)){ box.innerHTML = ''; return; }
+  if (!s){ box.innerHTML = ''; return; }
+  if (!s.incAdjusted && !s.incDynamic){ box.innerHTML = calDetailHtml(s); return; }
   const dyn = s.incDynamic;
   const src = s.incrementality.source === 'override'
     ? `pattern override <span class="mono">${esc(s.incrementality.pattern)}</span>`
@@ -2354,6 +3368,8 @@ function renderIncrementalityBox(s){
       ${sensitivityLine(s)} <span class="assumption">— same curve, three factors.</span>` : ''}
     <br><span class="assumption">${CLASS_BLURB[s.incClass]}</span></div>`];
   if (SHARE_METRIC_BY_CLASS[s.incClass]) parts.push(shareDetailHtml(s));
+  const cd = calDetailHtml(s);
+  if (cd) parts.push(cd);
   if (s.incClass === 'brand') parts.push(`<div class="note warn">
     <b>Brand spend is defensive.</b> Competitors bid on our brand terms; conceding the auction hands them a shopper who had
     already chosen us. Low modelled incrementality therefore does <b>not</b> mean "minimise spend" — the counterfactual
@@ -2375,6 +3391,7 @@ function renderStrategy(){
     return;
   }
   const cur = s.current, adj = s.incAdjusted, G3 = adj ? 'iGP3' : 'GP3';
+  const cadj = s.calAdjusted;
   document.getElementById('drill-title').textContent = s.name;
   document.getElementById('drill-sub').textContent =
     s.account + ' · ' + (s.biddingType || 'bidding strategy') + ' · ' + s.points.length + ' simulated points';
@@ -2382,11 +3399,20 @@ function renderStrategy(){
 
   meta.innerHTML = `
     <div><span class="k">Current target</span><span class="v">${fmtPct(s.currentTarget)}</span></div>
-    <div><span class="k">Recommended</span><span class="v" style="color:var(--accent)">${fmtPct(s.opt.target)}</span></div>
-    <div><span class="k">Breakeven (interp.)</span><span class="v">${s.breakeven.target ? fmtPct1(s.breakeven.target) : '—'}</span></div>
+    <div><span class="k">Recommended</span><span class="v" style="color:var(--accent)">${fmtPct(s.opt.target)}</span></div>` +
+    (cadj ? `
+    <div><span class="k" title="the cGP3 maximum — additional to the reference recommendation, not a replacement">Recommended (cal.)</span>
+      <span class="v" style="color:var(--cal)">${fmtPct(s.copt.target)}</span></div>` : '') + `
+    <div><span class="k">Breakeven (interp.)</span><span class="v">${s.breakeven.target ? fmtPct1(s.breakeven.target) : '—'}</span></div>` +
+    (cadj ? `
+    <div><span class="k" title="where the marginal calibrated krona returns exactly 1.0">Breakeven (cal.)</span>
+      <span class="v">${s.cbreakeven.target ? fmtPct1(s.cbreakeven.target) : '—'}</span></div>` : '') + `
     <div><span class="k">${G3} uplift</span><span class="v ${s.uplift > 1 ? 'pos' : s.uplift < -1 ? 'neg' : ''}">${signedMoney(s.uplift, s.currency)}</span></div>
     <div><span class="k">Cost change</span><span class="v">${signedMoney(s.costChange, s.currency)}</span></div>
-    <div><span class="k">Class</span><span class="v">${esc(CLASS_LABEL[s.incClass])} <span class="pill pill-inc" title="${esc(incFactorTitle(s))}">${adj ? esc(incPillLabel(s)) : '×1.00'}</span></span></div>
+    <div><span class="k">Class</span><span class="v">${esc(CLASS_LABEL[s.incClass])} <span class="pill pill-inc" title="${esc(incFactorTitle(s))}">${adj ? esc(incPillLabel(s)) : '×1.00'}</span></span></div>` +
+    (anyCalData() ? `
+    <div><span class="k" title="incrementality × calibration × conversion lag">Factors</span>
+      <span class="v">${factorPillHtml(s)}</span></div>` : '') + `
     <div><span class="k">Window</span><span class="v" style="font-size:13px">${s.startDate} &rarr; ${s.endDate}</span></div>`;
   renderIncrementalityBox(s);
 
@@ -2409,19 +3435,29 @@ function renderStrategy(){
   if (adj) ds.push({ label:'iGP3', data: pts.map(p => ({ x:p.cost, y:p.igp3, t:p.target })),
     borderColor:C.gp3, backgroundColor:'rgba(4,120,87,.08)', pointRadius:3, pointHoverRadius:5,
     borderWidth:2.5, tension:.25, fill:true });
+  /* cGP3 rides alongside iGP3 in the calibration blue — never replacing it, so the eye can
+     read the two recommendations off the same picture. */
+  if (cadj) ds.push({ label:'cGP3', data: pts.map(p => ({ x:p.cost, y:p.cgp3, t:p.target })),
+    borderColor:C.cal, backgroundColor:'rgba(14,116,144,.06)', pointRadius:3, pointHoverRadius:5,
+    borderWidth:2, borderDash:[6,3], tension:.25, fill:false });
   if (cur) ds.push({ label:'Current target ' + fmtPct(s.currentTarget), type:'scatter',
     data:[{ x:cur.cost, y: adj ? cur.igp3 : cur.gp3, t:s.currentTarget }],
     borderColor:C.cur, backgroundColor:C.cur, pointRadius:7, pointHoverRadius:9 });
   ds.push({ label:'Recommended ' + fmtPct(s.opt.target), type:'scatter',
     data:[{ x:s.opt.cost, y: adj ? s.opt.igp3 : s.opt.gp3, t:s.opt.target }],
     borderColor:C.rec, backgroundColor:C.rec, pointRadius:8, pointHoverRadius:10, pointStyle:'rectRot' });
+  if (cadj) ds.push({ label:'Calibrated ' + fmtPct(s.copt.target), type:'scatter',
+    data:[{ x:s.copt.cost, y:s.copt.cgp3, t:s.copt.target }],
+    borderColor:C.cal, backgroundColor:C.cal, pointRadius:8, pointHoverRadius:10, pointStyle:'triangle' });
 
   document.getElementById('curve-legend').innerHTML = [
     `<div class="legend-item"><div class="legend-dot" style="background:${C.gp2}"></div>GP2</div>`,
     `<div class="legend-item"><div class="legend-dot" style="background:${adj ? C.gp3obs : C.gp3}"></div>GP3 (observed)</div>`,
     adj ? `<div class="legend-item"><div class="legend-dot" style="background:${C.gp3}"></div>iGP3 (incremental, ${incLabel(s.incFactor)})</div>` : '',
+    cadj ? `<div class="legend-item"><div class="legend-dot" style="background:${C.cal}"></div>cGP3 (calibrated, ${incLabel(s.calFactor)} cal × ${incLabel(s.lagFactor)} lag)</div>` : '',
     `<div class="legend-item"><div class="legend-dot pt" style="background:${C.cur}"></div>Current target</div>`,
-    `<div class="legend-item"><div class="legend-dot pt" style="background:${C.rec}"></div>Recommended (${G3} max)</div>`
+    `<div class="legend-item"><div class="legend-dot pt" style="background:${C.rec}"></div>Recommended (${G3} max)</div>`,
+    cadj ? `<div class="legend-item"><div class="legend-dot pt" style="background:${C.cal}"></div>Calibrated (cGP3 max)</div>` : ''
   ].filter(Boolean).join('');
 
   state.charts.curve = new Chart(document.getElementById('c-curve'), {
@@ -2439,7 +3475,7 @@ function renderStrategy(){
       },
       scales:{
         x:{ type:'linear', ...axis('Cost (' + s.currency + ') — higher cost means a lower target ROAS', fm) },
-        y:{ ...axis('GP2 / GP3' + (adj ? ' / iGP3' : '') + ' (' + s.currency + ')', fm) }
+        y:{ ...axis('GP2 / GP3' + (adj ? ' / iGP3' : '') + (cadj ? ' / cGP3' : '') + ' (' + s.currency + ')', fm) }
       }
     }
   });
@@ -2447,7 +3483,7 @@ function renderStrategy(){
   /* ---- marginal ROAS vs target ---- */
   killChart('marginal');
   const segPts = s.segments.map(g => ({ x:g.targetMid*100, y:g.mRoas, a:g.from.target, b:g.to.target,
-    dc:g.dCost, dg:g.dIGp2, dgo:g.dGp2, mo:g.mRoasObserved })).sort((p,q) => p.x - q.x);
+    dc:g.dCost, dg:g.dIGp2, dgo:g.dGp2, mo:g.mRoasObserved, mc:g.mRoasCal })).sort((p,q) => p.x - q.x);
   const xs = segPts.map(p => p.x);
   const xMin = Math.min(...xs, (s.currentTarget||0)*100), xMax = Math.max(...xs, (s.currentTarget||0)*100);
   const mds = [
@@ -2459,9 +3495,14 @@ function renderStrategy(){
   ];
   if (adj) mds.push({ label:'Marginal ROAS (observed)', data: segPts.map(p => ({ x:p.x, y:p.mo })),
     borderColor:C.margObs, borderWidth:1.5, borderDash:[4,4], pointRadius:0, fill:false, tension:.2, pointStyle:'line' });
+  if (cadj) mds.push({ label:'Marginal ROAS (calibrated)', data: segPts.map(p => ({ x:p.x, y:p.mc })),
+    borderColor:C.cal, borderWidth:1.5, borderDash:[6,3], pointRadius:0, fill:false, tension:.2, pointStyle:'line' });
   if (s.breakeven.target) mds.push({ label:'Breakeven target ' + fmtPct1(s.breakeven.target), type:'scatter',
     data:[{ x:s.breakeven.target*100, y:1 }], borderColor:C.rec, backgroundColor:C.rec,
     pointRadius:8, pointStyle:'rectRot' });
+  if (cadj && s.cbreakeven.target) mds.push({ label:'Calibrated breakeven ' + fmtPct1(s.cbreakeven.target), type:'scatter',
+    data:[{ x:s.cbreakeven.target*100, y:1 }], borderColor:C.cal, backgroundColor:C.cal,
+    pointRadius:8, pointStyle:'triangle' });
   if (s.currentTarget != null) mds.push({ label:'Current target', type:'scatter',
     data:[{ x:s.currentTarget*100,
             y:(interpAt(segPts.map(p => ({x:p.x,y:p.y})), 'x', s.currentTarget*100, ['y']) || {y:1}).y }],
@@ -2498,22 +3539,27 @@ function renderStrategy(){
   const segByTo = {};
   s.segments.forEach(g => segByTo[g.to.target] = g);
   const kept = new Set(s.efficient.map(p => p.target));
-  let html = `<thead><tr><th>Target ROAS</th><th>Cost</th><th>GP2</th><th>GP3</th>${adj ? '<th>iGP3</th>' : ''}
+  let html = `<thead><tr><th>Target ROAS</th><th>Cost</th><th>GP2</th><th>GP3</th>${adj ? '<th>iGP3</th>' : ''}${
+    cadj ? '<th title="GP2 × incrementality × calibration × lag, minus cost">cGP3</th>' : ''}
     <th>Marginal ${adj ? 'iROAS' : 'ROAS'}</th><th>Conv.</th><th>Clicks</th><th>Impr.</th><th>Actual ROAS</th></tr></thead><tbody>`;
   rows.forEach(p => {
     const g = segByTo[p.target];
     const isOpt = p.target === s.opt.target;
     const isOptObs = adj && p.target === s.optObserved.target;
+    const isOptCal = cadj && p.target === s.copt.target;
     html += `<tr${isOpt ? ' class="row-sel"' : ''}>
       <td>${fmtPct(p.target)}${isOpt ? ' <span class="pill pill-accent">' + G3 + ' max</span>' : ''}${
         isOptObs && !isOpt ? ' <span class="pill pill-neutral" title="highest observed GP3 — not the recommendation, which runs on iGP3">GP3 max (obs)</span>' : ''}${
+        isOptCal && !isOpt ? ' <span class="pill pill-cal" title="highest calibrated cGP3 — the additional recommendation, shown beside the reference one">cGP3 max</span>' : ''}${
         kept.has(p.target) ? '' : ' <span class="pill pill-neutral" title="costs more than a cheaper point for no extra GP2 — excluded from the marginal analysis">dominated</span>'}</td>
       <td>${money(p.cost, s.currency)}</td>
       <td>${money(p.gp2, s.currency)}</td>
       <td class="${adj ? 'cell-muted' : ''}">${money(p.gp3, s.currency)}</td>
       ${adj ? '<td class="' + (p.igp3 < 0 ? 'cell-neg' : '') + '">' + money(p.igp3, s.currency) + '</td>' : ''}
+      ${cadj ? '<td class="' + (p.cgp3 < 0 ? 'cell-neg' : '') + '">' + money(p.cgp3, s.currency) + '</td>' : ''}
       <td class="mono ${g ? (g.mRoas >= 1 ? 'cell-pos' : 'cell-neg') : ''}"${
-        g && adj ? ' title="observed ' + g.mRoasObserved.toFixed(3) + '"' : ''}>${g ? g.mRoas.toFixed(3) : '—'}</td>
+        g && (adj || cadj) ? ' title="' + (adj ? 'observed ' + g.mRoasObserved.toFixed(3) : '') +
+          (adj && cadj ? ' · ' : '') + (cadj ? 'calibrated ' + g.mRoasCal.toFixed(3) : '') + '"' : ''}>${g ? g.mRoas.toFixed(3) : '—'}</td>
       <td>${num(p.conversions,1)}</td><td>${num(p.clicks)}</td><td>${num(p.impressions)}</td>
       <td>${p.roasActual.toFixed(2)}×</td></tr>`;
   });
@@ -2751,6 +3797,211 @@ function renderHistory(){
   });
 }
 
+/* ============================== RENDER: CALIBRATION & BACKTEST ============================== */
+
+/** Section sub-heading, matching the drill-down's small chart-title / chart-sub pairing. */
+function subHead(title, sub){
+  return `<div class="sub-head"><div class="chart-title">${title}</div>
+    <div class="chart-sub">${sub}</div></div>`;
+}
+/** A POAS/ROAS ratio, always as "1,30×" so it can never be mistaken for money. */
+function ratio(v, d){ return v == null || !isFinite(v) ? '—' :
+  v.toLocaleString('sv-SE', { minimumFractionDigits: d == null ? 2 : d, maximumFractionDigits: d == null ? 2 : d }) + '×'; }
+
+/** Per-account conversion-lag ratios, one row per window. */
+function lagTableHtml(){
+  const idx = state.lagIndex;
+  if (!idx || !idx.count) return '';
+  const accts = Object.keys(idx.accounts).sort();
+  let html = subHead('Conversion lag by account',
+    'conversion-time value ÷ click-time value, per window. The simulator is a click-time 7-day window, so <b>7d</b> is the factor applied; ' +
+    '<b>mature</b> (D−90…D−31) is a control that should read ≈1.00.') +
+    `<div class="tscroll"><table><thead><tr><th>Account</th><th>Window</th><th>Span</th><th>Campaigns</th>
+      <th>Cost</th><th>Conv. value (click time)</th><th>Conv. value (conv. time)</th><th>Ratio</th></tr></thead><tbody>`;
+  accts.forEach(a => {
+    LAG_WINDOWS.forEach(w => {
+      const g = idx.accounts[a][w];
+      if (!g) return;
+      const r = g.convValue > 0 ? g.convValueConvTime / g.convValue : null;
+      const applied = w === '7d';
+      const off = w === 'mature' && r != null && Math.abs(r - 1) > LAG_MATURE_TOLERANCE;
+      html += `<tr${applied ? ' class="row-sel"' : ''}>
+        <td>${esc(a)}</td>
+        <td>${esc(w)}${applied ? ' <span class="pill pill-cal" title="this is the window the lag factor is read off">applied</span>' : ''}${
+          off ? ' <span class="pill pill-warn" title="a mature window should have converged on 1.00 — this one has not, so attribution is moving">non-stationary</span>' : ''}</td>
+        <td class="cell-muted mono">${esc(g.windowStart || '—')} → ${esc(g.windowEnd || '—')}</td>
+        <td>${g.campaigns}</td>
+        <td>${g.mixedCurrency
+          ? '<span class="cell-muted" title="this account\'s lag rows carry more than one currency, so the total is not summable">mixed</span>'
+          : num(g.cost, 0) + ' ' + esc(g.currency)}</td>
+        <td>${num(g.convValue, 0)}</td><td>${num(g.convValueConvTime, 0)}</td>
+        <td class="mono ${r != null && r > 1.001 ? 'cell-pos' : ''}"><b>${r == null ? '—' : r.toFixed(3)}</b></td></tr>`;
+    });
+  });
+  return html + '</tbody></table></div>';
+}
+
+/** Per-campaign calibration factors with every input that produced them on show. */
+function calTableHtml(){
+  const ss = state.strategies;
+  if (!ss.length) return '';
+  let html = subHead('Value calibration by campaign',
+    '<span class="mono">cal = POAS(warehouse) ÷ ROAS(Ads)</span> over a matched window. Both sides are ratios, so the factor is unitless and ' +
+    'SEK-normalised warehouse figures compare safely with an account reporting in another currency.') +
+    `<div class="tscroll"><table><thead><tr><th>Campaign</th><th>Class</th><th>Source</th><th>Window</th>
+      <th title="warehouse ad cost in the window, SEK-normalised">BQ cost (SEK-n.)</th>
+      <th title="Σ kv_gp2 ÷ Σ cost from BigQuery">POAS (BQ)</th>
+      <th title="conversion value ÷ cost from Google Ads over the same days">ROAS (Ads)</th>
+      <th>cal raw</th><th>cal applied</th><th>lag</th><th title="incrementality × cal × lag">Combined</th></tr></thead><tbody>`;
+  ss.forEach(s => {
+    const c = s.calibration;
+    const srcPill = c.source === 'none' ? 'pill-neutral' : c.source === 'class-median' ? 'pill-warn' : 'pill-cal';
+    html += `<tr>
+      <td><div class="strat-cell"><span class="nm">${esc(s.name)}</span>${c.reason
+        ? `<span class="mt">${esc(c.reason)}</span>` : ''}</div></td>
+      <td class="cell-muted">${esc(CLASS_LABEL[s.incClass])}</td>
+      <td><span class="pill ${srcPill}">${esc(calSourceLabel(s))}</span></td>
+      <td class="cell-muted mono">${c.windowStart ? esc(c.windowStart) + ' → ' + esc(c.windowEnd) : '—'}</td>
+      <td class="cell-muted">${c.bqCost == null ? '—' : num(c.bqCost, 0)}</td>
+      <td class="mono">${ratio(c.poasBq)}</td>
+      <td class="mono">${ratio(c.roasAds)}</td>
+      <td class="mono cell-muted">${c.raw == null ? '—' : c.raw.toFixed(3)}${c.clamped
+        ? ' <span class="pill pill-warn" title="outside the [0.20 – 1.50] band the ladder trusts">clamped</span>' : ''}</td>
+      <td class="mono"><b>${s.calFactor.toFixed(3)}</b></td>
+      <td class="mono" title="${esc(lagSourceLabel(s))}">${s.lagFactor.toFixed(3)}${s.lag.nonStationary
+        ? ' <span class="pill pill-warn" title="the mature control window has not converged on 1.00">drift</span>' : ''}</td>
+      <td class="mono"><b>${(s.incFactor * s.calLagFactor).toFixed(3)}</b></td></tr>`;
+  });
+  return html + '</tbody></table></div>';
+}
+
+/** The scoreboard: what each past snapshot predicted against what actually happened. */
+function backtestTableHtml(){
+  const bt = state.backtest;
+  if (!bt || !bt.records.length) return '';
+  const W = BACKTEST_WINDOWS;
+  const sum = bt.summary;
+  let html = subHead('Backtest · realized vs predicted POAS',
+    'For every past run date: the POAS the model predicted at the target that was actually live, against what the campaign really ' +
+    'delivered over the following 7 / 14 / 30 days. A window is scored only when it lies entirely inside the warehouse coverage ' +
+    `(${esc(bt.coverage.start)} → ${esc(bt.coverage.end)}).`) +
+    `<div class="tscroll"><table><thead><tr><th>Run date</th><th>Campaign</th><th>Current target</th>
+      <th title="the iGP3 maximum on that snapshot — the reference recommendation">Rec. then</th>
+      <th title="the cGP3 maximum on that snapshot">Cal. rec. then</th>
+      <th title="roasActual interpolated at the then-current target">Pred. POAS (raw)</th>
+      <th title="predicted raw × this campaign's calibration factor">Pred. POAS (×cal)</th>
+      ${W.map(w => `<th>Real. +${w}d</th>`).join('')}
+      <th title="realized ÷ predicted (×cal) over the longest covered window — 1.00 means the calibrated model was right">Ratio</th></tr></thead><tbody>`;
+  bt.records.slice().sort((a,b) => a.runDate === b.runDate ? a.name.localeCompare(b.name) : (a.runDate < b.runDate ? 1 : -1))
+    .forEach(r => {
+      const rat = r.primary ? r.ratioCal[r.primary] : null;
+      html += `<tr>
+        <td>${esc(r.runDate)}</td>
+        <td><div class="strat-cell"><span class="nm">${esc(r.name)}</span>
+          <span class="mt">${esc(CLASS_LABEL[r.cls])} · cal ${xLabel(r.cal)} (${esc(CAL_SOURCE_LABEL[r.calSource] || r.calSource)})</span></div></td>
+        <td>${fmtPct(r.currentTarget)}${r.currentInRange ? ''
+          : ' <span class="pill pill-warn" title="the live target sat outside the simulated grid on that run, so the predicted POAS is read off a clamped endpoint">out of range</span>'}</td>
+        <td>${fmtPct(r.recommendedThen)}</td>
+        <td style="color:var(--cal)">${fmtPct(r.calRecommendedThen)}</td>
+        <td class="mono cell-muted">${ratio(r.predictedRaw)}</td>
+        <td class="mono">${ratio(r.predictedCal)}</td>
+        ${W.map(w => `<td class="mono">${r.covered[w] ? ratio(r.realized[w]) : '<span class="cell-muted">—</span>'}</td>`).join('')}
+        <td class="mono ${rat == null ? '' : Math.abs(rat - 1) <= 0.15 ? 'cell-pos' : 'cell-neg'}"><b>${
+          rat == null ? '—' : rat.toFixed(2)}</b>${r.primary ? ` <span class="assumption">+${r.primary}d</span>` : ''}</td></tr>`;
+    });
+  html += '</tbody></table></div>';
+
+  // per-class median summary
+  const pw = sum.primaryWindow;
+  html += subHead('Backtest summary · median realized ÷ predicted',
+    'Medians over the ' + (pw ? '+' + pw + '-day' : 'available') + ' window. <b>Implied calibration</b> is what the data says the factor ' +
+    'should have been; <b>calibration gap</b> is how far the factor we actually used was off. Both are read-outs — neither is ever fed back ' +
+    'into a recommendation, because they are measured on the very windows those recommendations were made for.') +
+    `<div class="tscroll"><table><thead><tr><th>Segment</th><th>Records</th>
+      <th>Median realized POAS</th><th>Median predicted (×cal)</th>
+      <th title="median realized ÷ predicted RAW — the calibration the data implies">Implied calibration</th>
+      <th title="median realized ÷ predicted ×cal — 1.00 means the calibration we used was right">Calibration gap</th>
+      <th>Median cal used</th></tr></thead><tbody>`;
+  const rowFor = (label, st, cls) => st ? `<tr class="${cls || ''}"><td>${label}</td><td>${st.n}</td>
+    <td class="mono">${ratio(st.medianRealized)}</td><td class="mono">${ratio(st.medianPredictedCal)}</td>
+    <td class="mono"><b>${st.medianRatioRaw == null ? '—' : st.medianRatioRaw.toFixed(3)}</b></td>
+    <td class="mono ${st.medianRatioCal == null ? '' : Math.abs(st.medianRatioCal - 1) <= 0.15 ? 'cell-pos' : 'cell-neg'}">
+      <b>${st.medianRatioCal == null ? '—' : st.medianRatioCal.toFixed(3)}</b></td>
+    <td class="mono cell-muted">${st.medianCal == null ? '—' : xLabel(st.medianCal)}</td></tr>` : '';
+  if (pw){
+    const bw = sum.byWindow[pw];
+    INCREMENTALITY_CLASSES.forEach(c => { html += rowFor(CLASS_LABEL[c], bw.byClass[c]); });
+    html += rowFor('All campaigns', bw, 'total-row');
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function renderCalibration(){
+  const intro = document.getElementById('cal-intro');
+  const tables = document.getElementById('cal-tables');
+  const badge = document.getElementById('cal-badge');
+  const sub = document.getElementById('cal-sub');
+
+  /* Graceful degradation, and the whole of demo mode: without either source there is nothing
+     honest to show, so the section says so in one line rather than inventing a table. */
+  if (!anyCalData()){
+    badge.textContent = 'unavailable';
+    sub.textContent = 'no conversion-lag tab and no warehouse actuals';
+    tables.innerHTML = '';
+    intro.innerHTML = `<div class="note plain">Calibration and backtesting need the endpoint's
+      <span class="mono">Lag</span> tab and the warehouse snapshot from <span class="mono">${esc(ACTUALS_ENDPOINT)}</span>.
+      ${state.source === 'demo'
+        ? 'This page is running on synthetic demo data, which deliberately carries neither — no lag or actuals figures are invented here.'
+        : state.actualsError
+          ? 'The actuals request failed (' + esc(state.actualsError) + '), and no lag data is present in the payload.'
+          : 'Neither is present yet.'}
+      Every campaign therefore runs at <span class="mono">cal ×1.00</span> and <span class="mono">lag ×1.00</span>, which is exactly the
+      behaviour that predates this section.</div>`;
+    return;
+  }
+
+  const bt = state.backtest;
+  const sum = bt && bt.summary;
+  badge.textContent = [
+    anyLagData() ? 'lag ' + state.lagIndex.count + ' rows' : 'no lag',
+    state.actuals ? state.actuals.count + ' campaigns · to ' + state.actuals.end : 'no actuals'
+  ].join(' · ');
+  sub.textContent = 'conversion lag · Ads value vs warehouse GP2 · realized vs predicted POAS';
+
+  const notes = [];
+  if (state.actuals){
+    const age = daysBetween(state.actuals.end, todayIso());
+    notes.push({ html: `<b>Warehouse actuals</b> cover <span class="mono">${esc(state.actuals.start)} → ${esc(state.actuals.end)}</span>
+      across ${state.actuals.count} campaigns (${num(state.actuals.days, 0)} campaign-days), last complete day
+      ${age <= 0 ? 'today' : age + ' day' + (age === 1 ? '' : 's') + ' ago'}.` });
+  } else {
+    notes.push({ html: `<b>No warehouse actuals</b>${state.actualsError ? ' (' + esc(state.actualsError) + ')' : ''} — calibration falls to the
+      class-median rung at best, and the backtest cannot run at all.` });
+  }
+  if (!anyLagData()) notes.push({ html: `<b>No <span class="mono">Lag</span> tab</b> in the payload: conversion lag is ×1.00 for every campaign
+    and calibration uses the weaker 7-day simulation window instead of the 30-day Ads window.` });
+  if (sum && sum.n){
+    const medCal = medianOf(state.strategies.map(s => s.calFactor));
+    notes.push({ cls: 'accent', html: `<b>The scoreboard, in one line:</b> over ${sum.n} scored (run date × campaign)
+      pair${sum.n === 1 ? '' : 's'} across ${sum.runDates} run date${sum.runDates === 1 ? '' : 's'}, the median realized POAS was
+      <b>${sum.suggestedCorrection == null ? '—' : sum.suggestedCorrection.toFixed(3) + '×'}</b> of what the raw simulation predicted, against
+      the <b>${medCal == null ? '—' : xLabel(medCal)}</b> the calibration ladder resolved${sum.calibrationGap == null ? ''
+        : `, leaving a calibration gap of <b>${sum.calibrationGap.toFixed(3)}</b> (1.000 would mean the factor was exactly right)`}.
+      <b>This is a read-out, not a correction</b> — it is measured on the very windows those recommendations were made for, so applying it
+      would be fitting the model to its own scoreboard.` });
+    notes.push({ html: `<span class="assumption">Each historical snapshot is rebuilt with <b>today's</b> incrementality, calibration and lag
+      factors, because those are the only ones we have. A factor that has changed since therefore rewrites what the model "would have said"
+      on that date.</span>` });
+  } else if (state.actuals){
+    notes.push({ html: `<b>Nothing to score yet.</b> A run date can only be backtested once a full +7-day window sits inside the warehouse
+      coverage${bt && bt.unmatched ? ', and ' + bt.unmatched + ' (run date × strategy) pair(s) carry a name no warehouse campaign matches — ' +
+      'portfolio bidding strategies name the strategy, not a campaign' : ''}.` });
+  }
+  intro.innerHTML = notes.map(n => `<div class="note${n.cls ? ' ' + n.cls : ''}">${n.html}</div>`).join('');
+  tables.innerHTML = lagTableHtml() + calTableHtml() + backtestTableHtml();
+}
+
 /* ============================== RENDER: TRUST PANEL ============================== */
 
 function renderTrustFlags(){
@@ -2816,6 +4067,56 @@ function renderTrustFlags(){
     }
   }
 
+  /* --- calibration, conversion lag and the backtest --------------------------------- */
+
+  /* Demo data deliberately carries neither source, and saying so once (above) is enough —
+     repeating it as three failures would be noise. */
+  if (state.source !== 'demo'){
+    if (!anyLagData())
+      items.push({ t:'No conversion-lag data',
+        d:'The endpoint served no Lag tab, so every campaign runs at lag ×1.00 — the simulated curve is taken at click time and the ' +
+          'conversions those clicks have not produced yet are simply missing from it. Turn on the Lag collection in the Ads script ' +
+          '(it writes one row per campaign × window) and the factor becomes measured instead of assumed away.' });
+    if (state.actualsError)
+      items.push({ t:'Campaign actuals could not be loaded',
+        d:'GET ' + ACTUALS_ENDPOINT + ' failed: ' + state.actualsError + '. Without the warehouse snapshot the calibration factor ' +
+          'cannot be measured for any campaign and the backtest cannot run. Everything else on the page is unaffected — the original ' +
+          'recommendations never depended on it.' });
+  }
+  if (state.actuals){
+    const aAge = daysBetween(state.actuals.end, todayIso());
+    if (aAge > 3)
+      items.push({ t:'Campaign actuals are ' + aAge + ' days old',
+        d:'The warehouse snapshot ends ' + state.actuals.end + '. Calibration windows and backtest scoring both stop there, so the ' +
+          'most recent run dates cannot be scored and the calibration factor describes a period that has since moved on.' });
+  }
+
+  const nonStat = state.strategies.filter(s => s.lag.nonStationary);
+  if (nonStat.length)
+    items.push({ t:'Conversion lag looks non-stationary',
+      d: nonStat.length + ' campaign(s) — ' + nonStat.slice(0,4).map(s => s.name).join(', ') +
+        (nonStat.length > 4 ? ' and others' : '') + ' — have a mature control window (D−90…D−31) whose conversion-time ratio sits more ' +
+        'than 0.10 away from 1.0. That window is old enough that both series should have converged, so attribution itself is moving and ' +
+        'the 7-day lag ratio is measuring that drift as well as genuine lag.' });
+
+  const calFallback = state.strategies.filter(s => s.calibration.source !== 'lag30');
+  if (anyCalData() && calFallback.length){
+    const byRung = {};
+    calFallback.forEach(s => { (byRung[s.calibration.source] = byRung[s.calibration.source] || []).push(s.name); });
+    items.push({ t: calFallback.length + ' of ' + state.strategies.length + ' campaigns use a calibration fallback rung',
+      d: Object.keys(byRung).map(k => byRung[k].length + ' on "' + (CAL_SOURCE_LABEL[k] || k) + '" (' +
+           byRung[k].slice(0,3).join(', ') + (byRung[k].length > 3 ? ', …' : '') + ')').join('; ') +
+        '. The strongest rung matches the 30-day Ads window against the same 30 days of warehouse data; everything below it is either ' +
+        'noisier (a 7-day window), borrowed from other campaigns in the class, or absent altogether (×1.00). A campaign with no ' +
+        'warehouse row at all is usually a portfolio bidding strategy — those name the strategy, not a campaign, so they cannot join.' });
+  }
+
+  if (state.backtest && state.backtest.partial)
+    items.push({ t: state.backtest.partial + ' backtest record(s) are only partially covered',
+      d:'Their +14 or +30-day window runs past the end of the warehouse snapshot (' + state.backtest.coverage.end + '), so only the ' +
+        'shorter windows were scored for them. A partly-covered window is dropped rather than summed, because a half-length window ' +
+        'would read as under-performance rather than as missing data.' });
+
   const windows = [...new Set(state.strategies.map(s => s.startDate + ' → ' + s.endDate))];
   if (windows.length > 1)
     items.push({ t:'Campaigns were simulated over different windows',
@@ -2872,6 +4173,7 @@ document.getElementById('budget-optimal').addEventListener('click', () => {
   renderPortfolio();
 });
 document.getElementById('refreshBtn').addEventListener('click', () => {
+  loadActuals();      // independent of the Apps Script endpoint, so it refreshes either way
   if (!DATA_ENDPOINT){ toast('No DATA_ENDPOINT configured — this page is running on synthetic demo data.'); return; }
   loadData(true);
 });
@@ -2887,6 +4189,9 @@ document.getElementById('keygate-submit').addEventListener('click', submitKey);
 document.getElementById('keygate-input').addEventListener('keydown', e => { if (e.key === 'Enter') submitKey(); });
 
 loadData(false);
+/* Deliberately not awaited: the page paints from the simulation payload alone and picks up
+   calibration + the backtest whenever (or if) the warehouse snapshot lands. */
+loadActuals();
 </script>
 </body>
 </html>
