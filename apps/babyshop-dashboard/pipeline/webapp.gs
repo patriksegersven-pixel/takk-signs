@@ -27,6 +27,17 @@
  *   are ASSUMPTIONS until a geo holdout or conversion-lift test measures them, which is
  *   exactly why they live in a spreadsheet cell and not in code.
  *
+ * ACTUAL PERFORMANCE -> REAL ROAS / POAS, TWO WAYS
+ *   Bid simulations are a projection. The "Actuals" tab (also written by the Ads script)
+ *   carries what each simulated entity ACTUALLY did over that entity's own simulation
+ *   window, and this endpoint serves it as `payload.actuals`. Because conversion value in
+ *   these accounts is GP2, actual ROAS is actual POAS:
+ *     ROAS (conv. time)  = Conv Time Conversions Value / Cost   <- Google Ads' "by conv. time"
+ *     ROAS (click time)  = Conversions Value / Cost             <- Google Ads' default columns
+ *   Cost is identical under both schemes, which is why the tab carries it once. Rows join
+ *   to Raw rows on (Customer Name, Bidding Strategy Id, Run Date). A missing tab serves
+ *   `actuals: null` and the dashboard simply hides those columns.
+ *
  * IMPRESSION SHARE -> DYNAMIC INCREMENTALITY
  *   The flat class factors above are a prior, not a measurement, and they are the same
  *   number for a brand campaign holding 99% absolute-top impression share as for one
@@ -68,8 +79,9 @@
  * QUERY PARAMETERS
  *   token    required, must equal SCRIPT_TOKEN
  *   runs     optional, keep only the N most recent Run Dates (e.g. runs=4). Applies to the
- *            Shares tab too; without it, `shares` carries the latest run date only.
- *   account  optional, exact Customer Name filter (applies to both tabs)
+ *            Shares and Actuals tabs too; without it, `shares` carries the latest run date
+ *            only, while `actuals` carries every run present (it is joined per run date).
+ *   account  optional, exact Customer Name filter (applies to all three tabs)
  *
  * SECURITY
  *   The token is a deterrent, not authentication: it travels in a URL that
@@ -91,6 +103,13 @@ var RAW_SHEET = 'Raw';
  * carries `shares: null` and the dashboard falls back to flat class factors.
  */
 var SHARES_SHEET = 'Shares';
+
+/**
+ * Tab holding the appended per-entity actual-performance snapshots. Optional in exactly the
+ * same way as Shares: if the Ads script has not written it yet (or runs with COLLECT_ACTUALS
+ * off), the payload carries `actuals: null` and the dashboard hides its actual-ROAS columns.
+ */
+var ACTUALS_SHEET = 'Actuals';
 
 /**
  * Tab holding both config blocks, side by side as two independent column pairs:
@@ -185,7 +204,8 @@ function doGet(e) {
       rowCount: raw.rows.length,
       runDates: raw.runDates,
       truncated: raw.truncated,
-      shares: readShares(ss, params)     // null when the tab does not exist yet
+      shares: readShares(ss, params),    // null when the tab does not exist yet
+      actuals: readActuals(ss, params)   // null when the tab does not exist yet
     });
   } catch (err) {
     return json({ error: String(err && err.message ? err.message : err) });
@@ -355,6 +375,78 @@ function readShares(ss, params) {
 }
 
 /**
+ * Read the Actuals tab as { columns, rows, runDates } — the same compact shape as the Raw and
+ * Shares tabs, so the dashboard maps all three by header name.
+ *
+ * Returns null when the tab is missing or holds no data rows. That is a NORMAL state (the Ads
+ * script may predate the Actuals tab, or run with COLLECT_ACTUALS off) and the dashboard
+ * responds by hiding its actual-ROAS columns entirely — it is never an error.
+ *
+ * Unlike Shares, EVERY requested run date is served, not just the latest. An actuals row is
+ * joined to the simulation snapshot of its own run date, so serving only the newest would
+ * blank the columns on every historical run the dashboard can display. `runs=N` therefore
+ * narrows it exactly the way it narrows the Raw tab, and the `account` filter applies here too.
+ *
+ * Blank metric cells survive as blanks: on this tab a real 0 is a measurement (spend that
+ * returned nothing) and must stay distinguishable from "the API did not report this", which is
+ * why toNumberOrBlank() is used instead of toNumber().
+ */
+function readActuals(ss, params) {
+  var sheet = ss.getSheetByName(ACTUALS_SHEET);
+  if (!sheet) return null;
+
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return null;
+
+  var values = sheet.getRange(1, 1, lastRow, lastCol).getDisplayValues();
+  var columns = values[0].map(function (h) { return String(h).trim(); });
+  var body = values.slice(1).filter(function (r) { return r.join('').trim().length > 0; });
+
+  var acctIdx = indexOfHeader(columns, 'Customer Name');
+  if (params.account && acctIdx >= 0) {
+    var wanted = String(params.account).trim();
+    body = body.filter(function (r) { return String(r[acctIdx]).trim() === wanted; });
+  }
+
+  var runIdx = indexOfHeader(columns, 'Run Date');
+  var runDates = [];
+  if (runIdx >= 0) {
+    body.forEach(function (r) { r[runIdx] = normaliseDate(r[runIdx]); });
+    var seen = {};
+    body.forEach(function (r) {
+      if (r[runIdx] && !seen[r[runIdx]]) { seen[r[runIdx]] = true; runDates.push(r[runIdx]); }
+    });
+    runDates.sort();
+
+    var limit = parseInt(params.runs, 10);
+    if (limit > 0 && runDates.length > limit) {
+      var keep = {};
+      runDates.slice(-limit).forEach(function (d) { keep[d] = true; });
+      body = body.filter(function (r) { return keep[r[runIdx]]; });
+      runDates = runDates.slice(-limit);
+    }
+  }
+
+  ['Start Date', 'End Date'].forEach(function (h) {
+    var i = indexOfHeader(columns, h);
+    if (i >= 0) body.forEach(function (r) { r[i] = normaliseDate(r[i]); });
+  });
+
+  var numericIdx = ['Cost Micros', 'Conversions', 'Conversions Value',
+    'Conv Time Conversions', 'Conv Time Conversions Value']
+    .map(function (h) { return indexOfHeader(columns, h); })
+    .filter(function (i) { return i >= 0; });
+  body.forEach(function (r) {
+    numericIdx.forEach(function (i) { r[i] = toNumberOrBlank(r[i]); });
+  });
+
+  if (!body.length) return null;
+  if (body.length > MAX_ROWS) body = body.slice(-MAX_ROWS);
+  return { columns: columns, rows: body, runDates: runDates };
+}
+
+/**
  * Read the Config tab into
  *   {
  *     valueToGp2Multipliers: { account: number },
@@ -464,6 +556,20 @@ function toNumber(v) {
   var n = parseFloat(s);
   if (!isFinite(n)) return 0;
   return isPercent ? n / 100 : n;
+}
+
+/**
+ * Same parsing as toNumber(), but an empty cell stays EMPTY instead of collapsing to 0.
+ * Used for the Actuals tab, where 0 is a real measurement (spend that returned nothing) and
+ * blank means the metric was never reported — the dashboard shows a dash for one and a
+ * genuine 0.00x for the other.
+ */
+function toNumberOrBlank(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : '';
+  var s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  var n = toNumber(s);
+  return isFinite(n) ? n : '';
 }
 
 /**
@@ -708,4 +814,8 @@ function testPayload() {
     ? parsed.shares.rows.length + ' row(s) for ' + JSON.stringify(parsed.shares.runDates)
     : 'none — brand and private label fall back to flat class factors'));
   if (parsed.shares) Logger.log('first share:' + JSON.stringify(parsed.shares.rows[0]));
+  Logger.log('actuals:    ' + (parsed.actuals
+    ? parsed.actuals.rows.length + ' row(s) for ' + JSON.stringify(parsed.actuals.runDates)
+    : 'none — the dashboard hides its actual-ROAS columns'));
+  if (parsed.actuals) Logger.log('first actual:' + JSON.stringify(parsed.actuals.rows[0]));
 }

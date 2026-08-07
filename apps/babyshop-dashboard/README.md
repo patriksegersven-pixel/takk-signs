@@ -25,7 +25,8 @@ Simulations page was originally developed is archived and read-only.)
 - `requirements.txt`, `Dockerfile` — runtime (uvicorn on `python:3.12-slim`)
 - `pipeline/` — the Google Ads GP3 data pipeline (dockerignored, not deployed):
   - `gp3-simulations.js` — MCC script: Target ROAS bid simulations + impression
-    shares → Google Sheet ("Raw" and "Shares" tabs, append-only snapshots)
+    shares + measured actuals (click time and conversion time) → Google Sheet
+    ("Raw", "Shares" and "Actuals" tabs, append-only snapshots)
   - `webapp.gs` — Apps Script web app serving that sheet as the JSON endpoint
     consumed by the ROAS Simulations page (token-gated)
   - `PIPELINE.md` — full pipeline documentation and setup

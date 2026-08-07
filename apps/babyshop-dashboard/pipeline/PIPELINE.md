@@ -224,30 +224,177 @@ This is **orthogonal to `valueToGp2Multiplier`** above and applies strictly afte
 multiplier answers *"is this number GP2?"*, incrementality answers *"how much of this GP2 did
 the ad cause?"*. Cost is never scaled by either.
 
+## Actual performance: real ROAS (= POAS), two attribution schemes
+
+Everything above is a **projection**. Google's bid simulator answers a counterfactual — *what
+would the last 7 days have looked like at a different target* — and it does not reconcile with
+reported ROAS. So the collector also writes what each simulated entity **actually did over the
+same window** into an `Actuals` tab, and the dashboard shows it next to the curve.
+
+Because conversion value in these accounts is gross profit, **actual ROAS is actual POAS**:
+
+```
+ROAS (conv. time)  = Conv Time Conversions Value / Cost
+ROAS (click time)  = Conversions Value          / Cost
+```
+
+Cost is identical under both schemes, which is why the tab carries it once and both figures
+divide by the same denominator.
+
+| Scheme | Google Ads metric | A conversion is counted on… | Why you'd read it |
+|---|---|---|---|
+| **conversion time** (primary) | `metrics.conversions_value_by_conversion_date`, `metrics.conversions_by_conversion_date` | the date the **conversion happened** | Google Ads' "by conv. time" columns — **the default view in this account**, and how the week's banked profit is actually reported |
+| **click time** | `metrics.conversions_value`, `metrics.conversions` | the date of the **click** that led to it | the scheme the bid simulator and Target ROAS bidding themselves run on, so it is the one directly comparable with the simulated points |
+
+Neither is more correct. Click time answers *"what did this spend eventually return"*;
+conversion time answers *"what was banked in this window"*. **Both lag** — conversions keep
+arriving for days after the window closes and are back-dated under either scheme, so a fresh
+snapshot's actuals are still filling in. The dashboard flags any campaign where the two differ
+by more than 15%, which is the usual signature of a long conversion lag or an unsettled window.
+
+### The window is the simulation's own window
+
+An Actuals row is measured over **the same `Start Date` / `End Date` as the simulation it joins
+to**, not over a fixed last-7-days range, so actual and simulated ROAS describe the same week.
+Google refreshes simulation windows per entity, so the collector issues **one GAQL query per
+distinct window per account** (normally exactly one). An entity whose simulation carried no
+window falls back to `LAST_7_DAYS`, and the dashboard flags the mismatch.
+
+### GAQL
+
+One query per (level, window). `<level>` is `campaign` for campaign-level rows and
+`bidding_strategy` for portfolio-level rows (only collected when `INCLUDE_PORTFOLIO` is on):
+
+```sql
+SELECT
+  <level>.id,
+  <level>.name,
+  metrics.cost_micros,
+  metrics.conversions,
+  metrics.conversions_value,
+  metrics.conversions_by_conversion_date,
+  metrics.conversions_value_by_conversion_date
+FROM <level>
+WHERE segments.date BETWEEN '<start>' AND '<end>'
+```
+
+`segments.date` is **filtered but not selected**, so the API aggregates the whole window into
+one row per entity. Every entity in the account comes back; rows whose id was not simulated are
+dropped client-side (a GAQL id list long enough for a large account is worse than a filter), as
+are rows with **no spend in the window** — ROAS is undefined there and a blank row would only
+add noise to the join. `Start Date` / `End Date` are validated against `^\d{4}-\d{2}-\d{2}$`
+before being interpolated into the query string.
+
+Each level is collected inside its **own** try/catch, and the whole Actuals collection inside
+another: `bidding_strategy` and `campaign` are different resources with different metric
+support, and neither failing may cost the simulations, the impression shares, or each other.
+
+If a query fails, the collector **retries it once without the two conversion-time metrics** —
+those are the ones a resource may not serve — so click-time actuals still arrive. The
+conversion-time cells then stay blank, the dashboard shows a dash in the primary column and the
+real figure in the secondary one, and the trust panel says why. Degrade, never vanish.
+
+### `Actuals` tab schema
+
+| Column | Notes |
+|---|---|
+| `Customer Name` | join key |
+| `Bidding Strategy Id` | join key — campaign id at campaign level, bidding strategy id at portfolio level; the **same id the `Raw` tab carries** |
+| `Bidding Strategy Name` | for the name-based join fallback |
+| `Level` | `campaign` or `portfolio` |
+| `Start Date`, `End Date` | the simulation window this was measured over |
+| `Cost Micros` | account currency, micros — same unit as the `Raw` tab |
+| `Conversions`, `Conversions Value` | **click time** |
+| `Conv Time Conversions`, `Conv Time Conversions Value` | **conversion time** |
+| `Currency` | account currency |
+| `Run Date` | join key |
+
+**Join key: `(Customer Name, Bidding Strategy Id, Run Date)`**, falling back to
+`(Customer Name, Bidding Strategy Name, Run Date)`. The run date is part of the key on purpose:
+the `Raw` tab holds up to 90 days of snapshots and the history view rebuilds each one, so an
+actuals row is only ever attached to the run it was measured for. (This is the opposite of
+`Shares`, where only the latest run is served and applied — auction position is a statement
+about *now*, while a measurement belongs to *its own* week.)
+
+Same four guarantees as the other tabs: **append only, write only, idempotent per day,
+self-pruning** at `LOOKBACK_PRUNE_DAYS`.
+
+**Blank is never 0 here either, but for the opposite reason.** On `Shares`, 0 and blank both
+mean "no data". On `Actuals` a **real 0 is a measurement** — spend that returned nothing — and
+must stay distinguishable from "the API did not report this". Blank renders as a dash, 0
+renders as `0.00×`.
+
+### What the dashboard does with it
+
+The endpoint serves it as `payload.actuals`, in the same compact shape as `Raw` and `Shares`:
+
+```js
+payload.actuals = {
+  columns:  ['Customer Name','Bidding Strategy Id','Bidding Strategy Name','Level','Start Date',
+             'End Date','Cost Micros','Conversions','Conversions Value','Conv Time Conversions',
+             'Conv Time Conversions Value','Currency','Run Date'],
+  rows:     [ ['Babyshop SE','21700388337','p-shopping-se-brand','campaign','2026-07-27',
+               '2026-08-02',412000000,96.4,1284000,99.1,1297000,'SEK','2026-08-05'], ... ],
+  runDates: ['2026-07-22','2026-07-29','2026-08-05']
+}
+```
+
+Unlike `shares`, **every requested run date is served** (`runs=N` narrows it exactly the way it
+narrows `Raw`), because each row is joined to the snapshot of its own run.
+
+Where the two numbers appear:
+
+- **Campaign summary** — two columns, `Actual ROAS (conv. time)` and `Actual ROAS (click time)`,
+  sitting with the other ROAS-scale figures (current target, recommendation, breakeven) so the
+  target you set and the ROAS you got can be read across in one line. Conversion time leads and
+  is unmuted; click time is the secondary read. Class subtotals and the grand total carry both,
+  **cost-weighted** (total value ÷ total cost, never a mean of ratios).
+- **Campaign drill-down** — both in the key-value strip, and **two measured rows at the foot of
+  the simulated-point table**, one per scheme, carrying measured cost / GP2 / GP3 / iGP3 in the
+  same units as the simulated rows above them.
+- **Snapshot history** — both per run, aggregated across the run's campaigns, so you can see
+  actual POAS move as targets change.
+- **Trust panel** — flags campaigns with no measured row, windows that fell back to
+  `LAST_7_DAYS`, campaigns reporting click time but not conversion time (the retry path above),
+  a >15% gap between the two schemes, and the total absence of the tab.
+
+The per-point column previously labelled `Actual ROAS` in the drill-down table was **never a
+measurement** — it is the value Google projects at that simulated target over the cost it
+projects with it. It is now labelled **`Sim. ROAS`** so the three numbers cannot be confused.
+
+**Missing actuals is a normal state, not an error.** A payload with no `actuals` block (an
+endpoint that predates the tab, `COLLECT_ACTUALS: false`, or a cached snapshot from before this
+feature) renders **exactly** the page that predates the feature: the columns are not emitted at
+all, no dashes and no empty cells. A campaign with no row inside a payload that has others shows
+a dash. Neither state changes a single recommendation — actuals are reported alongside the
+economics and never fed into them.
+
 ## Architecture
 
 ```
   Google Ads MCC                Google Sheet                Apps Script              GitHub Pages
- ┌────────────────┐          ┌──────────────────┐        ┌──────────────┐          ┌──────────────┐
- │ gp3-simulations│  append  │ Raw   (snapshots)│  read  │ webapp.gs    │  fetch   │ index.html   │
+ ┌────────────────┐          ┌───────────────────┐       ┌──────────────┐          ┌──────────────┐
+ │ gp3-simulations│  append  │ Raw   (snapshots) │  read │ webapp.gs    │  fetch   │ index.html   │
  │ .js            │─────────▶│ Shares(impr.share)│──────▶│ doGet + token│─────────▶│ dashboard    │
- │ scheduled      │  1×/run  │ Config(optional) │        │ → JSON       │   CORS   │ all math     │
- └────────────────┘          │ 90-day history   │        └──────────────┘          │ client-side  │
-        │                    └──────────────────┘                                  └──────────────┘
-        │ AdsApp.search(campaign_simulation)   TARGET_ROAS point lists                     │
-        │ AdsApp.search(campaign)              last-7-days impression share                │ localStorage
-        ▼                                                                                  ▼
-   one row per simulated target ROAS + one row per campaign's share,            last good snapshot
-   both tagged with the same Run Date
+ │ scheduled      │  1×/run  │ Actuals(measured) │       │ → JSON       │   CORS   │ all math     │
+ └────────────────┘          │ Config(optional)  │       └──────────────┘          │ client-side  │
+        │                    │ 90-day history    │                                 └──────────────┘
+        │                    └───────────────────┘                                         │
+        │ AdsApp.search(campaign_simulation)   TARGET_ROAS point lists                      │
+        │ AdsApp.search(campaign)              last-7-days impression share                 │ localStorage
+        │ AdsApp.search(campaign)              actuals over the simulation window,          ▼
+        ▼                                      click time AND conversion time      last good snapshot
+   one row per simulated target ROAS, one per campaign's share, one per campaign's
+   measured performance — all tagged with the same Run Date
 ```
 
 Each stage is replaceable and none of them holds state the next one needs:
 
 | Stage | File | Responsibility |
 |---|---|---|
-| Collect | `ads-script/gp3-simulations.js` | Query simulations **and** last-7-days impression share in every account, **append** a dated snapshot to two tabs. Never clears, never reads back. Both datasets ride back from each child account in the one string `executeInParallel` allows, split by a group separator; if the ~100 KB cap bites, share rows are dropped first because the simulations are the primary payload. |
-| Store | Google Sheet, `Raw` + `Shares` + `Config` tabs | Append-only history on both data tabs, pruned at 90 days. `Config` maps account → `valueToGp2Multiplier` (normally `1.0`), class/pattern → incrementality factor, and the four reserved keys → share-derived floors and caps. |
-| Serve | `apps-script/webapp.gs` | `doGet` checks a token, normalises dates/numbers/shares, returns JSON. A missing `Shares` tab serves `shares: null` rather than failing. |
+| Collect | `ads-script/gp3-simulations.js` | Query simulations, last-7-days impression share **and** measured performance over each simulation window in every account, **append** a dated snapshot to three tabs. Never clears, never reads back. All three datasets ride back from each child account in the one string `executeInParallel` allows, split by group separators; if the ~100 KB cap bites they are trimmed in value order — actuals first (display only), then shares (they change which factor a recommendation used), then the simulations, which *are* the run. |
+| Store | Google Sheet, `Raw` + `Shares` + `Actuals` + `Config` tabs | Append-only history on all three data tabs, pruned at 90 days. `Config` maps account → `valueToGp2Multiplier` (normally `1.0`), class/pattern → incrementality factor, and the four reserved keys → share-derived floors and caps. |
+| Serve | `apps-script/webapp.gs` | `doGet` checks a token, normalises dates/numbers/shares/metrics, returns JSON. A missing `Shares` or `Actuals` tab serves `null` for that block rather than failing. |
 | Present | `index.html` | Single file. Fetches the JSON, does **all** economics in the browser, caches the last good payload. |
 
 ## What the dashboard shows
@@ -255,7 +402,8 @@ Each stage is replaceable and none of them holds state the next one needs:
 - **Overview** — incremental GP3 today, iGP3 at the optimum, the gap, and an optimization
   score, per currency. Then one row per strategy — **grouped by incrementality class, with
   per-class subtotals** — showing current target, recommended target, interpolated breakeven,
-  cost change, observed GP3 next to incremental GP3, iGP3 uplift, and a status pill.
+  **actual ROAS by conversion time and by click time**, cost change, observed GP3 next to
+  incremental GP3, iGP3 uplift, and a status pill.
 - **Strategy curves** — GP2, GP3 and (where the factor bites) iGP3 against cost with the
   current and recommended points marked, plus marginal incremental ROAS against target with
   the 1.0 breakeven line and the linearly-interpolated crossing. Brand and private-label
@@ -268,10 +416,18 @@ Each stage is replaceable and none of them holds state the next one needs:
   until the budget runs out, so every strategy ends on the same marginal return. A note sizes
   how much budget that moves out of brand + private label versus the unadjusted allocation.
   Includes a sweep of portfolio iGP3 against budget, whose peak is the unconstrained optimum.
-- **History** — one row per snapshot; from the second run onward, a trend of the
-  recommended target and current GP3 for the selected strategy.
+- **History** — one row per snapshot, including **actual ROAS both ways** aggregated across the
+  run's campaigns; from the second run onward, a trend of the recommended target and current
+  GP3 for the selected strategy.
 
-Two numbers deliberately differ and both are shown:
+Three ROAS figures live on the drill-down and they are deliberately distinct:
+
+- **`Sim. ROAS`** — per simulated point: the value Google *projects* at that target over the cost
+  it projects with it. A projection, not a measurement.
+- **`Actual ROAS (conv. time)`** — measured, conversions counted on the date they happened.
+- **`Actual ROAS (click time)`** — measured, conversions counted on the date of the click.
+
+Two targets deliberately differ and both are shown:
 
 - **Recommended target** — the *simulated point* with the highest iGP3. Always achievable,
   always inside the data. (For a generic campaign, factor 1.0, this is the plain GP3 maximum.)
@@ -292,7 +448,12 @@ Two numbers deliberately differ and both are shown:
    - `COLLECT_SHARES` — leave `true` to also collect last-7-days impression share into the
      `Shares` tab, which is what makes brand and private-label incrementality factors
      campaign-specific. Set `false` and everything falls back to flat class factors.
-4. **Authorise → Preview → Run.** It creates the `Raw` and `Shares` tabs and their header rows.
+   - `COLLECT_ACTUALS` — leave `true` to also collect measured performance over each
+     simulation window into the `Actuals` tab, which is what puts real ROAS/POAS (by
+     conversion time and by click time) next to the simulated curves. Set `false` and the
+     dashboard hides those columns entirely.
+4. **Authorise → Preview → Run.** It creates the `Raw`, `Shares` and `Actuals` tabs and their
+   header rows.
 5. Schedule it **Weekly** (matching the 7-day simulation window) or Daily.
 
 Re-running on the same day replaces that day's rows instead of duplicating them, so a
@@ -318,7 +479,8 @@ manual run between scheduled ones is safe.
    only the keyed rows that are missing, so run it again after upgrading this file. The
    endpoint serves these as `config.valueToGp2Multipliers` /
    `config.defaultValueToGp2Multiplier` / `config.incrementality` (including
-   `config.incrementality.shareWeights`), plus `payload.shares` from the `Shares` tab.
+   `config.incrementality.shareWeights`), plus `payload.shares` from the `Shares` tab and
+   `payload.actuals` from the `Actuals` tab.
 4. **Deploy → New deployment → Web app**, *Execute as* **Me**, *Who has access*
    **Anyone with the link**. Copy the `/exec` URL.
 5. Check it: `<exec-url>?token=<token>&runs=1`.
@@ -339,7 +501,11 @@ Leave them empty and the page runs on `DEMO_DATA` — one real Babyshop SE snaps
 simulation points across 9 strategies — and labels itself **Demo data** throughout. That block
 carries two **illustrative** impression-share rows (the SE brand campaign at 0.93 absolute-top,
 `pb-product` at 0.71 search IS) so the dynamic path is exercised in demo mode; unlike the
-simulation rows, those two are made up.
+simulation rows, those two are made up. It also carries an **invented `actuals` block**, one row
+per campaign per run, deliberately bent off the simulated curve (cost ×0.97, click-time value
+×0.94, conversion-time value a further ×1.01) so the actual-vs-simulated gap is visible rather
+than suspiciously exact. `demo-search-pb-bundle` has **no** actuals row on purpose, so the
+missing-measurement path renders too.
 
 ### 4. GitHub Pages
 
@@ -387,11 +553,19 @@ flags anything that weakens the incrementality factors: no `Shares` tab at all, 
 private-label campaigns with no share row, and share data collected on a different run date
 than the simulations being shown.
 
+The `Actuals` tab is the honest check on all of it — but read it knowing that **actual and
+simulated ROAS are not the same measurement.** The simulator projects a counterfactual week at
+one target; the actuals are the one week that really happened, at whatever targets were live
+(and possibly changing) inside it. A gap between them is expected, not a bug. The dashboard
+flags campaigns with no measured row, actuals that fell back to `LAST_7_DAYS` instead of the
+simulation's own window, and a >15% gap between the two attribution schemes — which usually
+means conversion lag, i.e. the window is still filling in.
+
 ## Repository layout
 
 ```
 index.html                     the dashboard (single file, no build step)
-ads-script/gp3-simulations.js  Google Ads MCC collector
+ads-script/gp3-simulations.js  Google Ads MCC collector (Raw + Shares + Actuals)
 apps-script/webapp.gs          Apps Script JSON endpoint
 .gitignore                     keeps data exports out of the repo
 README.md                      this file
