@@ -112,6 +112,17 @@ else
   ACTION=create
   gcloud scheduler jobs describe "$JOB" --project="$PROJECT" \
     --location="$SCHEDULER_REGION" >/dev/null 2>&1 && ACTION=update
+
+  # `gcloud scheduler jobs create http` takes --headers; `... update http` does NOT — it
+  # takes --update-headers (--headers is create-only). Using the wrong one makes the
+  # SECOND run of this script die under `set -e`, which is exactly the token-rotation
+  # path this branch exists for.
+  if [[ "$ACTION" == "create" ]]; then
+    HEADER_FLAG=(--headers="X-Internal-Token=${INTERNAL_TOKEN}")
+  else
+    HEADER_FLAG=(--update-headers="X-Internal-Token=${INTERNAL_TOKEN}")
+  fi
+
   gcloud scheduler jobs "$ACTION" http "$JOB" \
     --project="$PROJECT" \
     --location="$SCHEDULER_REGION" \
@@ -119,7 +130,7 @@ else
     --time-zone="Europe/Stockholm" \
     --uri="$URL" \
     --http-method=POST \
-    --headers="X-Internal-Token=${INTERNAL_TOKEN}" \
+    "${HEADER_FLAG[@]}" \
     --attempt-deadline=900s
   echo "   ${ACTION}d $JOB -> $URL"
 fi
@@ -130,12 +141,15 @@ cat <<'EOF'
    TOKEN=<the INTERNAL_TOKEN on the service>
    URL=$(gcloud run services describe babyshop-dashboard --region=europe-north1 \
          --format='value(status.url)')
+   # POST only — the endpoint spends metered Google Ads quota, so there is no GET route.
    curl -sX POST -H "X-Internal-Token: $TOKEN" "$URL/internal/refresh-roas-sims" | head -c 2000
    #  503 {"status":"not-configured", ...}  -> a credential is still missing; it names which
    #  502 {"status":"error", ...}           -> every account failed; `accounts[]` says why
+   #  409 {"status":"already-running", ...} -> the run lock is held; a retry overlapped
    #  200 {"status":"ok", "counts":{...}}   -> a snapshot was written
 
-   curl -s "$URL/api/roas-sims?runs=1" | head -c 2000
+   # The access key goes in a HEADER, not the query string: Cloud Run logs full URLs.
+   curl -s -H "X-Roas-Sims-Key: $KEY" "$URL/api/roas-sims?runs=1" | head -c 2000
    #  {"status":"no-snapshots", "error":"No ROAS simulation snapshots yet ..."}
    #  {"status":"ok", "rowCount":..., "runDates":[...]}
 

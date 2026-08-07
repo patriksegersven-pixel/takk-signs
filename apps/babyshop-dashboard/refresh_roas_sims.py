@@ -37,14 +37,19 @@ FIRESTORE (dedicated collections — never share one with another feature)
   roas_sim_config/config            USER-EDITABLE config that used to live in the
                                     sheet's Config tab: per-account conversion-value →
                                     GP2 multipliers and the incrementality factors /
-                                    share floors+caps. Seeded with the sheet defaults
-                                    on first run if absent. See EDITING THE CONFIG.
+                                    share floors+caps. seed_config() creates it with the
+                                    sheet defaults at the end of the first successful
+                                    refresh, and never overwrites it afterwards.
+                                    See EDITING THE CONFIG.
+  roas_sim_locks/refresh            Self-expiring run lock. Google Ads is metered and
+                                    Cloud Scheduler retries on timeout, so overlapping
+                                    collections would double-spend quota.
 
   Row grids are stored JSON-encoded (`rows_json` / `shares_json` / `actuals_json`)
-  because Firestore cannot store an array inside an array. ~600 simulation points +
-  ~70 shares + ~60 actuals per day is ~120 KB of JSON, comfortably under the 1 MiB
-  document limit; DATASET_BUDGET_BYTES trims in the Ads script's value order
-  (actuals → shares → simulations) if a run ever gets close.
+  because Firestore cannot store an array inside an array. Measured: a simulation row is
+  ~178 B of compact JSON, so 8 accounts × ~30 entities × ~15 points ≈ 3 600 points ≈
+  626 KiB — see DATASET_BUDGET_BYTES for the full sizing and what happens if a run ever
+  exceeds it (whole accounts are dropped, never half a curve, and it is reported).
 
 CREDENTIALS (env vars, wired from Secret Manager — see pipeline/PIPELINE.md)
   GOOGLE_ADS_DEVELOPER_TOKEN     MCC → Tools → API Center (Basic access)
@@ -97,8 +102,22 @@ RETENTION_DAYS = int(os.environ.get("ROAS_SIMS_RETENTION_DAYS", "90"))
 # Hard cap on rows served in one payload, mirroring MAX_ROWS in webapp.gs.
 MAX_ROWS = 20000
 
-# Leave headroom under Firestore's 1 MiB document limit for the JSON row grids.
-DATASET_BUDGET_BYTES = 800_000
+# Byte budget for the three JSON row grids inside one snapshot document.
+#
+# Firestore's hard limit is 1,048,576 bytes for the WHOLE document. Measured row costs
+# (compact JSON, UTF-8): a simulation row is ~178 B, an impression-share row ~91 B, an
+# actuals row ~148 B. Everything else in the document — the three column grids, the
+# per-account status block, the metadata — is well under 20 KiB.
+#
+#   1 800 points  ~313 KiB      8 accounts x ~15 entities x ~15 points
+#   3 600 points  ~626 KiB      8 accounts x ~30 entities x ~15 points
+#   5 000 points  ~869 KiB
+#
+# 950 000 B (~928 KiB) leaves ~96 KiB of headroom under the document limit and absorbs
+# ~5 200 simulation points a day before anything is trimmed. If a run ever exceeds it the
+# trim is by WHOLE ACCOUNT and is reported in `dropped_datasets` -> the payload's
+# `droppedDatasets`, so a gap is always visible rather than silent.
+DATASET_BUDGET_BYTES = 950_000
 
 SOURCE      = "google-ads-api"
 API_VERSION = "v25"          # google-ads 31.x default; see requirements.txt
@@ -173,7 +192,15 @@ SIM_ID_IDX    = RAW_COLUMNS.index("Bidding Strategy Id")
 SIM_START_IDX = RAW_COLUMNS.index("Start Date")
 SIM_END_IDX   = RAW_COLUMNS.index("End Date")
 
-RUN_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# \Z, never $: `$` also matches just before a trailing newline, so "2026-08-06\n" from a
+# query string would validate and then become a Firestore document id with a newline in it.
+RUN_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\Z")
+
+# Run lock (one Google Ads collection at a time — the API is metered and Cloud Scheduler
+# retries on timeout, so an overlapping retry would double-spend quota).
+LOCK_COLLECTION = os.environ.get("ROAS_SIMS_LOCK_COLLECTION", "roas_sim_locks")
+LOCK_DOC = "refresh"
+LOCK_TTL_SECONDS = int(os.environ.get("ROAS_SIMS_LOCK_TTL", "1800"))   # 30 min, self-expiring
 
 # ── Config defaults — the values setupConfigTab() seeded into the sheet's Config tab.
 #    Keep in sync with DEFAULT_INCREMENTALITY / DEFAULT_SHARE_WEIGHTS in webapp.gs and
@@ -536,7 +563,13 @@ def _campaign_simulations(service, cid: str, customer: dict, campaigns: dict,
             continue
         camp = campaigns.get(str(sim.campaign_id), {})
         entity = {
-            "name": camp.get("name") or str(sim.campaign_id),
+            # An id the campaign map missed still needs a display name, but it must not be
+            # a string that could join to something. The dashboard falls back to an
+            # (account, name) join when the id join misses (shareFor / buildActualIndex),
+            # so a bare "21700388337" here could in principle name-match a campaign
+            # literally called that. "campaign <id>" cannot: it carries a space and a word,
+            # which no Ads entity id ever does. The id join is unaffected and still wins.
+            "name": camp.get("name") or f"campaign {sim.campaign_id}",
             "id": sim.campaign_id,
             "target": camp.get("target"),
             "bidding_type": camp.get("type", ""),
@@ -567,7 +600,9 @@ def _portfolio_simulations(service, cid: str, customer: dict, strategies: dict,
             continue
         strat = strategies.get(str(sim.bidding_strategy_id), {})
         entity = {
-            "name": strat.get("name") or str(sim.bidding_strategy_id),
+            # Same reasoning as the campaign-level fallback: a display name that cannot be
+            # mistaken for a real entity name by the dashboard's name-based join fallback.
+            "name": strat.get("name") or f"strategy {sim.bidding_strategy_id}",
             "id": sim.bidding_strategy_id,
             "target": strat.get("target"),
             "bidding_type": strat.get("type", ""),
@@ -849,13 +884,21 @@ def build_snapshot(run_date: str | None = None) -> dict:
         shares_json, n_shares = _json_bytes(shares)
         dropped.append("shares")
     if n_rows > DATASET_BUDGET_BYTES:
-        # Last resort, and it should never fire: a day is ~120 KB against an 800 KB budget.
-        # Trim on a ROW boundary (never mid-row) so a surviving simulation curve is always
-        # a complete one, and record it in dropped_datasets so the gap is visible.
-        while rows and n_rows > DATASET_BUDGET_BYTES:
-            rows = rows[max(1, len(rows) // 10):]
+        # Last resort. Drop WHOLE ACCOUNTS, largest first, so what survives is a coherent
+        # set of complete accounts rather than half of one — a truncated simulation grid
+        # would silently deform a curve, and a deformed curve produces a wrong
+        # recommendation, which is far worse than a visibly missing account.
+        by_account: dict[str, list[list]] = {}
+        for r in rows:
+            by_account.setdefault(str(r[0]), []).append(r)
+        order = sorted(by_account, key=lambda a: len(by_account[a]), reverse=True)
+        for name in order:
+            if n_rows <= DATASET_BUDGET_BYTES:
+                break
+            by_account.pop(name)
+            rows = [r for a in by_account.values() for r in a]
             rows_json, n_rows = _json_bytes(rows)
-        dropped.append("simulation-rows-trimmed")
+            dropped.append(f"simulations:{name}")
 
     ok_accounts = [a for a in accounts if a["status"] == "ok"]
     return {
@@ -939,13 +982,116 @@ def prune_snapshots(run_date: str, db=None) -> list[str]:
     return dropped
 
 
+class RefreshInProgress(RuntimeError):
+    """Another collection holds the run lock. Skipping is the correct response."""
+
+
+def acquire_lock(db, holder: str, ttl: int = LOCK_TTL_SECONDS) -> dict:
+    """
+    Take the single refresh lock, or raise RefreshInProgress.
+
+    Google Ads is a metered API and Cloud Scheduler retries on timeout, so two overlapping
+    collections would double-spend quota against eight accounts. `create()` fails when the
+    document already exists, which is what makes the common case atomic rather than a
+    read-then-write race.
+
+    The lock is SELF-EXPIRING: a container killed mid-run leaves the document behind, so a
+    lock whose `expires_at` has passed is reclaimed rather than blocking forever.
+    """
+    ref = db.collection(LOCK_COLLECTION).document(LOCK_DOC)
+    now = time.time()
+    try:
+        snap = ref.get()
+    except Exception:
+        # Firestore unreachable: the write below would fail anyway. Don't block the run on
+        # the lock's own availability — build_snapshot's write is what actually matters.
+        return {"locked": False, "reason": "lock-unavailable"}
+
+    if snap.exists:
+        held = snap.to_dict() or {}
+        expires = float(held.get("expires_at") or 0)
+        if expires > now:
+            raise RefreshInProgress(
+                f"a refresh started at {held.get('acquired_at_iso', '?')} by "
+                f"{held.get('holder', '?')} still holds the lock until "
+                f"{_dt.datetime.fromtimestamp(expires, _dt.timezone.utc).isoformat()}"
+            )
+        ref.delete()          # stale (a container died mid-run) — reclaim it
+
+    payload = {
+        "holder": holder,
+        "acquired_at": now,
+        "acquired_at_iso": _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)
+                             .isoformat().replace("+00:00", "Z"),
+        "expires_at": now + ttl,
+        "ttl_seconds": ttl,
+    }
+    try:
+        ref.create(payload)
+    except Exception as e:
+        # Almost certainly AlreadyExists — another instance won the race between our get()
+        # and our create(). Skipping a run is always safer than double-spending quota.
+        raise RefreshInProgress(f"lost the race for the refresh lock ({_error_text(e)})")
+    return {"locked": True, "holder": holder}
+
+
+def release_lock(db, holder: str) -> None:
+    """Drop the lock if we still hold it. Never raises — the TTL is the real backstop."""
+    try:
+        ref = db.collection(LOCK_COLLECTION).document(LOCK_DOC)
+        snap = ref.get()
+        if snap.exists and (snap.to_dict() or {}).get("holder") == holder:
+            ref.delete()
+    except Exception:
+        pass
+
+
+def seed_config(db) -> bool:
+    """
+    Create roas_sim_config/config with the defaults if it does not exist yet.
+
+    Called from the WRITE path (refresh), never the read path: /api/roas-sims should not
+    need write permission to serve a payload, and a page load is the wrong moment to
+    create state. Returns True only when this call actually wrote the document; an
+    existing document is never overwritten, so operator edits always survive.
+    """
+    try:
+        ref = db.collection(CONFIG_COLLECTION).document(CONFIG_DOC)
+        if ref.get().exists:
+            return False
+        ref.set(json.loads(json.dumps(DEFAULT_CONFIG)))
+        return True
+    except Exception:
+        return False          # seeding is a convenience, never a reason to fail a run
+
+
 def refresh(run_date: str | None = None, db=None) -> dict:
-    """Collect + persist. The entry point /internal/refresh-roas-sims calls."""
+    """
+    Collect + persist. The entry point /internal/refresh-roas-sims calls.
+
+    Holds the run lock for the whole collection so an overlapping Scheduler retry cannot
+    double-spend Google Ads quota, and seeds the editable config document on the way past
+    so the operator has something concrete to edit after the very first successful run.
+    """
     started = time.time()
-    snapshot = build_snapshot(run_date)
-    written = {"written": None, "pruned": []}
-    if not os.environ.get("SKIP_FIRESTORE"):
-        written = write_snapshot(snapshot, db=db)
+    skip_firestore = bool(os.environ.get("SKIP_FIRESTORE"))
+    db = db if (db is not None or skip_firestore) else _firestore()
+    holder = f"{os.environ.get('K_REVISION', 'local')}:{int(started)}"
+
+    lock = {"locked": False, "reason": "skipped"}
+    if not skip_firestore:
+        lock = acquire_lock(db, holder)          # raises RefreshInProgress -> HTTP 409
+    try:
+        snapshot = build_snapshot(run_date)
+        written = {"written": None, "pruned": []}
+        seeded = False
+        if not skip_firestore:
+            written = write_snapshot(snapshot, db=db)
+            seeded = seed_config(db)
+    finally:
+        if lock.get("locked"):
+            release_lock(db, holder)
+
     return {
         "status": "ok" if snapshot["ok"] else "error",
         "run_date": snapshot["run_date"],
@@ -954,6 +1100,7 @@ def refresh(run_date: str | None = None, db=None) -> dict:
                                         "share_rows", "actual_rows", "warnings")}
                      for a in snapshot["accounts"]],
         "dropped_datasets": snapshot["dropped_datasets"],
+        "config_seeded": seeded,
         "seconds": round(time.time() - started, 1),
         **written,
     }
@@ -1012,24 +1159,19 @@ def _clean_config(raw: dict | None) -> dict:
     return out
 
 
-def load_config(db=None, seed: bool = False) -> dict:
+def load_config(db=None) -> dict:
     """
-    Read roas_sim_config/config, merged over the built-in defaults.
+    Read roas_sim_config/config, merged over the built-in defaults. READ ONLY — the
+    document is created by seed_config() on the write path, so serving a payload never
+    needs write permission.
 
-    `seed=True` writes the defaults back when the document is absent, so the operator has
-    something concrete to edit in the Firestore console. Never overwrites an existing doc.
-    A Firestore failure degrades to the defaults — the dashboard has the same numbers baked
-    in, so a missing config block has never been an error.
+    An absent document, or a Firestore failure, degrades to the defaults: the dashboard
+    carries the same numbers baked in, so a missing config block has never been an error.
     """
     try:
         db = db or _firestore()
-        ref = db.collection(CONFIG_COLLECTION).document(CONFIG_DOC)
-        snap = ref.get()
-        if not snap.exists:
-            if seed:
-                ref.set(json.loads(json.dumps(DEFAULT_CONFIG)))
-            return _clean_config(None)
-        return _clean_config(snap.to_dict())
+        snap = db.collection(CONFIG_COLLECTION).document(CONFIG_DOC).get()
+        return _clean_config(snap.to_dict() if snap.exists else None)
     except Exception:
         return _clean_config(None)
 
@@ -1133,7 +1275,7 @@ def build_payload(runs: int = 0, account: str = "", db=None) -> dict:
                       "once the Google Ads credentials are in place."),
             "config": config,
             "columns": RAW_COLUMNS, "rows": [], "rowCount": 0, "runDates": [],
-            "truncated": False, "shares": None, "actuals": None,
+            "truncated": False, "droppedDatasets": [], "shares": None, "actuals": None,
         }
 
     # The newest snapshot names the grids. A doc written by an older build (or a hand-edit)
@@ -1203,6 +1345,17 @@ def build_payload(runs: int = 0, account: str = "", db=None) -> dict:
 
     rows = _normalise(rows, raw_cols, RAW_NUMERIC_COLUMNS, True)
     actuals = _normalise(actuals, actual_cols, ACTUAL_NUMERIC_COLUMNS, False)
+
+    # Any dataset a collection had to drop to fit the document budget, per run date. Almost
+    # always empty — but when it is not, this is the difference between the trust panel
+    # saying "actuals are missing for 2026-08-05 because the payload overflowed" and the
+    # page silently rendering as though those columns never existed.
+    served = set(run_dates) | set(share_dates) | set(actual_dates)
+    dropped_datasets = [
+        {"runDate": d["run_date"], "datasets": list(d.get("dropped_datasets") or [])}
+        for d in docs
+        if d.get("dropped_datasets") and (not served or d["run_date"] in served)
+    ]
     share_idxs = [i for i in (_column_index(share_cols, h) for h in SHARE_METRIC_COLUMNS) if i >= 0]
     for r in shares:
         for i in share_idxs:
@@ -1219,6 +1372,7 @@ def build_payload(runs: int = 0, account: str = "", db=None) -> dict:
         "rowCount": len(rows),
         "runDates": run_dates,
         "truncated": truncated,
+        "droppedDatasets": dropped_datasets,
         # Absent is a NORMAL state on both, never an error: no shares means every campaign
         # keeps its flat class factor, no actuals means the actual-ROAS columns are not
         # rendered at all.

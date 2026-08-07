@@ -1983,10 +1983,25 @@ function hideKeyGate(){ document.getElementById('keygate').style.display = 'none
    payload well under the endpoint's row cap. */
 const FETCH_RUNS = 30;
 
+/* Is DATA_ENDPOINT the legacy Apps Script web app rather than our same-origin route?
+   Any absolute http(s) URL is the legacy endpoint; the API path is a relative '/api/...'.
+   This decides two things Apps Script simply cannot do: reading a request header, and
+   answering an unauthenticated probe. */
+const IS_LEGACY_ENDPOINT = /^https?:\/\//i.test(DATA_ENDPOINT);
+
 async function fetchLive(token){
-  const url = DATA_ENDPOINT + (DATA_ENDPOINT.indexOf('?') >= 0 ? '&' : '?') +
-    'token=' + encodeURIComponent(token) + '&runs=' + FETCH_RUNS;
-  const res = await fetch(url, { method:'GET', redirect:'follow' });
+  /* The access key travels in a HEADER on the same-origin route. Cloud Run logs the full
+     request URL, so a key in the query string would be written to Cloud Logging on every
+     single page load. Apps Script can only read query params (doGet sees e.parameter and
+     no headers at all), so the legacy path keeps ?token= — dropping it would break the
+     one-line rollback. */
+  let url = DATA_ENDPOINT + (DATA_ENDPOINT.indexOf('?') >= 0 ? '&' : '?') +
+    'runs=' + FETCH_RUNS;
+  const opts = { method:'GET', redirect:'follow', headers:{} };
+  if (IS_LEGACY_ENDPOINT) url += '&token=' + encodeURIComponent(token || '');
+  else if (token)         opts.headers['X-Roas-Sims-Key'] = token;
+
+  const res = await fetch(url, opts);
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const json = await res.json();
   if (json.error) { const e = new Error(json.error); e.payloadError = json.error; throw e; }
@@ -2020,9 +2035,15 @@ async function loadData(announce){
   if (!DATA_ENDPOINT){ hideKeyGate(); state.error = null; rebuild(true); return; }
   rebuild(true);
 
-  // 2. no key yet -> ask for it inline and stop; the page stays on demo/cached data
+  /* 2. no key yet.
+     Legacy endpoint: it always requires a token, so ask up front and stop — a fetch
+     without one can only fail.
+     Same-origin route: the key is enforced only when ROAS_SIMS_TOKEN is set on the
+     service, which is NOT the documented default. Try the fetch with an empty key first
+     so a first-time viewer is not made to invent a string the server will accept
+     regardless; the catch below shows the gate if the server answers "Unauthorized". */
   const token = tokenRead();
-  if (!token){ showKeyGate(); return; }
+  if (!token && IS_LEGACY_ENDPOINT){ showKeyGate(); return; }
   hideKeyGate();
 
   try {
@@ -3168,6 +3189,21 @@ function renderTrustFlags(){
       d:'The last successful fetch is being replayed from this browser' +
         (state.error ? ' because the live fetch failed: ' + state.error : '') + '.' });
 
+  /* A collector run that overflowed its storage budget drops whole datasets or whole
+     accounts to fit. Without this the page would simply render as though those campaigns
+     or columns had never existed, which is the one failure mode a trust panel exists to
+     prevent. Absent on payloads that predate the field, which is the normal state. */
+  const dropped = (state.payload && state.payload.droppedDatasets) || [];
+  if (dropped.length){
+    items.push({
+      t: 'Part of ' + dropped.length + ' run(s) was dropped to fit the storage budget',
+      d: dropped.map(r => r.runDate + ': ' + (r.datasets || []).join(', ')).join(' · ') +
+         '. Those rows are missing from this payload, so any campaign or column they ' +
+         'carried is absent rather than empty. A run is trimmed by whole account, never ' +
+         'mid-curve, so what is shown is still complete for the accounts present.'
+    });
+  }
+
   /* One aggregate entry, not one per campaign: the factors are a single modelling assumption
      applied consistently, and repeating it nine times would drown the real flags. */
   const incAdjList = state.strategies.filter(s => s.incAdjusted);
@@ -3183,7 +3219,8 @@ function renderTrustFlags(){
         (dyn ? dyn + ' of them are derived from impression share, which makes the factor campaign-specific but not ' +
                'measured: the floor and cap it slides between are still assumptions. ' : '') +
         'Only a geo holdout or a conversion-lift test can replace the numbers; until then treat brand and ' +
-        'private-label targets as directional. Edit them in the Config tab.'
+        'private-label targets as directional. They are editable without a deploy — Firestore ' +
+        'roas_sim_config/config on the API pipeline, the Config tab on the legacy sheet.'
     });
   }
 

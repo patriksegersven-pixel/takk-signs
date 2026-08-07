@@ -67,8 +67,11 @@ def verify(credentials: HTTPBasicCredentials | None = Depends(security)) -> str:
             headers={"WWW-Authenticate": 'Basic realm="Babyshop Dashboard"'},
         )
 
-    user_ok = secrets.compare_digest(credentials.username, DASH_USER)
-    pass_ok = secrets.compare_digest(credentials.password, DASH_PASS)
+    # _const_eq, not secrets.compare_digest directly: a non-ASCII username or password —
+    # supplied by the caller, or a perfectly legitimate DASH_PASS with an accent in it —
+    # makes compare_digest raise TypeError, turning a failed login into a 500.
+    user_ok = _const_eq(credentials.username, DASH_USER)
+    pass_ok = _const_eq(credentials.password, DASH_PASS)
     if not (user_ok and pass_ok):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -76,6 +79,19 @@ def verify(credentials: HTTPBasicCredentials | None = Depends(security)) -> str:
             headers={"WWW-Authenticate": 'Basic realm="Babyshop Dashboard"'},
         )
     return credentials.username
+
+
+def _const_eq(supplied: str | None, expected: str | None) -> bool:
+    """Constant-time string compare that cannot be crashed by the caller.
+
+    secrets.compare_digest() raises TypeError on a str containing non-ASCII, so passing a
+    raw query param or header straight in turns any UTF-8 byte into an unhandled 500. On
+    /api/roas-sims that is worse than it sounds: the dashboard's fetchLive() reads
+    json.error to decide a key was rejected, so a 500 never reaches its /unauthor/i branch,
+    the bad key is never cleared from localStorage, and every reload fails forever.
+    Comparing the UTF-8 encodings keeps the timing property and accepts any input."""
+    return secrets.compare_digest((supplied or "").encode("utf-8"),
+                                  (expected or "").encode("utf-8"))
 
 
 # ── ROAS Simulations access key ──────────────────────────────────────────────
@@ -105,7 +121,7 @@ def _verify_sims_token(token: str):
     word "unauthorized"; a 401 would raise "HTTP 401" and be retried as transient."""
     if not ROAS_SIMS_TOKEN:
         return None
-    if secrets.compare_digest(token or "", ROAS_SIMS_TOKEN):
+    if _const_eq(token, ROAS_SIMS_TOKEN):
         return None
     return JSONResponse({"error": "Unauthorized", "status": "unauthorized"}, status_code=200)
 
@@ -203,7 +219,7 @@ def api_roas_impact(_: str = Depends(verify)):
 
 
 @app.get("/api/roas-sims")
-def api_roas_sims(runs: int = 0, account: str = "", token: str = "",
+def api_roas_sims(request: Request, runs: int = 0, account: str = "", token: str = "",
                   _: str = Depends(verify)):
     """ROAS Simulations payload, assembled from the Firestore snapshots that
     refresh_roas_sims.py writes straight off the Google Ads API.
@@ -218,13 +234,18 @@ def api_roas_sims(runs: int = 0, account: str = "", token: str = "",
                 Without it `shares` still carries the LATEST run date only — that
                 asymmetry is deliberate and matches webapp.gs.
       account=  exact Customer Name filter, applied to all three grids.
-      token=    the dashboard's access key. Enforced only when ROAS_SIMS_TOKEN is set
-                on the service; see the note on _verify_sims_token below.
+
+    The access key is read from the `X-Roas-Sims-Key` HEADER first, falling back to a
+    `token=` query param. The header is what the dashboard now sends: Cloud Run logs the
+    full request URL, so a key in the query string ends up in Cloud Logging on every page
+    load. The query param stays supported because the legacy Apps Script endpoint could
+    only ever accept it, and dropping it would break a rollback.
 
     Always 200, like the Apps Script did: the dashboard distinguishes states by the
     payload's `error` / `status` fields, and a non-2xx would read to it as a transient
     network failure instead of a rejected key."""
-    err = _verify_sims_token(token)
+    supplied = request.headers.get("X-Roas-Sims-Key") or token
+    err = _verify_sims_token(supplied)
     if err is not None:
         return err
     import refresh_roas_sims as rs
@@ -232,9 +253,14 @@ def api_roas_sims(runs: int = 0, account: str = "", token: str = "",
         return rs.build_payload(runs=max(0, min(runs, 400)), account=account)
     except Exception as e:
         # Never a hard failure: the page keeps its cached/demo snapshot and says why.
-        return {"error": f"roas-sims read failed: {e}", "status": "read-error",
+        # The reason is logged server-side but NOT echoed — the browser-visible string
+        # would otherwise carry Firestore paths, project ids and stack detail to anyone
+        # who can load the page.
+        print(f"ERROR /api/roas-sims: {type(e).__name__}: {e}", flush=True)
+        return {"error": "roas-sims snapshot read failed — see the service logs.",
+                "status": "read-error",
                 "columns": list(rs.RAW_COLUMNS), "rows": [], "rowCount": 0, "runDates": [],
-                "truncated": False, "shares": None, "actuals": None,
+                "truncated": False, "droppedDatasets": [], "shares": None, "actuals": None,
                 "config": rs._clean_config(None)}
 
 
@@ -414,13 +440,20 @@ INTERNAL_TOKEN = os.environ.get("INTERNAL_TOKEN")
 
 
 def _verify_internal(request: Request) -> None:
-    """Shared secret auth for Cloud-Scheduler-triggered refresh."""
-    if DEV_MODE:
-        return
+    """Shared secret auth for Cloud-Scheduler-triggered refresh.
+
+    DEV_MODE does NOT bypass this when INTERNAL_TOKEN is set. The live service runs with
+    DEV_MODE=true on an --allow-unauthenticated Cloud Run service, so a blanket bypass
+    would leave every /internal/* endpoint open to anyone who guessed the path — including
+    the Google Ads collection, which spends metered API quota across eight accounts.
+    Presence of the token is the switch; DEV_MODE only covers the case where no token has
+    been configured at all (genuine local development)."""
     if not INTERNAL_TOKEN:
+        if DEV_MODE:
+            return
         raise HTTPException(status_code=500, detail="INTERNAL_TOKEN not configured")
     token = request.headers.get("X-Internal-Token", "")
-    if not secrets.compare_digest(token, INTERNAL_TOKEN):
+    if not _const_eq(token, INTERNAL_TOKEN):
         raise HTTPException(status_code=401, detail="Invalid internal token")
 
 
@@ -465,30 +498,51 @@ def internal_refresh(request: Request):
     return JSONResponse(results, status_code=200 if any_ok else 502)
 
 
-@app.api_route("/internal/refresh-roas-sims", methods=["GET", "POST"])
+@app.post("/internal/refresh-roas-sims")
 def internal_refresh_roas_sims(request: Request, run_date: str = ""):
     """Pull Target-ROAS bid simulations, impression shares and measured actuals from the
     Google Ads API and write one daily snapshot to Firestore (roas_sim_snapshots).
 
     Cloud Scheduler target — daily. Same X-Internal-Token gate as /internal/refresh.
-    GET is accepted too so the job can be smoke-tested from a browser session.
+
+    POST ONLY, deliberately. This endpoint spends metered Google Ads quota across eight
+    accounts, and the service is --allow-unauthenticated: a GET route is reachable by any
+    crawler, link prefetcher or browser address bar that learns the path. Smoke-test it
+    with `curl -X POST` instead.
 
     `run_date=YYYY-MM-DD` overrides the snapshot's document id (backfill / replay); the
     write is idempotent per day either way, so a re-run replaces that day's rows.
 
     Degrades loudly, never silently:
+      400 when run_date is not a valid YYYY-MM-DD
+      409 when another collection already holds the run lock (Scheduler retry overlap)
       503 + the exact env vars still unset when the credentials are missing
       502 when every account failed (the body names each one)
       200 when at least one account returned — per-account errors ride in `accounts`."""
     _verify_internal(request)
 
-    from refresh_roas_sims import MissingCredentials, refresh
+    import refresh_roas_sims as rs
+    from refresh_roas_sims import MissingCredentials, RefreshInProgress, refresh
 
+    # Validate at the boundary, before anything is collected or written. build_snapshot()
+    # checks too, but only after the client is built — and the doc id is derived from this
+    # value, so a malformed one would otherwise be caught by prune_snapshots() AFTER the
+    # snapshot had already been written under a malformed id.
+    if run_date and not rs.RUN_DATE_RE.match(run_date):
+        return JSONResponse({"status": "bad-request",
+                             "error": "run_date must be YYYY-MM-DD"}, status_code=400)
     try:
         out = refresh(run_date=run_date or None)
     except MissingCredentials as e:
         return JSONResponse({"status": "not-configured", "error": str(e)}, status_code=503)
+    except RefreshInProgress as e:
+        # Not an error: overlapping Scheduler attempts are expected, and skipping the
+        # second one is the whole point of the lock.
+        return JSONResponse({"status": "already-running", "error": str(e)}, status_code=409)
+    except ValueError as e:
+        return JSONResponse({"status": "bad-request", "error": str(e)}, status_code=400)
     except Exception as e:
+        print(f"ERROR /internal/refresh-roas-sims: {type(e).__name__}: {e}", flush=True)
         return JSONResponse({"status": "error", "error": f"{type(e).__name__}: {e}"},
                             status_code=500)
     return JSONResponse(out, status_code=200 if out["status"] == "ok" else 502)

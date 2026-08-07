@@ -567,6 +567,8 @@ row, keyed by column name — would pay the header names 600 times over. JSON ke
 script's value order (actuals → shares → simulations) if a run ever approaches it, and says
 so in `dropped_datasets`.
 
+`roas_sim_locks/refresh` — the run lock. Google Ads is metered and Cloud Scheduler retries on timeout, so two overlapping collections would double-spend quota across eight accounts. `create()` makes the common case atomic rather than a read-then-write race, and the lock is **self-expiring** (`expires_at`, 30 min by default): a container killed mid-run leaves the document behind, and the next run reclaims it instead of blocking forever. A held lock answers `409 already-running`, which is a normal Scheduler-retry outcome and not an error.
+
 `roas_sim_config/config` — nested maps, never dotted keys:
 
 ```json
@@ -591,17 +593,19 @@ composite index to build.
 
 | | |
 |---|---|
-| **`POST` (or `GET`) `/internal/refresh-roas-sims`** | Runs the collector and writes one snapshot. Header `X-Internal-Token: $INTERNAL_TOKEN`, the same gate `/internal/refresh` uses. Optional `?run_date=YYYY-MM-DD` overrides the document id (replay / backfill); the write is idempotent per day either way. |
+| **`POST /internal/refresh-roas-sims`** | Runs the collector and writes one snapshot. Header `X-Internal-Token: $INTERNAL_TOKEN`, the same gate `/internal/refresh` uses — and **`DEV_MODE` does not bypass it**: the service is `--allow-unauthenticated`, and this endpoint spends metered Google Ads quota across eight accounts. **POST only**, for the same reason: a GET route is reachable by any crawler or link prefetcher that learns the path. Optional `?run_date=YYYY-MM-DD` overrides the document id (replay / backfill); it is validated at the boundary, and the write is idempotent per day either way. |
 | ↳ `200` | `{status:"ok", run_date, counts:{raw,shares,actuals}, accounts:[…], written, pruned:[…], seconds}` — at least one account returned. Per-account errors and warnings ride inside `accounts`. |
 | ↳ `502` | `{status:"error", …}` — every account failed. `accounts[].error` says why for each. |
 | ↳ `503` | `{status:"not-configured", error:"… missing GOOGLE_ADS_REFRESH_TOKEN, …"}` — names the exact env vars still unset. |
+| ↳ `409` | `{status:"already-running", …}` — another collection holds the run lock. Not an error: overlapping Scheduler retries are expected and skipping the second is the point. |
+| ↳ `400` | `{status:"bad-request", …}` — `run_date` was not a `YYYY-MM-DD`. |
 | ↳ `500` | `{status:"error", error:"<Type>: <message>"}` — anything else. |
 | **`GET /api/roas-sims`** | The payload the dashboard reads. Behind the dashboard's own HTTP Basic auth like every other `/api/*` route. **Always `200`** — the page distinguishes states by `error` / `status`, and a non-2xx would read to it as a transient network blip rather than a rejected key. |
-| ↳ params | `runs=N` keep the N most recent run dates (0 = all); `account=` exact `Customer Name` filter; `token=` the page's access key. |
+| ↳ params | `runs=N` keep the N most recent run dates (0 = all); `account=` exact `Customer Name` filter. The access key goes in the **`X-Roas-Sims-Key` header** (Cloud Run logs full request URLs, so a key in the query string lands in Cloud Logging on every page load); `token=` is still accepted for the legacy rollback path, which cannot send headers. |
 | ↳ `status:"ok"` | the full payload — see *Payload shape* below. |
 | ↳ `status:"no-snapshots"` | plus an `error` string. The collection is empty; the page keeps its cached/demo snapshot. Deliberately does **not** contain the word "unauthorized", which is what stops the page from discarding a perfectly good key. |
 | ↳ `status:"unauthorized"` | `{"error":"Unauthorized"}` — only when `ROAS_SIMS_TOKEN` is set on the service and the key does not match. The page drops the stored key and re-prompts. |
-| ↳ `status:"read-error"` | Firestore was unreachable. Same shape, empty grids, defaults for `config`. |
+| ↳ `status:"read-error"` | Firestore was unreachable. Same shape, empty grids, defaults for `config`. The reason is logged server-side and deliberately **not** echoed into the browser-visible string. |
 
 ### Payload shape
 
@@ -616,9 +620,16 @@ Byte-for-byte the shape `doGet` in `webapp.gs` emitted, so the dashboard's
   columns, rows, rowCount, runDates, truncated,
   shares:  { columns, rows, runDates } | null,
   actuals: { columns, rows, runDates } | null,
-  status                                   // additive; the page never reads it
+  status,                                  // additive
+  droppedDatasets                          // additive: [{runDate, datasets:[…]}]
 }
 ```
+
+The two additive keys are new and ignored by anything that predates them. `status` is the
+machine-readable state (see the contract table). `droppedDatasets` names any dataset or
+account a collection had to drop to fit the storage budget — almost always `[]`, and the
+trust panel surfaces it when it is not, so a missing account can never look like an
+account that simply had no data.
 
 The three column grids are identical to `HEADERS` / `SHARE_HEADERS` / `ACTUAL_HEADERS` in
 the Ads script, and the per-column normalisation is the same: `toMetricOrZero` on `Raw`
@@ -644,8 +655,17 @@ it. The live service runs with `DEV_MODE=true`, so a `DEV_MODE` short-circuit wo
 setting `ROAS_SIMS_TOKEN` silently did nothing, which is the opposite of what setting it
 asks for. There is a regression test for exactly that.
 
-The page's own gate UX is untouched either way — that was the point of keeping the
-parameter rather than removing the prompt.
+**Where the key travels.** On the same-origin route the page sends it as the
+`X-Roas-Sims-Key` request header, not `?token=`: Cloud Run logs the full request URL, so a
+key in the query string would be written into Cloud Logging on every page load. The server
+reads the header first and falls back to `token=`, because Apps Script `doGet` only ever
+sees `e.parameter` and never headers — dropping the param would break the rollback.
+
+**When the gate is shown.** With `ROAS_SIMS_TOKEN` unset (the documented default) the page
+no longer demands a key before its first fetch on the same-origin route; it fetches with an
+empty key and only shows the gate if the server actually answers `Unauthorized`. Making a
+first-time viewer invent a string the server accepts regardless was pure friction. The
+legacy endpoint always requires a token, so it still prompts up front.
 
 ## What the dashboard shows
 
@@ -812,13 +832,39 @@ gcloud scheduler jobs create http roas-sims-daily \
 > uses `--update-env-vars` rather than `--set-env-vars`. `cloudbuild.yaml` carries a
 > comment saying so.
 
+### Verify on the first live run
+
+Two things have no live precedent and are worth eyeballing once, the first time real
+credentials are in place:
+
+- **The campaign-name join.** The simulation queries select no attributed resource and join
+  `campaign_simulation.campaign_id` to a separately-fetched campaign map in Python. If that
+  map ever misses an id the row still renders, but under the display name `campaign <id>`
+  rather than a real campaign name. Check row 0 of the payload:
+
+  ```bash
+  curl -s -H "X-Roas-Sims-Key: $KEY" "$URL/api/roas-sims?runs=1" \
+    | python3 -c 'import json,sys; p=json.load(sys.stdin); print(p["columns"]); print(p["rows"][0])'
+  ```
+
+  Column 1 (`Bidding Strategy Name`) must be a real campaign name. A `campaign 217003…`
+  there means the map missed and the name-based join fallback is degraded — the id join
+  still works, so nothing is wrong, but it is worth knowing. The prefix is deliberate: it
+  can never be mistaken for a real campaign name by the dashboard's `(account, name)`
+  fallback join.
+- **Row volume vs. the storage budget.** `counts.raw` on the refresh response is the day's
+  simulation-point count. Anything under ~5 200 fits comfortably; if it is higher, check
+  `droppedDatasets` in the payload — see `DATASET_BUDGET_BYTES`.
+
 ### Smoke test
 
 ```bash
 URL=$(gcloud run services describe babyshop-dashboard --region=europe-north1 \
       --format='value(status.url)')
+# POST only — there is no GET route on a paid-quota endpoint.
 curl -sX POST -H "X-Internal-Token: $INTERNAL_TOKEN" "$URL/internal/refresh-roas-sims"
-curl -s "$URL/api/roas-sims?runs=1"
+# The access key goes in a header, not the query string (Cloud Run logs full URLs).
+curl -s -H "X-Roas-Sims-Key: $KEY" "$URL/api/roas-sims?runs=1"
 ```
 
 Before the credentials exist, the first returns `503 {"status":"not-configured"}` naming
@@ -828,8 +874,9 @@ keeps its cached or demo payload and neither is mistaken for an auth failure.
 ### Editing the config
 
 `roas_sim_config/config` replaces the sheet's `Config` tab and is edited the same way it
-always was — **by a human, with no deploy**. The first refresh seeds it with the defaults
-this document describes (brand `0.20`, private-label `0.50`, generic `1.00`, the four share
+always was — **by a human, with no deploy**. `seed_config()` creates it at the end of the
+first successful refresh (the write path, so serving a payload never needs write
+permission) with the defaults this document describes (brand `0.20`, private-label `0.50`, generic `1.00`, the four share
 bounds, and multiplier `1.0`). Edit it in the Firestore console, or over REST:
 
 ```bash
