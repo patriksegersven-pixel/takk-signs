@@ -281,8 +281,8 @@ function collectSimulations(packedArgs) {
       }
     }
 
-    /* Actuals are a SECONDARY payload too, and catch per level inside — see
-       collectActualRows(). Losing them only hides two display columns. */
+    /* Actuals are a SECONDARY payload too, and catch per WINDOW inside — see
+       windowActuals(). Losing them only hides two display columns. */
     if (collectActuals) actualRows = collectActualRows(runDate, plans, verbose);
   } catch (e) {
     Logger.log('ERROR in ' + AdsApp.currentAccount().getName() + ': ' + e);
@@ -553,42 +553,80 @@ function isoDateOrBlank(v) {
 }
 
 /**
- * Actual performance for every simulated entity, at both levels, degrading in two steps
- * rather than failing:
- *   1. each level gets its OWN catch — bidding_strategy and campaign are different
- *      resources with different metric support, and one failing must not cost us the
- *      other, nor the simulations, which are already collected by the time this runs;
- *   2. a failed level is retried WITHOUT the conversion-time metrics, which are the ones
- *      a resource may not serve, so click-time actuals still arrive.
- * Only when both attempts fail does a level yield nothing, and even then it is a WARNING.
+ * Actual performance for every simulated entity, at both levels.
+ *
+ * Failure handling is PER WINDOW, not per level. One query is issued per (level, window), and
+ * a window that fails must never discard the windows that already succeeded — otherwise a
+ * transient error on the second of two windows would blank the conversion-time column for a
+ * whole account on a run where the first window returned it perfectly well.
  */
 function collectActualRows(runDate, plans, verbose) {
   var out = [];
   for (var i = 0; i < plans.length; i++) {
-    var level = plans[i].source.level;
-    try {
-      out = out.concat(entityActuals(runDate, plans[i].windows, plans[i].source, verbose, true));
-      continue;
-    } catch (ae) {
-      Logger.log('WARNING ' + AdsApp.currentAccount().getName() + ': actual-performance collection ' +
-        'failed at ' + level + ' level (' + ae + '). Retrying without the conversion-time ' +
-        'metrics, which are the ones a resource may not support.');
-    }
-    /* Degrade rather than vanish, the same rule the other secondary payloads follow: losing
-       the conversion-time columns is much cheaper than losing the measurement entirely. The
-       conversion-time cells then stay BLANK, which the dashboard renders as a dash. */
-    try {
-      out = out.concat(entityActuals(runDate, plans[i].windows, plans[i].source, verbose, false));
-      Logger.log('  recovered click-time actuals at ' + level + ' level; the conversion-time ' +
-        'columns will be blank for this account.');
-    } catch (ae2) {
-      Logger.log('WARNING ' + AdsApp.currentAccount().getName() + ': actual-performance collection ' +
-        'failed at ' + level + ' level even without the conversion-time metrics (' + ae2 +
-        '). Simulations and impression shares are unaffected; the dashboard hides its ' +
-        'actual-ROAS columns for these rows.');
+    var windows = plans[i].windows;
+    for (var w = 0; w < windows.length; w++) {
+      out = out.concat(windowActuals(runDate, windows[w], plans[i].source, verbose));
     }
   }
   return out;
+}
+
+/**
+ * One window's actuals, with the only two failure modes worth telling apart:
+ *
+ *   the resource will not SERVE the conversion-time metrics
+ *       Retry this window without them. Click-time actuals still arrive and the
+ *       conversion-time cells stay BLANK, which the dashboard renders as a dash. Degrade,
+ *       never vanish — the same rule the other secondary payloads follow.
+ *   anything else (timeout, quota, internal error)
+ *       Skip THIS WINDOW and log it. Retrying without the conversion-time metrics would
+ *       silently blank a column that works fine, trading a visible gap for a wrong number.
+ *
+ * Either way the other windows, the other level, the impression shares and the simulations
+ * are untouched.
+ */
+function windowActuals(runDate, win, source, verbose) {
+  var name = AdsApp.currentAccount().getName();
+  var label = source.level + ' ' + (win.start && win.end ? win.start + '..' + win.end : 'last 7 days');
+  try {
+    return queryActuals(runDate, win, source, verbose, true);
+  } catch (e) {
+    if (!isUnsupportedFieldError(e)) {
+      Logger.log('WARNING ' + name + ': actuals query failed for ' + label + ' (' + e +
+        '). Skipping this window only — every other window, the impression shares and the ' +
+        'simulations are unaffected, and the dashboard shows a dash for these campaigns.');
+      return [];
+    }
+    Logger.log('WARNING ' + name + ': ' + source.resource + ' will not serve the conversion-time ' +
+      'metrics (' + e + '). Retrying ' + label + ' with click-time metrics only; the ' +
+      'conversion-time columns will be blank for this window.');
+  }
+  try {
+    return queryActuals(runDate, win, source, verbose, false);
+  } catch (e2) {
+    Logger.log('WARNING ' + name + ': actuals query for ' + label + ' failed even without the ' +
+      'conversion-time metrics (' + e2 + '). Simulations and impression shares are unaffected; ' +
+      'the dashboard hides or dashes the actual-ROAS columns for these rows.');
+    return [];
+  }
+}
+
+/**
+ * Does this error say "that field is not available on this resource", as opposed to a transient
+ * failure? Deliberately a NARROW match on the vocabulary the API uses for select-clause errors:
+ * the safe side is to treat an unrecognised error as transient and skip the window, because
+ * dropping the conversion-time metrics on a timeout would replace a visible gap with a silently
+ * half-populated column.
+ */
+function isUnsupportedFieldError(e) {
+  var msg = String((e && e.message) || e || '').toLowerCase();
+  var markers = ['conversion_date', 'unrecognized_field', 'unrecognized field', 'unknown field',
+    'prohibited_field', 'prohibited field', 'field_error', 'not supported', 'unsupported',
+    'cannot be selected', 'cannot be used', 'selected together', 'not selectable'];
+  for (var i = 0; i < markers.length; i++) {
+    if (msg.indexOf(markers[i]) >= 0) return true;
+  }
+  return false;
 }
 
 /**
@@ -610,73 +648,73 @@ function collectActualRows(runDate, plans, verbose) {
  * id list long enough to cover a large account is worse than a client-side filter.
  *
  * `withConvTime` false drops the two conversion-time metrics from the SELECT — the retry path
- * in collectActualRows() for a resource that will not serve them. Their cells then come out
- * BLANK (never 0), so the dashboard shows a dash for conversion time and the real figure for
- * click time instead of losing both.
+ * in windowActuals() for a resource that will not serve them. Their cells then come out BLANK
+ * (never 0), so the dashboard shows a dash for conversion time and the real figure for click
+ * time instead of losing both.
+ *
+ * ONE window per call, so the caller can handle one window failing without losing the others.
+ * Rows are returned, never accumulated into shared state — a throw here leaves nothing behind.
  */
-function entityActuals(runDate, windows, source, verbose, withConvTime) {
+function queryActuals(runDate, win, source, verbose, withConvTime) {
   var customer = accountInfo();
   var out = [];
+  var wanted = win.ids;
+  var ids = Object.keys(wanted);
+  if (!ids.length) return out;
 
-  for (var w = 0; w < windows.length; w++) {
-    var win = windows[w];
-    var wanted = win.ids;
-    var ids = Object.keys(wanted);
-    if (!ids.length) continue;
+  var range = (win.start && win.end)
+    ? "segments.date BETWEEN '" + win.start + "' AND '" + win.end + "'"
+    : 'segments.date DURING LAST_7_DAYS';
 
-    var range = (win.start && win.end)
-      ? "segments.date BETWEEN '" + win.start + "' AND '" + win.end + "'"
-      : 'segments.date DURING LAST_7_DAYS';
+  var query =
+    'SELECT ' +
+    '  ' + source.field + '.id, ' +
+    '  ' + source.field + '.name, ' +
+    '  metrics.cost_micros, ' +
+    '  metrics.conversions, ' +
+    '  metrics.conversions_value' +
+    (withConvTime === false ? ' '
+      : ', metrics.conversions_by_conversion_date, metrics.conversions_value_by_conversion_date ') +
+    'FROM ' + source.resource + ' ' +
+    'WHERE ' + range;
 
-    var query =
-      'SELECT ' +
-      '  ' + source.field + '.id, ' +
-      '  ' + source.field + '.name, ' +
-      '  metrics.cost_micros, ' +
-      '  metrics.conversions, ' +
-      '  metrics.conversions_value' +
-      (withConvTime === false ? ' '
-        : ', metrics.conversions_by_conversion_date, metrics.conversions_value_by_conversion_date ') +
-      'FROM ' + source.resource + ' ' +
-      'WHERE ' + range;
+  var matched = 0;
+  var it = AdsApp.search(query);
+  while (it.hasNext()) {
+    var row = it.next();
+    var ent = row[source.result] || {};
+    var id = String(ent.id == null ? '' : ent.id);
+    if (!id || !wanted.hasOwnProperty(id)) continue;    // not simulated: nothing to compare against
+    var m = row.metrics || {};
+    var costMicros = metricOrBlank(m.costMicros);
+    if (!(costMicros > 0)) continue;                    // no spend in the window: ROAS is undefined
 
-    var matched = 0;
-    var it = AdsApp.search(query);
-    while (it.hasNext()) {
-      var row = it.next();
-      var ent = row[source.result] || {};
-      var id = String(ent.id == null ? '' : ent.id);
-      if (!id || !wanted.hasOwnProperty(id)) continue;    // not simulated: nothing to compare against
-      var m = row.metrics || {};
-      var costMicros = metricOrBlank(m.costMicros);
-      if (!(costMicros > 0)) continue;                    // no spend in the window: ROAS is undefined
-
-      out.push([
-        customer.name,
-        id,
-        safeName(wanted[id] || ent.name),
-        source.level,
-        win.start,
-        win.end,
-        costMicros,
-        metricOrBlank(m.conversions),
-        metricOrBlank(m.conversionsValue),
-        metricOrBlank(m.conversionsByConversionDate),
-        metricOrBlank(m.conversionsValueByConversionDate),
-        customer.currency,
-        runDate
-      ]);
-      matched++;
-      if (verbose) {
-        Logger.log('  actuals ' + source.level + ' ' + (wanted[id] || id) + ': cost ' +
-          (costMicros / 1e6) + ' ' + customer.currency + ', click-time value ' +
-          metricOrBlank(m.conversionsValue) + ', conv-time value ' +
-          metricOrBlank(m.conversionsValueByConversionDate));
-      }
+    out.push([
+      customer.name,
+      id,
+      safeName(wanted[id] || ent.name),
+      source.level,
+      win.start,
+      win.end,
+      costMicros,
+      metricOrBlank(m.conversions),
+      metricOrBlank(m.conversionsValue),
+      metricOrBlank(m.conversionsByConversionDate),
+      metricOrBlank(m.conversionsValueByConversionDate),
+      customer.currency,
+      runDate
+    ]);
+    matched++;
+    if (verbose) {
+      Logger.log('  actuals ' + source.level + ' ' + (wanted[id] || id) + ': cost ' +
+        (costMicros / 1e6) + ' ' + customer.currency + ', click-time value ' +
+        metricOrBlank(m.conversionsValue) + ', conv-time value ' +
+        metricOrBlank(m.conversionsValueByConversionDate));
     }
-    Logger.log('  actuals ' + source.level + ' ' + (win.start && win.end ? win.start + '..' + win.end : 'last 7 days') +
-      ': ' + matched + ' of ' + ids.length + ' simulated entity/entities had spend.');
   }
+  Logger.log('  actuals ' + source.level + ' ' + (win.start && win.end ? win.start + '..' + win.end : 'last 7 days') +
+    ': ' + matched + ' of ' + ids.length + ' simulated entity/entities had spend' +
+    (withConvTime === false ? ' (click time only)' : '') + '.');
   return out;
 }
 

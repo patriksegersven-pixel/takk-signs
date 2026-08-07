@@ -983,7 +983,11 @@ function shareFor(index, account, name, id) {
    to the measurement instead of on its own.
 
    Because conversion value in these accounts is already gross profit, actual ROAS here is
-   actual POAS. It is reported TWO WAYS, and they are genuinely different numbers:
+   actual POAS — with the one exception the valueToGp2Multiplier escape hatch exists for: an
+   account still reporting REVENUE as its conversion value gets a revenue ROAS, and the
+   tooltips say so per campaign rather than claiming POAS across the board.
+
+   It is reported TWO WAYS, and they are genuinely different numbers:
 
      conv. time   Conv Time Conversions Value / Cost
                   Google's metrics.conversions_value_by_conversion_date — every conversion
@@ -2134,9 +2138,14 @@ function actualRoasTitle(s, key){
       'columns) — the same scheme the bid simulator and Target ROAS bidding run on.';
   if (b.value == null)
     return what + ' Not reported for this campaign over ' + win + '.';
+  /* POAS only holds where conversion value IS gross profit. An account carrying a
+     valueToGp2Multiplier reports revenue instead, and calling its ROAS a POAS would be wrong. */
+  var basis = Math.abs(s.valueToGp2Multiplier - 1) > 1e-9
+    ? '. This account reports revenue rather than gross profit as its conversion value (GP2 = value × ' +
+      s.valueToGp2Multiplier.toFixed(2) + '), so this is revenue ROAS, not POAS.'
+    : '. Conversion value in this account is gross profit, so this is POAS.';
   return what + ' Measured over ' + win + ': ' + money(b.value, s.currency) + ' value over ' +
-    money(a.cost, s.currency) + ' cost = ' + fmtRoas(b.roas) +
-    '. Conversion value in these accounts is gross profit, so this is POAS.';
+    money(a.cost, s.currency) + ' cost = ' + fmtRoas(b.roas) + basis;
 }
 
 /** Tooltip behind the factor pill: the whole derivation in one sentence. */
@@ -2491,13 +2500,19 @@ function renderSummaryTable(){
      the table is exactly the 11-column table that predates the feature. */
   const act = anyActuals();
   const NCOL = act ? 13 : 11;
+  /* The header tooltip covers the whole column, so it may only claim POAS when conversion value
+     is gross profit for EVERY campaign in the selection. One revenue-reporting account is enough
+     to make the claim false; the per-cell tooltip still says which is which. */
+  const poasNote = act && !state.strategies.some(s => Math.abs(s.valueToGp2Multiplier - 1) > 1e-9)
+    ? ' Conversion value here is gross profit, so this is POAS.'
+    : ' Conversion value is gross profit in most of these accounts, making this POAS; hover a cell for one that reports revenue instead.';
 
   let html = `<thead><tr>
       <th>Campaign</th>
       <th title="the Target ROAS configured right now">Current</th>
       <th title="the simulated target with the highest ${G3}">Rec.</th>
       <th title="target where the marginal krona returns exactly 1.0, interpolated">Breakeven</th>
-      ${act ? `<th title="MEASURED, not simulated: conversion value counted on the date each conversion happened (Google Ads &quot;by conv. time&quot;, this account's default view) divided by cost over the same window. Conversion value here is gross profit, so this is POAS.">Actual ROAS<br><span class="assumption">conv. time</span></th>
+      ${act ? `<th title="MEASURED, not simulated: conversion value counted on the date each conversion happened (Google Ads &quot;by conv. time&quot;, this account's default view) divided by cost over the same window.${poasNote}">Actual ROAS<br><span class="assumption">conv. time</span></th>
       <th title="MEASURED, not simulated: conversion value counted on the date of the click that led to it (Google Ads' standard columns) divided by cost over the same window. This is the scheme the bid simulator and Target ROAS bidding run on.">Actual ROAS<br><span class="assumption">click time</span></th>` : ''}
       <th>Cost</th><th title="ad cost change at the recommended target">&Delta; cost</th>
       <th title="observed GP3 at the current target, before any incrementality haircut">GP3 obs.</th>

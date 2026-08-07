@@ -285,14 +285,21 @@ are rows with **no spend in the window** — ROAS is undefined there and a blank
 add noise to the join. `Start Date` / `End Date` are validated against `^\d{4}-\d{2}-\d{2}$`
 before being interpolated into the query string.
 
-Each level is collected inside its **own** try/catch, and the whole Actuals collection inside
-another: `bidding_strategy` and `campaign` are different resources with different metric
-support, and neither failing may cost the simulations, the impression shares, or each other.
+Failure handling is **per window**, not per level or per account, so a window that fails can
+never discard the windows that already succeeded — and the whole Actuals collection sits inside
+one more try/catch, so none of it can cost the simulations or the impression shares.
 
-If a query fails, the collector **retries it once without the two conversion-time metrics** —
-those are the ones a resource may not serve — so click-time actuals still arrive. The
-conversion-time cells then stay blank, the dashboard shows a dash in the primary column and the
-real figure in the secondary one, and the trust panel says why. Degrade, never vanish.
+A failed window is triaged on the error text:
+
+- the resource **will not serve** the conversion-time metrics (`UNRECOGNIZED_FIELD`,
+  `PROHIBITED_FIELD_COMBINATION…`, anything naming `conversion_date`) → **retry that window
+  without them**, so click-time actuals still arrive. The conversion-time cells stay blank, the
+  dashboard shows a dash in the primary column and the real figure in the secondary one, and the
+  trust panel says why. Degrade, never vanish.
+- **anything else** (timeout, quota, internal error) → skip **that window only** and log it.
+  Retrying without the conversion-time metrics here would silently blank a column that works
+  perfectly well, trading a visible gap for a wrong number. An unrecognised error is treated as
+  transient, which is the safe side of that call.
 
 ### `Actuals` tab schema
 
@@ -357,6 +364,18 @@ Where the two numbers appear:
 - **Trust panel** — flags campaigns with no measured row, windows that fell back to
   `LAST_7_DAYS`, campaigns reporting click time but not conversion time (the retry path above),
   a >15% gap between the two schemes, and the total absence of the tab.
+
+### Locale note on parsing
+
+Google reports conversions and conversion value with **three decimals**, and these sheets are
+sv-SE / nb-NO / da-DK, where the decimal mark is a comma. So `4523.456` *displays* as
+`"4 523,456"` and `45.125` as `"45,125"`. Any "a comma followed by three digits is a thousands
+separator" heuristic reads both a thousand times too large. `webapp.gs` therefore takes every
+numeric column on `Raw` and `Actuals` from **`getValues()`, not `getDisplayValues()`** — real
+numbers, no formatting in the way — while text and dates keep their display values, because a
+date read with `getValues()` comes back as an instant at midnight in the *spreadsheet's*
+timezone and formats to the previous day in UTC. The string parser (`toMetric()`) is a fallback
+for hand-typed cells only, and in it **a lone comma is always a decimal mark**.
 
 The per-point column previously labelled `Actual ROAS` in the drill-down table was **never a
 measurement** — it is the value Google projects at that simulated target over the cost it
