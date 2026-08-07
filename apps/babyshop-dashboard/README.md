@@ -22,14 +22,21 @@ Simulations page was originally developed is archived and read-only.)
 - `funnel_client.py`, `bq_source.py`, `inventory_client.py`,
   `budget_source.py`, `refresh_roas_impact.py`, `budget_2026.json` — backend
   data sources (Funnel.io OAuth, BigQuery, Channable feed, budget plan)
+- `refresh_roas_sims.py` — ROAS Simulations collector: Target ROAS bid
+  simulations + impression shares + measured actuals straight off the **Google
+  Ads API** (`google-ads` library, credentials from `GOOGLE_ADS_*` secrets) into
+  Firestore `roas_sim_snapshots`, plus the reader that rebuilds the payload
+  `/api/roas-sims` serves. Config lives in Firestore `roas_sim_config/config`
+  and is editable with no deploy.
 - `requirements.txt`, `Dockerfile` — runtime (uvicorn on `python:3.12-slim`)
-- `pipeline/` — the Google Ads GP3 data pipeline (dockerignored, not deployed):
-  - `gp3-simulations.js` — MCC script: Target ROAS bid simulations + impression
-    shares + measured actuals (click time and conversion time) → Google Sheet
-    ("Raw", "Shares" and "Actuals" tabs, append-only snapshots)
-  - `webapp.gs` — Apps Script web app serving that sheet as the JSON endpoint
-    consumed by the ROAS Simulations page (token-gated)
-  - `PIPELINE.md` — full pipeline documentation and setup
+- `pipeline/` — docs + operator tooling (dockerignored, not deployed):
+  - `PIPELINE.md` — full pipeline documentation, data semantics and setup
+  - `setup-roas-sims.sh` — the one-time Google Ads API setup (secrets, IAM,
+    `--update-secrets`, Cloud Scheduler); idempotent
+  - `gp3-simulations.js` — **legacy/fallback** MCC script writing the same three
+    datasets to a Google Sheet ("Raw", "Shares", "Actuals" tabs)
+  - `webapp.gs` — **legacy/fallback** Apps Script web app serving that sheet as a
+    token-gated JSON endpoint, in the identical payload shape
 
 ## Endpoints
 - `GET /` and `GET /babyshop-dashboard.html` — KV Overview
@@ -38,7 +45,13 @@ Simulations page was originally developed is archived and read-only.)
   `/api/filtered` query BigQuery live — `/api/filtered` also returns a
   per-day series (`series=daily`) so the KV Overview charts follow the
   market/shop/channel filter)
+- `GET /api/roas-sims` — ROAS Simulations payload (`runs`, `account`, `token`),
+  in exactly the shape the legacy Apps Script endpoint served. Always 200; the
+  page reads `error` / `status` to tell "no snapshots yet" from a rejected key
 - `POST /internal/refresh` — Cloud Scheduler refresh (`X-Internal-Token`)
+- `POST /internal/refresh-roas-sims` — daily Google Ads API collection
+  (`X-Internal-Token`); 503 + the missing variable names while the
+  `GOOGLE_ADS_*` secrets are not wired yet
 - `GET /healthz` — liveness probe (unauthenticated)
 
 All routes except `/healthz` support HTTP Basic auth (`DASH_USER` /

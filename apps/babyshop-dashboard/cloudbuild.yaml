@@ -46,6 +46,13 @@ steps:
       # --update-env-vars (NOT --set-env-vars): --set-env-vars replaces the entire
       # env, wiping DASH_PASS / FUNNEL_* / INTERNAL_TOKEN wired from Secret Manager.
       - --update-env-vars=GCP_PROJECT=$PROJECT_ID
+      # NO --update-secrets here, on purpose. `gcloud run deploy --update-secrets=K=s:latest`
+      # FAILS outright when the secret does not exist yet, and a failed deploy silently
+      # leaves the previous revision serving traffic — so referencing the GOOGLE_ADS_*
+      # secrets from this file would break every deploy of this app between merging the
+      # ROAS-simulations collector and creating them. Secrets are wired once, out of band,
+      # by pipeline/setup-roas-sims.sh (`gcloud run services update --update-secrets`),
+      # which is already how DASH_PASS / FUNNEL_* / INTERNAL_TOKEN got here.
 
   # Promote: route all traffic to the just-deployed revision. Runs ONLY if the
   # build and deploy steps succeeded, so a broken build can never take traffic.

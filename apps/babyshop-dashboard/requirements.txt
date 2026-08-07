@@ -3,3 +3,7 @@ uvicorn[standard]==0.34.0
 httpx==0.28.1
 google-cloud-firestore==2.20.0
 google-cloud-bigquery==3.27.0
+# Google Ads API client for refresh_roas_sims.py (ROAS Simulations collector).
+# 31.x targets Google Ads API v25 by default — refresh_roas_sims.API_VERSION pins the
+# version explicitly, so bumping this line must be paired with checking that constant.
+google-ads==31.2.0

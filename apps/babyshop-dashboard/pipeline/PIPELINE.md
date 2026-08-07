@@ -1,6 +1,6 @@
 # Babyshop — GP3 Optimization
 
-A static dashboard that turns Google Ads **Target ROAS bid-simulator** data into a GP3
+A dashboard that turns Google Ads **Target ROAS bid-simulator** data into a GP3
 recommendation per portfolio bidding strategy: where to set each target, what it is worth,
 and how to split a fixed budget across strategies.
 
@@ -8,6 +8,31 @@ and how to split a fixed budget across strategies.
 GP2 = conversion value reported in Google Ads   (already gross profit — see below)
 GP3 = GP2 − ad cost
 ```
+
+> ## Two pipelines, one payload
+>
+> The data reaching `babyshop-roas-simulations.html` can come from either of two
+> collectors. **They produce the identical JSON payload**, so everything in this document
+> about *what the numbers mean* — attribution schemes, incrementality, GP2 multipliers,
+> blank-vs-0, join keys — is true of both. Only the plumbing differs.
+>
+> | | **Google Ads API** (current) | **Google Sheets** (legacy / fallback) |
+> |---|---|---|
+> | Collector | `refresh_roas_sims.py` (Cloud Run) | `pipeline/gp3-simulations.js` (Ads MCC script) |
+> | Store | Firestore `roas_sim_snapshots` | Google Sheet, `Raw` / `Shares` / `Actuals` tabs |
+> | Config | Firestore `roas_sim_config/config` | the sheet's `Config` tab |
+> | Serve | `GET /api/roas-sims` (same origin) | `pipeline/webapp.gs` `doGet` (Apps Script `/exec`) |
+> | Trigger | Cloud Scheduler → `POST /internal/refresh-roas-sims` | the Ads script's own schedule |
+> | Retention | 90 days, pruned per run | 90 days, `LOOKBACK_PRUNE_DAYS` |
+>
+> **The legacy path is still deployed and still works.** Nothing about it was removed —
+> both scripts remain in `pipeline/`, the spreadsheet keeps filling, and switching the
+> dashboard back is a one-line edit (see *Dashboard wiring*). It is the fallback while the
+> API credentials are being provisioned, and the escape hatch if the API path breaks.
+>
+> No historical backfill is done: the API pipeline's history accrues fresh from its first
+> run. The two histories are independent; the sheet's remains readable through the
+> Apps Script endpoint.
 
 ### Why no gross margin is applied
 
@@ -161,6 +186,11 @@ stop being handed the same number.
 **Floors and caps are Config-editable**, under four reserved keys — see below.
 
 ### Editing them without touching code
+
+> **On the API pipeline these live in Firestore `roas_sim_config/config`**, not a
+> spreadsheet — same keys, same meanings, same forgiving number parsing, still editable by
+> a human with no deploy. See *Editing the config* under Setup. The rest of this section
+> describes the sheet's `Config` tab, which the legacy path still reads.
 
 Everything above lives in the `Config` tab, columns **D/E/F**, next to the existing
 account/multiplier pair in A/B/C:
@@ -388,33 +418,254 @@ all, no dashes and no empty cells. A campaign with no row inside a payload that 
 a dash. Neither state changes a single recommendation — actuals are reported alongside the
 economics and never fed into them.
 
-## Architecture
+## Architecture — the API pipeline (current)
 
 ```
-  Google Ads MCC                Google Sheet                Apps Script              GitHub Pages
- ┌────────────────┐          ┌───────────────────┐       ┌──────────────┐          ┌──────────────┐
- │ gp3-simulations│  append  │ Raw   (snapshots) │  read │ webapp.gs    │  fetch   │ index.html   │
- │ .js            │─────────▶│ Shares(impr.share)│──────▶│ doGet + token│─────────▶│ dashboard    │
- │ scheduled      │  1×/run  │ Actuals(measured) │       │ → JSON       │   CORS   │ all math     │
- └────────────────┘          │ Config(optional)  │       └──────────────┘          │ client-side  │
-        │                    │ 90-day history    │                                 └──────────────┘
-        │                    └───────────────────┘                                         │
-        │ AdsApp.search(campaign_simulation)   TARGET_ROAS point lists                      │
-        │ AdsApp.search(campaign)              last-7-days impression share                 │ localStorage
-        │ AdsApp.search(campaign)              actuals over the simulation window,          ▼
-        ▼                                      click time AND conversion time      last good snapshot
-   one row per simulated target ROAS, one per campaign's share, one per campaign's
-   measured performance — all tagged with the same Run Date
+  Cloud Scheduler          Cloud Run (babyshop-dashboard)            Firestore
+ ┌──────────────┐        ┌────────────────────────────────┐    ┌─────────────────────┐
+ │ roas-sims-   │  POST  │ /internal/refresh-roas-sims    │    │ roas_sim_snapshots/ │
+ │ daily 05:30  │───────▶│   refresh_roas_sims.refresh()  │───▶│   2026-08-07        │
+ │ X-Internal-  │        │   google-ads GAQL × 8 accounts │ 1× │   2026-08-06 …      │
+ │ Token        │        └────────────────────────────────┘/day│   (90-day history)  │
+ └──────────────┘                                              │ roas_sim_config/    │
+                         ┌────────────────────────────────┐    │   config  ← EDITABLE│
+   babyshop-roas-        │ /api/roas-sims?runs=30&token=  │◀───│                     │
+   simulations.html ────▶│   build_payload()              │    └─────────────────────┘
+   (same origin)  fetch  │   → the webapp.gs payload shape│
+        │                └────────────────────────────────┘
+        │ localStorage                    ▲
+        ▼                                 │ GAQL, one query set per child account
+   last good snapshot        campaign_simulation        TARGET_ROAS point lists
+                             bidding_strategy_simulation (portfolio, off by default)
+                             campaign + metrics.*_impression_share   last 7 days
+                             campaign/bidding_strategy + metrics      actuals over the
+                                                                     simulation's own
+                                                                     window, click time
+                                                                     AND conversion time
 ```
 
 Each stage is replaceable and none of them holds state the next one needs:
 
 | Stage | File | Responsibility |
 |---|---|---|
-| Collect | `ads-script/gp3-simulations.js` | Query simulations, last-7-days impression share **and** measured performance over each simulation window in every account, **append** a dated snapshot to three tabs. Never clears, never reads back. All three datasets ride back from each child account in the one string `executeInParallel` allows, split by group separators; if the ~100 KB cap bites they are trimmed in value order — actuals first (display only), then shares (they change which factor a recommendation used), then the simulations, which *are* the run. |
+| Collect | `refresh_roas_sims.py` | One `GoogleAdsClient` (credentials from five env vars), then per child account: a customer probe, a bidding-strategy map, a campaign map, the simulation query, the impression-share query, and one actuals query per distinct simulation window per level. Per-account failures are captured as `status: "error"` in the snapshot, so one dead account never loses the other seven. Shares and actuals each sit behind their own guard — losing them costs a factor refinement or two display columns, never the run. |
+| Store | Firestore `roas_sim_snapshots/<YYYY-MM-DD>` | One document per run date, so a re-run **overwrites itself** (idempotent per day) and pruning is a document delete. Written with `set()` and no `merge`, so a shrinking dataset cannot leave stale keys. Pruned to 90 days on every run. Row grids ride as JSON strings (`rows_json` / `shares_json` / `actuals_json`) because **Firestore cannot store an array inside an array**; a day is ~120 KB, well under the 1 MiB document limit. |
+| Config | Firestore `roas_sim_config/config` | What the sheet's `Config` tab held: account → `valueToGp2Multiplier`, class/pattern → incrementality factor, and the four reserved keys → share-derived floors and caps. **User-editable with no deploy** — see *Editing the config*. Seeded with the sheet defaults on the first run if absent. |
+| Serve | `app.py` → `refresh_roas_sims.build_payload()` | `GET /api/roas-sims` re-assembles the snapshots into **exactly** the JSON `doGet` in `webapp.gs` returned, applying the same `toMetricOrZero` / `toMetric` / `toShare` normalisation per column. Same `runs` / `account` / `token` query params, same asymmetry (shares default to the latest run only, actuals carry every run). |
+| Present | `babyshop-roas-simulations.html` | Unchanged. Fetches the JSON, does **all** economics in the browser, caches the last good payload. |
+
+### Architecture — the sheet pipeline (legacy / fallback)
+
+```
+  Google Ads MCC                Google Sheet                Apps Script            dashboard
+ ┌────────────────┐          ┌───────────────────┐       ┌──────────────┐       ┌──────────────┐
+ │ gp3-simulations│  append  │ Raw   (snapshots) │  read │ webapp.gs    │ fetch │ .html        │
+ │ .js            │─────────▶│ Shares(impr.share)│──────▶│ doGet + token│──────▶│ all math     │
+ │ scheduled      │  1×/run  │ Actuals(measured) │       │ → JSON       │ CORS  │ client-side  │
+ └────────────────┘          │ Config(optional)  │       └──────────────┘       └──────────────┘
+        │                    │ 90-day history    │
+        │                    └───────────────────┘
+        │ AdsApp.search(campaign_simulation)   TARGET_ROAS point lists
+        │ AdsApp.search(campaign)              last-7-days impression share
+        │ AdsApp.search(campaign)              actuals over the simulation window,
+        ▼                                      click time AND conversion time
+   one row per simulated target ROAS, one per campaign's share, one per campaign's
+   measured performance — all tagged with the same Run Date
+```
+
+| Stage | File | Responsibility |
+|---|---|---|
+| Collect | `pipeline/gp3-simulations.js` | Query simulations, last-7-days impression share **and** measured performance over each simulation window in every account, **append** a dated snapshot to three tabs. Never clears, never reads back. All three datasets ride back from each child account in the one string `executeInParallel` allows, split by group separators; if the ~100 KB cap bites they are trimmed in value order — actuals first (display only), then shares (they change which factor a recommendation used), then the simulations, which *are* the run. |
 | Store | Google Sheet, `Raw` + `Shares` + `Actuals` + `Config` tabs | Append-only history on all three data tabs, pruned at 90 days. `Config` maps account → `valueToGp2Multiplier` (normally `1.0`), class/pattern → incrementality factor, and the four reserved keys → share-derived floors and caps. |
-| Serve | `apps-script/webapp.gs` | `doGet` checks a token, normalises dates/numbers/shares/metrics, returns JSON. A missing `Shares` or `Actuals` tab serves `null` for that block rather than failing. |
-| Present | `index.html` | Single file. Fetches the JSON, does **all** economics in the browser, caches the last good payload. |
+| Serve | `pipeline/webapp.gs` | `doGet` checks a token, normalises dates/numbers/shares/metrics, returns JSON. A missing `Shares` or `Actuals` tab serves `null` for that block rather than failing. |
+| Present | `babyshop-roas-simulations.html` | Same file, pointed at the `/exec` URL instead. |
+
+The API collector deliberately mirrors the Ads script decision for decision: the same
+column grids, the same "blank is never 0 on `Shares`, a real 0 is a measurement on
+`Actuals`" rule, the same per-window actuals with the same click-time-only retry, the same
+`safeName()` flattening so a campaign name is spelled identically on both paths, and the
+same trim order if a payload ever overflows its transport.
+
+### GAQL the API collector issues
+
+Per child account, five query shapes. Field names are verified against the installed
+`google-ads` package (there is a test for it) — never written from memory.
+
+```sql
+-- account name + currency (the "Customer Name" join key)
+SELECT customer.id, customer.descriptive_name, customer.currency_code FROM customer LIMIT 1
+
+-- portfolio strategies: serves both the portfolio-level rows and the campaign-level
+-- "current target lives on the strategy" fallback
+SELECT bidding_strategy.id, bidding_strategy.name, bidding_strategy.type,
+       bidding_strategy.target_roas.target_roas,
+       bidding_strategy.maximize_conversion_value.target_roas
+FROM bidding_strategy
+
+-- campaigns: name, bidding type, and the current Target ROAS
+SELECT campaign.id, campaign.name, campaign.bidding_strategy,
+       campaign.bidding_strategy_type, campaign.target_roas.target_roas,
+       campaign.maximize_conversion_value.target_roas
+FROM campaign
+
+-- the simulations themselves
+SELECT campaign_simulation.campaign_id, campaign_simulation.start_date,
+       campaign_simulation.end_date, campaign_simulation.type,
+       campaign_simulation.target_roas_point_list.points
+FROM campaign_simulation WHERE campaign_simulation.type = 'TARGET_ROAS'
+-- and, when INCLUDE_PORTFOLIO is on, the same shape FROM bidding_strategy_simulation
+
+-- impression share
+SELECT campaign.id, campaign.name, metrics.search_impression_share,
+       metrics.search_top_impression_share, metrics.search_absolute_top_impression_share
+FROM campaign WHERE segments.date DURING LAST_7_DAYS AND campaign.status = 'ENABLED'
+
+-- actuals, one query per (level, window) — see "The window is the simulation's own window"
+SELECT <level>.id, <level>.name, metrics.cost_micros, metrics.conversions,
+       metrics.conversions_value,
+       metrics.conversions_by_conversion_date, metrics.conversions_value_by_conversion_date
+FROM <level> WHERE segments.date BETWEEN '<start>' AND '<end>'
+```
+
+Two deliberate differences from the Ads script, neither of which changes an output value:
+
+- **The simulation queries select no attributed resource.** The Ads script selected
+  `campaign.*` from `campaign_simulation`; here the campaign and strategy maps are fetched
+  once per account and joined in Python on `campaign_simulation.campaign_id` /
+  `bidding_strategy_simulation.bidding_strategy_id`. One query then serves both the
+  portfolio simulation rows and the campaign-level current-target fallback, and no query's
+  validity depends on a cross-resource select.
+- **Presence, not truthiness.** Simulation points and metrics are protobuf messages whose
+  optional scalars read back as `0` / `0.0` when never set. Every "is this reported?"
+  decision uses `HasField`, so an absent `search_impression_share` becomes `None` (→ blank)
+  while an explicitly-reported `0.0` conversion count stays `0`. Getting this backwards is
+  precisely the blank-vs-0 bug the two tabs are designed to avoid.
+
+### Firestore document schema
+
+`roas_sim_snapshots/2026-08-07`:
+
+| Field | Type | Notes |
+|---|---|---|
+| `run_date` | string | `YYYY-MM-DD`, identical to the document id |
+| `generated_at` | timestamp | `SERVER_TIMESTAMP` |
+| `generated_at_iso` | string | the same instant, as a UTC ISO string |
+| `source` | string | `google-ads-api` |
+| `api_version` | string | the Google Ads API version the client used, e.g. `v25` |
+| `ok` | bool | at least one account returned |
+| `include_campaigns`, `include_portfolio` | bool | which levels this run collected |
+| `columns` | map | `{raw: [...], shares: [...], actuals: [...]}` — the three header grids |
+| `counts` | map | `{raw, shares, actuals}` row counts |
+| `rows_json`, `shares_json`, `actuals_json` | string | JSON arrays of arrays; see below |
+| `accounts` | array of maps | `{cid, name, currency, status, error, sim_rows, share_rows, actual_rows, warnings[]}` |
+| `dropped_datasets` | array of strings | non-empty only if a run overflowed the byte budget |
+
+**Why the grids are JSON strings.** Firestore forbids an array as a direct element of
+another array, so `rows: [[...], [...]]` is not storable. The alternative — one map per
+row, keyed by column name — would pay the header names 600 times over. JSON keeps a day at
+~120 KB against the 1 MiB document limit; `DATASET_BUDGET_BYTES` (800 KB) trims in the Ads
+script's value order (actuals → shares → simulations) if a run ever approaches it, and says
+so in `dropped_datasets`.
+
+`roas_sim_locks/refresh` — the run lock. Google Ads is metered and Cloud Scheduler retries on timeout, so two overlapping collections would double-spend quota across eight accounts. `create()` makes the common case atomic rather than a read-then-write race, and the lock is **self-expiring** (`expires_at`, 30 min by default): a container killed mid-run leaves the document behind, and the next run reclaims it instead of blocking forever. A held lock answers `409 already-running`, which is a normal Scheduler-retry outcome and not an error.
+
+`roas_sim_config/config` — nested maps, never dotted keys:
+
+```json
+{
+  "valueToGp2Multipliers": { "Babyshop ROW": 0.30 },
+  "defaultValueToGp2Multiplier": 1.0,
+  "incrementality": {
+    "classes":      { "brand": 0.20, "private-label": 0.50, "generic": 1.00 },
+    "overrides":    [ { "pattern": "p-shopping-se-pb-product", "factor": 0.65 } ],
+    "shareWeights": { "brand":         { "floor": 0.10, "cap": 0.60 },
+                      "private-label": { "floor": 0.40, "cap": 1.00 } }
+  }
+}
+```
+
+Both collections are **dedicated to this feature** and shared with nothing else, per the
+repo's collection-isolation rule. Neither read path uses `where` at all — document ids are
+ISO dates, so `list_documents()` plus a Python-side sort gives chronological order with no
+composite index to build.
+
+### Endpoint contracts
+
+| | |
+|---|---|
+| **`POST /internal/refresh-roas-sims`** | Runs the collector and writes one snapshot. Header `X-Internal-Token: $INTERNAL_TOKEN`, the same gate `/internal/refresh` uses — and **`DEV_MODE` does not bypass it**: the service is `--allow-unauthenticated`, and this endpoint spends metered Google Ads quota across eight accounts. **POST only**, for the same reason: a GET route is reachable by any crawler or link prefetcher that learns the path. Optional `?run_date=YYYY-MM-DD` overrides the document id (replay / backfill); it is validated at the boundary, and the write is idempotent per day either way. |
+| ↳ `200` | `{status:"ok", run_date, counts:{raw,shares,actuals}, accounts:[…], written, pruned:[…], seconds}` — at least one account returned. Per-account errors and warnings ride inside `accounts`. |
+| ↳ `502` | `{status:"error", …}` — every account failed. `accounts[].error` says why for each. |
+| ↳ `503` | `{status:"not-configured", error:"… missing GOOGLE_ADS_REFRESH_TOKEN, …"}` — names the exact env vars still unset. |
+| ↳ `409` | `{status:"already-running", …}` — another collection holds the run lock. Not an error: overlapping Scheduler retries are expected and skipping the second is the point. |
+| ↳ `400` | `{status:"bad-request", …}` — `run_date` was not a `YYYY-MM-DD`. |
+| ↳ `500` | `{status:"error", error:"<Type>: <message>"}` — anything else. |
+| **`GET /api/roas-sims`** | The payload the dashboard reads. Behind the dashboard's own HTTP Basic auth like every other `/api/*` route. **Always `200`** — the page distinguishes states by `error` / `status`, and a non-2xx would read to it as a transient network blip rather than a rejected key. |
+| ↳ params | `runs=N` keep the N most recent run dates (0 = all); `account=` exact `Customer Name` filter. The access key goes in the **`X-Roas-Sims-Key` header** (Cloud Run logs full request URLs, so a key in the query string lands in Cloud Logging on every page load); `token=` is still accepted for the legacy rollback path, which cannot send headers. |
+| ↳ `status:"ok"` | the full payload — see *Payload shape* below. |
+| ↳ `status:"no-snapshots"` | plus an `error` string. The collection is empty; the page keeps its cached/demo snapshot. Deliberately does **not** contain the word "unauthorized", which is what stops the page from discarding a perfectly good key. |
+| ↳ `status:"unauthorized"` | `{"error":"Unauthorized"}` — only when `ROAS_SIMS_TOKEN` is set on the service and the key does not match. The page drops the stored key and re-prompts. |
+| ↳ `status:"read-error"` | Firestore was unreachable. Same shape, empty grids, defaults for `config`. The reason is logged server-side and deliberately **not** echoed into the browser-visible string. |
+
+### Payload shape
+
+Byte-for-byte the shape `doGet` in `webapp.gs` emitted, so the dashboard's
+`normalizePayload` / `normalizeShares` / `normalizeActuals` run unchanged:
+
+```js
+{
+  generatedAt, source, spreadsheet,
+  config:  { valueToGp2Multipliers, defaultValueToGp2Multiplier,
+             incrementality: { classes, overrides, shareWeights } },
+  columns, rows, rowCount, runDates, truncated,
+  shares:  { columns, rows, runDates } | null,
+  actuals: { columns, rows, runDates } | null,
+  status,                                  // additive
+  droppedDatasets                          // additive: [{runDate, datasets:[…]}]
+}
+```
+
+The two additive keys are new and ignored by anything that predates them. `status` is the
+machine-readable state (see the contract table). `droppedDatasets` names any dataset or
+account a collection had to drop to fit the storage budget — almost always `[]`, and the
+trust panel surfaces it when it is not, so a missing account can never look like an
+account that simply had no data.
+
+The three column grids are identical to `HEADERS` / `SHARE_HEADERS` / `ACTUAL_HEADERS` in
+the Ads script, and the per-column normalisation is the same: `toMetricOrZero` on `Raw`
+(a blank `Current Target Roas` reaches the page as `0`, which `parseRoas()` depends on),
+`toMetric` on `Actuals` (a blank stays blank; a measured `0` stays `0`), `toShare` on
+`Shares` (blank **and** a literal `0` both become blank).
+
+### The access-key gate on a same-origin endpoint
+
+The page keeps an access key in `localStorage` and sends it as `?token=`. That gate was
+built against a **public** Apps Script URL, where it was the only lock. The same-origin
+route is already behind the dashboard's HTTP Basic auth, so the key is now a second,
+optional deterrent:
+
+- `ROAS_SIMS_TOKEN` **set** on the service → the key is enforced, and a mismatch returns
+  the same `{"error": "Unauthorized"}` body the Apps Script returned, which is exactly what
+  makes the page drop the key and re-prompt.
+- `ROAS_SIMS_TOKEN` **unset** → any key is accepted. The page still asks once and remembers
+  it; nothing about the UX changes.
+
+Presence of the env var is the **only** switch — `DEV_MODE` deliberately does not bypass
+it. The live service runs with `DEV_MODE=true`, so a `DEV_MODE` short-circuit would mean
+setting `ROAS_SIMS_TOKEN` silently did nothing, which is the opposite of what setting it
+asks for. There is a regression test for exactly that.
+
+**Where the key travels.** On the same-origin route the page sends it as the
+`X-Roas-Sims-Key` request header, not `?token=`: Cloud Run logs the full request URL, so a
+key in the query string would be written into Cloud Logging on every page load. The server
+reads the header first and falls back to `token=`, because Apps Script `doGet` only ever
+sees `e.parameter` and never headers — dropping the param would break the rollback.
+
+**When the gate is shown.** With `ROAS_SIMS_TOKEN` unset (the documented default) the page
+no longer demands a key before its first fetch on the same-origin route; it fetches with an
+empty key and only shows the gate if the server actually answers `Unauthorized`. Making a
+first-time viewer invent a string the server accepts regardless was pure friction. The
+legacy endpoint always requires a token, so it still prompts up front.
 
 ## What the dashboard shows
 
@@ -454,12 +705,238 @@ Two targets deliberately differ and both are shown:
   bracketing segments. The smooth-curve estimate, typically a few points above the
   recommendation because the simulated grid is coarse.
 
-## Setup
+## Setup — the API pipeline (current)
+
+### Credential prerequisites
+
+Five values, all of them one-time. Nothing here is per-account; one MCC-level OAuth
+identity reads every child account.
+
+**1. Developer token** — MCC → **Tools & Settings → Setup → API Center**. Apply for
+**Basic access** (Test access only sees test accounts, which have no simulations). Basic
+allows 15 000 operations/day, orders of magnitude more than this collector's ~40 queries
+a day. Approval is typically same-day to a few days; the token is visible on that page
+once granted. The token belongs to the **manager** account, not a child.
+
+**2 & 3. OAuth client id + secret** — Google Cloud console → **APIs & Services →
+Credentials → Create credentials → OAuth client ID → Desktop app**. Use the project that
+also has the **Google Ads API** enabled (`gcloud services enable googleads.googleapis.com`).
+Desktop-app is the right type: this is a one-off local flow to mint a refresh token, not a
+hosted web login, so no redirect URI has to be registered anywhere.
+
+**4. Refresh token** — mint it **once, locally**, signed in as a Google account with access
+to the MCC. The `google-ads` library ships the flow:
+
+```bash
+python3 -m venv /tmp/ads && /tmp/ads/bin/pip install google-ads==31.2.0
+curl -sO https://raw.githubusercontent.com/googleads/google-ads-python/main/examples/authentication/generate_user_credentials.py
+/tmp/ads/bin/python generate_user_credentials.py \
+  --client_id=<CLIENT_ID> --client_secret=<CLIENT_SECRET>
+```
+
+It prints a URL, you consent in the browser, paste the code back, and it prints the refresh
+token. Refresh tokens for a **published** OAuth app do not expire; one still in "Testing"
+expires after 7 days, so publish the consent screen (Internal is fine) before minting the
+one you deploy. Scope is `https://www.googleapis.com/auth/adwords`.
+
+**5. Login customer id** — the **MCC's** customer id, digits only (the collector strips
+dashes anyway). It is what tells the API "read these children through this manager".
+
+Verify all five before deploying them — a bad credential is far cheaper to find here:
+
+```bash
+GOOGLE_ADS_DEVELOPER_TOKEN=... GOOGLE_ADS_CLIENT_ID=... GOOGLE_ADS_CLIENT_SECRET=... \
+GOOGLE_ADS_REFRESH_TOKEN=... GOOGLE_ADS_LOGIN_CUSTOMER_ID=... \
+SKIP_FIRESTORE=1 python3 refresh_roas_sims.py
+```
+
+That runs the whole collection and prints a per-account line without touching Firestore.
+
+### One-time setup commands
+
+`pipeline/setup-roas-sims.sh` does all of it and is idempotent — re-running only fills
+gaps. It resolves the service's runtime service account itself rather than assuming one.
+
+```bash
+export GOOGLE_ADS_DEVELOPER_TOKEN=...
+export GOOGLE_ADS_CLIENT_ID=...
+export GOOGLE_ADS_CLIENT_SECRET=...
+export GOOGLE_ADS_REFRESH_TOKEN=...
+export GOOGLE_ADS_LOGIN_CUSTOMER_ID=1234567890      # the MCC id, digits only
+export INTERNAL_TOKEN=...                           # the value already on the service
+cd apps/babyshop-dashboard && ./pipeline/setup-roas-sims.sh
+```
+
+The commands it runs, if you would rather do them by hand:
+
+```bash
+PROJECT=project-a7ade44e-e7e3-4871-a83
+REGION=europe-north1
+SERVICE=babyshop-dashboard
+
+# which identity does the service actually run as?
+RUNTIME_SA=$(gcloud run services describe $SERVICE --project=$PROJECT --region=$REGION \
+  --format='value(spec.template.spec.serviceAccountName)')
+# empty means the default compute SA: <project-number>-compute@developer.gserviceaccount.com
+
+# 1. five secrets
+for N in GOOGLE_ADS_DEVELOPER_TOKEN GOOGLE_ADS_CLIENT_ID GOOGLE_ADS_CLIENT_SECRET \
+         GOOGLE_ADS_REFRESH_TOKEN GOOGLE_ADS_LOGIN_CUSTOMER_ID; do
+  gcloud secrets create $N --project=$PROJECT --replication-policy=automatic
+  printf '%s' "${!N}" | gcloud secrets versions add $N --project=$PROJECT --data-file=-
+  gcloud secrets add-iam-policy-binding $N --project=$PROJECT \
+    --member="serviceAccount:${RUNTIME_SA}" --role=roles/secretmanager.secretAccessor
+done
+
+# 2. verify the bindings actually landed — never trust add-iam-policy-binding's own output
+for N in GOOGLE_ADS_DEVELOPER_TOKEN GOOGLE_ADS_CLIENT_ID GOOGLE_ADS_CLIENT_SECRET \
+         GOOGLE_ADS_REFRESH_TOKEN GOOGLE_ADS_LOGIN_CUSTOMER_ID; do
+  gcloud secrets get-iam-policy $N --project=$PROJECT \
+    --flatten="bindings[].members" \
+    --filter="bindings.members:serviceAccount:${RUNTIME_SA}" \
+    --format="value(bindings.role)" | sort -u
+done
+
+# 3. mount them (--update-secrets, never --set-secrets: that would drop existing ones).
+#    --timeout=900 because a full collection is ~40 GAQL round trips.
+gcloud run services update $SERVICE --project=$PROJECT --region=$REGION --timeout=900 \
+  --update-secrets=\
+GOOGLE_ADS_DEVELOPER_TOKEN=GOOGLE_ADS_DEVELOPER_TOKEN:latest,\
+GOOGLE_ADS_CLIENT_ID=GOOGLE_ADS_CLIENT_ID:latest,\
+GOOGLE_ADS_CLIENT_SECRET=GOOGLE_ADS_CLIENT_SECRET:latest,\
+GOOGLE_ADS_REFRESH_TOKEN=GOOGLE_ADS_REFRESH_TOKEN:latest,\
+GOOGLE_ADS_LOGIN_CUSTOMER_ID=GOOGLE_ADS_LOGIN_CUSTOMER_ID:latest
+
+# 4. confirm the new revision is the one serving traffic
+gcloud run services describe $SERVICE --project=$PROJECT --region=$REGION \
+  --format='value(status.latestReadyRevisionName,status.traffic[0].revisionName)'
+
+# 5. daily refresh
+URL=$(gcloud run services describe $SERVICE --project=$PROJECT --region=$REGION \
+      --format='value(status.url)')
+gcloud scheduler jobs create http roas-sims-daily \
+  --project=$PROJECT --location=$REGION \
+  --schedule="30 5 * * *" --time-zone="Europe/Stockholm" \
+  --uri="$URL/internal/refresh-roas-sims" --http-method=POST \
+  --headers="X-Internal-Token=${INTERNAL_TOKEN}" \
+  --attempt-deadline=900s
+```
+
+> **Why the secrets are not in `cloudbuild.yaml`.** `gcloud run deploy
+> --update-secrets=K=s:latest` **fails outright** when the secret does not exist yet, and a
+> failed deploy silently leaves the previous revision serving traffic. Referencing the
+> `GOOGLE_ADS_*` secrets from the build would therefore break every deploy of this app
+> between merging the collector and creating them — exactly the window this change is
+> designed to survive. It is also what the service already does: `DASH_PASS`, `FUNNEL_*`
+> and `INTERNAL_TOKEN` are wired the same way, out of band, which is why the deploy step
+> uses `--update-env-vars` rather than `--set-env-vars`. `cloudbuild.yaml` carries a
+> comment saying so.
+
+### Verify on the first live run
+
+Two things have no live precedent and are worth eyeballing once, the first time real
+credentials are in place:
+
+- **The campaign-name join.** The simulation queries select no attributed resource and join
+  `campaign_simulation.campaign_id` to a separately-fetched campaign map in Python. If that
+  map ever misses an id the row still renders, but under the display name `campaign <id>`
+  rather than a real campaign name. Check row 0 of the payload:
+
+  ```bash
+  curl -s -H "X-Roas-Sims-Key: $KEY" "$URL/api/roas-sims?runs=1" \
+    | python3 -c 'import json,sys; p=json.load(sys.stdin); print(p["columns"]); print(p["rows"][0])'
+  ```
+
+  Column 1 (`Bidding Strategy Name`) must be a real campaign name. A `campaign 217003…`
+  there means the map missed and the name-based join fallback is degraded — the id join
+  still works, so nothing is wrong, but it is worth knowing. The prefix is deliberate: it
+  can never be mistaken for a real campaign name by the dashboard's `(account, name)`
+  fallback join.
+- **Row volume vs. the storage budget.** `counts.raw` on the refresh response is the day's
+  simulation-point count. Anything under ~5 200 fits comfortably; if it is higher, check
+  `droppedDatasets` in the payload — see `DATASET_BUDGET_BYTES`.
+
+### Smoke test
+
+```bash
+URL=$(gcloud run services describe babyshop-dashboard --region=europe-north1 \
+      --format='value(status.url)')
+# POST only — there is no GET route on a paid-quota endpoint.
+curl -sX POST -H "X-Internal-Token: $INTERNAL_TOKEN" "$URL/internal/refresh-roas-sims"
+# The access key goes in a header, not the query string (Cloud Run logs full URLs).
+curl -s -H "X-Roas-Sims-Key: $KEY" "$URL/api/roas-sims?runs=1"
+```
+
+Before the credentials exist, the first returns `503 {"status":"not-configured"}` naming
+the missing variables and the second returns `{"status":"no-snapshots"}` — the dashboard
+keeps its cached or demo payload and neither is mistaken for an auth failure.
+
+### Editing the config
+
+`roas_sim_config/config` replaces the sheet's `Config` tab and is edited the same way it
+always was — **by a human, with no deploy**. `seed_config()` creates it at the end of the
+first successful refresh (the write path, so serving a payload never needs write
+permission) with the defaults this document describes (brand `0.20`, private-label `0.50`, generic `1.00`, the four share
+bounds, and multiplier `1.0`). Edit it in the Firestore console, or over REST:
+
+```bash
+TOKEN=$(gcloud auth print-access-token)
+PROJ=project-a7ade44e-e7e3-4871-a83
+BASE="https://firestore.googleapis.com/v1/projects/$PROJ/databases/(default)/documents"
+
+# read it
+curl -sH "Authorization: Bearer $TOKEN" "$BASE/roas_sim_config/config"
+
+# change one factor: brand class default 0.20 -> 0.15
+curl -sX PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  "$BASE/roas_sim_config/config?updateMask.fieldPaths=incrementality.classes.brand" \
+  -d '{"fields":{"incrementality":{"mapValue":{"fields":{"classes":{"mapValue":{"fields":
+      {"brand":{"doubleValue":0.15}}}}}}}}}'
+```
+
+Values are parsed as forgivingly as the spreadsheet cells were: `0.2`, `"0,2"`, `20` and
+`"20%"` all mean 0.20. An unreadable value falls back to the default instead of poisoning
+the payload, exactly like a free-text comment row in the tab. Unknown class names and
+unknown `shareWeights` keys are ignored; per-campaign overrides are
+`{"pattern": "...", "factor": ...}` entries in `incrementality.overrides`.
+
+### Dashboard wiring
+
+At the top of the `<script>` block in `babyshop-roas-simulations.html`:
+
+```js
+const LEGACY_SHEET_ENDPOINT = 'https://script.google.com/macros/s/.../exec';
+const DATA_ENDPOINT = '/api/roas-sims';
+```
+
+**To fall back to the sheet, change the second line to `= LEGACY_SHEET_ENDPOINT;`.** That
+is the whole edit — the payload shape is identical, so nothing downstream changes. Leave
+`DATA_ENDPOINT` empty and the page runs on `DEMO_DATA`, as it always has.
+
+### Operational notes
+
+- The collector needs `roles/datastore.user` on the runtime SA (Firestore) — the service
+  already has it — plus `secretAccessor` on the five new secrets.
+- Rotating a credential needs a **new revision**: Cloud Run caches secrets at revision
+  start, so `gcloud secrets versions add` alone changes nothing on the running service.
+  `gcloud run services update babyshop-dashboard --region=europe-north1
+  --update-labels="secret-rotation=$(date +%s)"` forces one.
+- `ROAS_SIMS_INCLUDE_PORTFOLIO=true` turns on portfolio-level simulations (off by default,
+  mirroring the Ads script: those campaigns already appear in `campaign_simulation`, so
+  collecting both double-counts the same auction traffic in a cross-strategy total).
+  `ROAS_SIMS_INCLUDE_CAMPAIGNS`, `ROAS_SIMS_COLLECT_SHARES`, `ROAS_SIMS_COLLECT_ACTUALS`
+  and `ROAS_SIMS_RETENTION_DAYS` are the other knobs, all with the Ads script's defaults.
+
+## Setup — the sheet pipeline (legacy / fallback)
+
+> Still deployed, still working, still the fallback. Nothing below was removed; keep the
+> Ads script scheduled while the API path proves itself, and the two histories accrue
+> independently.
 
 ### 1. Google Ads script
 
 1. MCC → **Tools & Settings → Bulk actions → Scripts → +**.
-2. Paste `ads-script/gp3-simulations.js`.
+2. Paste `pipeline/gp3-simulations.js`.
 3. Set the `CONFIG` block:
    - `SPREADSHEET_URL` — the sheet that will hold the data.
    - `ACCOUNT_IDS` — child account CIDs (Babyshop SE/NO/ROW/DK/FI, Lekmer SE/NO).
@@ -480,7 +957,7 @@ manual run between scheduled ones is safe.
 
 ### 2. Apps Script web app
 
-1. In the spreadsheet: **Extensions → Apps Script**, paste `apps-script/webapp.gs`.
+1. In the spreadsheet: **Extensions → Apps Script**, paste `pipeline/webapp.gs`.
 2. Set `SCRIPT_TOKEN` to a long random string:
    ```
    node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"
@@ -509,14 +986,10 @@ the live URL keeps serving the old code.
 
 ### 3. Dashboard
 
-At the top of the `<script>` block in `index.html`:
+To point the page back at the sheet, set `DATA_ENDPOINT` to `LEGACY_SHEET_ENDPOINT` (see
+*Dashboard wiring* above) and enter the Apps Script `SCRIPT_TOKEN` in the page's key gate.
 
-```js
-const DATA_ENDPOINT = 'https://script.google.com/macros/s/.../exec';
-const DATA_TOKEN    = 'the-same-token';
-```
-
-Leave them empty and the page runs on `DEMO_DATA` — one real Babyshop SE snapshot, 92
+Leave `DATA_ENDPOINT` empty and the page runs on `DEMO_DATA` — one real Babyshop SE snapshot, 92
 simulation points across 9 strategies — and labels itself **Demo data** throughout. That block
 carries two **illustrative** impression-share rows (the SE brand campaign at 0.93 absolute-top,
 `pb-product` at 0.71 search IS) so the dynamic path is exercised in demo mode; unlike the
@@ -526,34 +999,41 @@ per campaign per run, deliberately bent off the simulated curve (cost ×0.97, cl
 than suspiciously exact. `demo-search-pb-bundle` has **no** actuals row on purpose, so the
 missing-measurement path renders too.
 
-### 4. GitHub Pages
+### 4. Hosting (historical)
 
-**Settings → Pages → Source: Deploy from a branch**, branch `main`, folder `/ (root)`.
-The page is one self-contained file; Chart.js and the fonts come from CDNs.
-
-Login: user `babyshop`, password `gp3`. To change it, regenerate the hash and replace
-`GATE_HASH`:
-
-```
-echo -n "user:password" | shasum -a 256
-```
+The page originally shipped on GitHub Pages from a standalone repo. It now lives in
+`apps/babyshop-dashboard/` and deploys with the rest of the service: push to `main`, the
+`babyshop-dashboard-main` Cloud Build trigger builds and deploys, and a final `promote`
+step routes traffic. The page itself is still one self-contained file; Chart.js and the
+fonts come from CDNs.
 
 ## Security
 
-**The login gate and the token are deterrents, not authentication.**
+**On the API pipeline the page-level gate is no longer the only lock.** `/api/roas-sims`
+is same-origin and sits behind the dashboard's own HTTP Basic auth (`DASH_USER` /
+`DASH_PASS`) like every other `/api/*` route, and `/internal/refresh-roas-sims` is behind
+`INTERNAL_TOKEN`. The access key is now an optional second deterrent, enforced only when
+`ROAS_SIMS_TOKEN` is set. Note the service currently runs with `DEV_MODE` bypassing Basic
+auth — setting `DEV_MODE=false` with a strong `DASH_PASS` is what makes that lock real.
+
+What genuinely is new and worth guarding: **the five Google Ads credentials**. They live
+only in Secret Manager, are read only by the runtime service account, and grant read
+access to the whole MCC. Never put them in an env var literal, `cloudbuild.yaml`, or this
+repository. Rotating one requires a new revision (Cloud Run caches secrets at revision
+start) — see *Operational notes*.
+
+On the legacy path, **the login gate and the token are deterrents, not authentication:**
 
 - `GATE_HASH` sits in the page source. Anyone who views source can extract it and attack
   it offline; the password is not secret.
-- `DATA_TOKEN` is likewise published in the HTML. It stops crawlers and accidental hits,
-  not a determined reader. Anyone with the endpoint URL can read the simulation data.
-- The endpoint is read-only and exposes aggregate simulation figures only — no customer
+- The Apps Script `/exec` URL is public. Its token stops crawlers and accidental hits, not
+  a determined reader. Anyone with the URL can read the simulation data.
+- That endpoint is read-only and exposes aggregate simulation figures only — no customer
   data, no credentials, no write path back into Google Ads.
 
-What this buys is that **the data is never committed to this repository.** The repo holds
-code and one demo snapshot; everything live is fetched at runtime and cached only in the
-viewer's own browser. If the underlying figures ever become genuinely sensitive, move the
-page behind real authentication (an identity-aware proxy, Cloudflare Access, or a hosted
-app with server-side sessions) rather than hardening the gate.
+Either way, **the data is never committed to this repository.** The repo holds code and
+one demo snapshot; everything live is fetched at runtime and cached only in the viewer's
+own browser or in Firestore.
 
 Do not commit real exports, `.csv`/`.xlsx` snapshots, or a populated `DEMO_DATA`.
 
@@ -583,9 +1063,43 @@ means conversion lag, i.e. the window is still filling in.
 ## Repository layout
 
 ```
-index.html                     the dashboard (single file, no build step)
-ads-script/gp3-simulations.js  Google Ads MCC collector (Raw + Shares + Actuals)
-apps-script/webapp.gs          Apps Script JSON endpoint
-.gitignore                     keeps data exports out of the repo
-README.md                      this file
+apps/babyshop-dashboard/
+  babyshop-roas-simulations.html   the dashboard (single file, no build step)
+  refresh_roas_sims.py             API collector + snapshot reader + payload builder
+  app.py                           /api/roas-sims, /internal/refresh-roas-sims
+  requirements.txt                 google-ads pinned here
+  cloudbuild.yaml                  build/deploy (deliberately no --update-secrets)
+  pipeline/                        NOT deployed — dockerignored
+    PIPELINE.md                    this file
+    setup-roas-sims.sh             the one-time setup, idempotent
+    gp3-simulations.js             LEGACY Google Ads MCC collector (Raw+Shares+Actuals)
+    webapp.gs                      LEGACY Apps Script JSON endpoint
 ```
+
+`pipeline/` is in `.dockerignore`, so nothing in it ships in the image — it is
+documentation and operator tooling. `refresh_roas_sims.py` sits at the app root precisely
+because it *does* need to be in the image: `/internal/refresh-roas-sims` imports it.
+
+## Testing
+
+The payload builder is pure and takes an injectable `db`, so the whole read path runs
+against a mock Firestore with no GCP access. What is covered:
+
+- **payload-shape equivalence** — the served keys, sub-shapes and column grids checked
+  against the `webapp.gs` contract, plus a replay of the dashboard's own `COLUMN_MAP` to
+  prove every column still binds to a field it consumes;
+- **blank-vs-0** — `Shares` blank *and* literal `0` → blank; `Actuals` measured `0` stays
+  `0` while unreported stays blank; `Raw` unset current target → `0`; and the sv-SE
+  decimal-comma cases (`"45,125"`, `"4 523,456"`, `"1.234,5"`);
+- **idempotency + pruning** — three writes of one run date produce one document, a
+  shrinking payload leaves no stale keys, the 90-day boundary day is kept, non-date
+  document ids are never touched, pruning is idempotent;
+- **missing credentials** — the error names each unset variable, whitespace-only counts as
+  unset, and the empty-collection payload is distinguishable from an auth failure;
+- **`?runs` / `?account`** — including the shares-default-to-latest asymmetry, whole-run
+  `MAX_ROWS` truncation, and that `get_all()`'s arbitrary order is never trusted;
+- **config** — seeding, the forgiving number parsing, and that garbage falls back cleanly;
+- **protobuf conversion** — against real `google-ads` messages, including `HasField`
+  presence vs. a reported `0.0`;
+- **GAQL field names** — every `campaign_simulation.*` / `metrics.*` / `customer.*`
+  reference in the module is checked to exist on the installed `google-ads` package.
