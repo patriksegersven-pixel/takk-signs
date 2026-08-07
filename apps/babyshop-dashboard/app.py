@@ -170,6 +170,18 @@ def api_roas_impact(_: str = Depends(verify)):
     return data
 
 
+@app.get("/api/campaign-actuals")
+def api_campaign_actuals(_: str = Depends(verify)):
+    """Daily per-campaign Google actuals — cost + KV GP2 (written to Firestore by
+    bq_source.build_campaign_actuals). Feeds the ROAS Simulations value-calibration
+    factor and backtest."""
+    from funnel_client import get_cache
+    data = get_cache().get("campaign-actuals")
+    if data is None:
+        return JSONResponse({"error": "no campaign-actuals snapshot yet"}, status_code=503)
+    return data
+
+
 @app.get("/api/budget")
 def api_budget(_: str = Depends(verify)):
     """2026 forecast / budget plan (written to Firestore by budget_source.push_budget,

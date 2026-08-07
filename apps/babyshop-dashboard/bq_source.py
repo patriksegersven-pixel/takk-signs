@@ -10,7 +10,7 @@ plain SUM ... GROUP BY reproduces every dashboard number (validated to the krona
 Run as a Cloud Run Job (entrypoint) or locally:  python3 bq_source.py
 """
 from __future__ import annotations
-import datetime, time, os
+import datetime, json, time, os
 from google.cloud import bigquery
 
 BQ_PROJECT = os.environ.get("BQ_PROJECT", "babyshop-funnel-data")
@@ -259,6 +259,56 @@ def write_firestore(kv, product, stoy=None):
         "ok": True, "last_run": int(now), "last_stage": "complete",
         "last_message": "BigQuery refresh complete", "next_due": int(now + 24*3600)})
 
+# ── Per-campaign Google daily actuals (ROAS Simulations calibration/backtest) ─
+CAMPAIGN_ACTUALS_KEY = "campaign-actuals"
+# Columnar rows (arrays, not objects) keep the doc well under Firestore's 1 MiB
+# limit; if 120 days still serialises past the guard, shorten the lookback.
+CAMPAIGN_ACTUALS_LOOKBACKS = (120, 90, 60)
+CAMPAIGN_ACTUALS_MAX_BYTES = 800_000
+CAMPAIGN_ACTUALS_COLUMNS = ["date", "campaign", "shop", "market", "cost", "gp2"]
+
+def _campaign_actuals_rows(cs: datetime.date, ce: datetime.date):
+    # GROUP BY / HAVING / ORDER BY name the underlying columns, never a SELECT alias:
+    # BigQuery resolves those clauses against the FROM clause first, so an alias like
+    # `cost` would bind to the ungrouped `Cost` column instead. `Campaign` is left
+    # unaliased for the same reason (it is the only grouped column also selected).
+    rows = _rows(
+        f"SELECT CAST(Date AS STRING) d, Campaign, shop_new shop, "
+        f"market_level_1_kv market, COALESCE(SUM(Cost), 0) cost, COALESCE(SUM(kv_gp2), 0) gp2 "
+        f"FROM `{BQ_TABLE}` WHERE Date BETWEEN @cs AND @ce "
+        f"AND Channel_Type_Level_2 = 'Google' AND Campaign IS NOT NULL "
+        f"GROUP BY d, Campaign, shop_new, market_level_1_kv "
+        f"HAVING SUM(Cost) > 0 ORDER BY d, Campaign",
+        [bigquery.ScalarQueryParameter("cs", "DATE", cs),
+         bigquery.ScalarQueryParameter("ce", "DATE", ce)])
+    return [[r["d"], r["Campaign"], r["shop"] or "", r["market"] or "",
+             round(float(r["cost"] or 0), 2), round(float(r["gp2"] or 0), 2)] for r in rows]
+
+def build_campaign_actuals(end: datetime.date | None = None):
+    """Daily Google-channel actuals per campaign — the BQ side of the ROAS
+    Simulations value-calibration factor and of the backtest's realized POAS.
+
+    Trailing complete days only (`end` defaults to yesterday, same convention as
+    build_payloads), shortening the lookback until the payload fits the guard."""
+    ce = end or (datetime.date.today() - datetime.timedelta(days=1))
+    payload = None
+    for days in CAMPAIGN_ACTUALS_LOOKBACKS:
+        cs = ce - datetime.timedelta(days=days - 1)
+        payload = {"start": cs.isoformat(), "end": ce.isoformat(),
+                   "columns": list(CAMPAIGN_ACTUALS_COLUMNS),
+                   "rows": _campaign_actuals_rows(cs, ce),
+                   "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+        if len(json.dumps(payload, ensure_ascii=False).encode()) <= CAMPAIGN_ACTUALS_MAX_BYTES:
+            break
+    return payload
+
+def write_campaign_actuals(payload):
+    from google.cloud import firestore
+    db = firestore.Client(project=FIRESTORE_PROJECT, credentials=_credentials())
+    db.collection(COLLECTION).document(f"{WORKSPACE}__{CAMPAIGN_ACTUALS_KEY}").set({
+        "data": payload, "fetched_at": firestore.SERVER_TIMESTAMP,
+        "expires_at": time.time() + TTL, "ttl_seconds": TTL, "workspace": WORKSPACE})
+
 # ── Stoy funnel-shift test (June 2026) ───────────────────────────────────────
 STOY_TEST_START = os.environ.get("STOY_TEST_START", "2026-06-10")
 STOY_META_TARGET = int(os.environ.get("STOY_META_TARGET", "150000"))
@@ -405,6 +455,16 @@ def main():
           f"product rev {product['totals']['cur']['revenue']:,} · "
           f"stoy meta {stoy['reallocation']['meta_spent']:,}/{stoy['reallocation']['target']:,} · "
           f"{time.time()-t0:.1f}s")
+
+    # Per-campaign Google daily actuals (funnel_cache/<ws>__campaign-actuals, read
+    # by /api/campaign-actuals). Non-fatal: the calibration/backtest section of the
+    # ROAS Simulations page degrades gracefully when the snapshot is missing.
+    try:
+        ca = build_campaign_actuals(ce)
+        write_campaign_actuals(ca)
+        print(f"✓ Campaign actuals · {ca['start']}→{ca['end']} · {len(ca['rows'])} rows")
+    except Exception as e:
+        print(f"⚠️  Campaign actuals refresh failed (non-fatal): {e!r}")
 
     # ROAS Impact snapshot (funnel_cache/<ws>__roas-impact, read by the ROAS page).
     # Folded into the daily job so it refreshes alongside the other BigQuery data.

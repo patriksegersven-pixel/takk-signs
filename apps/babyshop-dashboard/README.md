@@ -21,7 +21,9 @@ Simulations page was originally developed is archived and read-only.)
 - `app.py` — FastAPI server: page routes, `/api/*`, `/internal/*`, `/healthz`
 - `funnel_client.py`, `bq_source.py`, `inventory_client.py`,
   `budget_source.py`, `refresh_roas_impact.py`, `budget_2026.json` — backend
-  data sources (Funnel.io OAuth, BigQuery, Channable feed, budget plan)
+  data sources (Funnel.io OAuth, BigQuery, Channable feed, budget plan); the
+  daily BigQuery job also writes the `campaign-actuals` cache key (120 days of
+  per-campaign Google cost + KV GP2, for the ROAS Simulations calibration)
 - `requirements.txt`, `Dockerfile` — runtime (uvicorn on `python:3.12-slim`)
 - `pipeline/` — the Google Ads GP3 data pipeline (dockerignored, not deployed):
   - `gp3-simulations.js` — MCC script: Target ROAS bid simulations + impression
@@ -37,6 +39,8 @@ Simulations page was originally developed is archived and read-only.)
   `/api/filtered` query BigQuery live — `/api/filtered` also returns a
   per-day series (`series=daily`) so the KV Overview charts follow the
   market/shop/channel filter)
+- `GET /api/campaign-actuals` — daily per-campaign Google cost + KV GP2 (cached
+  snapshot; feeds the ROAS Simulations calibration and backtest)
 - `POST /internal/refresh` — Cloud Scheduler refresh (`X-Internal-Token`)
 - `GET /healthz` — liveness probe (unauthenticated)
 
