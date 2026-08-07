@@ -23,7 +23,8 @@ Last updated: 2026-08-07.
 | MCC customer id | ✅ `689-979-0415` | As env var: `GOOGLE_ADS_LOGIN_CUSTOMER_ID=6899790415` (digits only). |
 | OAuth client (id + secret) | ✅ Created | **Web application** client `roas-sims-collector` in project `project-a7ade44e-e7e3-4871-a83`, redirect URI `https://developers.google.com/oauthplayground`. (Web-app + Playground instead of the Desktop-app flow in PIPELINE.md — equivalent for the google-ads library as long as the client pair matches the one that minted the refresh token.) |
 | Consent screen published | ✅ Decision made 2026-08-07 | Project consent screen is "Babyshop Internal Ads Tool" (External). Published Testing → **In production** so refresh tokens don't expire after 7 days. Publishing only removes the test-user restriction on the consent flow; it exposes no data and does not invalidate existing tokens (incl. the pre-existing "Google Ads MCP" client, which is being retired anyway). App name mismatch vs the client name is cosmetic. |
-| Refresh token | ⬜ Pending | Mint in OAuth Playground: gear icon → "Use your own OAuth credentials" → paste client id/secret → Step 1 scope `https://www.googleapis.com/auth/adwords` → Authorize as patrik.segersven@gmail.com (click through the unverified-app warning — it names "Babyshop Internal Ads Tool") → Step 2 "Exchange authorization code for tokens" → copy Refresh token. |
+| Refresh token | ✅ Minted 2026-08-07 | Via OAuth Playground with the roas-sims-collector client, as patrik.segersven@gmail.com, scope `adwords`. |
+| Credentials validated | ✅ 2026-08-07 | Live test: refresh-token → access-token exchange OK; `customers:listAccessibleCustomers` with the developer token returned 6 accounts including the MCC `6899790415`. Full credential set works against the production API. |
 
 ## Remaining steps (in order)
 
