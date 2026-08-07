@@ -8,7 +8,10 @@
  * dated snapshot. It also collects last-7-days impression-share metrics per
  * campaign into a second "Shares" tab, which the dashboard uses to derive
  * incrementality factors for brand and private-label campaigns from how much
- * auction headroom is actually left (see README, "Incrementality").
+ * auction headroom is actually left (see README, "Incrementality"), and the
+ * ACTUAL performance of the same entities over the same window into a third
+ * "Actuals" tab, so the dashboard can show what really happened next to what
+ * the simulator projects.
  *
  * Design rules this script follows:
  *   - Append only. It never calls clearContent() and never rewrites history;
@@ -33,11 +36,39 @@
  *            Top Slot Impressions | Current Campaign Strategy | Currency | Run Date
  *   "Shares" Customer Name | Campaign Id | Campaign Name | Search IS | Top IS |
  *            Abs Top IS | Currency | Run Date
+ *   "Actuals" Customer Name | Bidding Strategy Id | Bidding Strategy Name | Level |
+ *            Start Date | End Date | Cost Micros | Conversions | Conversions Value |
+ *            Conv Time Conversions | Conv Time Conversions Value | Currency | Run Date
  *
- * Both tabs follow the same rules: append only, write only, idempotent per day,
- * self-pruning. A missing impression-share metric is written as a BLANK cell and
- * never as 0 — the dashboard treats 0/blank alike as "no data" and falls back to
- * the flat class factor, so a fabricated 0 would silently mean "no headroom".
+ * All three tabs follow the same rules: append only, write only, idempotent per day,
+ * self-pruning. A missing metric is written as a BLANK cell and never as 0. For
+ * impression share the dashboard treats 0/blank alike as "no data" and falls back to
+ * the flat class factor, so a fabricated 0 would silently mean "no headroom"; on the
+ * Actuals tab a REAL 0 is a measurement (spend that returned nothing) and must stay
+ * distinguishable from "the API did not report this".
+ *
+ * TWO ATTRIBUTION SCHEMES ON THE ACTUALS TAB
+ *   "Conversions" / "Conversions Value" are Google's standard CLICK-TIME metrics:
+ *   a conversion is counted on the date of the click that led to it. "Conv Time
+ *   Conversions" / "Conv Time Conversions Value" are the same conversions counted on
+ *   the date they HAPPENED (metrics.*_by_conversion_date) — the "by conversion time"
+ *   columns, which is the default view in this account's Google Ads UI. Cost is
+ *   identical under both, so the tab carries it once. Neither is more correct: click
+ *   time answers "what did this spend eventually return", conversion time answers
+ *   "what was banked in this window". Both lag — conversions keep arriving for days
+ *   after the window closes and are back-dated under either scheme.
+ *
+ * ACTUALS WINDOW
+ *   Each Actuals row is measured over the SAME start/end dates as the simulation it
+ *   joins to, not over a fixed last-7-days range, so actual and simulated ROAS
+ *   describe the same week. Google refreshes simulation windows per entity, so one
+ *   GAQL query is issued per DISTINCT window in the account (normally exactly one).
+ *   Entities whose simulation carried no window fall back to LAST_7_DAYS.
+ *
+ * JOIN KEY
+ *   Actuals rows join to Raw rows on (Customer Name, Bidding Strategy Id, Run Date).
+ *   The id is the campaign id for campaign-level rows and the bidding strategy id for
+ *   portfolio-level rows — the same id the Raw tab carries, from the same run.
  */
 
 /* ========================== CONFIG ========================== */
@@ -70,6 +101,16 @@ var CONFIG = {
    */
   SHARES_SHEET_NAME: 'Shares',
   COLLECT_SHARES: true,
+
+  /**
+   * Tab that receives the actual (measured) performance of every simulated entity over
+   * that entity's own simulation window, under both attribution schemes. Created
+   * automatically, pruned on the same schedule as Raw. Set COLLECT_ACTUALS to false to
+   * skip one GAQL query per distinct simulation window per account; the dashboard then
+   * hides its actual-ROAS columns entirely.
+   */
+  ACTUALS_SHEET_NAME: 'Actuals',
+  COLLECT_ACTUALS: true,
 
   /** Drop snapshots whose Run Date is older than this many days. */
   LOOKBACK_PRUNE_DAYS: 90,
@@ -118,6 +159,37 @@ var SHARE_RUN_DATE_COL = SHARE_HEADERS.indexOf('Run Date') + 1;
 /* Impression-share columns, 0-based — restored to numbers when decoding. */
 var SHARE_NUMERIC_FROM = 3, SHARE_NUMERIC_TO = 5;
 
+var ACTUAL_HEADERS = [
+  'Customer Name', 'Bidding Strategy Id', 'Bidding Strategy Name', 'Level',
+  'Start Date', 'End Date', 'Cost Micros', 'Conversions', 'Conversions Value',
+  'Conv Time Conversions', 'Conv Time Conversions Value', 'Currency', 'Run Date'
+];
+
+var ACTUAL_RUN_DATE_COL = ACTUAL_HEADERS.indexOf('Run Date') + 1;
+
+/* Metric columns, 0-based. The Bidding Strategy Id stays a string on purpose — it is an
+   identifier, not a quantity, and the dashboard joins on it as text. */
+var ACTUAL_NUMERIC_FROM = 6, ACTUAL_NUMERIC_TO = 10;
+
+/* Column offsets inside a built simulation row (HEADERS order), used to derive which
+   entities were simulated over which window before the actuals queries are issued. */
+var SIM_NAME_IDX = HEADERS.indexOf('Bidding Strategy Name');
+var SIM_ID_IDX = HEADERS.indexOf('Bidding Strategy Id');
+var SIM_START_IDX = HEADERS.indexOf('Start Date');
+var SIM_END_IDX = HEADERS.indexOf('End Date');
+
+/**
+ * The two levels actuals can be measured at, mirroring the two simulation collectors.
+ *   resource / field  GAQL resource and field prefix
+ *   result            key the response object carries (AdsApp.search lowerCamelCases it)
+ *   level             written to the "Level" column so a consumer can tell them apart
+ * Portfolio-level rows only ever appear when CONFIG.INCLUDE_PORTFOLIO is on.
+ */
+var ACTUAL_SOURCES = {
+  campaign:  { level: 'campaign',  resource: 'campaign',         field: 'campaign',         result: 'campaign' },
+  portfolio: { level: 'portfolio', resource: 'bidding_strategy', field: 'bidding_strategy', result: 'biddingStrategy' }
+};
+
 /* executeInParallel caps each child's return string at ~100 KB. */
 var MAX_RETURN_CHARS = 90000;
 
@@ -127,9 +199,10 @@ var ARG_SEPARATOR = '||';
    script editor, where a literal control character would not survive the trip. */
 var ROW_SEPARATOR  = '\u001E';   // ASCII record separator - untypeable in Ads entity names
 var CELL_SEPARATOR = '\u001F';   // ASCII unit separator
-/* executeInParallel hands back exactly ONE string per account, so both datasets
-   travel inside that single string: <sim rows> GS <share rows>. A payload with no
-   group separator at all is a sims-only return, which still decodes correctly. */
+/* executeInParallel hands back exactly ONE string per account, so all three datasets
+   travel inside that single string: <sim rows> GS <share rows> GS <actual rows>. A
+   payload carrying fewer group separators than that is a partial return — the missing
+   datasets decode to [] without special-casing. */
 var DATASET_SEPARATOR = '\u001D';   // ASCII group separator
 
 /* ========================== ENTRY POINTS ========================== */
@@ -146,7 +219,8 @@ function main() {
   if (!accountIds.length) throw new Error('CONFIG.ACCOUNT_IDS is empty.');
 
   var payload = [runDate, CONFIG.INCLUDE_CAMPAIGNS ? '1' : '0', CONFIG.VERBOSE ? '1' : '0',
-    CONFIG.INCLUDE_PORTFOLIO ? '1' : '0', CONFIG.COLLECT_SHARES ? '1' : '0'].join(ARG_SEPARATOR);
+    CONFIG.INCLUDE_PORTFOLIO ? '1' : '0', CONFIG.COLLECT_SHARES ? '1' : '0',
+    CONFIG.COLLECT_ACTUALS ? '1' : '0'].join(ARG_SEPARATOR);
 
   var accounts = AdsManagerApp.accounts().withIds(accountIds).get();
   var found = 0;
@@ -160,9 +234,9 @@ function main() {
 
 /**
  * Runs once inside each child account. Must return a string; the callback
- * receives them all together. Two datasets travel in that one string, separated
+ * receives them all together. Three datasets travel in that one string, separated
  * by DATASET_SEPARATOR: the simulation rows first (the primary payload), the
- * impression-share rows second.
+ * impression-share rows second, the actual-performance rows third.
  */
 function collectSimulations(packedArgs) {
   var parts = String(packedArgs).split(ARG_SEPARATOR);
@@ -171,12 +245,26 @@ function collectSimulations(packedArgs) {
   var verbose = parts[2] === '1';
   var includePortfolio = parts[3] === '1';
   var collectShares = parts[4] === '1';
+  var collectActuals = parts[5] === '1';
 
   var rows = [];
   var shareRows = [];
+  var actualRows = [];
   try {
-    if (includePortfolio) rows = rows.concat(portfolioSimulations(runDate, verbose));
-    if (includeCampaigns) rows = rows.concat(campaignSimulations(runDate, verbose));
+    /* The actuals queries are scoped to the entities that were actually simulated and
+       to those entities' own simulation windows, so the plan is derived from the rows
+       each collector produced rather than re-queried. */
+    var plans = [];
+    if (includePortfolio) {
+      var portfolioRows = portfolioSimulations(runDate, verbose);
+      rows = rows.concat(portfolioRows);
+      plans.push({ source: ACTUAL_SOURCES.portfolio, windows: simulationWindows(portfolioRows) });
+    }
+    if (includeCampaigns) {
+      var campaignRows = campaignSimulations(runDate, verbose);
+      rows = rows.concat(campaignRows);
+      plans.push({ source: ACTUAL_SOURCES.campaign, windows: simulationWindows(campaignRows) });
+    }
 
     /* Shares are a SECONDARY payload: a campaign type that reports no impression
        share, or a query the account cannot serve, must never cost us the
@@ -192,43 +280,60 @@ function collectSimulations(packedArgs) {
         shareRows = [];
       }
     }
+
+    /* Actuals are a SECONDARY payload too, and catch per WINDOW inside — see
+       windowActuals(). Losing them only hides two display columns. */
+    if (collectActuals) actualRows = collectActualRows(runDate, plans, verbose);
   } catch (e) {
     Logger.log('ERROR in ' + AdsApp.currentAccount().getName() + ': ' + e);
     throw e;   // surface as ERROR in the callback instead of a silent empty account
   }
   Logger.log(AdsApp.currentAccount().getName() + ': ' + rows.length + ' simulation point(s), ' +
-    shareRows.length + ' impression-share row(s).');
+    shareRows.length + ' impression-share row(s), ' + actualRows.length + ' actual-performance row(s).');
 
-  return packDatasets(encodeRows(rows), encodeRows(shareRows));
+  return packDatasets(encodeRows(rows), encodeRows(shareRows), encodeRows(actualRows));
 }
 
 /**
- * Fit both encoded datasets inside the ~100 KB parallel-return cap, trimming on a
- * row boundary rather than letting a mid-row cut corrupt a snapshot. Shares go
- * first because they are an enrichment: losing them degrades brand and
- * private-label campaigns to their flat class factor, while losing simulation
- * rows loses the entire point of the run.
+ * Fit all three encoded datasets inside the ~100 KB parallel-return cap, trimming on a
+ * row boundary rather than letting a mid-row cut corrupt a snapshot.
+ *
+ * Trim order is value order, cheapest first: actuals are display-only, shares change
+ * which incrementality factor every brand / private-label recommendation was read off,
+ * and the simulations ARE the run.
  */
-function packDatasets(sims, shares) {
+function packDatasets(sims, shares, actuals) {
   var name = AdsApp.currentAccount().getName();
-  var budget = MAX_RETURN_CHARS - DATASET_SEPARATOR.length;
+  var budget = MAX_RETURN_CHARS - 2 * DATASET_SEPARATOR.length;
+  actuals = actuals || '';
 
+  if (sims.length + shares.length + actuals.length > budget) {
+    var roomA = budget - sims.length - shares.length;
+    var trimmedA = roomA <= 0 ? '' : trimToRow(actuals, roomA);
+    Logger.log('WARNING ' + name + ': combined payload ' +
+      (sims.length + shares.length + actuals.length) +
+      ' chars exceeds the parallel-return cap; actual-performance rows trimmed from ' +
+      actuals.length + ' to ' + trimmedA.length + ' chars.');
+    actuals = trimmedA;
+  }
   if (sims.length + shares.length > budget) {
     var room = budget - sims.length;
     var trimmed = room <= 0 ? '' : trimToRow(shares, room);
-    Logger.log('WARNING ' + name + ': combined payload ' + (sims.length + shares.length) +
-      ' chars exceeds the parallel-return cap; impression-share rows trimmed from ' +
+    Logger.log('WARNING ' + name + ': payload still ' + (sims.length + shares.length) +
+      ' chars after dropping actuals; impression-share rows trimmed from ' +
       shares.length + ' to ' + trimmed.length + ' chars.');
     shares = trimmed;
   }
   if (sims.length > budget) {   // simulations alone overflow: trim them too, last resort
     var kept = trimToRow(sims, budget);
     Logger.log('WARNING ' + name + ': simulation payload ' + sims.length +
-      ' chars still exceeds the cap after dropping shares; trimmed to ' + kept.length + ' chars.');
+      ' chars still exceeds the cap after dropping shares and actuals; trimmed to ' +
+      kept.length + ' chars.');
     sims = kept;
     shares = '';
+    actuals = '';
   }
-  return sims + DATASET_SEPARATOR + shares;
+  return sims + DATASET_SEPARATOR + shares + DATASET_SEPARATOR + actuals;
 }
 
 /** Truncate an encoded dataset at the last complete row that fits in `limit`. */
@@ -392,7 +497,7 @@ function campaignShares(runDate, verbose) {
     out.push([
       customer.name,
       String(camp.id == null ? '' : camp.id),
-      String(camp.name || '').replace(/[,\r\n]+/g, ';'),
+      safeName(camp.name),
       search,
       top,
       absTop,
@@ -415,6 +520,213 @@ function shareOrBlank(v) {
   var n = Number(v);
   if (isNaN(n) || n < 0) return '';
   return n > 1 ? 1 : n;   // the API reports fractions; clamp a stray percentage-style value
+}
+
+/**
+ * Group already-built simulation rows by their simulation window, so the actuals for a
+ * window can be fetched in ONE query covering every entity Google simulated over it.
+ * Returns [{ start, end, ids: { id: name } }], with a blank start/end meaning "the
+ * simulation carried no window" — those fall back to LAST_7_DAYS downstream.
+ */
+function simulationWindows(rows) {
+  var byWindow = {};
+  var keys = [];
+  for (var i = 0; i < rows.length; i++) {
+    var id = String(rows[i][SIM_ID_IDX] == null ? '' : rows[i][SIM_ID_IDX]).trim();
+    if (!id) continue;                                   // nothing to join an actuals row to
+    var start = isoDateOrBlank(rows[i][SIM_START_IDX]);
+    var end = isoDateOrBlank(rows[i][SIM_END_IDX]);
+    var key = start + '|' + end;
+    if (!byWindow[key]) { byWindow[key] = { start: start, end: end, ids: {} }; keys.push(key); }
+    byWindow[key].ids[id] = String(rows[i][SIM_NAME_IDX] == null ? '' : rows[i][SIM_NAME_IDX]);
+  }
+  return keys.map(function (k) { return byWindow[k]; });
+}
+
+/**
+ * A date from these rows is interpolated straight into a GAQL string, so only a literal
+ * yyyy-MM-dd is ever accepted; anything else degrades to the LAST_7_DAYS fallback.
+ */
+function isoDateOrBlank(v) {
+  var m = String(v == null ? '' : v).trim().match(/^\d{4}-\d{2}-\d{2}$/);
+  return m ? m[0] : '';
+}
+
+/**
+ * Actual performance for every simulated entity, at both levels.
+ *
+ * Failure handling is PER WINDOW, not per level. One query is issued per (level, window), and
+ * a window that fails must never discard the windows that already succeeded — otherwise a
+ * transient error on the second of two windows would blank the conversion-time column for a
+ * whole account on a run where the first window returned it perfectly well.
+ */
+function collectActualRows(runDate, plans, verbose) {
+  var out = [];
+  for (var i = 0; i < plans.length; i++) {
+    var windows = plans[i].windows;
+    for (var w = 0; w < windows.length; w++) {
+      out = out.concat(windowActuals(runDate, windows[w], plans[i].source, verbose));
+    }
+  }
+  return out;
+}
+
+/**
+ * One window's actuals, with the only two failure modes worth telling apart:
+ *
+ *   the resource will not SERVE the conversion-time metrics
+ *       Retry this window without them. Click-time actuals still arrive and the
+ *       conversion-time cells stay BLANK, which the dashboard renders as a dash. Degrade,
+ *       never vanish — the same rule the other secondary payloads follow.
+ *   anything else (timeout, quota, internal error)
+ *       Skip THIS WINDOW and log it. Retrying without the conversion-time metrics would
+ *       silently blank a column that works fine, trading a visible gap for a wrong number.
+ *
+ * Either way the other windows, the other level, the impression shares and the simulations
+ * are untouched.
+ */
+function windowActuals(runDate, win, source, verbose) {
+  var name = AdsApp.currentAccount().getName();
+  var label = source.level + ' ' + (win.start && win.end ? win.start + '..' + win.end : 'last 7 days');
+  try {
+    return queryActuals(runDate, win, source, verbose, true);
+  } catch (e) {
+    if (!isUnsupportedFieldError(e)) {
+      Logger.log('WARNING ' + name + ': actuals query failed for ' + label + ' (' + e +
+        '). Skipping this window only — every other window, the impression shares and the ' +
+        'simulations are unaffected, and the dashboard shows a dash for these campaigns.');
+      return [];
+    }
+    Logger.log('WARNING ' + name + ': ' + source.resource + ' will not serve the conversion-time ' +
+      'metrics (' + e + '). Retrying ' + label + ' with click-time metrics only; the ' +
+      'conversion-time columns will be blank for this window.');
+  }
+  try {
+    return queryActuals(runDate, win, source, verbose, false);
+  } catch (e2) {
+    Logger.log('WARNING ' + name + ': actuals query for ' + label + ' failed even without the ' +
+      'conversion-time metrics (' + e2 + '). Simulations and impression shares are unaffected; ' +
+      'the dashboard hides or dashes the actual-ROAS columns for these rows.');
+    return [];
+  }
+}
+
+/**
+ * Does this error say "that field is not available on this resource", as opposed to a transient
+ * failure? Deliberately a NARROW match on the vocabulary the API uses for select-clause errors:
+ * the safe side is to treat an unrecognised error as transient and skip the window, because
+ * dropping the conversion-time metrics on a timeout would replace a visible gap with a silently
+ * half-populated column.
+ */
+function isUnsupportedFieldError(e) {
+  var msg = String((e && e.message) || e || '').toLowerCase();
+  var markers = ['conversion_date', 'unrecognized_field', 'unrecognized field', 'unknown field',
+    'prohibited_field', 'prohibited field', 'field_error', 'not supported', 'unsupported',
+    'cannot be selected', 'cannot be used', 'selected together', 'not selectable'];
+  for (var i = 0; i < markers.length; i++) {
+    if (msg.indexOf(markers[i]) >= 0) return true;
+  }
+  return false;
+}
+
+/**
+ * One row per simulated entity per window, carrying cost plus BOTH attribution schemes:
+ *
+ *   metrics.conversions / metrics.conversions_value
+ *       CLICK TIME — counted on the date of the click that led to the conversion.
+ *   metrics.conversions_by_conversion_date / metrics.conversions_value_by_conversion_date
+ *       CONVERSION TIME — counted on the date the conversion happened. These are the
+ *       "by conv. time" columns and the default view in this account's Google Ads UI.
+ *
+ * Cost is the same figure under both schemes, so it is carried once and the dashboard
+ * divides each value by it. Rows with no spend in the window are skipped outright: ROAS
+ * is undefined there and a blank row would only add noise to the join.
+ *
+ * The query is filtered by (but does not select) segments.date, so the API aggregates the
+ * whole window into one row per entity. Every entity in the account comes back; rows for
+ * entities with no simulation are dropped here rather than in the query, because a GAQL
+ * id list long enough to cover a large account is worse than a client-side filter.
+ *
+ * `withConvTime` false drops the two conversion-time metrics from the SELECT — the retry path
+ * in windowActuals() for a resource that will not serve them. Their cells then come out BLANK
+ * (never 0), so the dashboard shows a dash for conversion time and the real figure for click
+ * time instead of losing both.
+ *
+ * ONE window per call, so the caller can handle one window failing without losing the others.
+ * Rows are returned, never accumulated into shared state — a throw here leaves nothing behind.
+ */
+function queryActuals(runDate, win, source, verbose, withConvTime) {
+  var customer = accountInfo();
+  var out = [];
+  var wanted = win.ids;
+  var ids = Object.keys(wanted);
+  if (!ids.length) return out;
+
+  var range = (win.start && win.end)
+    ? "segments.date BETWEEN '" + win.start + "' AND '" + win.end + "'"
+    : 'segments.date DURING LAST_7_DAYS';
+
+  var query =
+    'SELECT ' +
+    '  ' + source.field + '.id, ' +
+    '  ' + source.field + '.name, ' +
+    '  metrics.cost_micros, ' +
+    '  metrics.conversions, ' +
+    '  metrics.conversions_value' +
+    (withConvTime === false ? ' '
+      : ', metrics.conversions_by_conversion_date, metrics.conversions_value_by_conversion_date ') +
+    'FROM ' + source.resource + ' ' +
+    'WHERE ' + range;
+
+  var matched = 0;
+  var it = AdsApp.search(query);
+  while (it.hasNext()) {
+    var row = it.next();
+    var ent = row[source.result] || {};
+    var id = String(ent.id == null ? '' : ent.id);
+    if (!id || !wanted.hasOwnProperty(id)) continue;    // not simulated: nothing to compare against
+    var m = row.metrics || {};
+    var costMicros = metricOrBlank(m.costMicros);
+    if (!(costMicros > 0)) continue;                    // no spend in the window: ROAS is undefined
+
+    out.push([
+      customer.name,
+      id,
+      safeName(wanted[id] || ent.name),
+      source.level,
+      win.start,
+      win.end,
+      costMicros,
+      metricOrBlank(m.conversions),
+      metricOrBlank(m.conversionsValue),
+      metricOrBlank(m.conversionsByConversionDate),
+      metricOrBlank(m.conversionsValueByConversionDate),
+      customer.currency,
+      runDate
+    ]);
+    matched++;
+    if (verbose) {
+      Logger.log('  actuals ' + source.level + ' ' + (wanted[id] || id) + ': cost ' +
+        (costMicros / 1e6) + ' ' + customer.currency + ', click-time value ' +
+        metricOrBlank(m.conversionsValue) + ', conv-time value ' +
+        metricOrBlank(m.conversionsValueByConversionDate));
+    }
+  }
+  Logger.log('  actuals ' + source.level + ' ' + (win.start && win.end ? win.start + '..' + win.end : 'last 7 days') +
+    ': ' + matched + ' of ' + ids.length + ' simulated entity/entities had spend' +
+    (withConvTime === false ? ' (click time only)' : '') + '.');
+  return out;
+}
+
+/**
+ * A performance metric is either a number or nothing at all. Absent stays BLANK — never 0.
+ * On this tab a real 0 IS a measurement (spend that returned nothing), so the two must
+ * stay distinguishable; a fabricated 0 would read as a genuine 0.00x ROAS.
+ */
+function metricOrBlank(v) {
+  if (v == null || v === '') return '';
+  var n = Number(v);   // int64 metrics arrive from the API as strings
+  return isNaN(n) ? '' : n;
 }
 
 /**
@@ -455,11 +767,20 @@ function accountInfo() {
   return { name: acct.getName(), currency: acct.getCurrencyCode() };
 }
 
+/**
+ * Flatten an entity name to one line with no transport separators in it. Every writer uses
+ * this: a name carrying a cell, row or dataset separator would not corrupt one cell, it
+ * would silently re-cut the whole payload.
+ */
+function safeName(v) {
+  return String(v == null ? '' : v).replace(/[,\r\n\u001D\u001E\u001F]+/g, ';');
+}
+
 /** One spreadsheet row per simulation point, in HEADERS order. */
 function buildRow(customer, entity, point, runDate) {
   return [
     customer.name,
-    String(entity.name || '').replace(/[,\r\n\u001E\u001F]+/g, ';'),   // one line, no separator collisions
+    safeName(entity.name),                             // one line, no separator collisions
     entity.currentTarget == null ? '' : Number(entity.currentTarget),
     String(entity.id == null ? '' : entity.id),
     entity.startDate || '',
@@ -494,19 +815,17 @@ function encodeRows(rows) {
 }
 
 /**
- * Split one child's return value into its two datasets. A string with no group
- * separator is a simulations-only payload (what an older child returns), and a
- * child that produced one dataset but not the other yields an empty side —
- * both decode to [] without special-casing.
+ * Split one child's return value into its three datasets. A payload carrying fewer group
+ * separators than that (a simulations-only return, or a child that produced one dataset
+ * but not the others) leaves the missing sides undefined, and every one of them decodes
+ * to [] without special-casing.
  */
 function decodePayload(str) {
-  var s = String(str == null ? '' : str);
-  var i = s.indexOf(DATASET_SEPARATOR);
-  var simPart = i < 0 ? s : s.slice(0, i);
-  var sharePart = i < 0 ? '' : s.slice(i + DATASET_SEPARATOR.length);
+  var parts = String(str == null ? '' : str).split(DATASET_SEPARATOR);
   return {
-    raw: decodeRows(simPart, HEADERS.length, isSimNumericCol),
-    shares: decodeRows(sharePart, SHARE_HEADERS.length, isShareNumericCol)
+    raw: decodeRows(parts[0] || '', HEADERS.length, isSimNumericCol),
+    shares: decodeRows(parts[1] || '', SHARE_HEADERS.length, isShareNumericCol),
+    actuals: decodeRows(parts[2] || '', ACTUAL_HEADERS.length, isActualNumericCol)
   };
 }
 
@@ -515,6 +834,9 @@ function isSimNumericCol(i) { return (i >= 6 && i <= 12) || i === 2; }
 
 /** Impression-share columns. Campaign Id stays a string — it is an identifier, not a quantity. */
 function isShareNumericCol(i) { return i >= SHARE_NUMERIC_FROM && i <= SHARE_NUMERIC_TO; }
+
+/** Actuals metric columns. Bidding Strategy Id stays a string, for the same reason. */
+function isActualNumericCol(i) { return i >= ACTUAL_NUMERIC_FROM && i <= ACTUAL_NUMERIC_TO; }
 
 /**
  * Rebuild one dataset. `width` is the tab's column count and `isNumeric(i)` says
@@ -543,6 +865,7 @@ function decodeRows(str, width, isNumeric) {
 function writeSnapshot(results) {
   var allRows = [];
   var allShares = [];
+  var allActuals = [];
   for (var i = 0; i < results.length; i++) {
     if (results[i].getStatus() !== 'OK') {
       Logger.log('Account ' + results[i].getCustomerId() + ' failed: ' + results[i].getError());
@@ -551,19 +874,20 @@ function writeSnapshot(results) {
     var decoded = decodePayload(results[i].getReturnValue());
     allRows = allRows.concat(decoded.raw);
     allShares = allShares.concat(decoded.shares);
+    allActuals = allActuals.concat(decoded.actuals);
   }
 
-  if (!allRows.length && !allShares.length) {
-    Logger.log('Nothing returned — no simulation points and no impression shares. The sheet is untouched.');
+  if (!allRows.length && !allShares.length && !allActuals.length) {
+    Logger.log('Nothing returned — no simulation points, impression shares or actuals. The sheet is untouched.');
     return;
   }
 
   /* Derive the run date from the rows themselves: recomputing it from the
      clock here can disagree with the children when a run straddles midnight.
      Simulations are the primary payload, so they name the date whenever present. */
-  var runDate = allRows.length
-    ? String(allRows[0][RUN_DATE_COL - 1])
-    : String(allShares[0][SHARE_RUN_DATE_COL - 1]);
+  var runDate = allRows.length ? String(allRows[0][RUN_DATE_COL - 1])
+    : allShares.length ? String(allShares[0][SHARE_RUN_DATE_COL - 1])
+    : String(allActuals[0][ACTUAL_RUN_DATE_COL - 1]);
 
   var ss = SpreadsheetApp.openByUrl(CONFIG.SPREADSHEET_URL);
   var tz = ss.getSpreadsheetTimeZone();
@@ -580,6 +904,12 @@ function writeSnapshot(results) {
   } else {
     Logger.log('No impression-share rows returned — the "' + CONFIG.SHARES_SHEET_NAME +
       '" tab is untouched and the dashboard falls back to flat class incrementality factors.');
+  }
+  if (allActuals.length) {
+    writeTab(ss, CONFIG.ACTUALS_SHEET_NAME, ACTUAL_HEADERS, ACTUAL_RUN_DATE_COL, allActuals, runDate, tz);
+  } else {
+    Logger.log('No actual-performance rows returned — the "' + CONFIG.ACTUALS_SHEET_NAME +
+      '" tab is untouched and the dashboard hides its actual-ROAS columns.');
   }
 }
 

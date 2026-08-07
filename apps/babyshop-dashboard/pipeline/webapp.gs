@@ -27,6 +27,17 @@
  *   are ASSUMPTIONS until a geo holdout or conversion-lift test measures them, which is
  *   exactly why they live in a spreadsheet cell and not in code.
  *
+ * ACTUAL PERFORMANCE -> REAL ROAS / POAS, TWO WAYS
+ *   Bid simulations are a projection. The "Actuals" tab (also written by the Ads script)
+ *   carries what each simulated entity ACTUALLY did over that entity's own simulation
+ *   window, and this endpoint serves it as `payload.actuals`. Because conversion value in
+ *   these accounts is GP2, actual ROAS is actual POAS:
+ *     ROAS (conv. time)  = Conv Time Conversions Value / Cost   <- Google Ads' "by conv. time"
+ *     ROAS (click time)  = Conversions Value / Cost             <- Google Ads' default columns
+ *   Cost is identical under both schemes, which is why the tab carries it once. Rows join
+ *   to Raw rows on (Customer Name, Bidding Strategy Id, Run Date). A missing tab serves
+ *   `actuals: null` and the dashboard simply hides those columns.
+ *
  * IMPRESSION SHARE -> DYNAMIC INCREMENTALITY
  *   The flat class factors above are a prior, not a measurement, and they are the same
  *   number for a brand campaign holding 99% absolute-top impression share as for one
@@ -68,8 +79,9 @@
  * QUERY PARAMETERS
  *   token    required, must equal SCRIPT_TOKEN
  *   runs     optional, keep only the N most recent Run Dates (e.g. runs=4). Applies to the
- *            Shares tab too; without it, `shares` carries the latest run date only.
- *   account  optional, exact Customer Name filter (applies to both tabs)
+ *            Shares and Actuals tabs too; without it, `shares` carries the latest run date
+ *            only, while `actuals` carries every run present (it is joined per run date).
+ *   account  optional, exact Customer Name filter (applies to all three tabs)
  *
  * SECURITY
  *   The token is a deterrent, not authentication: it travels in a URL that
@@ -91,6 +103,13 @@ var RAW_SHEET = 'Raw';
  * carries `shares: null` and the dashboard falls back to flat class factors.
  */
 var SHARES_SHEET = 'Shares';
+
+/**
+ * Tab holding the appended per-entity actual-performance snapshots. Optional in exactly the
+ * same way as Shares: if the Ads script has not written it yet (or runs with COLLECT_ACTUALS
+ * off), the payload carries `actuals: null` and the dashboard hides its actual-ROAS columns.
+ */
+var ACTUALS_SHEET = 'Actuals';
 
 /**
  * Tab holding both config blocks, side by side as two independent column pairs:
@@ -156,6 +175,16 @@ var INCREMENTALITY_SHARE_KEYS = {
   privatelabelcap: { cls: 'private-label', bound: 'cap' }
 };
 
+/**
+ * Columns on each tab that must reach the client as NUMBERS. readGrid() takes exactly these
+ * from getValues() instead of getDisplayValues(); everything else keeps its display value.
+ * Keep in sync with HEADERS / ACTUAL_HEADERS in ads-script/gp3-simulations.js.
+ */
+var RAW_NUMERIC_HEADERS = ['Current Target Roas', 'TARGET ROAS', 'Conversions', 'Conversions Value',
+  'Clicks', 'Cost Micros', 'Impressions', 'Top Slot Impressions'];
+var ACTUAL_NUMERIC_HEADERS = ['Cost Micros', 'Conversions', 'Conversions Value',
+  'Conv Time Conversions', 'Conv Time Conversions Value'];
+
 /** Hard cap on returned rows, newest run dates first. */
 var MAX_ROWS = 20000;
 
@@ -185,7 +214,8 @@ function doGet(e) {
       rowCount: raw.rows.length,
       runDates: raw.runDates,
       truncated: raw.truncated,
-      shares: readShares(ss, params)     // null when the tab does not exist yet
+      shares: readShares(ss, params),    // null when the tab does not exist yet
+      actuals: readActuals(ss, params)   // null when the tab does not exist yet
     });
   } catch (err) {
     return json({ error: String(err && err.message ? err.message : err) });
@@ -209,14 +239,11 @@ function readRaw(ss, params) {
   var sheet = ss.getSheetByName(RAW_SHEET);
   if (!sheet) throw new Error('Tab "' + RAW_SHEET + '" not found. Has the Ads script run yet?');
 
-  var lastRow = sheet.getLastRow();
-  var lastCol = sheet.getLastColumn();
-  if (lastRow < 2 || lastCol < 1) {
-    return { columns: [], rows: [], runDates: [], truncated: false };
-  }
+  var grid = readGrid(sheet, RAW_NUMERIC_HEADERS);
+  if (!grid) return { columns: [], rows: [], runDates: [], truncated: false };
 
-  var values = sheet.getRange(1, 1, lastRow, lastCol).getDisplayValues();
-  var columns = values[0].map(function (h) { return String(h).trim(); });
+  var values = grid.values;
+  var columns = grid.columns;
   var body = values.slice(1);
 
   var runIdx = indexOfHeader(columns, 'Run Date');
@@ -259,14 +286,12 @@ function readRaw(ss, params) {
     if (endIdx >= 0) r[endIdx] = normaliseDate(r[endIdx]);
   });
 
-  // numeric columns come back from getDisplayValues() as formatted strings
-  // ("150%", "392 645 636 289"); hand the client real numbers instead.
-  var numericHeaders = ['Current Target Roas', 'TARGET ROAS', 'Conversions', 'Conversions Value',
-    'Clicks', 'Cost Micros', 'Impressions', 'Top Slot Impressions'];
-  var numericIdx = numericHeaders.map(function (h) { return indexOfHeader(columns, h); })
-    .filter(function (i) { return i >= 0; });
+  /* Numeric columns arrive from readGrid() as the sheet's RAW numbers, so this is normally a
+     pass-through; toMetricOrZero() only has work to do for a hand-typed cell. It must never
+     read a lone comma as grouping: Conversions and Conversions Value carry three decimals, so
+     on an sv-SE sheet "45,125" is forty-five point one two five, not forty-five thousand. */
   body.forEach(function (r) {
-    numericIdx.forEach(function (i) { r[i] = toNumber(r[i]); });
+    grid.numericIdx.forEach(function (i) { r[i] = toMetricOrZero(r[i]); });
   });
 
   /* Cap the payload by WHOLE runs, dropping the oldest first, so a partially
@@ -347,6 +372,73 @@ function readShares(ss, params) {
     .filter(function (i) { return i >= 0; });
   body.forEach(function (r) {
     shareIdx.forEach(function (i) { r[i] = toShare(r[i]); });
+  });
+
+  if (!body.length) return null;
+  if (body.length > MAX_ROWS) body = body.slice(-MAX_ROWS);
+  return { columns: columns, rows: body, runDates: runDates };
+}
+
+/**
+ * Read the Actuals tab as { columns, rows, runDates } — the same compact shape as the Raw and
+ * Shares tabs, so the dashboard maps all three by header name.
+ *
+ * Returns null when the tab is missing or holds no data rows. That is a NORMAL state (the Ads
+ * script may predate the Actuals tab, or run with COLLECT_ACTUALS off) and the dashboard
+ * responds by hiding its actual-ROAS columns entirely — it is never an error.
+ *
+ * Unlike Shares, EVERY requested run date is served, not just the latest. An actuals row is
+ * joined to the simulation snapshot of its own run date, so serving only the newest would
+ * blank the columns on every historical run the dashboard can display. `runs=N` therefore
+ * narrows it exactly the way it narrows the Raw tab, and the `account` filter applies here too.
+ *
+ * Blank metric cells survive as blanks: on this tab a real 0 is a measurement (spend that
+ * returned nothing) and must stay distinguishable from "the API did not report this", which is
+ * why toMetric() is used here and toMetricOrZero() on the Raw tab.
+ */
+function readActuals(ss, params) {
+  var sheet = ss.getSheetByName(ACTUALS_SHEET);
+  if (!sheet) return null;
+
+  var grid = readGrid(sheet, ACTUAL_NUMERIC_HEADERS);
+  if (!grid) return null;
+
+  var columns = grid.columns;
+  var body = grid.values.slice(1).filter(function (r) { return r.join('').trim().length > 0; });
+
+  var acctIdx = indexOfHeader(columns, 'Customer Name');
+  if (params.account && acctIdx >= 0) {
+    var wanted = String(params.account).trim();
+    body = body.filter(function (r) { return String(r[acctIdx]).trim() === wanted; });
+  }
+
+  var runIdx = indexOfHeader(columns, 'Run Date');
+  var runDates = [];
+  if (runIdx >= 0) {
+    body.forEach(function (r) { r[runIdx] = normaliseDate(r[runIdx]); });
+    var seen = {};
+    body.forEach(function (r) {
+      if (r[runIdx] && !seen[r[runIdx]]) { seen[r[runIdx]] = true; runDates.push(r[runIdx]); }
+    });
+    runDates.sort();
+
+    var limit = parseInt(params.runs, 10);
+    if (limit > 0 && runDates.length > limit) {
+      var keep = {};
+      runDates.slice(-limit).forEach(function (d) { keep[d] = true; });
+      body = body.filter(function (r) { return keep[r[runIdx]]; });
+      runDates = runDates.slice(-limit);
+    }
+  }
+
+  ['Start Date', 'End Date'].forEach(function (h) {
+    var i = indexOfHeader(columns, h);
+    if (i >= 0) body.forEach(function (r) { r[i] = normaliseDate(r[i]); });
+  });
+
+  /* toMetric(), not toMetricOrZero(): a blank stays blank here. */
+  body.forEach(function (r) {
+    grid.numericIdx.forEach(function (i) { r[i] = toMetric(r[i]); });
   });
 
   if (!body.length) return null;
@@ -439,31 +531,95 @@ function canon(s) {
   return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-/** "1 234,5", "1,234.5", "150%" and 1234.5 all become numbers. */
-function toNumber(v) {
-  if (typeof v === 'number') return isFinite(v) ? v : 0;
+/**
+ * Parse one numeric cell. "1 234,5", "1.234,5", "1,234.5", "150%" and 1234.5 all become
+ * numbers; anything unreadable (including a blank cell) becomes ''.
+ *
+ * A LONE COMMA IS ALWAYS A DECIMAL MARK. That is the whole point of this function and it is
+ * not a guess. This workbook's sheets are sv-SE / nb-NO / da-DK, where the thousands separator
+ * is a SPACE and the comma is the decimal mark, and the values on these tabs are fractional:
+ * Google reports conversions and conversion value with three decimals, so 4523.456 displays as
+ * "4 523,456" and 45.125 as "45,125". The obvious heuristic — "a comma followed by exactly
+ * three digits is grouping" — reads both of those a thousand times too large, which would wreck
+ * every ROAS computed from them. Repeated commas can only be grouping, so those are stripped;
+ * a comma AND a dot together means whichever comes last is the decimal mark.
+ *
+ * readRaw() and readActuals() take their numeric columns from getValues() rather than
+ * getDisplayValues() precisely so this string path is a fallback for hand-typed cells rather
+ * than the normal route. toShare() stays separate: a share is never >= 1, so it needs none of
+ * this and says so itself.
+ */
+function toMetric(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : '';
+  if (v instanceof Date) return '';                 // a date in a metric column is not a number
   var s = String(v == null ? '' : v).trim();
-  if (!s) return 0;
+  if (!s) return '';
 
   var isPercent = s.indexOf('%') >= 0;
   // The regex \s already covers NBSP (U+00A0) and narrow NBSP (U+202F), which is
   // what Sheets uses as the thousands separator in sv-SE / nb-NO display values.
   s = s.replace(/%/g, '').replace(/\s/g, '');
 
-  // decide which separator is the decimal mark
-  var lastComma = s.lastIndexOf(',');
-  var lastDot = s.lastIndexOf('.');
-  if (lastComma >= 0 && lastDot >= 0) {
-    if (lastComma > lastDot) s = s.replace(/\./g, '').replace(',', '.');   // 1.234,5
-    else s = s.replace(/,/g, '');                                          // 1,234.5
-  } else if (lastComma >= 0) {
-    // a lone comma is a decimal mark unless it groups three digits
-    s = /,\d{3}(\D|$)/.test(s) ? s.replace(/,/g, '') : s.replace(',', '.');
+  var commas = (s.match(/,/g) || []).length;
+  var dots = (s.match(/\./g) || []).length;
+  if (commas && dots) {
+    if (s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\./g, '').replace(/,/g, '.');  // 1.234,5
+    else s = s.replace(/,/g, '');                                                              // 1,234.5
+  } else if (commas === 1) {
+    s = s.replace(',', '.');          // 45,125 is forty-five point one two five
+  } else if (commas > 1) {
+    s = s.replace(/,/g, '');          // 1,234,567 — repeated commas can only be grouping
   }
 
   var n = parseFloat(s);
-  if (!isFinite(n)) return 0;
+  if (!isFinite(n)) return '';
   return isPercent ? n / 100 : n;
+}
+
+/**
+ * toMetric() with the Raw tab's blank convention: an empty cell is 0 there (an unset Current
+ * Target Roas has always reached the dashboard as 0, and parseRoas() depends on it). The
+ * Actuals tab uses toMetric() directly instead, because a blank there means "not reported"
+ * and must stay distinguishable from a measured 0.
+ */
+function toMetricOrZero(v) {
+  var n = toMetric(v);
+  return n === '' ? 0 : n;
+}
+
+/**
+ * Read one tab as { display, raw } over the same range, and hand the NUMBERS back from the raw
+ * grid while text and dates keep their display values.
+ *
+ * Dates must come from getDisplayValues(): Sheets stores a date as an instant at midnight in
+ * the SPREADSHEET's timezone, so getValues() hands back a Date that formats to the previous day
+ * in UTC. Numbers must come from getValues(): a display string has already been through the
+ * sheet locale's formatting, and a format that rounds ("4 523,46") or switches to scientific
+ * notation destroys precision no parser can recover.
+ *
+ * Only cells that are genuinely numeric in the sheet are substituted, so a blank cell stays
+ * blank and the callers' blank-row filter keeps working.
+ */
+function readGrid(sheet, numericHeaders) {
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return null;
+
+  var range = sheet.getRange(1, 1, lastRow, lastCol);
+  var display = range.getDisplayValues();
+  var raw = range.getValues();
+
+  var columns = display[0].map(function (h) { return String(h).trim(); });
+  var numericIdx = (numericHeaders || []).map(function (h) { return indexOfHeader(columns, h); })
+    .filter(function (i) { return i >= 0; });
+
+  for (var r = 1; r < display.length; r++) {
+    for (var k = 0; k < numericIdx.length; k++) {
+      var c = numericIdx[k];
+      if (typeof raw[r][c] === 'number') display[r][c] = raw[r][c];
+    }
+  }
+  return { values: display, columns: columns, numericIdx: numericIdx };
 }
 
 /**
@@ -474,8 +630,8 @@ function toNumber(v) {
 function toMultiplier(v) {
   var s = String(v == null ? '' : v).trim();
   if (!s) return null;
-  var n = toNumber(s);
-  if (!isFinite(n) || n <= 0) return null;
+  var n = toMetric(s);
+  if (n === '' || !isFinite(n) || n <= 0) return null;
   if (n > 1) n = n / 100;          // "30" meant 30 per cent, "100" meant 1.0
   return n > 1 ? null : n;
 }
@@ -489,8 +645,8 @@ function toMultiplier(v) {
 function toFactor(v) {
   var s = String(v == null ? '' : v).trim();
   if (!s) return null;
-  var n = toNumber(s);
-  if (!isFinite(n) || n < 0) return null;
+  var n = toMetric(s);
+  if (n === '' || !isFinite(n) || n < 0) return null;
   if (n > 1) n = n / 100;          // "20" meant 20 per cent
   return n > 1 ? null : n;
 }
@@ -511,9 +667,9 @@ function toShare(v) {
   var s = String(v == null ? '' : v).trim();
   if (!s) return '';
 
-  /* Parsed here rather than through toNumber(): a share is never >= 1000, so a comma in
-     one of these cells is ALWAYS a decimal mark. toNumber's thousands-separator heuristic
-     would read the sv-SE display value "0,999" as 999. */
+  /* Parsed here rather than through toMetric(): a share is never >= 1, so a comma in one of
+     these cells is ALWAYS a decimal mark and the general parser's separator handling is not
+     needed. Kept separate so this stays true by construction. */
   var isPercent = s.indexOf('%') >= 0;
   var n = parseFloat(s.replace(/%/g, '').replace(/\s/g, '').replace(/,/g, '.'));
   if (!isFinite(n) || n <= 0) return '';
@@ -708,4 +864,8 @@ function testPayload() {
     ? parsed.shares.rows.length + ' row(s) for ' + JSON.stringify(parsed.shares.runDates)
     : 'none — brand and private label fall back to flat class factors'));
   if (parsed.shares) Logger.log('first share:' + JSON.stringify(parsed.shares.rows[0]));
+  Logger.log('actuals:    ' + (parsed.actuals
+    ? parsed.actuals.rows.length + ' row(s) for ' + JSON.stringify(parsed.actuals.runDates)
+    : 'none — the dashboard hides its actual-ROAS columns'));
+  if (parsed.actuals) Logger.log('first actual:' + JSON.stringify(parsed.actuals.rows[0]));
 }

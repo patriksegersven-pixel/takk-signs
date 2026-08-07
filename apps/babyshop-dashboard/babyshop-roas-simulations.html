@@ -974,6 +974,191 @@ function shareFor(index, account, name, id) {
   return index.byName[JSON.stringify([account, String(name || '').trim().toLowerCase()])] || null;
 }
 
+/* ---------- actual performance, two attribution schemes -------------------------
+
+   WHY THIS EXISTS
+   Everything else on this page is a PROJECTION: Google's simulator answering "what would
+   the last 7 days have looked like at a different target". The Actuals tab carries what
+   the same entity actually did over the SAME window, so the projection can be read next
+   to the measurement instead of on its own.
+
+   Because conversion value in these accounts is already gross profit, actual ROAS here is
+   actual POAS — with the one exception the valueToGp2Multiplier escape hatch exists for: an
+   account still reporting REVENUE as its conversion value gets a revenue ROAS, and the
+   tooltips say so per campaign rather than claiming POAS across the board.
+
+   It is reported TWO WAYS, and they are genuinely different numbers:
+
+     conv. time   Conv Time Conversions Value / Cost
+                  Google's metrics.conversions_value_by_conversion_date — every conversion
+                  counted on the date it HAPPENED. This is the account's default view in
+                  the Google Ads UI, so it is the primary column here.
+     click time   Conversions Value / Cost
+                  Google's metrics.conversions_value — every conversion counted on the date
+                  of the CLICK that led to it. This is the scheme the bid simulator and the
+                  Target ROAS bidding itself run on, so it is the one directly comparable
+                  with the simulated points above.
+
+   Cost is identical under both, which is why the tab carries it once and both ROAS figures
+   divide by the same denominator. Neither is uploaded or adjusted: like the simulated
+   Sim. ROAS column, these are never multiplier-adjusted and never incrementality-adjusted —
+   they are what Google reports.
+   ------------------------------------------------------------------------------ */
+
+/* Actuals tab header -> canonical field, same forgiving matching as COLUMN_MAP. */
+var ACTUAL_COLUMN_MAP = {
+  customername: 'account',
+  biddingstrategyid: 'strategyId',
+  biddingstrategyname: 'strategy',
+  level: 'level',
+  startdate: 'startDate',
+  enddate: 'endDate',
+  costmicros: 'costMicros',
+  conversions: 'conversions',
+  conversionsvalue: 'convValue',
+  convtimeconversions: 'convTimeConversions',
+  convtimeconversionsvalue: 'convTimeConvValue',
+  currency: 'currency',
+  rundate: 'runDate'
+};
+
+/**
+ * A metric that must keep the difference between 0 and "not reported". 0 is a real
+ * measurement here (spend that returned nothing) and renders as 0.00x; absent renders as a
+ * dash. Never collapse one into the other.
+ */
+function actualNum(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number') return isFinite(v) ? v : null;
+  var n = parseFloat(String(v).replace(/[^0-9eE+\-.]/g, ''));
+  return isFinite(n) ? n : null;
+}
+
+/**
+ * Normalise `payload.actuals` — { columns, rows } from the Actuals tab — into a flat list of
+ * { account, strategyId, strategy, level, startDate, endDate, cost, conversions, convValue,
+ *   convTimeConversions, convTimeConvValue, currency, runDate }.
+ *
+ * Unlike shares, EVERY run date is kept: an actuals row belongs to the simulation snapshot of
+ * its own run, and the history table renders one row per run. Cost is converted from micros
+ * once, here, so no renderer has to remember the unit.
+ *
+ * A missing/empty/malformed block yields [], and every actual-ROAS column disappears.
+ */
+function normalizeActuals(actuals) {
+  if (!actuals || !Array.isArray(actuals.rows) || !actuals.rows.length) return [];
+  var cols = actuals.columns || null;
+
+  return actuals.rows.map(function (r) {
+    var o = {};
+    if (Array.isArray(r)) {
+      if (!cols) return o;
+      for (var i = 0; i < cols.length; i++) {
+        var key = ACTUAL_COLUMN_MAP[canonKey(cols[i])];
+        if (key) o[key] = r[i];
+      }
+      return o;
+    }
+    Object.keys(r).forEach(function (k) {
+      var key2 = ACTUAL_COLUMN_MAP[canonKey(k)] || k;
+      o[key2] = r[k];
+    });
+    return o;
+  }).map(function (r) {
+    var micros = actualNum(r.costMicros);
+    return {
+      account: String(r.account || '').trim(),
+      strategyId: String(r.strategyId == null ? '' : r.strategyId).trim(),
+      strategy: String(r.strategy || '').trim(),
+      level: String(r.level || '').trim(),
+      startDate: toIsoDate(r.startDate),
+      endDate: toIsoDate(r.endDate),
+      cost: micros == null ? null : micros / 1e6,
+      conversions: actualNum(r.conversions),
+      convValue: actualNum(r.convValue),
+      convTimeConversions: actualNum(r.convTimeConversions),
+      convTimeConvValue: actualNum(r.convTimeConvValue),
+      currency: String(r.currency || '').trim().toUpperCase(),
+      runDate: toIsoDate(r.runDate)
+    };
+  }).filter(function (r) {
+    /* Without spend there is no ROAS to report, and without a run date the row cannot be
+       joined to the snapshot it describes. Both are dropped rather than rendered as 0. */
+    return r.account && (r.strategyId || r.strategy) && r.runDate && r.cost > 0;
+  });
+}
+
+/**
+ * Index actuals for lookup by (account, run date, strategy id), with an
+ * (account, run date, name) fallback for a row whose id never made it through.
+ *
+ * The RUN DATE is part of the key on purpose: the Raw tab holds up to 90 days of snapshots
+ * and the history view rebuilds each one, so an actuals row must only ever be attached to
+ * the run it was measured for. Back-dating this week's performance onto an older snapshot
+ * would rewrite history to agree with the present.
+ */
+function buildActualIndex(list) {
+  var byId = {}, byName = {}, dates = {};
+  (list || []).forEach(function (r) {
+    if (r.strategyId) byId[JSON.stringify([r.account, r.runDate, r.strategyId])] = r;
+    if (r.strategy) byName[JSON.stringify([r.account, r.runDate, r.strategy.toLowerCase()])] = r;
+    dates[r.runDate] = true;
+  });
+  return { byId: byId, byName: byName, count: (list || []).length, runDates: Object.keys(dates).sort() };
+}
+
+/** Look one campaign's actuals up for one run date; null when it has none. */
+function actualFor(index, account, runDate, name, id) {
+  if (!index || !runDate) return null;
+  if (id) {
+    var hit = index.byId[JSON.stringify([account, runDate, String(id).trim()])];
+    if (hit) return hit;
+  }
+  return index.byName[JSON.stringify([account, runDate, String(name || '').trim().toLowerCase()])] || null;
+}
+
+/**
+ * Turn one actuals row into the figures the tables render, one block per attribution scheme.
+ *
+ * Both schemes share a denominator (cost is identical under either), and either numerator may
+ * be absent — an absent numerator stays null rather than becoming 0, so "not reported" and
+ * "returned nothing" never render the same. Cost is guaranteed > 0 by normalizeActuals(), so
+ * no division here can produce Infinity or NaN.
+ *
+ * ROAS is deliberately RAW — reported value over reported cost, exactly the scale a Target
+ * ROAS is set on, matching the simulated points' Sim. ROAS. The GP2 / GP3 / iGP3 figures next
+ * to it go through the same chain the simulated points do, so measured and projected profit
+ * are directly comparable: GP2 = value × mult, iGP3 = GP2 × factor − cost.
+ */
+function actualPerformance(a, mult, factor) {
+  if (!a || !(a.cost > 0)) return null;
+  var m = mult == null ? 1 : mult;
+  var f = factor == null || !isFinite(factor) ? 1 : factor;
+  var scheme = function (value, conversions) {
+    if (value == null) return { value: null, conversions: conversions, roas: null, gp2: null, gp3: null, igp3: null };
+    var gp2 = value * m;
+    return {
+      value: value,
+      conversions: conversions,
+      roas: value / a.cost,
+      gp2: gp2,
+      gp3: gp2 - a.cost,
+      igp3: gp2 * f - a.cost
+    };
+  };
+  var convTime = scheme(a.convTimeConvValue, a.convTimeConversions);
+  var clickTime = scheme(a.convValue, a.conversions);
+  return {
+    cost: a.cost,
+    startDate: a.startDate,
+    endDate: a.endDate,
+    convTime: convTime,
+    clickTime: clickTime,
+    roasConvTime: convTime.roas,
+    roasClickTime: clickTime.roas
+  };
+}
+
 /* ---------- incrementality ----------------------------------------------------
 
    WHY THIS EXISTS
@@ -1300,8 +1485,12 @@ function breakevenTarget(segs) {
  * the multiplier answers "is this number GP2?", incrementality answers "how much of this
  * GP2 did the ad actually cause?". Chain:  GP2 = value × mult  ->  iGP2 = GP2 × factor.
  * Cost is never scaled — it is 100% real regardless of class — so iGP3 = iGP2 − cost.
+ *
+ * `actual` is the matching Actuals row (optional, null when the tab has no data for this
+ * campaign and run). It carries what the campaign MEASURABLY did over the same window and
+ * touches no recommendation — it is reported alongside them, never fed into them.
  */
-function buildStrategy(rows, valueToGp2Multiplier, incrementality) {
+function buildStrategy(rows, valueToGp2Multiplier, incrementality, actual) {
   var mult = valueToGp2Multiplier == null ? 1 : valueToGp2Multiplier;
   var head = rows[0];
   var inc = incrementality || resolveIncrementality(head.strategy, null);
@@ -1321,10 +1510,11 @@ function buildStrategy(rows, valueToGp2Multiplier, incrementality) {
       conversions: r.conversions,
       clicks: r.clicks,
       impressions: r.impressions,
-      // ROAS exactly as Google measures it: reported conversion value over cost,
-      // i.e. the same scale the target ROAS is set on — never multiplier-adjusted
-      // and never incrementality-adjusted.
-      roasActual: cost > 0 ? r.convValue / cost : 0
+      // ROAS of this SIMULATED point: the value Google projects at this target over the
+      // cost it projects with it, i.e. the same scale the target ROAS is set on. Never
+      // multiplier-adjusted and never incrementality-adjusted. Distinct from the MEASURED
+      // ROAS on `strategy.actual` below, which is what the campaign really returned.
+      roasSim: cost > 0 ? r.convValue / cost : 0
     };
   }).sort(function (a, b) { return a.target - b.target; });
 
@@ -1396,6 +1586,7 @@ function buildStrategy(rows, valueToGp2Multiplier, incrementality) {
     currentTarget: head.currentTarget,
     currentInRange: curInRange,
     valueToGp2Multiplier: mult,
+    actual: actualPerformance(actual, mult, factor),
     incrementality: inc,
     incFactor: factor,
     incClass: inc.cls,
@@ -1431,8 +1622,10 @@ function buildStrategy(rows, valueToGp2Multiplier, incrementality) {
  * built-in class defaults apply).
  * `shareIndex` is the impression-share index from buildShareIndex() (optional; omitted or
  * null means every campaign uses its flat class factor).
+ * `actualIndex` is the actual-performance index from buildActualIndex() (optional; omitted
+ * or null means the actual-ROAS columns are simply not rendered).
  */
-function buildStrategies(rows, multipliers, defaultMultiplier, incrementalityCfg, shareIndex) {
+function buildStrategies(rows, multipliers, defaultMultiplier, incrementalityCfg, shareIndex, actualIndex) {
   var groups = {};
   rows.forEach(function (r) {
     // JSON key: strategy names repeat across accounts, and no plain-text
@@ -1447,7 +1640,8 @@ function buildStrategies(rows, multipliers, defaultMultiplier, incrementalityCfg
     var def = defaultMultiplier == null ? 1 : defaultMultiplier;
     var mult = multipliers && multipliers[g[0].account] != null ? multipliers[g[0].account] : def;
     var share = shareFor(shareIndex, g[0].account, g[0].strategy, g[0].strategyId);
-    out.push(buildStrategy(g, mult, resolveIncrementality(g[0].strategy, incrementalityCfg, share)));
+    var act = actualFor(actualIndex, g[0].account, g[0].runDate, g[0].strategy, g[0].strategyId);
+    out.push(buildStrategy(g, mult, resolveIncrementality(g[0].strategy, incrementalityCfg, share), act));
   });
   return out.sort(function (a, b) { return (b.current ? b.current.cost : 0) - (a.current ? a.current.cost : 0); });
 }
@@ -1563,8 +1757,8 @@ function fmtPct1(v) { return v === null || v === undefined ? '—' : (v * 100).t
 
    Emitted in exactly the payload contract pipeline/webapp.gs serves — a `columns`
    array plus row ARRAYS in column order, `config.valueToGp2Multipliers`,
-   `config.incrementality` (classes / overrides / shareWeights) and a `shares` block —
-   so the demo exercises the same normalisation path as live data.
+   `config.incrementality` (classes / overrides / shareWeights), a `shares` block and an
+   `actuals` block — so the demo exercises the same normalisation path as live data.
    ================================================================== */
 
 const DEMO_COLUMNS = ["Customer Name","Bidding Strategy Name","Current Target Roas","Bidding Strategy Id",
@@ -1603,6 +1797,47 @@ const DEMO_RUNS = [
   { date:'2026-07-29', start:'2026-07-20', end:'2026-07-26', scale:0.97 },
   { date:'2026-08-05', start:'2026-07-27', end:'2026-08-02', scale:1.00 },
 ];
+
+const DEMO_ACTUAL_COLUMNS = ["Customer Name","Bidding Strategy Id","Bidding Strategy Name","Level",
+  "Start Date","End Date","Cost Micros","Conversions","Conversions Value",
+  "Conv Time Conversions","Conv Time Conversions Value","Currency","Run Date"];
+
+/* Measured performance never lands exactly on the simulated curve — Google's simulator
+   answers a counterfactual and does not reconcile with reported ROAS, which is the same
+   discrepancy the Google Ads UI shows. These factors bend the demo's actuals off the curve
+   deliberately, so the two numbers are visibly different rather than suspiciously identical:
+     cost      slightly under the simulated cost at the current target
+     click     click-time value, the scheme the simulator itself runs on
+     convTime  conversion-time value, higher here because conversions from clicks BEFORE the
+               window landed inside it — the usual direction for a settled week
+   demo-search-pb-bundle deliberately has NO actuals row, so the missing-data path renders. */
+const DEMO_ACTUAL_SKEW = { cost: 0.97, click: 0.94, convTime: 1.01 };
+const DEMO_ACTUALS_MISSING = 'demo-search-pb-bundle';
+
+function buildDemoActuals(){
+  const round100 = v => Math.round(v / 100) * 100;
+  const rows = [];
+  DEMO_RUNS.forEach(run => {
+    DEMO_CAMPAIGNS.forEach(c => {
+      if (c.name === DEMO_ACTUALS_MISSING) return;
+      const A = c.A * run.scale;
+      // where the campaign actually sat: its own current target on that run's curve
+      const simCost = round100(Math.pow(A / c.current, 1 / (1 - c.b)));
+      const simGp2  = c.current * simCost;
+      const cost      = round100(simCost * DEMO_ACTUAL_SKEW.cost);
+      const clickGp2  = round100(simGp2 * DEMO_ACTUAL_SKEW.click);
+      const convGp2   = round100(clickGp2 * DEMO_ACTUAL_SKEW.convTime);
+      rows.push([
+        c.account, c.id, c.name, 'campaign', run.start, run.end,
+        cost * 1e6,
+        Math.round(clickGp2 / c.gpc * 10) / 10, clickGp2,
+        Math.round(convGp2 / c.gpc * 10) / 10, convGp2,
+        c.currency, run.date
+      ]);
+    });
+  });
+  return rows;
+}
 
 function buildDemoRows(){
   const round100 = v => Math.round(v / 100) * 100;
@@ -1661,6 +1896,13 @@ const DEMO_DATA = {
       ["Demo Retail SE","900000004","demo-search-brand",0.95,0.93,0.90,"SEK","2026-08-05"],
       ["Demo Retail SE","900000003","demo-shopping-pb-product",0.72,0.54,0.33,"SEK","2026-08-05"]
     ]
+  },
+  /* Measured performance for every run, so the history table's actual-ROAS columns fill in
+     too — actuals are joined per run date, not pinned to the latest one the way shares are. */
+  actuals: {
+    columns: DEMO_ACTUAL_COLUMNS,
+    rows: buildDemoActuals(),
+    runDates: DEMO_RUNS.map(r => r.date)
   }
 };
 
@@ -1671,6 +1913,8 @@ const state = {
   rows: [],           // normalised rows (all accounts, all runs)
   shares: [],         // normalised impression-share rows (latest run date only)
   shareIndex: null,   // (account, campaign id|name) -> share row
+  actuals: [],        // normalised actual-performance rows (every run date present)
+  actualIndex: null,  // (account, run date, campaign id|name) -> actuals row
   source: 'demo',     // 'live' | 'cached' | 'demo'
   fetchedAt: null,
   error: null,
@@ -1742,6 +1986,11 @@ function adoptPayload(payload, source, fetchedAt){
      its flat class factor. */
   state.shares = normalizeShares(payload.shares);
   state.shareIndex = buildShareIndex(state.shares);
+  /* Actuals are optional in exactly the same way: a payload from an endpoint that predates
+     the Actuals tab, or one whose tab is empty, yields an empty index and the actual-ROAS
+     columns are not rendered at all — the page looks exactly as it did before. */
+  state.actuals = normalizeActuals(payload.actuals);
+  state.actualIndex = buildActualIndex(state.actuals);
   state.source = source;
   state.fetchedAt = fetchedAt || null;
 }
@@ -1832,6 +2081,73 @@ function incPillLabel(s){ return incLabel(s.incFactor) + ' (' + incSourceLabel(s
 function sharePct(v){ return v == null ? '—' : (v * 100).toFixed(0) + '%'; }
 function sharesRunDate(){ return state.shareIndex ? state.shareIndex.runDate : null; }
 
+/* ---- measured performance (Actuals tab) ----------------------------------------
+   Every actual-ROAS column is gated on one of these two predicates. Against an endpoint
+   that predates the Actuals tab both are false, no column is emitted, and the page renders
+   byte-for-byte the page it rendered before the feature existed. */
+
+/** Does the CURRENT selection have measured actuals? Gates the summary and drill-down. */
+function anyActuals(){ return state.strategies.some(s => s.actual); }
+/**
+ * Does any run have measured actuals FOR THE SELECTED ACCOUNT? Gates the history table, which
+ * spans runs and so cannot use anyActuals() — but is still scoped to one account, so a payload
+ * whose only actuals belong to a different account must not add two columns of dashes here.
+ */
+function anyActualsLoaded(){
+  return state.actuals.some(a => state.account === '__all' || a.account === state.account);
+}
+
+/** ROAS in the "2.45×" idiom. null (not reported) is a dash; a real 0 stays 0.00×. */
+function fmtRoas(v){ return v == null || !isFinite(v) ? '—' : v.toFixed(2) + '×'; }
+
+const ACTUAL_SCHEME_LABEL = { convTime: 'conv. time', clickTime: 'click time' };
+
+/**
+ * Cost-weighted actual ROAS across a list of campaigns, per scheme. Each scheme sums only the
+ * cost of the campaigns that reported ITS numerator, so a campaign missing one variant cannot
+ * inflate the denominator of the other. Callers guarantee a single currency.
+ */
+function actualTotals(list){
+  const t = { convCost:0, convValue:0, clickCost:0, clickValue:0, n:0, cost:0 };
+  (list || []).forEach(s => {
+    const a = s.actual;
+    if (!a) return;
+    t.n++; t.cost += a.cost;
+    if (a.convTime.value != null){ t.convCost += a.cost; t.convValue += a.convTime.value; }
+    if (a.clickTime.value != null){ t.clickCost += a.cost; t.clickValue += a.clickTime.value; }
+  });
+  return {
+    n: t.n,
+    cost: t.cost,
+    roasConvTime: t.convCost > 0 ? t.convValue / t.convCost : null,
+    roasClickTime: t.clickCost > 0 ? t.clickValue / t.clickCost : null
+  };
+}
+
+/** Tooltip behind one actual-ROAS cell: the division, the window, and what the scheme means. */
+function actualRoasTitle(s, key){
+  const a = s && s.actual;
+  if (!a) return 'No measured performance for this campaign in this run — the Actuals tab has no ' +
+    'row for it, so only the simulated projection above is available.';
+  const b = a[key];
+  const win = a.startDate && a.endDate ? a.startDate + ' → ' + a.endDate : 'the simulation window';
+  const what = key === 'convTime'
+    ? 'Conversion value counted on the date each conversion HAPPENED (Google Ads "by conv. time", ' +
+      'the default view in this account).'
+    : 'Conversion value counted on the date of the CLICK that led to it (Google Ads\' standard ' +
+      'columns) — the same scheme the bid simulator and Target ROAS bidding run on.';
+  if (b.value == null)
+    return what + ' Not reported for this campaign over ' + win + '.';
+  /* POAS only holds where conversion value IS gross profit. An account carrying a
+     valueToGp2Multiplier reports revenue instead, and calling its ROAS a POAS would be wrong. */
+  var basis = Math.abs(s.valueToGp2Multiplier - 1) > 1e-9
+    ? '. This account reports revenue rather than gross profit as its conversion value (GP2 = value × ' +
+      s.valueToGp2Multiplier.toFixed(2) + '), so this is revenue ROAS, not POAS.'
+    : '. Conversion value in this account is gross profit, so this is POAS.';
+  return what + ' Measured over ' + win + ': ' + money(b.value, s.currency) + ' value over ' +
+    money(a.cost, s.currency) + ' cost = ' + fmtRoas(b.roas) + basis;
+}
+
 /** Tooltip behind the factor pill: the whole derivation in one sentence. */
 function incFactorTitle(s){
   const inc = s.incrementality;
@@ -1882,7 +2198,8 @@ function rebuild(resetSelections){
   if (!runs.includes(state.runDate)) state.runDate = runs[runs.length - 1];
 
   const m = gp2Multipliers();
-  state.strategies = buildStrategies(scopedRows(), m.map, m.def, incrementalityCfg(), state.shareIndex);
+  state.strategies = buildStrategies(scopedRows(), m.map, m.def, incrementalityCfg(),
+    state.shareIndex, state.actualIndex);
   state.strategies.forEach(s => s.key = s.account + ' · ' + s.name);
   state.mixedCurrency = new Set(state.strategies.map(s => s.currency)).size > 1;
   /* Which money symbols are genuinely ambiguous IN THIS SELECTION — i.e. claimed by two
@@ -2179,13 +2496,24 @@ function renderSummaryTable(){
   if (!ss.length){ el.innerHTML = '<tbody><tr><td class="empty">No campaigns in this selection.</td></tr></tbody>'; return; }
   const incAdj = anyIncAdjusted();
   const G3 = incAdj ? 'iGP3' : 'GP3';
-  const NCOL = 11;
+  /* Actual-ROAS columns exist only when the Actuals tab has a row for this run. Without them
+     the table is exactly the 11-column table that predates the feature. */
+  const act = anyActuals();
+  const NCOL = act ? 13 : 11;
+  /* The header tooltip covers the whole column, so it may only claim POAS when conversion value
+     is gross profit for EVERY campaign in the selection. One revenue-reporting account is enough
+     to make the claim false; the per-cell tooltip still says which is which. */
+  const poasNote = act && !state.strategies.some(s => Math.abs(s.valueToGp2Multiplier - 1) > 1e-9)
+    ? ' Conversion value here is gross profit, so this is POAS.'
+    : ' Conversion value is gross profit in most of these accounts, making this POAS; hover a cell for one that reports revenue instead.';
 
   let html = `<thead><tr>
       <th>Campaign</th>
       <th title="the Target ROAS configured right now">Current</th>
       <th title="the simulated target with the highest ${G3}">Rec.</th>
       <th title="target where the marginal krona returns exactly 1.0, interpolated">Breakeven</th>
+      ${act ? `<th title="MEASURED, not simulated: conversion value counted on the date each conversion happened (Google Ads &quot;by conv. time&quot;, this account's default view) divided by cost over the same window.${poasNote}">Actual ROAS<br><span class="assumption">conv. time</span></th>
+      <th title="MEASURED, not simulated: conversion value counted on the date of the click that led to it (Google Ads' standard columns) divided by cost over the same window. This is the scheme the bid simulator and Target ROAS bidding run on.">Actual ROAS<br><span class="assumption">click time</span></th>` : ''}
       <th>Cost</th><th title="ad cost change at the recommended target">&Delta; cost</th>
       <th title="observed GP3 at the current target, before any incrementality haircut">GP3 obs.</th>
       <th>${G3} now</th><th>${G3} max</th><th>${G3} uplift</th><th>Status</th>
@@ -2206,6 +2534,12 @@ function renderSummaryTable(){
     const incBadge = s.incAdjusted
       ? ` <span class="pill pill-inc" title="${esc(incFactorTitle(s))}">${esc(incPillLabel(s))}</span>` : '';
     const acct = state.account === '__all' ? esc(s.account) + ' · ' : '';
+    /* Conversion time first and unmuted: it is the user's default view in Google Ads. Click
+       time is the secondary read, and it is the one the simulator's own numbers sit on. */
+    const actCells = act
+      ? `<td class="mono" title="${esc(actualRoasTitle(s, 'convTime'))}"><b>${fmtRoas(s.actual && s.actual.roasConvTime)}</b></td>
+         <td class="mono cell-muted" title="${esc(actualRoasTitle(s, 'clickTime'))}">${fmtRoas(s.actual && s.actual.roasClickTime)}</td>`
+      : '';
     return `<tr data-strategy="${esc(s.key)}" class="${s.key === state.strategyKey ? 'row-sel' : ''}">
       <td><div class="strat-cell"><span class="nm">${esc(s.name)}</span>
         <span class="mt">${acct}${s.points.length} points · ${esc(s.biddingType || '')}${multBadge}${incBadge}</span></div></td>
@@ -2214,6 +2548,7 @@ function renderSummaryTable(){
         s.incAdjusted && s.optObserved.target !== s.opt.target
           ? `<div class="assumption" title="where the unadjusted GP3 maximum sits">obs ${fmtPct(s.optObserved.target)}</div>` : ''}</td>
       <td class="cell-muted mono">${be}</td>
+      ${actCells}
       <td>${fmtMoney(cur.cost, s.currency)}</td>
       <td class="cell-muted">${signedMoney(s.costChange, s.currency)}</td>
       <td class="cell-muted">${fmtMoney(cur.gp3, s.currency)}</td>
@@ -2229,7 +2564,13 @@ function renderSummaryTable(){
     if (curs.length !== 1)
       return `<tr class="${cls}"><td>${label}</td>${'<td></td>'.repeat(NCOL-2)}<td class="cell-muted">mixed currencies</td></tr>`;
     const c = curs[0], t = summaryTotals(list);
-    return `<tr class="${cls}"><td>${label}</td><td></td><td></td><td></td>
+    /* A subtotal ROAS is cost-weighted (total value / total cost), never a mean of ratios:
+       averaging ratios would let a tiny campaign outvote the spend. */
+    const at = act ? actualTotals(list) : null;
+    const actSub = act
+      ? `<td class="mono"><b>${fmtRoas(at.roasConvTime)}</b></td><td class="mono cell-muted">${fmtRoas(at.roasClickTime)}</td>`
+      : '';
+    return `<tr class="${cls}"><td>${label}</td><td></td><td></td><td></td>${actSub}
       <td>${fmtMoney(t.cost,c)}</td><td class="cell-muted">${signedMoney(t.dc,c)}</td>
       <td class="cell-muted">${fmtMoney(t.gp3,c)}</td><td>${fmtMoney(t.igp3,c)}</td><td>${fmtMoney(t.max,c)}</td>
       <td class="${signCell(t.up,1)}">${signedMoney(t.up,c)}</td><td></td></tr>`;
@@ -2387,6 +2728,9 @@ function renderStrategy(){
     <div><span class="k">${G3} uplift</span><span class="v ${s.uplift > 1 ? 'pos' : s.uplift < -1 ? 'neg' : ''}">${signedMoney(s.uplift, s.currency)}</span></div>
     <div><span class="k">Cost change</span><span class="v">${signedMoney(s.costChange, s.currency)}</span></div>
     <div><span class="k">Class</span><span class="v">${esc(CLASS_LABEL[s.incClass])} <span class="pill pill-inc" title="${esc(incFactorTitle(s))}">${adj ? esc(incPillLabel(s)) : '×1.00'}</span></span></div>
+    ${s.actual ? `
+    <div><span class="k">Actual ROAS (conv. time)</span><span class="v" title="${esc(actualRoasTitle(s, 'convTime'))}">${fmtRoas(s.actual.roasConvTime)}</span></div>
+    <div><span class="k">Actual ROAS (click time)</span><span class="v" title="${esc(actualRoasTitle(s, 'clickTime'))}">${fmtRoas(s.actual.roasClickTime)}</span></div>` : ''}
     <div><span class="k">Window</span><span class="v" style="font-size:13px">${s.startDate} &rarr; ${s.endDate}</span></div>`;
   renderIncrementalityBox(s);
 
@@ -2499,7 +2843,8 @@ function renderStrategy(){
   s.segments.forEach(g => segByTo[g.to.target] = g);
   const kept = new Set(s.efficient.map(p => p.target));
   let html = `<thead><tr><th>Target ROAS</th><th>Cost</th><th>GP2</th><th>GP3</th>${adj ? '<th>iGP3</th>' : ''}
-    <th>Marginal ${adj ? 'iROAS' : 'ROAS'}</th><th>Conv.</th><th>Clicks</th><th>Impr.</th><th>Actual ROAS</th></tr></thead><tbody>`;
+    <th>Marginal ${adj ? 'iROAS' : 'ROAS'}</th><th>Conv.</th><th>Clicks</th><th>Impr.</th>
+    <th title="ROAS of this SIMULATED point — the value Google projects at this target over the cost it projects with it. Not a measurement: the measured ROAS is on the two rows at the foot of this table.">Sim. ROAS</th></tr></thead><tbody>`;
   rows.forEach(p => {
     const g = segByTo[p.target];
     const isOpt = p.target === s.opt.target;
@@ -2515,8 +2860,31 @@ function renderStrategy(){
       <td class="mono ${g ? (g.mRoas >= 1 ? 'cell-pos' : 'cell-neg') : ''}"${
         g && adj ? ' title="observed ' + g.mRoasObserved.toFixed(3) + '"' : ''}>${g ? g.mRoas.toFixed(3) : '—'}</td>
       <td>${num(p.conversions,1)}</td><td>${num(p.clicks)}</td><td>${num(p.impressions)}</td>
-      <td>${p.roasActual.toFixed(2)}×</td></tr>`;
+      <td class="mono">${fmtRoas(p.roasSim)}</td></tr>`;
   });
+
+  /* Two measured rows under the simulated grid, one per attribution scheme. They are the
+     only rows in this table that are not a projection, which is why they are labelled and
+     separated rather than mixed into the point list. Absent entirely when the Actuals tab
+     has no row for this campaign and run. */
+  if (s.actual){
+    const a = s.actual;
+    const win = a.startDate && a.endDate ? a.startDate + ' → ' + a.endDate : 'last 7 days';
+    const actualRow = (key, primary) => {
+      const b = a[key];
+      return `<tr class="${primary ? 'total-row' : 'sub-row'}" title="${esc(actualRoasTitle(s, key))}">
+        <td><b>Actual</b> <span class="assumption">${ACTUAL_SCHEME_LABEL[key]} · ${esc(win)}</span></td>
+        <td>${money(a.cost, s.currency)}</td>
+        <td>${b.gp2 == null ? '—' : money(b.gp2, s.currency)}</td>
+        <td class="${adj ? 'cell-muted' : ''}">${b.gp3 == null ? '—' : money(b.gp3, s.currency)}</td>
+        ${adj ? `<td class="${b.igp3 != null && b.igp3 < 0 ? 'cell-neg' : ''}">${b.igp3 == null ? '—' : money(b.igp3, s.currency)}</td>` : ''}
+        <td class="cell-muted">—</td>
+        <td>${b.conversions == null ? '—' : num(b.conversions, 1)}</td>
+        <td class="cell-muted">—</td><td class="cell-muted">—</td>
+        <td class="mono">${primary ? '<b>' + fmtRoas(b.roas) + '</b>' : fmtRoas(b.roas)}</td></tr>`;
+    };
+    html += actualRow('convTime', true) + actualRow('clickTime', false);
+  }
   document.getElementById('point-table').innerHTML = html + '</tbody>';
 }
 
@@ -2689,20 +3057,33 @@ function renderHistory(){
      agree with the present. Older runs keep their flat class factors. */
   const shareIdxFor = d => (sharesRunDate() === d ? state.shareIndex : null);
 
+  /* Actuals, unlike shares, are keyed BY run date, so every run gets its own measurement
+     rather than one snapshot's being applied to all of them. A run with no actuals row
+     simply shows a dash. */
+  const act = anyActualsLoaded();
+
   let rt = `<thead><tr><th>Run date</th><th>Age</th><th>Campaigns</th><th>Points</th>
-    <th>Current cost</th><th>Current ${G3}</th><th>Potential ${G3}</th><th>Score</th></tr></thead><tbody>`;
+    <th>Current cost</th>${act ? `<th title="MEASURED: total conversion value counted on the date each conversion happened, over total cost, across every campaign in this run.">Actual ROAS<br><span class="assumption">conv. time</span></th>
+    <th title="MEASURED: total conversion value counted on the date of the click that led to it, over total cost, across every campaign in this run.">Actual ROAS<br><span class="assumption">click time</span></th>` : ''}
+    <th>Current ${G3}</th><th>Potential ${G3}</th><th>Score</th></tr></thead><tbody>`;
   runs.slice().reverse().forEach(d => {
-    const ss = buildStrategies(inAcct.filter(r => r.runDate === d), m.map, m.def, ic, shareIdxFor(d));
+    const ss = buildStrategies(inAcct.filter(r => r.runDate === d), m.map, m.def, ic, shareIdxFor(d), state.actualIndex);
     const curs = [...new Set(ss.map(s => s.currency))];
     const c = curs.length === 1 ? curs[0] : null;
     const cost = ss.reduce((a,s) => a + (s.current ? s.current.cost : 0), 0);
     const gp3  = ss.reduce((a,s) => a + (s.current ? s.current.igp3 : 0), 0);
     const pot  = unconstrainedOptimum(ss);
     const age  = daysBetween(d, todayIso());
+    /* Summing conversion value across currencies would be meaningless, so a mixed-currency
+       run reports no aggregate ROAS at all — the same rule the money columns already follow. */
+    const at = act ? actualTotals(ss) : null;
     rt += `<tr${d === state.runDate ? ' class="row-sel"' : ''}>
       <td>${d}${d === state.runDate ? ' <span class="pill pill-accent">shown</span>' : ''}</td>
       <td>${age} d</td><td>${ss.length}</td><td>${inAcct.filter(r => r.runDate === d).length}</td>
-      <td>${c ? fmtMoney(cost,c) : 'mixed'}</td><td>${c ? fmtMoney(gp3,c) : 'mixed'}</td>
+      <td>${c ? fmtMoney(cost,c) : 'mixed'}</td>
+      ${act ? `<td class="mono"><b>${c ? fmtRoas(at.roasConvTime) : 'mixed'}</b></td>
+      <td class="mono cell-muted">${c ? fmtRoas(at.roasClickTime) : 'mixed'}</td>` : ''}
+      <td>${c ? fmtMoney(gp3,c) : 'mixed'}</td>
       <td>${c ? fmtMoney(pot.igp3,c) : 'mixed'}</td>
       <td>${pot.igp3 > 0 ? fmtPctSv(gp3/pot.igp3) : '—'}</td></tr>`;
   });
@@ -2723,7 +3104,7 @@ function renderHistory(){
 
   const key = state.strategyKey;
   const series = runs.map(d => {
-    const ss = buildStrategies(inAcct.filter(r => r.runDate === d), m.map, m.def, ic, shareIdxFor(d));
+    const ss = buildStrategies(inAcct.filter(r => r.runDate === d), m.map, m.def, ic, shareIdxFor(d), state.actualIndex);
     return ss.find(s => s.account + ' · ' + s.name === key) || null;
   });
   const cur = (series.find(Boolean) || {}).currency || 'SEK';
@@ -2813,6 +3194,60 @@ function renderTrustFlags(){
         d:'Shares were collected ' + shareRun + ', the simulations shown are ' + state.runDate + ' (' +
           Math.abs(daysBetween(shareRun, state.runDate)) + ' day(s) apart). Auction position moves; a factor derived ' +
           'from stale share data describes a competitive situation that may no longer hold.' });
+    }
+  }
+
+  /* Measured actuals are optional. Their ABSENCE is not an error, but it does mean every
+     number on the page is a projection with nothing to check it against, which has to be said
+     out loud rather than shown as an empty column. */
+  if (state.strategies.length){
+    const withAct = state.strategies.filter(s => s.actual);
+    if (!withAct.length){
+      items.push({ t:'No measured performance loaded — every number here is a projection',
+        d:'The Actuals tab is written by the Ads script (CONFIG.COLLECT_ACTUALS) and served as ' +
+          'payload.actuals; until it arrives, the actual-ROAS columns are hidden and the bid ' +
+          'simulator\'s curves cannot be compared against what the campaigns really returned.' });
+    } else if (withAct.length < state.strategies.length){
+      const missing = state.strategies.filter(s => !s.actual);
+      items.push({ t: missing.length + ' of ' + state.strategies.length + ' campaigns have no measured performance',
+        d: missing.map(s => s.name).join(', ') + ' — those show a dash instead of an actual ROAS. ' +
+           'A campaign with no spend in the simulation window, or one renamed and re-created since ' +
+           'the run, lands here.' });
+    }
+    /* The collector aligns each actuals row with its own simulation window. A mismatch means a
+       row fell back to LAST_7_DAYS, so actual and simulated ROAS describe different weeks. */
+    const misaligned = withAct.filter(s => s.actual.startDate !== s.startDate || s.actual.endDate !== s.endDate);
+    if (misaligned.length){
+      items.push({ t: misaligned.length + ' campaign(s) measured over a different window than they were simulated over',
+        d: misaligned.slice(0, 6).map(s => s.name + ' (simulated ' + s.startDate + '→' + s.endDate +
+             ', measured ' + (s.actual.startDate || '?') + '→' + (s.actual.endDate || '?') + ')').join('; ') +
+           (misaligned.length > 6 ? ' and ' + (misaligned.length - 6) + ' more' : '') +
+           '. Actual and simulated ROAS then describe different weeks and are not directly comparable.' });
+    }
+    /* One scheme reported and the other not is a collection problem, not a data problem: the
+       collector falls back to a click-time-only query when a resource will not serve the
+       conversion-time metrics. Say so, or the primary column is just an unexplained dash. */
+    const noConvTime = withAct.filter(s => s.actual.convTime.value == null && s.actual.clickTime.value != null);
+    if (noConvTime.length){
+      items.push({ t: noConvTime.length + ' campaign(s) report click-time value but no conversion-time value',
+        d:'The primary Actual ROAS column is blank for ' + noConvTime.slice(0, 6).map(s => s.name).join(', ') +
+          (noConvTime.length > 6 ? ' and ' + (noConvTime.length - 6) + ' more' : '') +
+          '. The Ads script falls back to a click-time-only query when a resource will not serve ' +
+          'metrics.conversions_value_by_conversion_date; check the script\'s run log for the retry ' +
+          'warning. Click time is still measured and still correct.' });
+    }
+    /* Conversion-time and click-time answer different questions, and the gap between them is
+       the conversion lag. A large gap means the window is still filling in. */
+    const bothSchemes = withAct.filter(s => s.actual.roasConvTime != null && s.actual.roasClickTime != null &&
+      s.actual.roasClickTime > 0);
+    const wide = bothSchemes.filter(s => Math.abs(s.actual.roasConvTime - s.actual.roasClickTime) / s.actual.roasClickTime > 0.15);
+    if (wide.length){
+      items.push({ t: wide.length + ' campaign(s) differ by more than 15% between the two attribution schemes',
+        d:'Conversion-time counts a conversion on the day it happened; click-time counts it on the ' +
+          'day of the click that caused it. A wide gap means long conversion lag, an unusually ' +
+          'busy or quiet week just before the window, or a window still filling in — both figures ' +
+          'keep rising for days after the window closes. Neither is wrong; they answer different ' +
+          'questions. Google Ads defaults to conversion time, which is why it leads here.' });
     }
   }
 
