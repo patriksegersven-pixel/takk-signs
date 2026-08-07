@@ -41,6 +41,20 @@
  *   names and are never treated as campaign-name patterns. A campaign with no share data
  *   falls back to the flat class factor; generic is never share-adjusted.
  *
+ * CONVERSION LAG -> CALIBRATION
+ *   Google reports a conversion under the date of the CLICK that earned it, so a bid
+ *   simulation built on the last seven days is always understated: the conversions that
+ *   click bought have not all landed yet. The "Lag" tab (also written by the Ads script)
+ *   carries click-time and conversion-time value and conversions per campaign over four
+ *   windows - 7d, 14d, 30d and a "mature" 90..31-days-back window - and this endpoint
+ *   serves it as `payload.lag`. The dashboard reads
+ *     lag = Conv Value Conv Time / Conv Value      over the 7d window (the simulator's own)
+ *   and calibrates the Ads-reported value against the funnel's gross profit over the 30d
+ *   window. The mature window should come back at a ratio of ~1.0; a deviation means the
+ *   account is non-stationary and the shorter ratios are measuring drift, which the
+ *   dashboard flags. A missing tab serves `lag: null` and the dashboard applies no lag
+ *   correction at all - exactly the behaviour that predates the tab.
+ *
  * DEPLOY
  *   1. Open the spreadsheet → Extensions → Apps Script.
  *   2. Paste this file over Code.gs. Save.
@@ -68,8 +82,9 @@
  * QUERY PARAMETERS
  *   token    required, must equal SCRIPT_TOKEN
  *   runs     optional, keep only the N most recent Run Dates (e.g. runs=4). Applies to the
- *            Shares tab too; without it, `shares` carries the latest run date only.
- *   account  optional, exact Customer Name filter (applies to both tabs)
+ *            Shares and Lag tabs too; without it, `shares` and `lag` carry the latest run
+ *            date only.
+ *   account  optional, exact Customer Name filter (applies to all three tabs)
  *
  * SECURITY
  *   The token is a deterrent, not authentication: it travels in a URL that
@@ -91,6 +106,14 @@ var RAW_SHEET = 'Raw';
  * carries `shares: null` and the dashboard falls back to flat class factors.
  */
 var SHARES_SHEET = 'Shares';
+
+/**
+ * Tab holding the appended per-campaign conversion-lag snapshots. Optional on exactly the
+ * same terms as SHARES_SHEET: if the Ads script has not written it yet (or runs with
+ * COLLECT_LAG off), the payload carries `lag: null` and the dashboard applies no lag
+ * correction and falls back to calibrating against the simulation's own 7-day window.
+ */
+var LAG_SHEET = 'Lag';
 
 /**
  * Tab holding both config blocks, side by side as two independent column pairs:
@@ -185,7 +208,8 @@ function doGet(e) {
       rowCount: raw.rows.length,
       runDates: raw.runDates,
       truncated: raw.truncated,
-      shares: readShares(ss, params)     // null when the tab does not exist yet
+      shares: readShares(ss, params),    // null when the tab does not exist yet
+      lag: readLag(ss, params)           // likewise
     });
   } catch (err) {
     return json({ error: String(err && err.message ? err.message : err) });
@@ -347,6 +371,88 @@ function readShares(ss, params) {
     .filter(function (i) { return i >= 0; });
   body.forEach(function (r) {
     shareIdx.forEach(function (i) { r[i] = toShare(r[i]); });
+  });
+
+  if (!body.length) return null;
+  if (body.length > MAX_ROWS) body = body.slice(-MAX_ROWS);
+  return { columns: columns, rows: body, runDates: runDates };
+}
+
+/**
+ * Read the Lag tab as { columns, rows, runDates } — the same compact shape as the Raw and
+ * Shares tabs, so the dashboard maps all three by header name.
+ *
+ * Columns, as written by the Ads script:
+ *   Customer Name | Campaign Id | Campaign Name | Window | Window Start | Window End |
+ *   Cost Micros | Conv Value | Conv Value Conv Time | Conversions | Conversions Conv Time |
+ *   Currency | Run Date
+ * One row per enabled campaign per window, windows being '7d' (D−7..D−1), '14d', '30d' and
+ * 'mature' (D−90..D−31) relative to the run date D. A campaign with no cost in a window has
+ * no row at all.
+ *
+ * Returns null when the tab is missing or holds no data rows. That is a NORMAL state (the
+ * Ads script may predate the Lag tab, or run with COLLECT_LAG off) and the dashboard treats
+ * it as "no lag data", applying no correction — it is never an error.
+ *
+ * Only the most recent run date is returned by default, for the same reason as Shares: a
+ * lag ratio measured three weeks ago describes a window that no longer overlaps the
+ * simulation being corrected. `runs=N` widens that to the N most recent run dates, which is
+ * what the backtest needs to align factors with historical snapshots. The `account` filter
+ * applies here too.
+ */
+function readLag(ss, params) {
+  var sheet = ss.getSheetByName(LAG_SHEET);
+  if (!sheet) return null;
+
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return null;
+
+  var values = sheet.getRange(1, 1, lastRow, lastCol).getDisplayValues();
+  var columns = values[0].map(function (h) { return String(h).trim(); });
+  var body = values.slice(1).filter(function (r) { return r.join('').trim().length > 0; });
+
+  var acctIdx = indexOfHeader(columns, 'Customer Name');
+  if (params.account && acctIdx >= 0) {
+    var wanted = String(params.account).trim();
+    body = body.filter(function (r) { return String(r[acctIdx]).trim() === wanted; });
+  }
+
+  var runIdx = indexOfHeader(columns, 'Run Date');
+  var runDates = [];
+  if (runIdx >= 0) {
+    body.forEach(function (r) { r[runIdx] = normaliseDate(r[runIdx]); });
+    var seen = {};
+    body.forEach(function (r) { if (r[runIdx] && !seen[r[runIdx]]) { seen[r[runIdx]] = true; runDates.push(r[runIdx]); } });
+    runDates.sort();
+
+    var limit = parseInt(params.runs, 10);
+    if (!(limit > 0)) limit = 1;                 // default: the latest snapshot only
+    if (runDates.length > limit) {
+      var keep = {};
+      runDates.slice(-limit).forEach(function (d) { keep[d] = true; });
+      body = body.filter(function (r) { return keep[r[runIdx]]; });
+      runDates = runDates.slice(-limit);
+    }
+  }
+
+  /* The window bounds are dates like the Run Date and get the same treatment, so the client
+     never has to guess the sheet's locale. */
+  ['Window Start', 'Window End'].forEach(function (h) {
+    var i = indexOfHeader(columns, h);
+    if (i >= 0) body.forEach(function (r) { r[i] = normaliseDate(r[i]); });
+  });
+
+  /* Metrics come back from getDisplayValues() as formatted strings ("1 234 567",
+     "3 456,50"); hand the client real numbers. Unlike an impression share, a 0 here is a
+     real measured total rather than "no data" — the collector simply omits the row for a
+     campaign with no cost — so toNumber()'s blank -> 0 is the right reading. */
+  var numericHeaders = ['Cost Micros', 'Conv Value', 'Conv Value Conv Time', 'Conversions',
+    'Conversions Conv Time'];
+  var numericIdx = numericHeaders.map(function (h) { return indexOfHeader(columns, h); })
+    .filter(function (i) { return i >= 0; });
+  body.forEach(function (r) {
+    numericIdx.forEach(function (i) { r[i] = toNumber(r[i]); });
   });
 
   if (!body.length) return null;
@@ -708,4 +814,8 @@ function testPayload() {
     ? parsed.shares.rows.length + ' row(s) for ' + JSON.stringify(parsed.shares.runDates)
     : 'none — brand and private label fall back to flat class factors'));
   if (parsed.shares) Logger.log('first share:' + JSON.stringify(parsed.shares.rows[0]));
+  Logger.log('lag:        ' + (parsed.lag
+    ? parsed.lag.rows.length + ' row(s) for ' + JSON.stringify(parsed.lag.runDates)
+    : 'none — no lag correction is applied'));
+  if (parsed.lag) Logger.log('first lag:  ' + JSON.stringify(parsed.lag.rows[0]));
 }

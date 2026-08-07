@@ -224,6 +224,78 @@ This is **orthogonal to `valueToGp2Multiplier`** above and applies strictly afte
 multiplier answers *"is this number GP2?"*, incrementality answers *"how much of this GP2 did
 the ad cause?"*. Cost is never scaled by either.
 
+## Conversion lag: the simulator's last 7 days are always understated
+
+Google reports a conversion under the date of the **click** that earned it, not the date it
+happened. A shopper who clicks on Monday and buys on Thursday is booked to Monday — three
+days later. So the last seven days of click-time value are never finished: some of the
+conversions those clicks bought have not landed yet, and the more recent the day, the more is
+still missing. The bid simulator is built on exactly that window, which means **every
+simulated curve understates the value at every target**, uniformly enough to move where GP3
+peaks.
+
+The same metrics also exist **by conversion date**, which books each conversion to the day it
+actually happened. For a window that has already passed, that version is complete. Their
+ratio over one window is the correction the curve is missing:
+
+```
+lag = conv_value_by_conversion_date(window) / conv_value(window)
+```
+
+The Ads script collects both, per enabled campaign, over four windows — written to a `Lag`
+tab on the same append-only, same-day-replacing, 90-day-pruned terms as `Raw` and `Shares`:
+
+| Window | Days, relative to run date `D` | What it is for |
+|---|---|---|
+| `7d` | `D−7 … D−1` | matches the simulator's own window — **this** is the lag factor applied to a simulated curve |
+| `14d` | `D−14 … D−1` | wider read, for comparison |
+| `30d` | `D−30 … D−1` | the value-calibration window: enough spend to reconcile Ads-reported value against the funnel's own gross profit |
+| `mature` | `D−90 … D−31` | far enough back that essentially every conversion has landed, so its ratio should be **≈ 1.0** |
+
+Every window ends at `D−1`: the run date itself is still accruing and would drag every ratio
+down. `mature` is the sanity check that makes the others readable — if a window where nothing
+can still be outstanding does *not* come back at ~1.0, the account is **non-stationary** and
+the short ratios are measuring drift rather than lag, which the dashboard flags rather than
+silently applying.
+
+Columns, in order:
+
+```
+Customer Name | Campaign Id | Campaign Name | Window | Window Start | Window End |
+Cost Micros | Conv Value | Conv Value Conv Time | Conversions | Conversions Conv Time |
+Currency | Run Date
+```
+
+One row per **enabled campaign × window**, and **a campaign with no cost in a window gets no
+row at all**. That is the opposite convention to `Shares`, deliberately: there, a 0 is
+indistinguishable from missing data, so a blank cell carries "no data". Here a 0 is a real
+measured total — a campaign can genuinely spend and convert nothing — so the only honest way
+to say "nothing to measure" is to omit the row. A campaign with no cost could not be
+lag-corrected or calibrated anyway; both are ratios with cost or value underneath.
+
+The endpoint serves this as `payload.lag`, or `null` when the tab does not exist yet:
+
+```js
+payload.lag = {
+  columns:  ['Customer Name','Campaign Id','Campaign Name','Window','Window Start','Window End',
+             'Cost Micros','Conv Value','Conv Value Conv Time','Conversions',
+             'Conversions Conv Time','Currency','Run Date'],
+  rows:     [ ['Babyshop SE','21700388337','p-shopping-se-brand','7d','2026-07-31','2026-08-06',
+               1234000000,3456.5,3702.1,40,43.2,'SEK','2026-08-07'], ... ],
+  runDates: ['2026-08-07']
+}
+```
+
+Rows are joined to campaigns the same way share rows are: `(account, campaign id)` first,
+falling back to `(account, name)`. Only the **latest run date** is served by default, for the
+same reason — a lag ratio measured three weeks ago describes a window that no longer overlaps
+the simulation being corrected — and `runs=N` widens it when a client wants factors aligned
+with older snapshots.
+
+**Absent is a normal state, not an error.** No `Lag` tab, or the Ads script running with
+`COLLECT_LAG` off, means no lag correction is applied at all — which is exactly the behaviour
+that predates the tab.
+
 ## Architecture
 
 ```
@@ -231,23 +303,25 @@ the ad cause?"*. Cost is never scaled by either.
  ┌────────────────┐          ┌──────────────────┐        ┌──────────────┐          ┌──────────────┐
  │ gp3-simulations│  append  │ Raw   (snapshots)│  read  │ webapp.gs    │  fetch   │ index.html   │
  │ .js            │─────────▶│ Shares(impr.share)│──────▶│ doGet + token│─────────▶│ dashboard    │
- │ scheduled      │  1×/run  │ Config(optional) │        │ → JSON       │   CORS   │ all math     │
- └────────────────┘          │ 90-day history   │        └──────────────┘          │ client-side  │
-        │                    └──────────────────┘                                  └──────────────┘
+ │ scheduled      │  1×/run  │ Lag   (conv lag) │        │ → JSON       │   CORS   │ all math     │
+ └────────────────┘          │ Config(optional) │        └──────────────┘          │ client-side  │
+        │                    │ 90-day history   │                                  └──────────────┘
+        │                    └──────────────────┘                                          │
         │ AdsApp.search(campaign_simulation)   TARGET_ROAS point lists                     │
         │ AdsApp.search(campaign)              last-7-days impression share                │ localStorage
-        ▼                                                                                  ▼
-   one row per simulated target ROAS + one row per campaign's share,            last good snapshot
-   both tagged with the same Run Date
+        │ AdsApp.search(campaign)              click-time vs conversion-time, 4 windows    ▼
+        ▼                                                                       last good snapshot
+   one row per simulated target ROAS, one per campaign's share, one per
+   campaign × lag window — all tagged with the same Run Date
 ```
 
 Each stage is replaceable and none of them holds state the next one needs:
 
 | Stage | File | Responsibility |
 |---|---|---|
-| Collect | `ads-script/gp3-simulations.js` | Query simulations **and** last-7-days impression share in every account, **append** a dated snapshot to two tabs. Never clears, never reads back. Both datasets ride back from each child account in the one string `executeInParallel` allows, split by a group separator; if the ~100 KB cap bites, share rows are dropped first because the simulations are the primary payload. |
-| Store | Google Sheet, `Raw` + `Shares` + `Config` tabs | Append-only history on both data tabs, pruned at 90 days. `Config` maps account → `valueToGp2Multiplier` (normally `1.0`), class/pattern → incrementality factor, and the four reserved keys → share-derived floors and caps. |
-| Serve | `apps-script/webapp.gs` | `doGet` checks a token, normalises dates/numbers/shares, returns JSON. A missing `Shares` tab serves `shares: null` rather than failing. |
+| Collect | `ads-script/gp3-simulations.js` | Query simulations, last-7-days impression share **and** click-time/conversion-time totals over four windows in every account, **append** a dated snapshot to three tabs. Never clears, never reads back. All three datasets ride back from each child account in the one string `executeInParallel` allows, split by a group separator; if the ~100 KB cap bites they are dropped in reverse priority — **lag first, then shares** — because the simulations are the primary payload. |
+| Store | Google Sheet, `Raw` + `Shares` + `Lag` + `Config` tabs | Append-only history on all three data tabs, pruned at 90 days. `Config` maps account → `valueToGp2Multiplier` (normally `1.0`), class/pattern → incrementality factor, and the four reserved keys → share-derived floors and caps. |
+| Serve | `apps-script/webapp.gs` | `doGet` checks a token, normalises dates/numbers/shares, returns JSON. A missing `Shares` or `Lag` tab serves `shares: null` / `lag: null` rather than failing. |
 | Present | `index.html` | Single file. Fetches the JSON, does **all** economics in the browser, caches the last good payload. |
 
 ## What the dashboard shows
@@ -292,7 +366,13 @@ Two numbers deliberately differ and both are shown:
    - `COLLECT_SHARES` — leave `true` to also collect last-7-days impression share into the
      `Shares` tab, which is what makes brand and private-label incrementality factors
      campaign-specific. Set `false` and everything falls back to flat class factors.
-4. **Authorise → Preview → Run.** It creates the `Raw` and `Shares` tabs and their header rows.
+   - `COLLECT_LAG` — leave `true` to also collect click-time against conversion-time value
+     and conversions over the four windows into the `Lag` tab, which is what corrects the
+     simulator's understated last-7-days curve and calibrates Ads-reported value against the
+     funnel's gross profit. Costs four extra GAQL queries per account. Set `false` and no lag
+     correction is applied at all.
+4. **Authorise → Preview → Run.** It creates the `Raw`, `Shares` and `Lag` tabs and their
+   header rows.
 5. Schedule it **Weekly** (matching the 7-day simulation window) or Daily.
 
 Re-running on the same day replaces that day's rows instead of duplicating them, so a
@@ -318,10 +398,12 @@ manual run between scheduled ones is safe.
    only the keyed rows that are missing, so run it again after upgrading this file. The
    endpoint serves these as `config.valueToGp2Multipliers` /
    `config.defaultValueToGp2Multiplier` / `config.incrementality` (including
-   `config.incrementality.shareWeights`), plus `payload.shares` from the `Shares` tab.
+   `config.incrementality.shareWeights`), plus `payload.shares` from the `Shares` tab and
+   `payload.lag` from the `Lag` tab.
 4. **Deploy → New deployment → Web app**, *Execute as* **Me**, *Who has access*
    **Anyone with the link**. Copy the `/exec` URL.
-5. Check it: `<exec-url>?token=<token>&runs=1`.
+5. Check it: `<exec-url>?token=<token>&runs=1`. Or run `testPayload()` from the editor — it
+   logs the row counts and run dates for `shares` and `lag` alongside the simulations.
 
 Editing the script later requires **Manage deployments → Edit → New version**, otherwise
 the live URL keeps serving the old code.
@@ -352,6 +434,28 @@ Login: user `babyshop`, password `gp3`. To change it, regenerate the hash and re
 ```
 echo -n "user:password" | shasum -a 256
 ```
+
+### Upgrading an existing installation to the `Lag` tab
+
+`pipeline/` is the source of record only — nothing here deploys itself. Both halves must be
+pasted in by hand, in this order:
+
+1. **Google Ads MCC → Scripts →** the existing `gp3-simulations` script: replace its whole
+   body with `pipeline/gp3-simulations.js`, confirm `COLLECT_LAG: true` in the `CONFIG`
+   block, then **Preview → Run**. The run creates the `Lag` tab and its header row. Nothing
+   else changes: the `Raw` and `Shares` tabs keep their existing history, and a same-day
+   re-run replaces its own rows rather than duplicating them.
+2. **Spreadsheet → Extensions → Apps Script:** paste `pipeline/webapp.gs` over `Code.gs`,
+   Save, then **Deploy → Manage deployments → Edit → Version: New version → Deploy**. Without
+   the new version the live `/exec` URL keeps serving the old code and `payload.lag` never
+   appears. `setupConfigTab()` does **not** need re-running — the `Lag` tab has no `Config`
+   rows.
+3. Confirm with `<exec-url>?token=<token>&runs=1` — the payload should now carry a `lag`
+   object rather than `null`.
+
+Doing step 2 without step 1 is harmless: the endpoint serves `lag: null` until the tab
+exists. Doing step 1 without step 2 is equally harmless — the tab fills up and is simply not
+served yet.
 
 ## Security
 
@@ -386,6 +490,11 @@ the simulated range, and strategies whose optimum lies beyond the simulated wind
 flags anything that weakens the incrementality factors: no `Shares` tab at all, brand or
 private-label campaigns with no share row, and share data collected on a different run date
 than the simulations being shown.
+
+That window is also **click-time**, which is why the `Lag` tab exists: the last seven days
+are structurally incomplete and the simulated curve is understated until the lag factor is
+applied. A missing `Lag` tab, and a `mature` window whose ratio is not ~1.0, are both flagged
+for the same reason — they mean the correction is either absent or measuring the wrong thing.
 
 ## Repository layout
 
