@@ -701,18 +701,34 @@
 <script>
 /* ============================================================================
    Babyshop · KV Performance Dashboard — ROAS Simulations
-   Reads Target ROAS bid-simulator snapshots produced by pipeline/gp3-simulations.js
-   and served by pipeline/webapp.gs. All economics are computed client-side from the
-   raw simulation rows; the core math below is ported verbatim from the verified
-   standalone GP3 optimisation dashboard.
+   Reads Target ROAS bid-simulator snapshots collected from the Google Ads API by
+   refresh_roas_sims.py and served by app.py at /api/roas-sims. The legacy path —
+   pipeline/gp3-simulations.js writing a Google Sheet, pipeline/webapp.gs serving it —
+   still exists and produces the identical payload shape; see DATA_ENDPOINT below.
+   All economics are computed client-side from the raw simulation rows; the core math
+   below is ported verbatim from the verified standalone GP3 optimisation dashboard.
    ============================================================================ */
 
 /* ---------- CONFIGURE ME ----------------------------------------------------
-   DATA_ENDPOINT: the /exec URL of the Apps Script web app (pipeline/webapp.gs).
+   DATA_ENDPOINT: where the simulation payload comes from.
+
+   LIVE PATH (default) — the same-origin backend route `/api/roas-sims`, served by
+   app.py from the Firestore snapshots that refresh_roas_sims.py collects straight
+   off the Google Ads API. Same query params as the old endpoint (`token`, `runs`,
+   `account`) and byte-for-byte the same payload shape, so everything below —
+   normalisation, rendering, demo mode — is untouched.
+
+   LEGACY PATH (fallback) — the Apps Script web app over the Google Sheet
+   (pipeline/webapp.gs). Still deployed and still working. To flip back, change the
+   DATA_ENDPOINT assignment below to LEGACY_SHEET_ENDPOINT; that is the whole edit.
+
    No token lives in this file. When DATA_ENDPOINT is set, the page asks for the
-   access key once and keeps it in this browser's localStorage.
+   access key once and keeps it in this browser's localStorage. On the same-origin
+   route the key is enforced only when ROAS_SIMS_TOKEN is set on the Cloud Run
+   service (the page itself already sits behind the dashboard's own auth).
    Leave DATA_ENDPOINT empty and the page runs on the synthetic DEMO_DATA below. */
-const DATA_ENDPOINT = 'https://script.google.com/macros/s/AKfycbz7NFRy_N-SUq7pPtaMMIJBWonab1C4I1iMSJY18KJSVjn8rsygC2YxeK7RyD8FnU1EoA/exec';
+const LEGACY_SHEET_ENDPOINT = 'https://script.google.com/macros/s/AKfycbz7NFRy_N-SUq7pPtaMMIJBWonab1C4I1iMSJY18KJSVjn8rsygC2YxeK7RyD8FnU1EoA/exec';
+const DATA_ENDPOINT = '/api/roas-sims';
 /* --------------------------------------------------------------------------- */
 
 const CACHE_KEY = 'bs_roassim_cache_v1';

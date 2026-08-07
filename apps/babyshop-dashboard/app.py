@@ -78,6 +78,33 @@ def verify(credentials: HTTPBasicCredentials | None = Depends(security)) -> str:
     return credentials.username
 
 
+# ── ROAS Simulations access key ──────────────────────────────────────────────
+# The ROAS Simulations page keeps an access key in the viewer's localStorage and sends
+# it as ?token=. That gate was built against the public Apps Script endpoint; now that
+# the endpoint is same-origin the page is ALREADY behind `verify` (HTTP Basic) like
+# every other /api/* route, so the key is a second, optional deterrent rather than the
+# only lock.
+#   ROAS_SIMS_TOKEN set    -> the key is enforced; a mismatch returns the same
+#                             {"error": "Unauthorized"} body the Apps Script returned,
+#                             which is what makes the page drop the stored key and
+#                             re-prompt instead of treating it as a network blip.
+#   ROAS_SIMS_TOKEN unset  -> any key is accepted (the page still asks once and
+#                             remembers it). Set the env var to make the gate real.
+ROAS_SIMS_TOKEN = os.environ.get("ROAS_SIMS_TOKEN")
+
+
+def _verify_sims_token(token: str):
+    """None when the key passes; the JSON body to return when it does not.
+
+    HTTP 200 on purpose — the dashboard's fetchLive() only inspects `json.error` for the
+    word "unauthorized"; a 401 would raise "HTTP 401" and be retried as transient."""
+    if DEV_MODE or not ROAS_SIMS_TOKEN:
+        return None
+    if secrets.compare_digest(token or "", ROAS_SIMS_TOKEN):
+        return None
+    return JSONResponse({"error": "Unauthorized", "status": "unauthorized"}, status_code=200)
+
+
 # ── Static dashboard routes ──────────────────────────────────────────────────
 STATIC_DIR     = Path(__file__).parent
 KV_HTML        = STATIC_DIR / "babyshop-dashboard.html"
@@ -168,6 +195,42 @@ def api_roas_impact(_: str = Depends(verify)):
     if data is None:
         return JSONResponse({"error": "no roas-impact snapshot yet"}, status_code=503)
     return data
+
+
+@app.get("/api/roas-sims")
+def api_roas_sims(runs: int = 0, account: str = "", token: str = "",
+                  _: str = Depends(verify)):
+    """ROAS Simulations payload, assembled from the Firestore snapshots that
+    refresh_roas_sims.py writes straight off the Google Ads API.
+
+    Serves EXACTLY the shape pipeline/webapp.gs served, so the dashboard's normalize
+    path runs unchanged:
+      { generatedAt, source, spreadsheet, config, columns, rows, rowCount, runDates,
+        truncated, shares: {...}|null, actuals: {...}|null }
+
+    Query params mirror the Apps Script endpoint:
+      runs=N    keep only the N most recent run dates (0 = every snapshot retained).
+                Without it `shares` still carries the LATEST run date only — that
+                asymmetry is deliberate and matches webapp.gs.
+      account=  exact Customer Name filter, applied to all three grids.
+      token=    the dashboard's access key. Enforced only when ROAS_SIMS_TOKEN is set
+                on the service; see the note on _verify_sims_token below.
+
+    Always 200, like the Apps Script did: the dashboard distinguishes states by the
+    payload's `error` / `status` fields, and a non-2xx would read to it as a transient
+    network failure instead of a rejected key."""
+    err = _verify_sims_token(token)
+    if err is not None:
+        return err
+    import refresh_roas_sims as rs
+    try:
+        return rs.build_payload(runs=max(0, min(runs, 400)), account=account)
+    except Exception as e:
+        # Never a hard failure: the page keeps its cached/demo snapshot and says why.
+        return {"error": f"roas-sims read failed: {e}", "status": "read-error",
+                "columns": list(rs.RAW_COLUMNS), "rows": [], "rowCount": 0, "runDates": [],
+                "truncated": False, "shares": None, "actuals": None,
+                "config": rs._clean_config(None)}
 
 
 @app.get("/api/budget")
@@ -395,3 +458,32 @@ def internal_refresh(request: Request):
 
     any_ok = any(r.get("status") == "ok" for r in results.values())
     return JSONResponse(results, status_code=200 if any_ok else 502)
+
+
+@app.api_route("/internal/refresh-roas-sims", methods=["GET", "POST"])
+def internal_refresh_roas_sims(request: Request, run_date: str = ""):
+    """Pull Target-ROAS bid simulations, impression shares and measured actuals from the
+    Google Ads API and write one daily snapshot to Firestore (roas_sim_snapshots).
+
+    Cloud Scheduler target — daily. Same X-Internal-Token gate as /internal/refresh.
+    GET is accepted too so the job can be smoke-tested from a browser session.
+
+    `run_date=YYYY-MM-DD` overrides the snapshot's document id (backfill / replay); the
+    write is idempotent per day either way, so a re-run replaces that day's rows.
+
+    Degrades loudly, never silently:
+      503 + the exact env vars still unset when the credentials are missing
+      502 when every account failed (the body names each one)
+      200 when at least one account returned — per-account errors ride in `accounts`."""
+    _verify_internal(request)
+
+    from refresh_roas_sims import MissingCredentials, refresh
+
+    try:
+        out = refresh(run_date=run_date or None)
+    except MissingCredentials as e:
+        return JSONResponse({"status": "not-configured", "error": str(e)}, status_code=503)
+    except Exception as e:
+        return JSONResponse({"status": "error", "error": f"{type(e).__name__}: {e}"},
+                            status_code=500)
+    return JSONResponse(out, status_code=200 if out["status"] == "ok" else 502)
