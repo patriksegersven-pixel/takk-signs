@@ -344,11 +344,23 @@ def _iso_or_blank(v: Any) -> str:
 
 
 def _has(msg: Any, field: str) -> bool:
-    """Proto presence check. Optional scalars read back as 0/0.0 when never set."""
+    """
+    Proto presence check. Optional scalars read back as 0 / 0.0 when never set, so "did the
+    API report this?" can only be answered with HasField — the whole blank-vs-0 contract on
+    the Shares and Actuals grids rests on it.
+
+    Every field this module presence-checks supports presence today (verified against the
+    installed package; `required_budget_amount_micros` is the only point field that does
+    not, and it is unused). If a future API version drops presence from one of them,
+    HasField raises ValueError — and the right answer there is TRUE: a plain scalar always
+    carries a value. Returning False would silently blank a metric that is being reported.
+    """
     try:
         return msg._pb.HasField(field)
+    except ValueError:
+        return True            # no presence information: the field always has a value
     except Exception:
-        return False
+        return False           # not a proto message at all
 
 
 def _opt(msg: Any, field: str) -> Any:
@@ -837,8 +849,9 @@ def build_snapshot(run_date: str | None = None) -> dict:
         shares_json, n_shares = _json_bytes(shares)
         dropped.append("shares")
     if n_rows > DATASET_BUDGET_BYTES:
-        # Last resort: drop the oldest complete rows until the grid fits. Trimming on a row
-        # boundary matters — half a simulation curve is worse than a missing one.
+        # Last resort, and it should never fire: a day is ~120 KB against an 800 KB budget.
+        # Trim on a ROW boundary (never mid-row) so a surviving simulation curve is always
+        # a complete one, and record it in dropped_datasets so the gap is visible.
         while rows and n_rows > DATASET_BUDGET_BYTES:
             rows = rows[max(1, len(rows) // 10):]
             rows_json, n_rows = _json_bytes(rows)
@@ -865,8 +878,20 @@ def build_snapshot(run_date: str | None = None) -> dict:
     }
 
 
+_db_client = None
+
+
 def _firestore():
-    """Firestore client, resolving credentials the way refresh_roas_impact.py does."""
+    """
+    Firestore client, resolving credentials the way refresh_roas_impact.py does.
+
+    Memoised: /api/roas-sims builds one payload per request and re-running the ADC
+    handshake each time would put an auth round trip on the read path. The client is
+    thread-safe, which is what makes this safe under uvicorn's thread pool.
+    """
+    global _db_client
+    if _db_client is not None:
+        return _db_client
     from google.cloud import firestore   # lazy import (local dev w/o lib still imports)
     try:
         import google.auth
@@ -876,7 +901,8 @@ def _firestore():
         import google.oauth2.credentials
         tok = subprocess.check_output(["gcloud", "auth", "print-access-token"]).decode().strip()
         creds, project = google.oauth2.credentials.Credentials(tok), None
-    return firestore.Client(project=FIRESTORE_PROJECT or project, credentials=creds)
+    _db_client = firestore.Client(project=FIRESTORE_PROJECT or project, credentials=creds)
+    return _db_client
 
 
 def write_snapshot(snapshot: dict, db=None) -> dict:

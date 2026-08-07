@@ -90,6 +90,11 @@ def verify(credentials: HTTPBasicCredentials | None = Depends(security)) -> str:
 #                             re-prompt instead of treating it as a network blip.
 #   ROAS_SIMS_TOKEN unset  -> any key is accepted (the page still asks once and
 #                             remembers it). Set the env var to make the gate real.
+#
+# NOTE: deliberately NOT bypassed by DEV_MODE. The live service runs with DEV_MODE=true,
+# so a DEV_MODE short-circuit here would mean setting ROAS_SIMS_TOKEN silently did nothing
+# — the exact opposite of what an operator setting it is asking for. Presence of the env
+# var is the only switch: don't set it and there is no gate to bypass.
 ROAS_SIMS_TOKEN = os.environ.get("ROAS_SIMS_TOKEN")
 
 
@@ -98,7 +103,7 @@ def _verify_sims_token(token: str):
 
     HTTP 200 on purpose — the dashboard's fetchLive() only inspects `json.error` for the
     word "unauthorized"; a 401 would raise "HTTP 401" and be retried as transient."""
-    if DEV_MODE or not ROAS_SIMS_TOKEN:
+    if not ROAS_SIMS_TOKEN:
         return None
     if secrets.compare_digest(token or "", ROAS_SIMS_TOKEN):
         return None
