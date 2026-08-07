@@ -325,6 +325,20 @@
       content: ''; flex: 1; height: 1px; background: var(--border-lt);
     }
 
+    /* ── "?" help markers on metric / dimension labels ──
+       The marker itself carries no title: it sits INSIDE the labelled element and
+       inherits its tooltip, so the definition lives in exactly one place. */
+    .qm {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 13px; height: 13px; margin-left: 4px; border-radius: 50%;
+      background: var(--border-lt); color: var(--muted);
+      font-size: 9px; font-weight: 700; line-height: 1;
+      cursor: help; user-select: none; vertical-align: 1px;
+      border: 1px solid var(--border); flex: none; text-transform: none;
+    }
+    .qm:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+    th .qm { vertical-align: middle; }
+
     /* ── Cards & tables ─────────────────────────────── */
     .card {
       background: var(--card); border: 1px solid var(--border);
@@ -2289,6 +2303,10 @@ const fmtPctSv = v => (v*100).toLocaleString('sv-SE',{minimumFractionDigits:1,ma
 function num(v, d){ return v.toLocaleString('sv-SE', { minimumFractionDigits: d||0, maximumFractionDigits: d||0 }); }
 function signCell(v, tol){ return Math.abs(v) <= (tol||0) ? '' : (v > 0 ? 'cell-pos' : 'cell-neg'); }
 function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* Visible "?" affordance appended to every metric / dimension label. It deliberately has
+   no title of its own — hovering it surfaces the title of the label it sits in. */
+const QM = '<span class="qm">?</span>';
 function daysBetween(aIso, bIso){
   const a = new Date(aIso + 'T00:00:00Z'), b = new Date(bIso + 'T00:00:00Z');
   return Math.round((b - a) / 86400000);
@@ -2433,7 +2451,7 @@ function renderKPIs(){
 
     return `
       <div class="kpi-card">
-        <div class="kpi-label" title="every campaign at its currently configured Target ROAS">Current ${G3}${tag}</div>
+        <div class="kpi-label" title="Total ${G3} across every campaign at its currently configured Target ROAS. GP2 = gross profit before ad cost (the conversion value these accounts send to Google); GP3 = GP2 − ad cost; iGP3 = incremental GP3, where GP2 is first multiplied by each campaign's incrementality factor.">Current ${G3}${QM}${tag}</div>
         <div class="kpi-value">${fmtMoney(curIGp3, c)}</div>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <span class="kpi-delta flat">${ss.length} campaign${ss.length===1?'':'s'}</span>
@@ -2443,7 +2461,7 @@ function renderKPIs(){
           ? ' · observed GP3 ' + fmtMoney(curGp3, c) : ' · GP2 ' + fmtMoney(curGp3 + curCost, c)}</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label" title="every campaign moved to its own profit-maximising simulated target">Potential ${G3}${tag}</div>
+        <div class="kpi-label" title="Total ${G3} if every campaign moved to its own profit-maximising simulated target — the point on its curve with the highest ${G3}.">Potential ${G3}${QM}${tag}</div>
         <div class="kpi-value">${fmtMoney(pot.igp3, c)}</div>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           ${deltaBadge(pot.igp3, curIGp3)}
@@ -2453,7 +2471,7 @@ function renderKPIs(){
           ? ' · observed GP3 there ' + fmtMoney(pot.gp3AtIOpt, c) : ''}</div>
       </div>
       <div class="kpi-card hero">
-        <div class="kpi-label" title="potential minus current — the profit left on the table">Incremental potential${tag}
+        <div class="kpi-label" title="Potential ${G3} minus current ${G3} — the extra weekly profit the simulator says is available by moving every campaign to its recommended target.">Incremental potential${QM}${tag}
           <span class="kpi-badge">★ Uplift</span></div>
         <div class="kpi-value">${signedMoney(inc, c)}</div>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
@@ -2463,7 +2481,7 @@ function renderKPIs(){
         <div class="kpi-note">profit left on the table at the current targets</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label" title="current profit as a share of the achievable maximum">Optimization score${tag}</div>
+        <div class="kpi-label" title="Current ${G3} as a share of the achievable maximum (potential ${G3}). 100% means every campaign already sits at its profit-maximising target.">Optimization score${QM}${tag}</div>
         <div class="kpi-value">${fmtPctSv(score)}</div>
         <div class="kpi-meter"><i style="width:${(score*100).toFixed(1)}%"></i></div>
         <div class="kpi-note">${scoreNote}</div>
@@ -2545,15 +2563,18 @@ function renderSummaryTable(){
     : ' Conversion value is gross profit in most of these accounts, making this POAS; hover a cell for one that reports revenue instead.';
 
   let html = `<thead><tr>
-      <th>Campaign</th>
-      <th title="the Target ROAS configured right now">Current</th>
-      <th title="the simulated target with the highest ${G3}">Rec.</th>
-      <th title="target where the marginal krona returns exactly 1.0, interpolated">Breakeven</th>
-      ${act ? `<th title="MEASURED, not simulated: conversion value counted on the date each conversion happened (Google Ads &quot;by conv. time&quot;, this account's default view) divided by cost over the same window.${poasNote}">Actual ROAS<br><span class="assumption">conv. time</span></th>
-      <th title="MEASURED, not simulated: conversion value counted on the date of the click that led to it (Google Ads' standard columns) divided by cost over the same window. This is the scheme the bid simulator and Target ROAS bidding run on.">Actual ROAS<br><span class="assumption">click time</span></th>` : ''}
-      <th>Cost</th><th title="ad cost change at the recommended target">&Delta; cost</th>
-      <th title="observed GP3 at the current target, before any incrementality haircut">GP3 obs.</th>
-      <th>${G3} now</th><th>${G3} max</th><th>${G3} uplift</th><th>Status</th>
+      <th title="Campaign (or portfolio bidding strategy) name, grouped by incrementality class. The ×N pill is the incrementality factor applied to its GP2 before any recommendation.">Campaign${QM}</th>
+      <th title="the Target ROAS configured right now">Current${QM}</th>
+      <th title="recommended Target ROAS — the simulated target with the highest ${G3}">Rec.${QM}</th>
+      <th title="target where the marginal krona returns exactly 1.0, interpolated — below this target the next krona of spend loses money">Breakeven${QM}</th>
+      ${act ? `<th title="MEASURED, not simulated: conversion value counted on the date each conversion happened (Google Ads &quot;by conv. time&quot;, this account's default view) divided by cost over the same window.${poasNote}">Actual ROAS<br><span class="assumption">conv. time</span>${QM}</th>
+      <th title="MEASURED, not simulated: conversion value counted on the date of the click that led to it (Google Ads' standard columns) divided by cost over the same window. This is the scheme the bid simulator and Target ROAS bidding run on.">Actual ROAS<br><span class="assumption">click time</span>${QM}</th>` : ''}
+      <th title="simulated ad cost per week at the current target">Cost${QM}</th><th title="ad cost change at the recommended target">&Delta; cost${QM}</th>
+      <th title="observed GP3 at the current target, before any incrementality haircut">GP3 obs.${QM}</th>
+      <th title="${G3} at the current target. GP3 = GP2 − ad cost; iGP3 first multiplies GP2 by the campaign's incrementality factor.">${G3} now${QM}</th>
+      <th title="the highest ${G3} on the simulated curve — the profit at the recommended target">${G3} max${QM}</th>
+      <th title="${G3} max minus ${G3} now — what moving to the recommended target is worth per week">${G3} uplift${QM}</th>
+      <th title="raise / lower when the recommended target differs from the current one; optimum when the campaign is already there (or within half a simulation step)">Status${QM}</th>
     </tr></thead><tbody>`;
 
   const rowHtml = s => {
@@ -2684,7 +2705,12 @@ function shareDetailHtml(s){
       <span class="mono">Shares</span> tab has no row for it (Performance Max, Display and video campaigns report no
       impression share) or the Ads script has not collected shares yet.</div>`;
   }
-  const metricRow = key => `<span style="display:inline-block;margin-right:18px">${esc(SHARE_METRIC_LABEL[key])}
+  const shareTip = {
+    searchIs: 'Search impression share — impressions this campaign won as a share of the impressions it was eligible for, over the last 7 days',
+    topIs: 'Top impression share — share of its impressions shown anywhere above the organic search results',
+    absTopIs: 'Absolute-top impression share — share of its impressions shown in the very first ad slot',
+  };
+  const metricRow = key => `<span style="display:inline-block;margin-right:18px" title="${esc(shareTip[key])}">${esc(SHARE_METRIC_LABEL[key])}${QM}
     <b class="mono">${sharePct(sh[key])}</b>${key === driver
       ? ' <span class="pill pill-inc" title="the metric the factor is derived from for a '
         + esc(CLASS_LABEL[s.incClass].toLowerCase()) + ' campaign">drives the factor</span>' : ''}</span>`;
@@ -2759,16 +2785,16 @@ function renderStrategy(){
   document.getElementById('drill-badge').textContent = s.currency;
 
   meta.innerHTML = `
-    <div><span class="k">Current target</span><span class="v">${fmtPct(s.currentTarget)}</span></div>
-    <div><span class="k">Recommended</span><span class="v" style="color:var(--accent)">${fmtPct(s.opt.target)}</span></div>
-    <div><span class="k">Breakeven (interp.)</span><span class="v">${s.breakeven.target ? fmtPct1(s.breakeven.target) : '—'}</span></div>
-    <div><span class="k">${G3} uplift</span><span class="v ${s.uplift > 1 ? 'pos' : s.uplift < -1 ? 'neg' : ''}">${signedMoney(s.uplift, s.currency)}</span></div>
-    <div><span class="k">Cost change</span><span class="v">${signedMoney(s.costChange, s.currency)}</span></div>
-    <div><span class="k">Class</span><span class="v">${esc(CLASS_LABEL[s.incClass])} <span class="pill pill-inc" title="${esc(incFactorTitle(s))}">${adj ? esc(incPillLabel(s)) : '×1.00'}</span></span></div>
+    <div><span class="k" title="the Target ROAS configured on this campaign right now">Current target${QM}</span><span class="v">${fmtPct(s.currentTarget)}</span></div>
+    <div><span class="k" title="recommended Target ROAS — the simulated point on this campaign's curve with the highest ${G3}">Recommended${QM}</span><span class="v" style="color:var(--accent)">${fmtPct(s.opt.target)}</span></div>
+    <div><span class="k" title="target where the marginal ${adj ? 'incremental ' : ''}ROAS crosses 1.0, linearly interpolated — below this target the next krona of spend returns less than a krona of ${adj ? 'iGP2' : 'GP2'}">Breakeven (interp.)${QM}</span><span class="v">${s.breakeven.target ? fmtPct1(s.breakeven.target) : '—'}</span></div>
+    <div><span class="k" title="${G3} at the recommended target minus ${G3} at the current target — what the move is worth per simulated week">${G3} uplift${QM}</span><span class="v ${s.uplift > 1 ? 'pos' : s.uplift < -1 ? 'neg' : ''}">${signedMoney(s.uplift, s.currency)}</span></div>
+    <div><span class="k" title="ad cost change when moving from the current to the recommended target">Cost change${QM}</span><span class="v">${signedMoney(s.costChange, s.currency)}</span></div>
+    <div><span class="k" title="incrementality class, read from the campaign name: brand / private label / generic. The pill is the factor GP2 is multiplied by before any recommendation — 1.00 means the conversion value is treated as fully caused by the ad.">Class${QM}</span><span class="v">${esc(CLASS_LABEL[s.incClass])} <span class="pill pill-inc" title="${esc(incFactorTitle(s))}">${adj ? esc(incPillLabel(s)) : '×1.00'}</span></span></div>
     ${s.actual ? `
-    <div><span class="k">Actual ROAS (conv. time)</span><span class="v" title="${esc(actualRoasTitle(s, 'convTime'))}">${fmtRoas(s.actual.roasConvTime)}</span></div>
-    <div><span class="k">Actual ROAS (click time)</span><span class="v" title="${esc(actualRoasTitle(s, 'clickTime'))}">${fmtRoas(s.actual.roasClickTime)}</span></div>` : ''}
-    <div><span class="k">Window</span><span class="v" style="font-size:13px">${s.startDate} &rarr; ${s.endDate}</span></div>`;
+    <div><span class="k" title="MEASURED, not simulated: conversion value counted on the date each conversion happened, divided by ad cost, over this campaign's own simulation window">Actual ROAS (conv. time)${QM}</span><span class="v" title="${esc(actualRoasTitle(s, 'convTime'))}">${fmtRoas(s.actual.roasConvTime)}</span></div>
+    <div><span class="k" title="MEASURED, not simulated: conversion value counted on the date of the click that led to it, divided by ad cost — the scheme Target ROAS bidding and the simulator run on">Actual ROAS (click time)${QM}</span><span class="v" title="${esc(actualRoasTitle(s, 'clickTime'))}">${fmtRoas(s.actual.roasClickTime)}</span></div>` : ''}
+    <div><span class="k" title="the 7-day period Google simulated — every cost / profit number on this page is per this window">Window${QM}</span><span class="v" style="font-size:13px">${s.startDate} &rarr; ${s.endDate}</span></div>`;
   renderIncrementalityBox(s);
 
   const fm = v => fmtMoney(v, s.currency);
@@ -2879,9 +2905,15 @@ function renderStrategy(){
   const segByTo = {};
   s.segments.forEach(g => segByTo[g.to.target] = g);
   const kept = new Set(s.efficient.map(p => p.target));
-  let html = `<thead><tr><th>Target ROAS</th><th>Cost</th><th>GP2</th><th>GP3</th>${adj ? '<th>iGP3</th>' : ''}
-    <th>Marginal ${adj ? 'iROAS' : 'ROAS'}</th><th>Conv.</th><th>Clicks</th><th>Impr.</th>
-    <th title="ROAS of this SIMULATED point — the value Google projects at this target over the cost it projects with it. Not a measurement: the measured ROAS is on the two rows at the foot of this table.">Sim. ROAS</th></tr></thead><tbody>`;
+  let html = `<thead><tr><th title="the simulated Target ROAS setting this row describes — what would happen with the target set here">Target ROAS${QM}</th>
+    <th title="ad cost Google projects at this target, per simulated week">Cost${QM}</th>
+    <th title="gross profit before ad cost that Google projects at this target (the conversion value these accounts send to Google)">GP2${QM}</th>
+    <th title="GP2 minus ad cost at this target — gross profit after ad spend">GP3${QM}</th>${adj ? '<th title="incremental GP3: GP2 × the incrementality factor of this campaign, minus ad cost — the profit the ad actually causes. Every recommendation is read off this column.">iGP3' + QM + '</th>' : ''}
+    <th title="Δ${adj ? 'iGP2' : 'GP2'} / ΔCost versus the previous (cheaper) point — what the next krona of spend returns. Above 1.0 the extra spend pays for itself; the recommendation stops where this crosses 1.0.">Marginal ${adj ? 'iROAS' : 'ROAS'}${QM}</th>
+    <th title="conversions Google projects at this target">Conv.${QM}</th>
+    <th title="clicks Google projects at this target">Clicks${QM}</th>
+    <th title="impressions Google projects at this target">Impr.${QM}</th>
+    <th title="ROAS of this SIMULATED point — the value Google projects at this target over the cost it projects with it. Not a measurement: the measured ROAS is on the two rows at the foot of this table.">Sim. ROAS${QM}</th></tr></thead><tbody>`;
   rows.forEach(p => {
     const g = segByTo[p.target];
     const isOpt = p.target === s.opt.target;
@@ -2962,21 +2994,21 @@ function renderPortfolio(){
 
   document.getElementById('pf-kpis').innerHTML = `
     <div class="kpi-card">
-      <div class="kpi-label">Budget</div>
+      <div class="kpi-label" title="the total weekly ad budget you entered, clamped to the range Google actually simulated — it is split across campaigns by equal marginal return">Budget${QM}</div>
       <div class="kpi-value">${fmtMoney(a.budget, cur)}</div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         ${deltaBadge(a.budget, currentCost)}<span class="kpi-sub">vs current spend</span></div>
       <div class="kpi-note">current spend ${fmtMoney(currentCost, cur)}</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Projected ${incAdj ? 'iGP2' : 'GP2'}</div>
+      <div class="kpi-label" title="total ${incAdj ? 'incremental GP2 (GP2 × the incrementality factor of each campaign)' : 'GP2 (gross profit before ad cost)'} the simulator projects at the optimal split of this budget">Projected ${incAdj ? 'iGP2' : 'GP2'}${QM}</div>
       <div class="kpi-value">${fmtMoney(incAdj ? a.totalIGp2 : a.totalGp2, cur)}</div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span class="kpi-delta flat">${a.rows.length} campaigns</span><span class="kpi-sub">optimally split</span></div>
       <div class="kpi-note">${incAdj ? 'observed GP2 ' + fmtMoney(a.totalGp2, cur) : 'at the optimal split of that budget'}</div>
     </div>
     <div class="kpi-card hero">
-      <div class="kpi-label">Projected ${G3}<span class="kpi-badge">★ Portfolio</span></div>
+      <div class="kpi-label" title="total ${G3} (gross profit after ad cost) at the optimal split: each krona of budget goes to whichever campaign currently offers the highest marginal ${incAdj ? 'incremental ' : ''}return">Projected ${G3}${QM}<span class="kpi-badge">★ Portfolio</span></div>
       <div class="kpi-value">${fmtMoney(a.totalGp3, cur)}</div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span class="kpi-delta ${a.totalGp3 - baseGp3 >= 0 ? 'up' : 'down'}">${signedMoney(a.totalGp3 - baseGp3, cur)}</span>
@@ -2984,7 +3016,7 @@ function renderPortfolio(){
       <div class="kpi-note">today ${fmtMoney(baseGp3, cur)} at ${fmtMoney(currentCost, cur)} cost</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-label">Marginal ${incAdj ? 'i' : ''}ROAS at stop</div>
+      <div class="kpi-label" title="the ${incAdj ? 'incremental ' : ''}return of the LAST krona this budget buys. Above 1.00 that krona still adds profit (a bigger budget would too); below 1.00 the budget overshoots the profit optimum">Marginal ${incAdj ? 'i' : ''}ROAS at stop${QM}</div>
       <div class="kpi-value">${a.marginalAtStop != null ? a.marginalAtStop.toFixed(2) : '—'}</div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span class="kpi-delta ${a.marginalAtStop == null ? 'flat' : a.marginalAtStop >= 1 ? 'up' : 'down'}">breakeven 1,00</span></div>
@@ -3012,9 +3044,15 @@ function renderPortfolio(){
   }
   document.getElementById('pf-note').innerHTML = notes.join(' ');
 
-  let html = `<thead><tr><th>Campaign</th><th>Current target</th><th>Allocated target</th>
-    <th>Current cost</th><th>Allocated cost</th><th>Cost change</th><th>Current ${G3}</th>
-    <th>Projected ${G3}</th><th>${G3} change</th></tr></thead><tbody>`;
+  let html = `<thead><tr><th title="campaign name; the ×N pill is its incrementality factor, which decides how its marginal return competes for budget">Campaign${QM}</th>
+    <th title="the Target ROAS configured right now">Current target${QM}</th>
+    <th title="the Target ROAS this campaign should run at under the equal-marginal-return split of your budget">Allocated target${QM}</th>
+    <th title="simulated ad cost per week at the current target">Current cost${QM}</th>
+    <th title="ad cost this campaign gets under the optimal split of your budget">Allocated cost${QM}</th>
+    <th title="allocated cost minus current cost — where the allocator moves money">Cost change${QM}</th>
+    <th title="${G3} (gross profit after ad cost${incAdj ? ', incrementality-adjusted' : ''}) at the current target">Current ${G3}${QM}</th>
+    <th title="${G3} the simulator projects at the allocated target">Projected ${G3}${QM}</th>
+    <th title="projected minus current ${G3} — what the reallocation is worth for this campaign">${G3} change${QM}</th></tr></thead><tbody>`;
   a.rows.slice().sort((x,y) => y.cost - x.cost).forEach(r => {
     const s = r.strategy;
     const tag = s.incAdjusted
@@ -3099,10 +3137,15 @@ function renderHistory(){
      simply shows a dash. */
   const act = anyActualsLoaded();
 
-  let rt = `<thead><tr><th>Run date</th><th>Age</th><th>Campaigns</th><th>Points</th>
-    <th>Current cost</th>${act ? `<th title="MEASURED: total conversion value counted on the date each conversion happened, over total cost, across every campaign in this run.">Actual ROAS<br><span class="assumption">conv. time</span></th>
-    <th title="MEASURED: total conversion value counted on the date of the click that led to it, over total cost, across every campaign in this run.">Actual ROAS<br><span class="assumption">click time</span></th>` : ''}
-    <th>Current ${G3}</th><th>Potential ${G3}</th><th>Score</th></tr></thead><tbody>`;
+  let rt = `<thead><tr><th title="the date this simulation snapshot was collected from Google Ads">Run date${QM}</th>
+    <th title="days since that snapshot was collected">Age${QM}</th>
+    <th title="number of campaigns / bidding strategies with a Target ROAS simulation in that snapshot">Campaigns${QM}</th>
+    <th title="total simulated curve points across those campaigns">Points${QM}</th>
+    <th title="total simulated ad cost per week at the targets configured on that run date">Current cost${QM}</th>${act ? `<th title="MEASURED: total conversion value counted on the date each conversion happened, over total cost, across every campaign in this run.">Actual ROAS<br><span class="assumption">conv. time</span>${QM}</th>
+    <th title="MEASURED: total conversion value counted on the date of the click that led to it, over total cost, across every campaign in this run.">Actual ROAS<br><span class="assumption">click time</span>${QM}</th>` : ''}
+    <th title="total ${G3} (gross profit after ad cost${incAdj ? ', incrementality-adjusted' : ''}) at the targets configured on that run date">Current ${G3}${QM}</th>
+    <th title="total ${G3} with every campaign at its profit-maximising simulated target on that run date">Potential ${G3}${QM}</th>
+    <th title="current ${G3} as a share of potential ${G3} — how close the account sat to its optimum on that run date">Score${QM}</th></tr></thead><tbody>`;
   runs.slice().reverse().forEach(d => {
     const ss = buildStrategies(inAcct.filter(r => r.runDate === d), m.map, m.def, ic, shareIdxFor(d), state.actualIndex);
     const curs = [...new Set(ss.map(s => s.currency))];
