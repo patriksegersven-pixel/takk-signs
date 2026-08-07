@@ -290,3 +290,13 @@ conversation.** Reads and `--validate-only` dry runs are always allowed.
 Workflow, auth chain, GP3 math, and the change log: `scripts/ads/OPERATIONS.md`.
 Propose (current → new value + evidence) → wait for approval → validate-only →
 apply → verify → append to the change log.
+
+## "The dashboard" = babyshop-dashboard
+
+When the user asks for changes to "the dashboard" (in any phrasing) without
+naming another app, it ALWAYS means the Babyshop dashboard:
+https://babyshop-dashboard-871631085269.europe-north1.run.app/babyshop-dashboard.html
+— including all of its tabs and the overall infrastructure around it
+(`apps/babyshop-dashboard/`: app.py, the other served HTML pages, Funnel/BQ/
+budget/inventory data sources, the pipeline/ scripts, cloudbuild.yaml and its
+Cloud Run deployment) — unless the user explicitly says otherwise.
