@@ -26,7 +26,31 @@ Last updated: 2026-08-07.
 | Refresh token | ✅ Minted 2026-08-07 | Via OAuth Playground with the roas-sims-collector client, as patrik.segersven@gmail.com, scope `adwords`. |
 | Credentials validated | ✅ 2026-08-07 | Live test: refresh-token → access-token exchange OK; `customers:listAccessibleCustomers` with the developer token returned 6 accounts including the MCC `6899790415`. Full credential set works against the production API. |
 
-## Remaining steps (in order)
+## COMPLETED 2026-08-07 — pipeline is live
+
+Setup was completed via Cloud Shell (not the setup script — a one-shot block that
+also minted `INTERNAL_TOKEN`, which had never actually been wired on the service):
+
+- Five `GOOGLE_ADS_*` secrets created and wired onto `babyshop-dashboard`
+  (runtime SA is the default compute SA `871631085269-compute@…`, revision `00056-k6s`).
+- `INTERNAL_TOKEN` is now SET on the service as a plain env var — `/internal/*`
+  endpoints require the `X-Internal-Token` header from now on (value: see the
+  Cloud Shell session / the env var on the service; not recorded here).
+- Scheduler job `roas-sims-daily` created in **europe-west1** (Cloud Scheduler is
+  not offered in europe-north1), 05:30 Europe/Stockholm daily.
+- First collection: `status ok`, run date 2026-08-07 — 615 sim points, 72 shares,
+  64 actuals, all 8 accounts ok, no warnings, nothing dropped, 33 s.
+- API pipeline merged to `main` (`b39167b`); dashboard now reads `/api/roas-sims`.
+
+Post-completion checks still open:
+- [ ] Any OTHER pre-existing `/internal/*` scheduler job (the hourly
+  `/internal/refresh`) must carry the new `X-Internal-Token` header or it 401s.
+- [ ] Confirm dashboard tables show real campaign names + both Actual ROAS columns.
+- [ ] Rotate the OAuth client secret + refresh token (they passed through chat),
+  update the two secrets, bump the service revision.
+- [ ] After a few good days: pause the MCC sheet script schedule (legacy retire).
+
+## Original remaining steps (now historical)
 
 1. Mint the refresh token (table above).
 2. On a machine with authenticated `gcloud`:
