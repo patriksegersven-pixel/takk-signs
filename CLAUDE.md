@@ -280,3 +280,13 @@ Before `gcloud builds connections create github` succeeds, the Cloud Build Proje
 ## CRITICAL: Deployment safety
 
 When deploying a specific app, ONLY stage and commit files for that app's directory. Never use `git add -A`, `git add .`, or stage files from other directories. A push to `main` triggers Cloud Build, which deploys ALL apps whose directories changed — staging unrelated changes (even accidentally) can redeploy other services with untested modifications. Always use explicit file paths: `git add apps/<name>/file1 apps/<name>/file2`.
+
+## CRITICAL: Google Ads changes (scripts/ads/)
+
+The tooling in `scripts/ads/` can mutate live Google Ads accounts (bidding /
+target ROAS). **Never make any write/mutation to a Google Ads account unless
+the user has explicitly approved the specific proposed change in the current
+conversation.** Reads and `--validate-only` dry runs are always allowed.
+Workflow, auth chain, GP3 math, and the change log: `scripts/ads/OPERATIONS.md`.
+Propose (current → new value + evidence) → wait for approval → validate-only →
+apply → verify → append to the change log.
