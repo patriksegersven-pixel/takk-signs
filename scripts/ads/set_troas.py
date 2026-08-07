@@ -5,9 +5,10 @@ portfolio bidding strategies via the Google Ads REST API.
 
 Auth — three modes, tried in this order (first match wins):
 
-1. Service-account key file (works headless, e.g. remote sessions):
-       GOOGLE_ADS_SA_KEY_FILE (or GOOGLE_APPLICATION_CREDENTIALS)
-   Path to the SA's JSON key. The SA email must be added as a user
+1. Service-account key (works headless, e.g. remote sessions):
+       GOOGLE_ADS_SA_KEY_JSON   — the key JSON content itself, or
+       GOOGLE_ADS_SA_KEY_FILE (or GOOGLE_APPLICATION_CREDENTIALS) — a path
+   The SA email must be added as a user
    (Standard access) on the Google Ads account — supported directly,
    no Workspace domain-wide delegation needed. Optionally set
    GOOGLE_ADS_SUBJECT_EMAIL to impersonate a Workspace user via DWD.
@@ -88,7 +89,7 @@ def _b64url(data: bytes) -> bytes:
     return base64.urlsafe_b64encode(data).rstrip(b"=")
 
 
-def _sa_key_token(key_path: str) -> str:
+def _sa_key_token(info: dict) -> str:
     """OAuth2 JWT-bearer flow with a service-account key. RS256 signing is
     delegated to the openssl binary so no crypto pip package is needed."""
     import subprocess
@@ -96,11 +97,9 @@ def _sa_key_token(key_path: str) -> str:
     import time
 
     try:
-        with open(key_path) as f:
-            info = json.load(f)
         sa_email, private_key = info["client_email"], info["private_key"]
-    except (OSError, ValueError, KeyError) as e:
-        sys.exit(f"Cannot read SA key file {key_path!r}: {e}")
+    except KeyError as e:
+        sys.exit(f"SA key JSON is missing field {e} — is this a service-account key?")
 
     now = int(time.time())
     claims = {"iss": sa_email, "scope": ADWORDS_SCOPE, "aud": OAUTH_TOKEN_URL,
@@ -154,10 +153,20 @@ def _impersonation_token(sa_email: str) -> str:
 
 
 def get_access_token() -> str:
+    key_json = os.environ.get("GOOGLE_ADS_SA_KEY_JSON")
+    if key_json:
+        try:
+            return _sa_key_token(json.loads(key_json))
+        except ValueError as e:
+            sys.exit(f"GOOGLE_ADS_SA_KEY_JSON is not valid JSON: {e}")
     key_file = (os.environ.get("GOOGLE_ADS_SA_KEY_FILE")
                 or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
     if key_file:
-        return _sa_key_token(key_file)
+        try:
+            with open(key_file) as f:
+                return _sa_key_token(json.load(f))
+        except (OSError, ValueError) as e:
+            sys.exit(f"Cannot read SA key file {key_file!r}: {e}")
     impersonate = os.environ.get("GOOGLE_ADS_IMPERSONATE_SA")
     if impersonate:
         return _impersonation_token(impersonate)
