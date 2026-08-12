@@ -33,20 +33,22 @@ brand ad group (skipping ad groups already at the 3-RSA limit), tagged
 
 ## Copy — sitelinks (link text ≤25, descriptions ≤35)
 
-| Link text | Description 1 | Description 2 | Final URL |
+| Link text | Description 1 | Description 2 | Final URL (on `www.babyshop.com`) |
 |---|---|---|---|
-| Back to School | Allt för skola & förskolestart | Ryggsäckar, kläder, skor & mer | `/sv-se/shop-by/back-to-school` ✅ known |
-| Ryggsäckar & väskor | Skolryggsäckar för alla åldrar | Första skolväskan – handla nu | `/sv-se/vaskor` ⚠ VERIFY |
-| Vardagskläder | Basplagg för skola & förskola | Leggings, tröjor & multipack | `/sv-se/klader` ⚠ VERIFY |
-| Ytterkläder | Regnkläder, fleece & skaljackor | Redo för höst och regn | `/sv-se/ytterklader` ⚠ VERIFY |
-| Skor | Sneakers, stövlar & innerskor | Kavat, Viking, Reima & fler | `/sv-se/skor` ⚠ VERIFY |
-| Matlådor & flaskor | Matlådor & vattenflaskor | Redo för lunch och mellis | ⚠ VERIFY (fill in) |
+| Back to School | Allt för skola & förskolestart | Ryggsäckar, kläder, skor & mer | `/sv-se/shop-by/back-to-school` |
+| Ryggsäckar & väskor | Skolryggsäckar för alla åldrar | Första skolväskan – handla nu | `/sv-se/accessoarer/vaskor-och-ryggsackar` |
+| Vardagskläder | Basplagg för skola & förskola | Leggings, tröjor & multipack | `/sv-se/barnklader` |
+| Ytterkläder | Regnkläder, fleece & skaljackor | Redo för höst och regn | `/sv-se/ytterklader` |
+| Skor | Sneakers, stövlar & innerskor | Kavat, Viking, Reima & fler | `/sv-se/barnskor` |
+| Matlådor & flaskor | Matlådor & vattenflaskor | Redo för lunch och mellis | `/sv-se/inredning/ata-och-dricka/lunchlador-och-lunchboxar` |
 
 Every sitelink needs a **distinct, working final URL** — Google disapproves
-sitelinks sharing landing pages. The sandbox this was built in cannot reach
-babyshop.com, so the five ⚠ URLs are educated guesses: verify each in a
-browser, correct them in `SITELINKS` in the script, then flip
-`URLS_VERIFIED = True`. `--apply` refuses to run until you do.
+sitelinks sharing landing pages. These URLs were verified against Google's
+index of babyshop.com (2026-08-12); the authoring sandbox could not load the
+pages directly. Two URL schemes are live on the site (`/sv-se/…` and
+`/se/sv/c/…`) — these use `/sv-se/`, same as the campaign landing page. Give
+each a one-click check in a browser, then flip `URLS_VERIFIED = True` in the
+script. `--apply` refuses to run until you do.
 
 ## Copy — callouts (≤25)
 

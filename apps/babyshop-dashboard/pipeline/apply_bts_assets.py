@@ -55,25 +55,35 @@ AD_NAME = "bts-2026"             # tag on the seasonal RSAs; --cleanup pauses by
 BRAND_NAME_MATCH = "brand"       # case-insensitive substring selecting brand campaigns
 LANDING = "https://www.babyshop.com/sv-se/shop-by/back-to-school"
 
-# The sandbox this was authored in cannot reach babyshop.com, so every URL
-# marked VERIFY below is an educated guess. Check each one in a browser (each
-# sitelink must have a DISTINCT, working landing page or Google disapproves
-# it), fix them, then flip this to True. --apply refuses to run until then.
+# URLs verified against Google's index of babyshop.com (2026-08-12) — the
+# authoring sandbox could not load the pages directly, only confirm them via
+# search results. Two URL schemes are live on the site (/sv-se/... and
+# /se/sv/c/...); these use /sv-se/, matching the campaign landing page. Give
+# each a one-click sanity check in a browser (a sitelink with a broken or
+# redirecting-to-wrong-place URL gets disapproved), then flip this to True.
+# --apply refuses to run until then.
 URLS_VERIFIED = False
 
 SITELINKS = [
     {"text": "Back to School",      "d1": "Allt för skola & förskolestart",
      "d2": "Ryggsäckar, kläder, skor & mer",  "url": LANDING},
     {"text": "Ryggsäckar & väskor", "d1": "Skolryggsäckar för alla åldrar",
-     "d2": "Första skolväskan – handla nu",   "url": "https://www.babyshop.com/sv-se/vaskor"},          # VERIFY
+     "d2": "Första skolväskan – handla nu",
+     "url": "https://www.babyshop.com/sv-se/accessoarer/vaskor-och-ryggsackar"},
     {"text": "Vardagskläder",       "d1": "Basplagg för skola & förskola",
-     "d2": "Leggings, tröjor & multipack",    "url": "https://www.babyshop.com/sv-se/klader"},          # VERIFY
+     "d2": "Leggings, tröjor & multipack",
+     "url": "https://www.babyshop.com/sv-se/barnklader"},
     {"text": "Ytterkläder",         "d1": "Regnkläder, fleece & skaljackor",
-     "d2": "Redo för höst och regn",          "url": "https://www.babyshop.com/sv-se/ytterklader"},     # VERIFY
+     "d2": "Redo för höst och regn",
+     "url": "https://www.babyshop.com/sv-se/ytterklader"},
     {"text": "Skor",                "d1": "Sneakers, stövlar & innerskor",
-     "d2": "Kavat, Viking, Reima & fler",     "url": "https://www.babyshop.com/sv-se/skor"},            # VERIFY
+     "d2": "Kavat, Viking, Reima & fler",
+     "url": "https://www.babyshop.com/sv-se/barnskor"},
+    # "Äta & dricka" parent (…/inredning/ata-och-dricka) likely also works and
+    # covers bottles too, but only the lunch-box page is confirmed indexed.
     {"text": "Matlådor & flaskor",  "d1": "Matlådor & vattenflaskor",
-     "d2": "Redo för lunch och mellis",       "url": "https://www.babyshop.com/sv-se/FILL-ME-IN"},      # VERIFY
+     "d2": "Redo för lunch och mellis",
+     "url": "https://www.babyshop.com/sv-se/inredning/ata-och-dricka/lunchlador-och-lunchboxar"},
 ]
 
 CALLOUTS = [
