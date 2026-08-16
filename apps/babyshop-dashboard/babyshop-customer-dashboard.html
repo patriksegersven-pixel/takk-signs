@@ -158,6 +158,7 @@
     .callout b { font-weight:700; }
     .callout .co-head { font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; opacity:.8; margin-bottom:3px; }
     .callouts:empty { display:none; }
+    .cac-head-right { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
 
     /* ── Awaiting-Norce sample treatment ── */
     .awaiting { position:relative; border-style:dashed; border-color:#D8DEE8; }
@@ -273,16 +274,27 @@
   <div class="card">
     <div class="card-header">
       <div>
-        <div class="chart-title">CAC matrix — market × channel (last 90 days)</div>
-        <div class="chart-sub">Paid cost ÷ new customers attributed to the same market and channel. Rows flagged where CAC runs far above
-          the blended average, or where real spend attributes essentially no new customers — those are the two places to act first.</div>
+        <div class="chart-title">CAC matrix — acquisition cost (last 90 days)</div>
+        <div class="chart-sub">Paid cost ÷ new customers attributed to the same slice. Rows flagged where CAC runs far above the blended
+          average, or where real spend attributes essentially no new customers — those are the two places to act first. The callouts always
+          read the detailed market × channel cells, whichever view is selected.</div>
       </div>
-      <span class="chart-badge" id="cac-badge">—</span>
+      <div class="cac-head-right">
+        <div class="filter-group">
+          <span class="filter-label">View by</span>
+          <select class="filter-select" id="cac-view">
+            <option value="market">Market</option>
+            <option value="channel">Channel</option>
+            <option value="cross">Market × Channel</option>
+          </select>
+        </div>
+        <span class="chart-badge" id="cac-badge">—</span>
+      </div>
     </div>
     <div class="callouts" id="cac-callouts"></div>
     <table>
       <thead>
-        <tr><th>Market / channel</th><th>Cost 90d</th><th>New customers 90d</th><th>CAC</th><th>vs blended</th><th>Flag</th></tr>
+        <tr><th id="cac-col">Market</th><th>Cost 90d</th><th>New customers 90d</th><th>CAC</th><th>vs blended</th><th>Flag</th></tr>
       </thead>
       <tbody id="cac-tbody"></tbody>
       <tfoot id="cac-tfoot"></tfoot>
@@ -820,12 +832,70 @@ const CAC_HIGH_MULT = 2.0;    // flag rows above this × blended CAC
 const CAC_GOOD_MULT = 0.6;    // celebrate rows below this × blended CAC
 const DEAD_SPEND_MIN = 5000;  // kr of 90d spend below which "no customers" is noise
 
+/* Which slice the table shows. The callouts below are ALWAYS computed from the
+   detailed market × channel cells — an outlier that matters (one dead channel in
+   one market) disappears the moment you average it into a market total. */
+let CAC_VIEW = 'market';
+
+/* Shared classification, so a market row, a channel row and a detailed cell are
+   all judged by exactly the same rules. */
+function cacClassify(r, blended){
+  r.mult = (blended && r.cac != null) ? r.cac/blended : null;
+  if (r.cost <= 0)                                        r.flag = 'organic';
+  else if (r.newc < 1 && r.cost >= DEAD_SPEND_MIN)        r.flag = 'dead';
+  else if (r.mult != null && r.mult >= CAC_HIGH_MULT)     r.flag = 'high';
+  else if (r.mult != null && r.mult <= CAC_GOOD_MULT && r.newc >= 10) r.flag = 'good';
+  else r.flag = '';
+  return r;
+}
+const cacFlagCell = r =>
+  r.flag==='dead'    ? '<span class="pill pill-down">no customers</span>' :
+  r.flag==='high'    ? '<span class="pill pill-warn">high CAC</span>' :
+  r.flag==='good'    ? '<span class="pill pill-up">efficient</span>' :
+  r.flag==='organic' ? '<span class="pill pill-neutral">no paid cost</span>' : '';
+const cacMultCell = r => r.mult==null ? '<span style="color:var(--muted)">—</span>'
+  : `<span class="${r.mult>=CAC_HIGH_MULT?'cell-neg':(r.mult<=CAC_GOOD_MULT?'cell-pos':'')}">${
+      r.mult.toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})}×</span>`;
+/* Spend first, customers as the tie-break — which keeps the zero-cost organic
+   rows below every paid row, ordered by the volume they actually bring. */
+const cacSort = (a,b) => (b.cost-a.cost) || (b.newc-a.newc);
+
+function cacRowHtml(label, sub, r){
+  const cls = (r.flag==='dead'||r.flag==='high') ? ' class="risk"' : (r.flag==='good' ? ' class="good"' : '');
+  return `<tr${cls}>
+    <td>${esc(label)}${sub?`<span class="sub-cell">${esc(sub)}</span>`:''}</td>
+    <td>${fmtSEK(r.cost)}</td>
+    <td>${fmtInt(r.newc)}</td>
+    <td>${r.cac==null?'<span style="color:var(--muted)">—</span>':fmtKr(r.cac)}</td>
+    <td>${cacMultCell(r)}</td>
+    <td>${cacFlagCell(r)}</td></tr>`;
+}
+
+/* Roll the detailed cells up on one key. CAC stays null when there is no paid
+   spend: a "0 kr" CAC reads as free acquisition when it really means the cost
+   sits in another channel, or nowhere at all. */
+function cacAggregate(cells, keyFn, blended){
+  const m = new Map();
+  cells.forEach(c=>{
+    const k = keyFn(c);
+    const o = m.get(k) || { key:k, cost:0, newc:0, parts:0, flagged:0 };
+    o.cost += c.cost; o.newc += c.newc; o.parts += 1;
+    if (c.flag==='dead' || c.flag==='high') o.flagged += 1;
+    m.set(k,o);
+  });
+  return [...m.values()]
+    .map(o=>cacClassify({ ...o, cac: (o.cost>0 && o.newc) ? o.cost/o.newc : null }, blended))
+    .sort(cacSort);
+}
+
 function renderCAC(){
   const raw = ((DATA.funnel && DATA.funnel.cac_matrix) || []).filter(matchRow);
   const tbody = document.getElementById('cac-tbody');
   const tfoot = document.getElementById('cac-tfoot');
   const callouts = document.getElementById('cac-callouts');
   const badge = document.getElementById('cac-badge');
+  const colHead = document.getElementById('cac-col');
+  colHead.textContent = CAC_VIEW==='market' ? 'Market' : (CAC_VIEW==='channel' ? 'Channel' : 'Market / channel');
 
   if (!raw.length){
     callouts.innerHTML = '';
@@ -838,32 +908,25 @@ function renderCAC(){
     return;
   }
 
-  const rows = raw.map(r=>({
-    market: r.market || '—',
-    channel: r.channel_l1 || '—',
-    cost: num(r.cost_90d) || 0,
-    newc: num(r.new_customers_90d) || 0,
-    cac: num(r.cac),
-  })).map(r=>({ ...r, cac: (r.cac!=null ? r.cac : (r.newc ? r.cost/r.newc : null)) }));
-
-  const totCost = rows.reduce((s,r)=>s+r.cost,0);
-  const totNew  = rows.reduce((s,r)=>s+r.newc,0);
-  const blended = totNew ? totCost/totNew : null;
-  badge.textContent = `${rows.length} rows · blended ${fmtKr(blended)}`;
-
-  /* Classify */
-  rows.forEach(r=>{
-    r.mult = (blended && r.cac!=null) ? r.cac/blended : null;
-    if (r.newc < 1 && r.cost >= DEAD_SPEND_MIN)      r.flag = 'dead';
-    else if (r.mult!=null && r.mult >= CAC_HIGH_MULT) r.flag = 'high';
-    else if (r.mult!=null && r.mult <= CAC_GOOD_MULT && r.newc >= 10) r.flag = 'good';
-    else r.flag = '';
+  /* Detailed cells — the basis for the blended average, the callouts, and the
+     cross view. The aggregate views roll these up. */
+  const cells = raw.map(r=>{
+    const cost = num(r.cost_90d) || 0;
+    const newc = num(r.new_customers_90d) || 0;
+    const cac  = num(r.cac);
+    return { market: r.market || '—', channel: r.channel_l1 || '—', cost, newc,
+             cac: cost > 0 ? (cac != null ? cac : (newc ? cost/newc : null)) : null };
   });
 
-  /* Callouts — the explicit "act on this" list */
-  const dead = rows.filter(r=>r.flag==='dead').sort((a,b)=>b.cost-a.cost);
-  const high = rows.filter(r=>r.flag==='high').sort((a,b)=>b.cost-a.cost);
-  const good = rows.filter(r=>r.flag==='good').sort((a,b)=>b.newc-a.newc);
+  const totCost = cells.reduce((s,r)=>s+r.cost,0);
+  const totNew  = cells.reduce((s,r)=>s+r.newc,0);
+  const blended = totNew ? totCost/totNew : null;
+  cells.forEach(c=>cacClassify(c, blended));
+
+  /* Callouts — the explicit "act on this" list, always from the detailed cells */
+  const dead = cells.filter(r=>r.flag==='dead').sort((a,b)=>b.cost-a.cost);
+  const high = cells.filter(r=>r.flag==='high').sort((a,b)=>b.cost-a.cost);
+  const good = cells.filter(r=>r.flag==='good').sort((a,b)=>b.newc-a.newc);
   const co = [];
   if (dead.length){
     const wasted = dead.reduce((s,r)=>s+r.cost,0);
@@ -885,36 +948,37 @@ function renderCAC(){
     Every cell sits between ${CAC_GOOD_MULT}× and ${CAC_HIGH_MULT}× the blended ${fmtKr(blended)}, and no cell spends over ${fmtSEK(DEAD_SPEND_MIN)} without acquiring anyone.</div>`);
   callouts.innerHTML = co.join('');
 
-  /* Table — grouped by market, channels sorted by spend */
-  const byMarket = new Map();
-  rows.forEach(r=>{ if(!byMarket.has(r.market)) byMarket.set(r.market,[]); byMarket.get(r.market).push(r); });
-  const marketOrder = [...byMarket.entries()]
-    .map(([m,rs])=>({ m, rs, cost: rs.reduce((s,r)=>s+r.cost,0) }))
-    .sort((a,b)=>b.cost-a.cost);
-
-  const flagCell = r =>
-    r.flag==='dead' ? '<span class="pill pill-down">no customers</span>' :
-    r.flag==='high' ? '<span class="pill pill-warn">high CAC</span>' :
-    r.flag==='good' ? '<span class="pill pill-up">efficient</span>' : '';
-
-  let html = '';
-  marketOrder.forEach(({m,rs,cost})=>{
-    const mNew = rs.reduce((s,r)=>s+r.newc,0);
-    if (marketOrder.length > 1)
-      html += `<tr class="grp-row"><td colspan="6">${esc(m)} — ${fmtSEK(cost)} · ${fmtInt(mNew)} new · CAC ${fmtKr(mNew?cost/mNew:null)}</td></tr>`;
-    rs.sort((a,b)=>b.cost-a.cost).forEach(r=>{
-      const cls = r.flag==='dead'||r.flag==='high' ? ' class="risk"' : (r.flag==='good' ? ' class="good"' : '');
-      const vs = r.mult==null ? '<span style="color:var(--muted)">—</span>'
-        : `<span class="${r.mult>=CAC_HIGH_MULT?'cell-neg':(r.mult<=CAC_GOOD_MULT?'cell-pos':'')}">${r.mult.toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})}×</span>`;
-      html += `<tr${cls}>
-        <td>${esc(r.channel)}${marketOrder.length>1?'':`<span class="sub-cell">${esc(r.market)}</span>`}</td>
-        <td>${fmtSEK(r.cost)}</td>
-        <td>${fmtInt(r.newc)}</td>
-        <td>${r.cac==null?'<span style="color:var(--muted)">—</span>':fmtKr(r.cac)}</td>
-        <td>${vs}</td>
-        <td>${flagCell(r)}</td></tr>`;
+  /* Table — one of three views over the same cells */
+  let html = '', rowCount = 0;
+  if (CAC_VIEW === 'market' || CAC_VIEW === 'channel'){
+    const byChannel = CAC_VIEW === 'channel';
+    const agg = cacAggregate(cells, c => byChannel ? c.channel : c.market, blended);
+    rowCount = agg.length;
+    const unit = byChannel ? 'market' : 'channel';
+    html = agg.map(r=>{
+      const parts = `${fmtInt(r.parts)} ${unit}${r.parts===1?'':'s'}`;
+      const sub = r.flagged ? `${parts} · ${r.flagged} flagged cell${r.flagged===1?'':'s'}` : parts;
+      return cacRowHtml(r.key, sub, r);
+    }).join('');
+  } else {
+    /* Detailed cross view — grouped by market, channels sorted by spend */
+    const byMarket = new Map();
+    cells.forEach(r=>{ if(!byMarket.has(r.market)) byMarket.set(r.market,[]); byMarket.get(r.market).push(r); });
+    const marketOrder = [...byMarket.entries()]
+      .map(([m,rs])=>({ m, rs, cost: rs.reduce((s,r)=>s+r.cost,0), newc: rs.reduce((s,r)=>s+r.newc,0) }))
+      .sort((a,b)=>(b.cost-a.cost) || (b.newc-a.newc));
+    rowCount = cells.length;
+    marketOrder.forEach(({m,rs,cost,newc})=>{
+      if (marketOrder.length > 1)
+        html += `<tr class="grp-row"><td colspan="6">${esc(m)} — ${fmtSEK(cost)} · ${fmtInt(newc)} new · CAC ${
+          fmtKr(cost>0 && newc ? cost/newc : null)}</td></tr>`;
+      rs.slice().sort(cacSort).forEach(r=>{
+        html += cacRowHtml(r.channel, marketOrder.length>1 ? '' : r.market, r);
+      });
     });
-  });
+  }
+  const unitLbl = CAC_VIEW==='market' ? 'market' : (CAC_VIEW==='channel' ? 'channel' : 'cell');
+  badge.textContent = `${rowCount} ${unitLbl}${rowCount===1?'':'s'} · blended ${fmtKr(blended)}`;
   tbody.innerHTML = html;
   tfoot.innerHTML = `<tr class="tfoot-row"><td>Total · ${esc(filterLabel())}</td><td>${fmtSEK(totCost)}</td><td>${fmtInt(totNew)}</td><td>${fmtKr(blended)}</td><td>1,0×</td><td></td></tr>`;
 }
@@ -1177,6 +1241,11 @@ document.getElementById('f-reset').onclick = () => {
   FILTERS = { market:'', channel:'' };
   document.getElementById('f-market').value = ''; document.getElementById('f-channel').value = '';
   syncFilterStyles(); renderTrend(); renderCAC();
+};
+document.getElementById('cac-view').onchange = e => {
+  CAC_VIEW = e.target.value;
+  e.target.classList.toggle('is-active', CAC_VIEW !== 'market');
+  renderCAC();
 };
 document.getElementById('fp-tabs').querySelectorAll('.seg').forEach(b=>b.onclick=()=>{
   document.getElementById('fp-tabs').querySelectorAll('.seg').forEach(x=>x.classList.remove('active'));
