@@ -17,6 +17,14 @@
 --   • Order value  = SUM(LineAmount) EXCLUDING the shipping line PartNo
 --                    '1000014'. There is no order-total field in Norce.
 --   • Amounts are EX-VAT. Real VAT sits per line; the header VatRate is 0.
+--   • EVERY amount is converted to SEK in customer_orders (and in
+--     first_purchase_products, which reads order_items raw). Norce stores each
+--     order in its OWN currency — SE in SEK, UK in GBP, FI/EU in EUR, NO in NOK,
+--     DK in DKK, NA/ASIA in USD — and carries no per-order rate, so summing raw
+--     LineAmounts adds pounds to kronor. Conversion is at TODAY's rate for all
+--     history (see currency_rates): constant-currency, which is what makes CLV
+--     and LTV:CAC comparable across markets, at the cost of historical revenue
+--     moving a little as rates move.
 --   • NO status filtering anywhere. User decision: returns and cancellations
 --     are ignored, all values are gross.
 --   • customer_hash = SHA256(LOWER(TRIM(email))) hex, computed at extract time
@@ -29,6 +37,27 @@
 --     customer from the old platform — customer_facts.migration_window_flag
 --     marks them so "new customer" can be caveated in the UI.
 -- ============================================================================
+
+-- @@
+-- currency_rates — every currency's value in SEK. Must precede customer_orders.
+--
+-- Norce quotes Core/Currencies.ExchangeRate against the EURO (EUR = 1), so the
+-- SEK rate is a division and never the raw number: GBP 1.15114539 / SEK
+-- 0.090896696 = 12.66 SEK per pound. SEK's own row divides to exactly 1, so
+-- Swedish amounts pass through untouched.
+--
+-- This is a CURRENT spot rate. Norce keeps no rate history and orders carry no
+-- rate of their own, so there is nothing to reconstruct a historical rate from —
+-- all history is restated at today's rate, deliberately (see the header).
+CREATE OR REPLACE VIEW `${DATASET}.currency_rates` AS
+SELECT
+  c.Id                                            AS currency_id,
+  c.Code                                          AS currency_code,
+  SAFE_DIVIDE(c.ExchangeRate, sek.ExchangeRate)   AS to_sek
+FROM `${DATASET}.dim_currencies` c
+CROSS JOIN (
+  SELECT ExchangeRate FROM `${DATASET}.dim_currencies` WHERE Code = 'SEK'
+) sek;
 
 -- @@
 -- customer_orders — one row per order, the grain everything else builds on.
@@ -48,12 +77,20 @@ SELECT
   DATE_TRUNC(DATE(o.OrderDate), MONTH)              AS order_month,
   o.StatusId                                        AS status_id,
   o.CurrencyId                                      AS currency_id,
+  fx.currency_code,
   -- Merchandise value only: the shipping line is a real order line in Norce.
-  COALESCE(i.order_value, 0)                        AS order_value,
+  -- IN SEK — this is the one place the conversion happens, so every mart, the
+  -- CLV/AOV/cohort numbers and the dashboard inherit it. The local-currency
+  -- figure is kept alongside for reconciliation against Norce's own reports.
+  ROUND(COALESCE(i.order_value, 0)    * fx.to_sek, 2) AS order_value,
+  ROUND(COALESCE(i.shipping_value, 0) * fx.to_sek, 2) AS shipping_value,
+  COALESCE(i.order_value, 0)                        AS order_value_local,
   COALESCE(i.items_count, 0)                        AS items_count,
-  COALESCE(i.units, 0)                              AS units,
-  COALESCE(i.shipping_value, 0)                     AS shipping_value
+  COALESCE(i.units, 0)                              AS units
 FROM `${DATASET}.orders` o
+-- LEFT, not INNER: an unknown currency must not silently delete the order (and
+-- with it a customer). It surfaces as a NULL currency_code / NULL value instead.
+LEFT JOIN `${DATASET}.currency_rates` fx ON fx.currency_id = o.CurrencyId
 LEFT JOIN (
   SELECT
     OrderId,
@@ -214,7 +251,8 @@ LEFT JOIN activity a
 -- variant label ("Foggy White Blueberry-50 cm") and is useless on its own.
 CREATE OR REPLACE VIEW `${DATASET}.first_purchase_products` AS
 WITH first_orders AS (
-  SELECT o.order_id, o.order_month AS month, o.market, o.shop, o.order_value
+  SELECT o.order_id, o.order_month AS month, o.market, o.shop, o.order_value,
+         o.currency_id
   FROM `${DATASET}.customer_orders` o
   JOIN `${DATASET}.customer_facts` f
     ON f.customer_hash = o.customer_hash AND f.shop = o.shop
@@ -223,7 +261,10 @@ WITH first_orders AS (
 lines AS (
   SELECT
     fo.month, fo.market, fo.shop, fo.order_id,
-    li.LineAmount,
+    -- These lines come from order_items RAW, so customer_orders' conversion has
+    -- not touched them — convert here too or a UK brand's revenue share is
+    -- computed in pounds against a SEK denominator.
+    ROUND(li.LineAmount * fx.to_sek, 2)                                  AS LineAmount,
     COALESCE(m.Name, '(unknown brand)')                                  AS brand,
     COALESCE(SPLIT(c.DefaultFullName, ' - ')[SAFE_OFFSET(1)],
              c.DefaultName, '(uncategorised)')                           AS category_l1,
@@ -238,6 +279,7 @@ lines AS (
     COALESCE(t.title, v.DefaultName, p.DefaultName, li.ProductName, li.PartNo) AS product
   FROM first_orders fo
   JOIN `${DATASET}.order_items` li ON li.OrderId = fo.order_id
+  LEFT JOIN `${DATASET}.currency_rates` fx ON fx.currency_id = fo.currency_id
   LEFT JOIN `${DATASET}.product_skus`  s ON s.PartNo = li.PartNo
   LEFT JOIN `${DATASET}.products`      p ON p.Id = s.ProductId
   LEFT JOIN `${DATASET}.dim_manufacturers` m ON m.ManufacturerId = p.ManufacturerId

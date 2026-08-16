@@ -57,6 +57,15 @@ without a cross-region copy).
 - Norce order value = `SUM(Items.LineAmount)` **excluding the shipping line
   `PartNo='1000014'`**. There is no order-total field. Amounts are **ex-VAT**
   (the header `VatRate` is 0; real VAT is per line).
+- **Everything is converted to SEK in `customer_orders`.** Norce books each
+  order in its own currency — SE in SEK, NO in NOK, DK in DKK, FI/EU/ROW in EUR,
+  UK in GBP, NA/ASIA in USD — and carries no per-order rate, so a raw
+  `SUM(LineAmount)` adds pounds to kronor. Until 2026-08-16 it did exactly that,
+  which understated UK and FI CLV by ~11–13× and DK by ~35%, and made UK look
+  like the worst LTV:CAC market when it is one of the best. Rates come from
+  Norce's own `Core/Currencies.ExchangeRate` via the `currency_rates` view.
+  `first_purchase_products` reads `order_items` raw and converts separately —
+  any new mart that does the same must convert too.
 - **No status filtering anywhere.** User decision: returns and cancellations are
   ignored, all values are gross.
 - **No 2- or 3-year CLV.** 1-year only, plus the cohort maturity curves.
@@ -205,6 +214,10 @@ python3 refresh_customer_insights.py
 
 # Re-apply only the mart views after editing norce_marts.sql.
 python3 norce_sync.py --marts-only
+
+# Reload the lookup dimensions (currency rates!), then re-apply the marts.
+# Needs the Norce secrets; the orders phase is skipped entirely.
+python3 norce_sync.py --dims-only
 ```
 
 ## The marts
@@ -214,7 +227,8 @@ nothing but a staleness bug. `${DATASET}` is substituted by `norce_sync.py`.
 
 | View | Grain | Notes |
 |---|---|---|
-| `customer_orders` | one row per order | `order_value` = line sum excluding `PartNo='1000014'`. `market`/`shop` derived from `app_key` (`babyshop-se` → `babyshop` / `SE`), so the codes line up with `market_level_1_kv`. |
+| `currency_rates` | currency | `to_sek` per currency. Norce quotes `ExchangeRate` against the **euro** (EUR = 1), so the SEK rate is a division, not the raw number. A **current** spot rate — Norce keeps no history — so all history is restated at today's rate (constant-currency, which is what makes CLV and LTV:CAC comparable across markets). |
+| `customer_orders` | one row per order | `order_value` = line sum excluding `PartNo='1000014'`, **converted to SEK**; `order_value_local` keeps the original for reconciliation against Norce's own reports. `market`/`shop` derived from `app_key` (`babyshop-se` → `babyshop` / `SE`), so the codes line up with `market_level_1_kv`. |
 | `customer_facts` | customer_hash × shop | `revenue_365d_from_first` stays NULL until the customer's own 365 days have elapsed. `migration_window_flag` marks first orders before 2025-09-11. |
 | `monthly_customer_metrics` | month × market × shop | `new_customers` = first-ever order that month, so a customer is new exactly once. |
 | `cohort_retention` | cohort_month × market × shop × months_since_first | The CLV maturity triangle. 1-year CLV = `cumulative_revenue_per_customer` at offset 12. Offsets are generated densely up to each cohort's elapsed age. |
