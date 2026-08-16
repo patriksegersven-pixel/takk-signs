@@ -361,7 +361,10 @@ SCHEMAS: dict[str, list[bigquery.SchemaField]] = {
     # dimension of first_purchase_products is unreadable without this.
     "sku_titles":         [S("PartNo", "STRING"), S("title", "STRING"), S("brand", "STRING")],
     "dim_payment_methods": [S("Id", "INT64"), S("DefaultName", "STRING")],
-    "dim_currencies":      [S("Id", "INT64"), S("Code", "STRING"), S("DefaultName", "STRING")],
+    # ExchangeRate is quoted against EUR (EUR = 1), NOT against SEK — see the
+    # currency_rates view in norce_marts.sql, which does the division.
+    "dim_currencies":      [S("Id", "INT64"), S("Code", "STRING"), S("DefaultName", "STRING"),
+                            S("ExchangeRate", "FLOAT64")],
     "dim_countries":       [S("Id", "INT64"), S("Code", "STRING"), S("DefaultName", "STRING")],
     # One row per sync step; the incremental watermark is MAX(watermark) here.
     "sync_state":          [S("step", "STRING"), S("watermark", "TIMESTAMP"),
@@ -589,12 +592,14 @@ def keyset(entity_path: str, select: str, expand: str | None = None,
             last = rows[-1]["Id"]
             if seen // 10_000 != prev // 10_000:
                 print(f"   {label}… {seen:,} (Id {last})", flush=True)
-        done = len(rows) < page
+        # Terminate ONLY on an empty page. A short page does NOT mean done:
+        # the server silently clamps $top (variants asked for 500, got exactly
+        # 200 back, and a <page check ended the sync after one page — 200 of
+        # 26,661 rows). Keyset makes the empty-page check safe at one extra
+        # request per entity.
         if page < full:               # a shrunk page succeeded — resume full pages
             page = full
-            if rows:                  # only genuinely done when a FULL page comes up short
-                continue
-        if done:
+        if not rows:
             return
 
 
@@ -731,9 +736,14 @@ def sync_dimensions() -> dict[str, int]:
     out["dim_payment_methods"] = replace(
         [{"Id": r.get("Id"), "DefaultName": r.get("DefaultName")}
          for r in query("Core/PaymentMethods", CONTEXT_APP_ID, select="Id,DefaultName")], "dim_payment_methods")
+    # ExchangeRate is what makes every amount comparable: Norce stores each order
+    # in its own currency and carries no rate of its own, so this lookup is the
+    # ONLY thing standing between the marts and adding GBP to SEK.
     out["dim_currencies"] = replace(
-        [{"Id": r.get("Id"), "Code": r.get("Code"), "DefaultName": r.get("DefaultName")}
-         for r in query("Core/Currencies", CONTEXT_APP_ID, select="Id,Code,DefaultName")], "dim_currencies")
+        [{"Id": r.get("Id"), "Code": r.get("Code"), "DefaultName": r.get("DefaultName"),
+          "ExchangeRate": _f(r.get("ExchangeRate"))}
+         for r in query("Core/Currencies", CONTEXT_APP_ID,
+                        select="Id,Code,DefaultName,ExchangeRate")], "dim_currencies")
     out["dim_countries"] = replace(
         [{"Id": r.get("Id"), "Code": r.get("Code"), "DefaultName": r.get("DefaultName")}
          for r in query("Core/Countries", CONTEXT_APP_ID, select="Id,Code,DefaultName")], "dim_countries")
@@ -775,6 +785,8 @@ def main() -> int:
                     help="only reload norce.sku_titles from the Channable feed")
     ap.add_argument("--products-only", action="store_true",
                     help="products/variants/dimensions/titles + marts, skipping the orders phase")
+    ap.add_argument("--dims-only", action="store_true",
+                    help="only reload the lookup dimensions, then re-apply the marts")
     ap.add_argument("--skip-products", action="store_true", help="skip the product/dimension pass")
     args = ap.parse_args()
 
@@ -803,6 +815,16 @@ def main() -> int:
         return 0
 
     ensure_dataset()
+
+    # Dimensions are a few thousand rows and the marts read them, so this is the
+    # cheap path for anything that only changes a lookup — notably the currency
+    # rates the whole SEK conversion hangs off. ensure_dataset() above has already
+    # appended any new column, so the order is: column → values → views.
+    if args.dims_only:
+        dims = sync_dimensions()
+        print("✓ dimensions reloaded · " + " · ".join(f"{k} {v:,}" for k, v in dims.items()))
+        print(f"✓ Norce marts applied · {apply_marts()} statements · {time.time()-t0:.1f}s")
+        return 0
 
     app_keys = [k.strip() for k in args.apps.split(",")] if args.apps else list(APPLICATIONS)
     unknown = [k for k in app_keys if k not in APPLICATIONS]
