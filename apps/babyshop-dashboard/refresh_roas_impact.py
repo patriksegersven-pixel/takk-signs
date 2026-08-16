@@ -19,10 +19,20 @@ Measures (per the brief):
   Spend = SUM(Cost)            Revenue = SUM(kv_revenue)
   GP2   = SUM(kv_gp2)          GP3     = SUM(kv_gp2) + SUM(kv_gp3_fb)   (gp3_fb < 0)
   profit-ROAS = SUM(kv_gp2)/SUM(Cost)     rev-ROAS = SUM(kv_revenue)/SUM(Cost)
+  ...where SUM(Cost) is the DE-DUPLICATED cost (see _kv_cte): the export carries
+  Google Shopping spend twice in some slices (DK, FI, all Lekmer).
 
 Babyshop and Lekmer share campaign names, so the set is split on shop_new.
 """
 import json, subprocess, os, datetime, time
+
+# Funnel `Cost` double-counts Google Shopping spend in some slices: the same
+# campaign-day money appears on both a blank-kv_brand campaign-total row and
+# brand-split rows (DK, FI, and all of Lekmer). The validated de-duplication rule
+# and its derivation live in refresh_customer_insights.py ("Funnel Cost
+# de-duplication" block); the constants are imported so the rule has exactly one
+# definition.
+from refresh_customer_insights import COST_GRAIN, COST_BLANK, COST_SPLIT, COST_FIXED
 
 BQ_PROJECT        = os.environ.get("BQ_PROJECT", "babyshop-funnel-data")
 TABLE             = "`babyshop-funnel-data.bs_funnel_export.funnel_data`"
@@ -154,6 +164,20 @@ def dm(iso): y, m, d = map(int, iso.split("-")); return f"{d}/{m}"
 
 def _in(values): return ",".join("'" + v.replace("'", "") + "'" for v in values)
 
+def _kv_cte(where):
+    """CTE `kv_rows`: rev/gp2/gp3fb per COST_GRAIN slice with `cost` de-duplicated.
+
+    Queries that sum Cost must select from kv_rows instead of TABLE. The revenue
+    metrics are NOT duplicated in the export, so summing them at the grain first
+    and re-summing changes nothing for them."""
+    return (f"kv_grain AS ("
+            f"SELECT {COST_GRAIN}, SUM(kv_revenue) rev, SUM(kv_gp2) gp2, "
+            f"SUM(kv_gp3_fb) gp3fb, {COST_BLANK} blank, {COST_SPLIT} split "
+            f"FROM {TABLE} WHERE {where} GROUP BY {COST_GRAIN}), "
+            f"kv_rows AS ("
+            f"SELECT Date, Campaign, Channel_Type_Level_2, shop_new, "
+            f"rev, gp2, gp3fb, {COST_FIXED} AS cost FROM kv_grain)")
+
 def build_payload():
     # data_end = latest date present in the table. The export lags ~1 day, so the latest
     # day is partial (spend lands before revenue/GP2 is attributed). Mirror the KV refresh
@@ -172,11 +196,13 @@ def build_payload():
     )
 
     # Daily per campaign across the whole window (covers chart series + baseline + since-change)
+    set_where = (f"Date BETWEEN DATE '{SERIES_START}' AND DATE '{data_end}' "
+                 f"AND {where_set}")
     rows = bq(
+        f"WITH {_kv_cte(set_where)} "
         f"SELECT CAST(Date AS STRING) d, shop_new, Campaign, "
-        f"SUM(Cost) cost, SUM(kv_revenue) rev, SUM(kv_gp2) gp2, SUM(kv_gp3_fb) gp3fb "
-        f"FROM {TABLE} WHERE Date BETWEEN DATE '{SERIES_START}' AND DATE '{data_end}' "
-        f"AND {where_set} GROUP BY d, shop_new, Campaign ORDER BY d")
+        f"SUM(cost) cost, SUM(rev) rev, SUM(gp2) gp2, SUM(gp3fb) gp3fb "
+        f"FROM kv_rows GROUP BY d, shop_new, Campaign ORDER BY d")
 
     # ── Daily totals for the whole changed set ─────────────────────────────────
     daily = {}
@@ -271,11 +297,13 @@ def build_payload():
     # The KPIs/series above are siloed to the changed campaigns. This block tracks
     # the WHOLE Babyshop+Lekmer business across every channel, to test whether the
     # paid pullback is recovered via organic/direct rather than lost outright.
+    tot_where = (f"Date BETWEEN DATE '{SERIES_START}' AND DATE '{data_end}' "
+                 f"AND shop_new IN ({_in(TOTAL_SHOPS)})")
     trows = bq(
+        f"WITH {_kv_cte(tot_where)} "
         f"SELECT CAST(Date AS STRING) d, Channel_Type_Level_2 ch, "
-        f"SUM(kv_revenue) rev, SUM(kv_gp2) gp2, SUM(kv_gp3_fb) gp3fb, SUM(Cost) cost "
-        f"FROM {TABLE} WHERE Date BETWEEN DATE '{SERIES_START}' AND DATE '{data_end}' "
-        f"AND shop_new IN ({_in(TOTAL_SHOPS)}) GROUP BY d, ch")
+        f"SUM(rev) rev, SUM(gp2) gp2, SUM(gp3fb) gp3fb, SUM(cost) cost "
+        f"FROM kv_rows GROUP BY d, ch")
 
     tdaily = {}     # iso -> day totals incl. ambiguous-bucket revenue (maturity signal)
     chan_day = {}   # iso -> {channel -> {rev}}

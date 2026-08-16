@@ -57,8 +57,41 @@ def _p(cs, ce, ps, pe):
     return [bigquery.ScalarQueryParameter(n, "DATE", v) for n, v in
             [("cs", cs), ("ce", ce), ("ps", ps), ("pe", pe)]]
 
-KV = ("SUM(kv_revenue) rev, SUM(kv_gp1) gp1, SUM(kv_gp2) gp2, SUM(kv_gp2)-COALESCE(SUM(Cost),0) gp3, "
-      "CAST(SUM(kv_transactions) AS INT64) txns, SUM(Cost) cost")
+# Funnel `Cost` DOUBLE-COUNTS Google Shopping spend in some slices: the same
+# campaign-day money appears on both a blank-kv_brand campaign-total row and
+# brand-split rows (DK, FI, and all of Lekmer; SE/NO Babyshop put the split in
+# `shopping_cost` instead, so a naive SUM(Cost) is correct there). The validated
+# de-duplication rule and its full derivation live in refresh_customer_insights.py
+# ("Funnel Cost de-duplication" block) — read that before changing any cost query.
+# The constants are imported so the rule has exactly one definition.
+from refresh_customer_insights import COST_GRAIN, COST_BLANK, COST_SPLIT, COST_FIXED
+
+
+def _kv_cte(where: str) -> str:
+    """CTE `kv_rows`: KV metrics per COST_GRAIN slice with `cost` de-duplicated.
+
+    Every query that sums Cost (or GP3, which subtracts it) must select from
+    `kv_rows` with the KVD aggregate instead of `BQ_TABLE` with a raw SUM(Cost).
+    Revenue/GP/transactions are NOT duplicated in the export, so summing them at
+    the grain first and re-summing changes nothing for them."""
+    return f"""
+    kv_grain AS (
+      SELECT {COST_GRAIN},
+             SUM(kv_revenue) rev, SUM(kv_gp1) gp1, SUM(kv_gp2) gp2,
+             SUM(kv_transactions) txns, {COST_BLANK} blank, {COST_SPLIT} split
+      FROM `{BQ_TABLE}` WHERE {where}
+      GROUP BY {COST_GRAIN}),
+    kv_rows AS (
+      SELECT Date, Channel_Type_Level_1, Channel_Type_Level_2,
+             market_level_1_kv, shop_new, rev, gp1, gp2, txns,
+             {COST_FIXED} AS cost
+      FROM kv_grain)
+    """
+
+# Aggregate over kv_rows (post-dedup) — same output aliases the old raw-table
+# KV fragment produced, so every consumer of the row dicts is unchanged.
+KVD = ("SUM(rev) rev, SUM(gp1) gp1, SUM(gp2) gp2, SUM(gp2)-COALESCE(SUM(cost),0) gp3, "
+       "CAST(SUM(txns) AS INT64) txns, SUM(cost) cost")
 PR = ("SUM(kv_revenue_product) rev, SUM(kv_product_cogs) cogs, SUM(kv_gp1_product) gp1, "
       "SUM(kv_gp2_product) gp2, SUM(kv_gp2_product)-COALESCE(SUM(shopping_cost),0) gp3")
 
@@ -101,8 +134,8 @@ def _kv_dim(col, cs, ce, ps, pe, rev_prev_key="revenue_prev", filters=None):
     fconds, fparams = _kv_conds(filters)
     where = " AND ".join(["Date BETWEEN @cs AND @ce", f"{col} IS NOT NULL"] + fconds)
     def q(s, e):
-        sql = (f"SELECT {col} name, {KV} FROM `{BQ_TABLE}` WHERE {where} "
-               f"GROUP BY name HAVING SUM(kv_revenue) > 0 ORDER BY rev DESC")
+        sql = (f"WITH {_kv_cte(where)} SELECT {col} name, {KVD} FROM kv_rows "
+               f"GROUP BY name HAVING rev > 0 ORDER BY rev DESC")
         return _rows(sql, _p(s, e, s, e) + fparams)
     return _merge_kv(q(cs, ce), q(ps, pe), rev_prev_key)
 
@@ -119,7 +152,7 @@ def _kv_filtered(filters, cs, ce, ps, pe):
     def q(s, e):
         p = [bigquery.ScalarQueryParameter("cs", "DATE", s),
              bigquery.ScalarQueryParameter("ce", "DATE", e)] + params
-        rows = _rows(f"SELECT {KV} FROM `{BQ_TABLE}` WHERE {' AND '.join(conds)}", p)
+        rows = _rows(f"WITH {_kv_cte(' AND '.join(conds))} SELECT {KVD} FROM kv_rows", p)
         r = rows[0] if rows else None
         return {"revenue": I(r["rev"]) if r else 0, "gp2": I(r["gp2"]) if r else 0,
                 "gp3": I(r["gp3"]) if r else 0, "txns": I(r["txns"]) if r else 0,
@@ -142,8 +175,9 @@ def filtered_daily(filters, start: datetime.date, end: datetime.date):
     conds = ["Date BETWEEN @start AND @end"] + fconds
     params = [bigquery.ScalarQueryParameter("start", "DATE", start),
               bigquery.ScalarQueryParameter("end", "DATE", end)] + fparams
-    rows = _rows(f"SELECT CAST(Date AS STRING) d, {KV} FROM `{BQ_TABLE}` "
-                 f"WHERE {' AND '.join(conds)} GROUP BY d ORDER BY d", params)
+    rows = _rows(f"WITH {_kv_cte(' AND '.join(conds))} "
+                 f"SELECT CAST(Date AS STRING) d, {KVD} FROM kv_rows GROUP BY d ORDER BY d",
+                 params)
     return [{"d": r["d"], "rev": I(r["rev"]), "gp2": I(r["gp2"]),
              "gp3": I(r["gp3"]), "cost": I(r["cost"])} for r in rows]
 
@@ -176,8 +210,9 @@ def build_payloads(cur_end: datetime.date | None = None):
 
     # ── KV daily (both periods in one query, split in Python) ──
     drows = _rows(
-        f"SELECT CAST(Date AS STRING) d, {KV} FROM `{BQ_TABLE}` "
-        f"WHERE Date BETWEEN @ps AND @ce GROUP BY d ORDER BY d", _p(cs, ce, ps, pe))
+        f"WITH {_kv_cte('Date BETWEEN @ps AND @ce')} "
+        f"SELECT CAST(Date AS STRING) d, {KVD} FROM kv_rows GROUP BY d ORDER BY d",
+        _p(cs, ce, ps, pe))
     def in_range(ds, a, b): return a.isoformat() <= ds <= b.isoformat()
     dcur = [r for r in drows if in_range(r["d"], cs, ce)]
     dprev = [r for r in drows if in_range(r["d"], ps, pe)]
@@ -203,9 +238,10 @@ def build_payloads(cur_end: datetime.date | None = None):
     # through `ce`, i.e. yesterday), so the latest month-to-date is always shown.
     LONG_START = datetime.date(2025, 1, 1)
     monthly = {}
+    long_where = f"Date BETWEEN DATE '{LONG_START}' AND DATE '{ce}'"
     for r in _rows(
-            f"SELECT FORMAT_DATE('%Y-%m', Date) ym, {KV} FROM `{BQ_TABLE}` "
-            f"WHERE Date BETWEEN DATE '{LONG_START}' AND DATE '{ce}' GROUP BY ym ORDER BY ym", []):
+            f"WITH {_kv_cte(long_where)} "
+            f"SELECT FORMAT_DATE('%Y-%m', Date) ym, {KVD} FROM kv_rows GROUP BY ym ORDER BY ym", []):
         y, m = r["ym"].split("-"); yi, mi = int(y), int(m)
         yd = monthly.setdefault(y, {k: [None] * 12 for k in ("revenue", "gp1", "gp2", "gp3", "cost")})
         yd["revenue"][mi-1] = I(r["rev"]); yd["gp1"][mi-1] = I(r["gp1"]); yd["gp2"][mi-1] = I(r["gp2"])
@@ -216,8 +252,8 @@ def build_payloads(cur_end: datetime.date | None = None):
     kv_daily_long = [{"iso": r["d"], "revenue": I(r["rev"]), "gp1": I(r["gp1"]), "gp2": I(r["gp2"]),
                       "gp3": I(r["gp3"]), "txns": I(r["txns"]), "cost": I(r["cost"])}
                      for r in _rows(
-            f"SELECT CAST(Date AS STRING) d, {KV} FROM `{BQ_TABLE}` "
-            f"WHERE Date BETWEEN DATE '{LONG_START}' AND DATE '{ce}' GROUP BY d ORDER BY d", [])]
+            f"WITH {_kv_cte(long_where)} "
+            f"SELECT CAST(Date AS STRING) d, {KVD} FROM kv_rows GROUP BY d ORDER BY d", [])]
 
     kv_overview = {
         "period": {"start": cs.isoformat(), "end": ce.isoformat(), "label": _lbl(cs, ce)},
@@ -298,6 +334,10 @@ def build_stoy_payload(test_end: datetime.date | None = None):
     # Fully SE+NO scoped. Market per row: product/Meta rows carry market_level_1_kv;
     # Google Shopping cost rows are market-NULL but the campaign name encodes it
     # (p-shopping-se / p-shopping-no), so derive market from the campaign there.
+    # NOTE: every cost sum in this payload is EXEMPT from the Funnel Cost
+    # de-duplication (see _kv_cte above): the duplication is blank-kv_brand
+    # campaign totals vs brand-split rows, and every query here filters on
+    # LOWER(kv_brand), so only the split side is ever counted — once.
     MKT = ("CASE WHEN market_level_1_kv IN ('SE','NO') THEN market_level_1_kv "
            "WHEN Channel_Type_Level_2 LIKE 'Google%' AND LOWER(Campaign) LIKE '%-se-%' THEN 'SE' "
            "WHEN Channel_Type_Level_2 LIKE 'Google%' AND LOWER(Campaign) LIKE '%-no-%' THEN 'NO' END")
