@@ -165,6 +165,30 @@
     tbody td.count-2nd, tfoot td.count-2nd { font-size:11.5px; font-weight:500; color:var(--muted); }
     /* Tighter gutters so the extra counts never push CAC / ratio off the card. */
     th.count-2nd, td.count-2nd { padding-left:9px; padding-right:9px; }
+    /* ── Report-level period control ── */
+    .period-row { display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+      background:var(--h); border-radius:var(--r); padding:10px 16px; margin-bottom:10px; box-shadow:var(--shadow-sm); }
+    .period-label { font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,.5); }
+    .period-tabs { display:flex; gap:2px; background:rgba(255,255,255,.08); border-radius:var(--r-sm); padding:3px; }
+    .ptab { padding:5px 13px; font-size:12px; font-weight:600; border-radius:3px; cursor:pointer;
+      color:rgba(255,255,255,.6); border:none; background:none; font-family:inherit; transition:all .15s; white-space:nowrap; }
+    .ptab:hover:not(.active) { color:#fff; }
+    .ptab.active { background:#fff; color:var(--h); }
+    .period-note { font-size:11px; color:rgba(255,255,255,.55); line-height:1.5; }
+    .period-note b { color:rgba(255,255,255,.85); font-weight:600; }
+    .fixed-tag { display:inline-flex; align-items:center; font-size:8.5px; font-weight:700; letter-spacing:.04em;
+      text-transform:uppercase; padding:2px 5px; border-radius:3px; color:var(--purple); background:#F5F3FF; border:1px solid #DDD6FE; }
+
+    /* ── Table filter + sortable headers ── */
+    .table-filter { font-family:inherit; font-size:11.5px; color:var(--h); background:var(--bg);
+      border:1px solid var(--border); border-radius:var(--r-sm); padding:5px 9px; width:150px; outline:none; }
+    .table-filter:focus { border-color:var(--accent); }
+    .table-filter::placeholder { color:var(--muted); }
+    th.th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
+    th.th-sort:hover { color:var(--h); }
+    th.th-sort.is-sorted { color:var(--accent); }
+    .sort-ind { font-size:8px; margin-left:3px; opacity:.9; }
+
     /* Norce rows are market × shop — without this tag two "SE" rows read as duplicates. */
     .shop-tag { display:block; width:max-content; margin-top:3px;
       font-size:9px; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
@@ -254,6 +278,12 @@
 
   <div class="kpi-grid" id="kpi-grid"></div>
 
+  <div class="period-row" id="period-row">
+    <span class="period-label">Period</span>
+    <div class="period-tabs" id="period-tabs"></div>
+    <div class="period-note" id="period-note"></div>
+  </div>
+
   <div class="filter-row" id="filter-row">
     <div class="filter-group">
       <span class="filter-label">Market</span>
@@ -269,7 +299,7 @@
     </div>
     <button class="filter-reset" id="f-reset">Reset</button>
     <span class="filter-note" id="filter-note">Market applies everywhere. Shop applies to the customer views — cost is not split by shop.
-      Channel applies to the spend views only, since orders carry no channel. The KPI row is always the unfiltered total.</span>
+      Channel applies to the spend views only, since orders carry no channel.</span>
   </div>
 
   <!-- ── New vs returning trend ── -->
@@ -304,6 +334,7 @@
           order-level channel data (Kuvio API).</div>
       </div>
       <div class="cac-head-right">
+        <input class="table-filter" id="cac-q" type="search" placeholder="Filter rows…" aria-label="Filter CAC rows">
         <div class="filter-group">
           <span class="filter-label">View by</span>
           <select class="filter-select" id="cac-view">
@@ -365,7 +396,11 @@
             <i>and shop</i> — Babyshop and Lekmer are separate customer bases. CAC shows per shop only if the snapshot splits cost that way;
             otherwise it stays market-level and Lekmer rows show an em-dash rather than borrowing Babyshop's number.</div>
         </div>
-        <span class="sample-tag" id="clv-tag">Sample</span>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+          <span class="fixed-tag" title="1-year CLV is a fixed 12-month definition — the period toggle does not change it">12m definition</span>
+          <input class="table-filter" id="clv-q" type="search" placeholder="Filter markets…" style="width:120px" aria-label="Filter CLV rows">
+          <span class="sample-tag" id="clv-tag">Sample</span>
+        </div>
       </div>
       <div class="sample-banner" id="clv-banner">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
@@ -373,8 +408,7 @@
           <i>real</i> only when the funnel snapshot has cost for that market.</div>
       </div>
       <table>
-        <thead><tr><th>Market</th><th class="count-2nd">Customers</th><th class="count-2nd">Returning</th>
-          <th>1y CLV</th><th>CAC 90d</th><th>LTV:CAC</th></tr></thead>
+        <thead id="clv-thead"></thead>
         <tbody id="clv-tbody"></tbody>
         <tfoot id="clv-tfoot"></tfoot>
       </table>
@@ -408,11 +442,14 @@
           <div class="chart-sub">Repeat rate, churn and orders per customer — the markets to defend vs the ones bleeding first-time buyers.
             One row per market <i>and shop</i>.</div>
         </div>
-        <span class="sample-tag" id="churn-tag">Sample</span>
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+          <span class="fixed-tag" title="Repeat, churn and purchases-per-customer are fixed 12-month definitions — the period toggle does not change them">12m definition</span>
+          <input class="table-filter" id="churn-q" type="search" placeholder="Filter markets…" style="width:120px" aria-label="Filter retention rows">
+          <span class="sample-tag" id="churn-tag">Sample</span>
+        </div>
       </div>
       <table>
-        <thead><tr><th>Market</th><th class="count-2nd">Customers</th><th class="count-2nd">Returning</th>
-          <th>Repeat rate</th><th>Churn 12m</th><th id="churn-opc-col">Purchases / cust. 12m</th></tr></thead>
+        <thead id="churn-thead"></thead>
         <tbody id="churn-tbody"></tbody>
       </table>
     </div>
@@ -428,10 +465,15 @@
       </div>
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
         <span class="sample-tag" id="fp-tag">Sample</span>
+        <input class="table-filter" id="fp-q" type="search" placeholder="Filter names…" aria-label="Filter first-purchase rows">
         <div class="seg-tabs" id="fp-tabs">
           <button class="seg active" data-kind="brands">Brands</button>
           <button class="seg" data-kind="categories">Categories</button>
           <button class="seg" data-kind="products">Products</button>
+        </div>
+        <div class="seg-tabs" id="fp-mode">
+          <button class="seg active" data-mode="agg">Aggregate</button>
+          <button class="seg" data-mode="month">By month</button>
         </div>
       </div>
     </div>
@@ -441,9 +483,10 @@
         order lines only carry variant names, so the sync must resolve them.</div>
     </div>
     <table>
-      <thead><tr><th id="fp-col">Brand</th><th>New customers acquired</th><th>Share of first orders</th><th>Revenue share</th><th></th></tr></thead>
+      <thead id="fp-thead"></thead>
       <tbody id="fp-tbody"></tbody>
     </table>
+    <div class="foot-note" id="fp-note" style="padding:12px 22px 16px"></div>
   </div>
 
   <div class="foot-note" id="page-foot"></div>
@@ -541,30 +584,30 @@ const SAMPLE_NORCE = {
   ],
   first_purchase_products: {
     brands: [
-      {name:'BabyBjörn',   new_customers:4120, share_of_first_orders:0.121, revenue_share:0.148},
-      {name:'Stokke',      new_customers:3380, share_of_first_orders:0.099, revenue_share:0.176},
-      {name:'Kuling',      new_customers:2950, share_of_first_orders:0.086, revenue_share:0.071},
-      {name:'Pampers',     new_customers:2610, share_of_first_orders:0.076, revenue_share:0.032},
-      {name:'Cybex',       new_customers:1980, share_of_first_orders:0.058, revenue_share:0.104},
-      {name:'Liewood',     new_customers:1740, share_of_first_orders:0.051, revenue_share:0.043},
-      {name:'Done by Deer',new_customers:1290, share_of_first_orders:0.038, revenue_share:0.026},
-      {name:'Elodie',      new_customers:1120, share_of_first_orders:0.033, revenue_share:0.029},
+      {name:'BabyBjörn',   new_customers:4120, share_of_first_orders:0.121, revenue_share:0.148, revenue:2960000},
+      {name:'Stokke',      new_customers:3380, share_of_first_orders:0.099, revenue_share:0.176, revenue:3520000},
+      {name:'Kuling',      new_customers:2950, share_of_first_orders:0.086, revenue_share:0.071, revenue:1420000},
+      {name:'Pampers',     new_customers:2610, share_of_first_orders:0.076, revenue_share:0.032, revenue:640000},
+      {name:'Cybex',       new_customers:1980, share_of_first_orders:0.058, revenue_share:0.104, revenue:2080000},
+      {name:'Liewood',     new_customers:1740, share_of_first_orders:0.051, revenue_share:0.043, revenue:860000},
+      {name:'Done by Deer',new_customers:1290, share_of_first_orders:0.038, revenue_share:0.026, revenue:520000},
+      {name:'Elodie',      new_customers:1120, share_of_first_orders:0.033, revenue_share:0.029, revenue:580000},
     ],
     categories: [
-      {name:'Barnvagnar & tillbehör', new_customers:5600, share_of_first_orders:0.164, revenue_share:0.271},
-      {name:'Bilbarnstolar',          new_customers:4310, share_of_first_orders:0.126, revenue_share:0.203},
-      {name:'Blöjor & skötbord',      new_customers:3980, share_of_first_orders:0.117, revenue_share:0.058},
-      {name:'Kläder 0–2 år',          new_customers:3540, share_of_first_orders:0.104, revenue_share:0.072},
-      {name:'Bärsele & bärsjal',      new_customers:2470, share_of_first_orders:0.072, revenue_share:0.061},
-      {name:'Leksaker',               new_customers:1880, share_of_first_orders:0.055, revenue_share:0.034},
+      {name:'Barnvagnar & tillbehör', new_customers:5600, share_of_first_orders:0.164, revenue_share:0.271, revenue:5420000},
+      {name:'Bilbarnstolar',          new_customers:4310, share_of_first_orders:0.126, revenue_share:0.203, revenue:4060000},
+      {name:'Blöjor & skötbord',      new_customers:3980, share_of_first_orders:0.117, revenue_share:0.058, revenue:1160000},
+      {name:'Kläder 0–2 år',          new_customers:3540, share_of_first_orders:0.104, revenue_share:0.072, revenue:1440000},
+      {name:'Bärsele & bärsjal',      new_customers:2470, share_of_first_orders:0.072, revenue_share:0.061, revenue:1220000},
+      {name:'Leksaker',               new_customers:1880, share_of_first_orders:0.055, revenue_share:0.034, revenue:680000},
     ],
     products: [
-      {name:'BabyBjörn Bärsele Mini',        new_customers:1420, share_of_first_orders:0.042, revenue_share:0.028},
-      {name:'Stokke Tripp Trapp',            new_customers:1180, share_of_first_orders:0.035, revenue_share:0.061},
-      {name:'Cybex Cloud T i-Size',          new_customers:980,  share_of_first_orders:0.029, revenue_share:0.047},
-      {name:'Pampers Premium Protection S3', new_customers:940,  share_of_first_orders:0.028, revenue_share:0.009},
-      {name:'Kuling Overall Nordkapp',       new_customers:870,  share_of_first_orders:0.025, revenue_share:0.018},
-      {name:'Liewood Badhandduk',            new_customers:640,  share_of_first_orders:0.019, revenue_share:0.007},
+      {name:'BabyBjörn Bärsele Mini',        new_customers:1420, share_of_first_orders:0.042, revenue_share:0.028, revenue:560000},
+      {name:'Stokke Tripp Trapp',            new_customers:1180, share_of_first_orders:0.035, revenue_share:0.061, revenue:1220000},
+      {name:'Cybex Cloud T i-Size',          new_customers:980,  share_of_first_orders:0.029, revenue_share:0.047, revenue:940000},
+      {name:'Pampers Premium Protection S3', new_customers:940,  share_of_first_orders:0.028, revenue_share:0.009, revenue:180000},
+      {name:'Kuling Overall Nordkapp',       new_customers:870,  share_of_first_orders:0.025, revenue_share:0.018, revenue:360000},
+      {name:'Liewood Badhandduk',            new_customers:640,  share_of_first_orders:0.019, revenue_share:0.007, revenue:140000},
     ],
   },
 };
@@ -634,13 +677,46 @@ function renderCaveats(){
   document.getElementById('caveat-list').innerHTML = list.map(c=>`<li>${esc(c)}</li>`).join('');
 }
 
+/* Window aggregates straight off the monthly trend rows. Customers add across
+   shops; cost does not — it is market-level and repeats on each shop row. */
+function windowTotals(months){
+  const want = months ? new Set(months) : null;
+  const rows = DATA.trend.filter(r=>{
+    const m = monthKey(r.month);
+    return (want ? want.has(m) : inWindow(m)) && matchCust(r);
+  });
+  const seenCost = new Set();
+  const t = { newc:0, ret:0, tot:0, cost:0, revenue:0, orders:0, rows:rows.length, hasCost:false };
+  rows.forEach(r=>{
+    t.newc += num(r.new_customers)||0;
+    t.ret  += num(r.returning_customers)||0;
+    t.tot  += num(r.total_customers) ?? ((num(r.new_customers)||0)+(num(r.returning_customers)||0));
+    t.revenue += num(r.revenue)||0;
+    t.orders  += num(r.orders)||0;
+    const ck = monthKey(r.month)+'|'+mkey(r.market);
+    const c = num(r.cost);
+    if (c != null && !seenCost.has(ck)){ seenCost.add(ck); t.cost += c; t.hasCost = true; }
+  });
+  return t;
+}
+
 /* ── KPI header ─────────────────────────────────────────────────────────── */
 function renderKPIs(){
   const k = DATA.kpis || {};
-  const mtd      = num(k.new_customers_mtd);
-  const prev     = num(k.new_customers_prev_month);
-  const share    = num(k.new_share_90d);
-  const cac      = num(k.blended_cac_90d);
+  const months = allMonths();
+  const curMonth = months[months.length-1] || null;
+  const prevMonth = months[months.length-2] || null;
+  const haveTrend = DATA.trend.length > 0;
+
+  /* Window KPIs recompute; MTD stays month-to-date whatever the period is. */
+  const win     = haveTrend ? windowTotals() : null;
+  const mtdT    = (haveTrend && curMonth)  ? windowTotals([curMonth])  : null;
+  const prevT   = (haveTrend && prevMonth) ? windowTotals([prevMonth]) : null;
+
+  const mtd      = mtdT  ? mtdT.newc  : num(k.new_customers_mtd);
+  const prev     = prevT ? prevT.newc : num(k.new_customers_prev_month);
+  const share    = win && (win.newc + win.ret) ? win.newc/(win.newc+win.ret) : num(k.new_share_90d);
+  const cac      = win && win.hasCost && win.newc ? win.cost/win.newc : (win ? null : num(k.blended_cac_90d));
   const clv      = num(k.clv_1y);
   const repeat   = num(k.repeat_rate_12m);
   const churn    = num(k.churn_12m);
@@ -655,10 +731,12 @@ function renderKPIs(){
   const pace = prev != null ? prev * Math.min(1, dayOfMonth/daysPrevMonth) : null;
   const mtdDelta = (mtd!=null && pace) ? (mtd - pace)/pace : null;
 
-  const pendingCard = (label,note) => ({
-    label, badge:'Awaiting Norce', badgePending:true, pending:true,
+  const pendingCard = (label,note,fixed) => ({
+    label, badge:'Awaiting Norce', badgePending:true, pending:true, fixed,
     value:'Awaiting data', delta:`<span class="kpi-delta flat">Norce sync pending</span>`, note,
   });
+  const pl = periodLabel();
+  const scope = [FILTERS.market || 'all markets', FILTERS.shop ? SHOP_LBL(FILTERS.shop) : 'all shops'].join(' · ');
 
   const opc = num(k.orders_per_customer_12m);
 
@@ -667,34 +745,34 @@ function renderKPIs(){
       value: mtd==null ? '—' : fmtInt(mtd),
       delta: kdelta(mtdDelta, false, mtd==null ? 'no snapshot' : 'no baseline'),
       note: prev==null ? 'Customers placing their first ever order · Norce order history'
-        : `vs ${fmtInt(pace)} pace-adjusted (day ${dayOfMonth} of prev month) · full prev month ${fmtInt(prev)}` },
+        : `vs ${fmtInt(pace)} pace-adjusted (day ${dayOfMonth} of prev month) · full prev month ${fmtInt(prev)} · month-to-date, not the selected period` },
 
-    { label:'New-customer share', badge:'90d',
+    { label:'New-customer share', badge:'period',
       value: fmtPct(share),
       delta: `<span class="kpi-delta flat">of customers</span>`,
-      note: 'New ÷ (new + returning) customers, Norce order history. Splits by market and shop are reliable; channel is not available.' },
+      note: `New ÷ (new + returning) customers over ${esc(pl)} · ${esc(scope)}. Market and shop splits are reliable; channel is not available.` },
 
-    { label:'Blended CAC', badge:'90d', hero:true,
+    { label:'Blended CAC', badge:'period', hero:true,
       value: fmtKr(cac),
       delta: `<span class="kpi-delta flat">cost ÷ new</span>`,
-      note: 'All funnel advertising cost ÷ Norce new customers, 90 days. Market split below; channel split is not possible yet.' },
+      note: `Funnel advertising cost ÷ Norce new customers over ${esc(pl)}. Cost is market-level, so a shop filter overstates it.` },
 
-    clv==null ? pendingCard('1-year CLV','Revenue in the 365 days after first order. Needs Norce order history (starts 2025-06-11).')
-      : { label:'1-year CLV', value:fmtKr(clv), delta:`<span class="kpi-delta flat">Norce · 365d</span>`,
-          note:'Gross revenue per acquired customer in their first year.' },
+    clv==null ? pendingCard('1-year CLV','Revenue in the 365 days after first order. Needs Norce order history (starts 2025-06-11).', true)
+      : { label:'1-year CLV', fixed:true, value:fmtKr(clv), delta:`<span class="kpi-delta flat">Norce · 365d</span>`,
+          note:'Gross revenue per acquired customer in their first year. A fixed definition — the period toggle does not change it.' },
 
-    ratio==null ? pendingCard('LTV : CAC','Healthy ecommerce benchmark is roughly 3:1. Unlocks as soon as CLV lands.')
-      : { label:'LTV : CAC', hero:true, value:fmtRatio(ratio),
+    ratio==null ? pendingCard('LTV : CAC','Healthy ecommerce benchmark is roughly 3:1. Unlocks as soon as CLV lands.', true)
+      : { label:'LTV : CAC', hero:true, fixed:true, value:fmtRatio(ratio),
           delta:`<span class="kpi-delta ${ratio>=3?'up':(ratio>=2?'flat':'down')}">${ratio>=3?'healthy':(ratio>=2?'thin':'below 2:1')}</span>`,
-          note:`1y CLV ${fmtKr(clv)} ÷ blended CAC ${fmtKr(cac)} · benchmark ≈ 3:1` },
+          note:`1y CLV ÷ the snapshot's own 90-day CAC · benchmark ≈ 3:1. Fixed — it does not follow the period toggle.` },
 
-    repeat==null ? pendingCard('Repeat rate','Share of customers with a second order within 12 months.')
-      : { label:'Repeat rate', badge:'12m', value:fmtPct(repeat),
+    repeat==null ? pendingCard('Repeat rate','Share of customers with a second order within 12 months.', true)
+      : { label:'Repeat rate', fixed:true, value:fmtPct(repeat),
           delta:`<span class="kpi-delta flat">${churn!=null?('churn '+fmtPct(churn,0)):'Norce'}</span>`,
           note:'Second order within 12 months of the first.' },
 
-    opc==null ? pendingCard('Purchases / customer','Orders per active customer, last 12 months.')
-      : { label:'Purchases / customer', badge:'12m',
+    opc==null ? pendingCard('Purchases / customer','Orders per active customer, last 12 months.', true)
+      : { label:'Purchases / customer', fixed:true,
           value: opc.toLocaleString('sv-SE',{minimumFractionDigits:2,maximumFractionDigits:2}),
           delta:`<span class="kpi-delta flat">Norce · rolling 12m</span>`,
           note:'Orders per active customer, last 12 months. Distinct from the lifetime figure in the retention table.' },
@@ -702,7 +780,8 @@ function renderKPIs(){
 
   document.getElementById('kpi-grid').innerHTML = cards.map(c=>`
     <div class="kpi-card${c.hero&&!c.pending?' hero':''}${c.pending?' awaiting':''}">
-      <div class="kpi-label">${esc(c.label)}${c.badge?`<span class="kpi-badge${c.badgePending?' pending':''}">${esc(c.badge)}</span>`:''}</div>
+      <div class="kpi-label">${esc(c.label)}${c.badge?`<span class="kpi-badge${c.badgePending?' pending':''}">${esc(c.badge)}</span>`:''}${
+        c.fixed?`<span class="fixed-tag" title="Fixed 12-month definition — the period toggle does not change it">12m def</span>`:''}</div>
       <div class="kpi-value${c.pending?' pending':''}">${c.value}</div>
       ${c.delta||''}
       <div class="kpi-note">${c.note}</div>
@@ -767,6 +846,80 @@ function normalize(d){
 
 /* Month keys arrive as '2026-06' (funnel) or '2026-06-01' (Norce). */
 const monthKey = m => String(m||'').slice(0,7);
+
+/* ══ Report period ═════════════════════════════════════════════════════════
+   One report-level window, expressed in whole calendar months and INCLUDING
+   the current month-to-date — so "3 months" is jun + jul + aug-so-far, not a
+   rolling 90 days. Everything measured over a window follows it. The 12-month
+   definitions (CLV, repeat, churn, purchases/customer) and the cohort curves
+   do not: they are definitions, and they carry a "12m definition" tag.       */
+const PERIODS = [
+  { key:'1',   label:'Last month', months:1 },
+  { key:'3',   label:'3 months',   months:3 },
+  { key:'6',   label:'6 months',   months:6 },
+  { key:'12',  label:'12 months',  months:12 },
+  { key:'all', label:'All',        months:null },
+];
+let PERIOD = '3';
+
+function allMonths(){
+  const meta = (DATA.meta && Array.isArray(DATA.meta.months)) ? DATA.meta.months.map(monthKey) : null;
+  if (meta && meta.length) return [...new Set(meta)].sort();
+  const src = DATA.trend.length ? DATA.trend : (SAMPLE_NORCE.monthly_customer_metrics || []);
+  return [...new Set(src.map(r=>monthKey(r.month)))].filter(Boolean).sort();
+}
+function windowMonths(){
+  const months = allMonths();
+  const p = PERIODS.find(x=>x.key===PERIOD) || PERIODS[1];
+  return p.months == null ? months : months.slice(-p.months);
+}
+let _win = null;                                   // memoised per render pass
+const winSet = () => _win || (_win = new Set(windowMonths()));
+const resetWindow = () => { _win = null; };
+const inWindow = m => winSet().has(monthKey(m));
+/* Rows that carry no month at all (the inline sample) are not month-grained, so
+   a period filter must not silently delete them. */
+const inWindowOrUndated = m => !m || inWindow(m);
+function periodLabel(){
+  const ms = windowMonths();
+  if (!ms.length) return '';
+  const p = PERIODS.find(x=>x.key===PERIOD) || PERIODS[1];
+  return p.months == null ? `all ${ms.length} months` : `${MONTH_LBL(ms[0])} → ${MONTH_LBL(ms[ms.length-1])}`;
+}
+
+/* ══ Sort + text filter state, one entry per table ═════════════════════════ */
+const TSORT = {
+  cac:   { key:'cost',   dir:-1 },
+  clv:   { key:'clv',    dir:-1 },
+  churn: { key:'repeat', dir:-1 },
+  fp:    { key:'newc',   dir:-1 },
+};
+const TQ = { cac:'', clv:'', churn:'', fp:'' };
+
+function thSort(tbl, key, label, cls){
+  const s = TSORT[tbl], on = s.key === key;
+  return `<th class="th-sort${on?' is-sorted':''}${cls?' '+cls:''}" data-tbl="${tbl}" data-key="${key}"
+    title="Sort by ${esc(String(label).replace(/<[^>]+>/g,''))}">${label}<span class="sort-ind">${on?(s.dir<0?'▼':'▲'):''}</span></th>`;
+}
+/* Nulls always sort last, whichever direction — a missing CAC is not "cheapest". */
+function sortRows(rows, tbl, val){
+  const { key, dir } = TSORT[tbl];
+  return rows.slice().sort((a,b)=>{
+    const av = val(a,key), bv = val(b,key);
+    const an = av==null || av==='' || (typeof av==='number' && !isFinite(av));
+    const bn = bv==null || bv==='' || (typeof bv==='number' && !isFinite(bv));
+    if (an && bn) return 0;
+    if (an) return 1;
+    if (bn) return -1;
+    if (typeof av === 'string' || typeof bv === 'string')
+      return String(av).localeCompare(String(bv)) * (dir<0 ? -1 : 1);
+    return (av - bv) * (dir<0 ? -1 : 1);
+  });
+}
+const matchQ = (tbl, ...fields) => {
+  const q = (TQ[tbl]||'').trim().toLowerCase();
+  return !q || fields.some(f => String(f==null?'':f).toLowerCase().includes(q));
+};
 const mkey = v => String(v==null?'':v).trim().toUpperCase();
 const norceSrc = () => DATA.norce || null;
 
@@ -869,7 +1022,7 @@ function trendSeries(){
   const isSample = !DATA.norce && !DATA.trend.length;
   const monthly = DATA.trend.length ? DATA.trend : (SAMPLE_NORCE.monthly_customer_metrics || []);
   if (!monthly.length) return { rows:[], reason:'empty', isSample };
-  const filtered = monthly.filter(matchCust);
+  const filtered = monthly.filter(r=>matchCust(r) && inWindow(r.month));
   if (!filtered.length) return { rows:[], reason:'nomatch', isSample };
 
   /* Customers add up across shops; cost does NOT — it is market-level and
@@ -917,7 +1070,7 @@ function renderTrend(){
   if (!rows.length){
     wrap.classList.add('is-empty');
     wrap.querySelector('.chart-empty').textContent = reason==='nomatch'
-      ? 'No monthly rows for this market/shop combination.'
+      ? 'No monthly rows for this period and market/shop combination.'
       : 'No Norce monthly customer rows yet — this chart fills in once the order history syncs.';
     insight.innerHTML = '';
     return;
@@ -1031,23 +1184,44 @@ const cacSort = (a,b) => (b.cost-a.cost) || ((b.newc||0)-(a.newc||0));
    spend total always reconciles instead of quietly dropping. */
 function buildMarketRows(){
   const byMarket = new Map();
-  /* Cost: market rows if the snapshot has them, else rolled up from the channel
-     split. Never both, or the spend would double. */
-  const marketCost = DATA.cacMatrix.filter(matchMarket);
-  if (marketCost.length){
-    marketCost.forEach(r=>{
+  /* Preferred path: the monthly trend rows, summed over the selected period.
+     Customers add across shops; cost is market-level and is taken once per
+     month × market. This is what makes the whole table follow the period. */
+  const rows = DATA.trend.filter(r=>inWindow(r.month) && matchCust(r));
+  if (rows.length){
+    const seenCost = new Set();
+    rows.forEach(r=>{
       const k = mkey(r.market);
-      const chans = DATA.channelSpend.filter(c=>mkey(c.market)===k && matchRow(c));
-      const o = { key:k, market:r.market||'—',
-        cost: FILTERS.channel ? chans.reduce((s,c)=>s+(num(c.cost_90d)||0),0) : (num(r.cost_90d)||0),
-        channels: chans.length, newc:null, ret:null, tot:null, shops:[] };
+      const o = byMarket.get(k) || { key:k, market:r.market||'—', cost:0, channels:0,
+                                     newc:null, ret:null, tot:null, shops:[], months:new Set() };
+      o.newc = addOpt(o.newc, num(r.new_customers));
+      o.ret  = addOpt(o.ret,  num(r.returning_customers));
+      o.tot  = addOpt(o.tot,  num(r.total_customers) ?? addOpt(num(r.new_customers), num(r.returning_customers)));
+      o.months.add(monthKey(r.month));
+      if (r.shop && !o.shops.includes(r.shop)) o.shops.push(r.shop);
+      const ck = monthKey(r.month)+'|'+k, c = num(r.cost);
+      if (c != null && !seenCost.has(ck)){ seenCost.add(ck); o.cost += c; }
       byMarket.set(k,o);
     });
-  } else {
+    const out = [...byMarket.values()].map(o=>({
+      ...o, channels: 0, monthCount: o.months.size,
+      cac: (o.cost > 0 && o.newc) ? o.cost/o.newc : null,
+    }));
+    return { rows: out, source:'trend', hasCustomers:true, windowed:true };
+  }
+
+  /* Fallback: the snapshot's fixed 90-day market rollup. */
+  DATA.cacMatrix.filter(matchMarket).forEach(r=>{
+    const k = mkey(r.market);
+    byMarket.set(k, { key:k, market:r.market||'—', cost:num(r.cost_90d)||0, channels:0,
+      newc:num(r.new_customers_90d), ret:num(r.returning_customers_90d), tot:num(r.total_customers_90d),
+      shops:[], monthCount:0, cac:num(r.cac) });
+  });
+  if (!byMarket.size){
     DATA.channelSpend.filter(matchRow).forEach(r=>{
       const k = mkey(r.market);
       const o = byMarket.get(k) || { key:k, market:r.market||'—', cost:0, channels:0,
-                                     newc:null, ret:null, tot:null, shops:[] };
+                                     newc:null, ret:null, tot:null, shops:[], monthCount:0 };
       o.cost += num(r.cost_90d)||0; o.channels += 1;
       byMarket.set(k,o);
     });
@@ -1057,17 +1231,18 @@ function buildMarketRows(){
     if (!matchCust(v)) return;
     const k = mkey(v.market);
     const o = byMarket.get(k) || { key:k, market:v.market||'—', cost:0, channels:0,
-                                   newc:null, ret:null, tot:null, shops:[] };
-    o.newc = addOpt(o.newc, v.newc);
-    o.ret  = addOpt(o.ret,  v.ret);
-    o.tot  = addOpt(o.tot,  v.tot);
+                                   newc:null, ret:null, tot:null, shops:[], monthCount:0 };
+    if (o.newc == null) o.newc = v.newc;
+    if (o.ret  == null) o.ret  = v.ret;
+    if (o.tot  == null) o.tot  = v.tot;
     if (v.shop && !o.shops.includes(v.shop)) o.shops.push(v.shop);
     byMarket.set(k,o);
   });
-  const rows = [...byMarket.values()].map(o=>({
-    ...o, cac: (o.cost > 0 && o.newc) ? o.cost/o.newc : null,
+  const out = [...byMarket.values()].map(o=>({
+    ...o, cac: o.cac != null ? o.cac : ((o.cost > 0 && o.newc) ? o.cost/o.newc : null),
   }));
-  return { rows, derived: cust.derived, months: cust.months, hasCustomers: cust.map.size > 0 };
+  return { rows: out, source:'snapshot-90d', derived: cust.derived, months: cust.months,
+           hasCustomers: out.some(r=>r.newc != null), windowed:false };
 }
 
 /* Channel / market×channel spend split — cost and share only. */
@@ -1082,13 +1257,16 @@ function buildSpendRows(keyFn){
   return [...m.values()].sort((a,b)=>b.cost-a.cost);
 }
 
-const CAC_HEADS = {
-  market: `<tr><th>Market</th><th>Cost 90d</th><th>New customers</th>
-    <th class="count-2nd">Returning</th><th class="count-2nd">Total customers</th>
-    <th>CAC</th><th>vs blended</th><th>Flag</th></tr>`,
-  channel: `<tr><th>Channel</th><th>Cost 90d</th><th>Share of spend</th><th class="count-2nd">Markets</th><th>CAC</th></tr>`,
-  cross: `<tr><th>Market / channel</th><th>Cost 90d</th><th>Share of market spend</th><th>CAC</th></tr>`,
-};
+const cacHead = windowed => ({
+  market: `<tr>${thSort('cac','market','Market')}${thSort('cac','cost', windowed?'Cost':'Cost 90d')}${
+    thSort('cac','newc','New customers')}${thSort('cac','ret','Returning','count-2nd')}${
+    thSort('cac','tot','Total customers','count-2nd')}${thSort('cac','cac','CAC')}${
+    thSort('cac','mult','vs blended')}<th>Flag</th></tr>`,
+  channel: `<tr>${thSort('cac','market','Channel')}${thSort('cac','cost','Cost 90d')}${
+    thSort('cac','share','Share of spend')}${thSort('cac','parts','Markets','count-2nd')}<th>CAC</th></tr>`,
+  cross: `<tr>${thSort('cac','market','Market / channel')}${thSort('cac','cost','Cost 90d')}${
+    thSort('cac','share','Share of market spend')}<th>CAC</th></tr>`,
+});
 const CAC_COLSPAN = { market:8, channel:5, cross:4 };
 const AWAIT_KUVIO = '<span class="pill pill-neutral" title="Orders carry no channel until the Kuvio API lands">awaiting Kuvio</span>';
 
@@ -1098,17 +1276,21 @@ function renderCAC(){
   const callouts = document.getElementById('cac-callouts');
   const badge = document.getElementById('cac-badge');
   const span = CAC_COLSPAN[CAC_VIEW] || 8;
-  document.getElementById('cac-thead').innerHTML = CAC_HEADS[CAC_VIEW] || CAC_HEADS.market;
 
-  const anyCost = DATA.cacMatrix.length + DATA.channelSpend.length;
-  const { rows: mRows, derived, months, hasCustomers } = buildMarketRows();
+  const anyCost = DATA.cacMatrix.length + DATA.channelSpend.length + DATA.trend.length;
+  const built = buildMarketRows();
+  const { derived, months, hasCustomers, windowed } = built;
+  /* The text filter belongs to whichever view is showing — filtering the market
+     rows while the channel view is up would blank the table and the callouts. */
+  const mRows = CAC_VIEW === 'market' ? built.rows.filter(r=>matchQ('cac', r.market)) : built.rows;
+  document.getElementById('cac-thead').innerHTML = (cacHead(windowed)[CAC_VIEW]) || cacHead(windowed).market;
 
-  if (!mRows.length){
+  if (!mRows.length && (CAC_VIEW === 'market' || !anyCost)){
     callouts.innerHTML = '';
     tfoot.innerHTML = '';
     badge.textContent = 'no data';
     tbody.innerHTML = `<tr class="empty-row"><td colspan="${span}">${anyCost
-      ? 'No rows for this market/channel combination.'
+      ? (TQ.cac ? `No rows matching “${esc(TQ.cac)}”.` : 'No rows for this period and market/channel combination.')
       : 'No cost rows in the snapshot yet — this table fills in on the first successful refresh.'}</td></tr>`;
     return;
   }
@@ -1117,14 +1299,8 @@ function renderCAC(){
   const totNew  = sumOpt(mRows,'newc');
   const totRet  = sumOpt(mRows,'ret');
   const totTot  = sumOpt(mRows,'tot');
-  /* A channel filter narrows cost but NOT customers — dividing one channel's
-     spend by the market's whole customer base would manufacture exactly the
-     per-channel CAC this page exists to avoid. So CAC goes blank instead. */
-  const cacBlocked = !!FILTERS.channel;
-  const blended = (!cacBlocked && totNew) ? totCost/totNew : null;
-  if (cacBlocked) mRows.forEach(r=>{ r.cac = null; });
+  const blended = totNew ? totCost/totNew : null;
   mRows.forEach(r=>cacClassify(r, blended));
-  if (cacBlocked) mRows.forEach(r=>{ r.flag = 'chanfilter'; });
   /* With no Norce data at all, every row would wear a "no Norce market" pill —
      the provenance line says it once instead. */
   if (!hasCustomers) mRows.forEach(r=>{ r.flag = ''; });
@@ -1146,13 +1322,14 @@ function renderCAC(){
     co.push(`<div class="callout good"><div class="co-head">Cheapest markets — room to scale</div>
       ${good.slice(0,3).map(r=>`<b>${esc(r.market)}</b> ${fmtKr(r.cac)} · ${fmtInt(r.newc)} new`).join(' · ')}.</div>`);
   }
-  if (chanRows.length && totCost > 0){
+  if (chanRows.length){
+    const chanTot = chanRows.reduce((s,c)=>s+c.cost,0);
     const top = chanRows.filter(c=>c.cost>0).slice(0,3);
-    const topShare = top.reduce((s,c)=>s+c.cost,0)/totCost;
-    co.push(`<div class="callout"><div class="co-head">Where the money goes</div>
-      ${top.map(c=>`<b>${esc(c.key)}</b> ${fmtSEK(c.cost)} (${fmtPct(c.cost/totCost,0)})`).join(' · ')} —
-      ${fmtPct(topShare,0)} of all spend in the top ${top.length}.
-      Per-channel CAC is not computable: orders carry no channel until the Kuvio API lands.</div>`);
+    const topShare = chanTot ? top.reduce((s,c)=>s+c.cost,0)/chanTot : null;
+    co.push(`<div class="callout"><div class="co-head">Where the money goes · fixed 90 days</div>
+      ${top.map(c=>`<b>${esc(c.key)}</b> ${fmtSEK(c.cost)} (${chanTot?fmtPct(c.cost/chanTot,0):'—'})`).join(' · ')} —
+      ${topShare!=null?fmtPct(topShare,0):'—'} of spend in the top ${top.length}.
+      The channel split is a fixed 90-day cut (the snapshot carries no monthly channel rows) and per-channel CAC needs the Kuvio API.</div>`);
   }
   if (noCust.length){
     const stranded = noCust.reduce((s,r)=>s+r.cost,0);
@@ -1161,11 +1338,10 @@ function renderCAC(){
       ${noCust.slice(0,3).map(r=>`${esc(r.market)} (${fmtSEK(r.cost)})`).join(', ')}.
       Either those markets genuinely acquired nobody, or the funnel market code has no Norce equivalent yet.</div>`);
   }
-  if (cacBlocked){
-    co.push(`<div class="callout warn"><div class="co-head">Channel filter blanks the CAC column</div>
-      Cost is narrowed to <b>${esc(FILTERS.channel)}</b>, but customers cannot be attributed to a channel — no order carries one until the
-      Kuvio API lands. Dividing one channel's spend by the market's whole customer base would invent a number, so CAC is left blank.
-      The cost and share columns remain valid.</div>`);
+  if (FILTERS.channel){
+    co.push(`<div class="callout"><div class="co-head">Channel filter scope</div>
+      <b>${esc(FILTERS.channel)}</b> narrows the two spend views only. The market table above keeps its full cost, because dividing one
+      channel's spend by a market's whole customer base would invent the per-channel CAC this page refuses to show.</div>`);
   }
   if (FILTERS.shop){
     co.push(`<div class="callout"><div class="co-head">Shop filter is on</div>
@@ -1178,12 +1354,13 @@ function renderCAC(){
 
   /* ── Table ── */
   let html = '', rowCount = 0;
+  const cacVal = (r,key) => key==='market' ? r.market : (key==='share' ? r.share : r[key]);
   if (CAC_VIEW === 'market'){
-    const sorted = mRows.slice().sort(cacSort);
+    const sorted = TSORT.cac.key ? sortRows(mRows,'cac',cacVal) : mRows.slice().sort(cacSort);
     rowCount = sorted.length;
     html = sorted.map(r=>{
       const cls = (r.flag==='dead'||r.flag==='high') ? ' class="risk"' : (r.flag==='good' ? ' class="good"' : '');
-      const sub = [r.channels ? `${fmtInt(r.channels)} channel${r.channels===1?'':'s'}` : '',
+      const sub = [r.monthCount ? `${r.monthCount} month${r.monthCount===1?'':'s'}` : '',
                    r.shops.length>1 ? 'both shops' : (r.shops.length ? SHOP_LBL(r.shops[0]) : '')].filter(Boolean).join(' · ');
       return `<tr${cls}>
         <td>${esc(r.market)}${sub?`<span class="sub-cell">${esc(sub)}</span>`:''}</td>
@@ -1196,19 +1373,25 @@ function renderCAC(){
         <td>${cacFlagCell(r)}</td></tr>`;
     }).join('');
   } else if (CAC_VIEW === 'channel'){
-    const rows = chanRows;
+    const all = chanRows.filter(r=>matchQ('cac', r.key));
+    const chanTot = chanRows.reduce((s,c)=>s+c.cost,0);
+    all.forEach(r=>{ r.market = r.key; r.share = chanTot ? r.cost/chanTot : null; });
+    const rows = sortRows(all,'cac',cacVal);
     rowCount = rows.length;
     html = rows.map(r=>`<tr>
       <td>${esc(r.key)}</td>
       <td>${fmtSEK(r.cost)}</td>
-      <td>${totCost ? fmtPct(r.cost/totCost,1) : '—'}</td>
+      <td>${r.share!=null ? fmtPct(r.share,1) : '—'}</td>
       <td class="count-2nd">${fmtInt(r.parts)}</td>
       <td>${AWAIT_KUVIO}</td></tr>`).join('');
+    if (!rowCount) html = `<tr class="empty-row"><td colspan="${span}">No channels matching “${esc(TQ.cac)}”.</td></tr>`;
   } else {
-    const rows = buildSpendRows(r=>mkey(r.market)+'||'+(r.channel_l1||'—'));
+    const all = buildSpendRows(r=>mkey(r.market)+'||'+(r.channel_l1||'—'))
+      .filter(r=>matchQ('cac', r.market, r.channel));
+    const chanTot = buildSpendRows(r=>mkey(r.market)+'||'+(r.channel_l1||'—')).reduce((s,r)=>s+r.cost,0);
     const byMarket = new Map();
-    rows.forEach(r=>{ const k=mkey(r.market); if(!byMarket.has(k)) byMarket.set(k,[]); byMarket.get(k).push(r); });
-    rowCount = rows.length;
+    all.forEach(r=>{ const k=mkey(r.market); if(!byMarket.has(k)) byMarket.set(k,[]); byMarket.get(k).push(r); });
+    rowCount = all.length;
     [...byMarket.values()]
       .map(rs=>({ rs, cost: rs.reduce((s,r)=>s+r.cost,0) }))
       .sort((a,b)=>b.cost-a.cost)
@@ -1216,28 +1399,31 @@ function renderCAC(){
         const m = rs[0].market;
         if (byMarket.size > 1)
           html += `<tr class="grp-row"><td colspan="${span}">${esc(m)} — ${fmtSEK(cost)} · ${
-            totCost ? fmtPct(cost/totCost,1) : '—'} of all spend</td></tr>`;
-        rs.forEach(r=>{
+            chanTot ? fmtPct(cost/chanTot,1) : '—'} of all spend</td></tr>`;
+        rs.forEach(r=>{ r.share = cost ? r.cost/cost : null; });
+        sortRows(rs,'cac',(r,key)=>key==='market'?r.channel:cacVal(r,key)).forEach(r=>{
           html += `<tr>
             <td>${esc(r.channel)}${byMarket.size>1?'':`<span class="sub-cell">${esc(r.market)}</span>`}</td>
             <td>${fmtSEK(r.cost)}</td>
-            <td>${cost ? fmtPct(r.cost/cost,1) : '—'}</td>
+            <td>${r.share!=null ? fmtPct(r.share,1) : '—'}</td>
             <td>${AWAIT_KUVIO}</td></tr>`;
         });
       });
+    if (!rowCount) html = `<tr class="empty-row"><td colspan="${span}">No rows matching “${esc(TQ.cac)}”.</td></tr>`;
   }
 
   const unitLbl = CAC_VIEW==='market' ? 'market' : (CAC_VIEW==='channel' ? 'channel' : 'cell');
   badge.textContent = CAC_VIEW==='market'
-    ? `${rowCount} market${rowCount===1?'':'s'} · blended ${fmtKr(blended)}${derived?' · derived':''}`
-    : `${rowCount} ${unitLbl}${rowCount===1?'':'s'} · spend only`;
-  badge.title = derived && CAC_VIEW==='market' && months
-    ? `Customers summed from Norce monthly metrics for ${months.join(', ')} — the snapshot carries no 90-day market rollup yet.`
-    : '';
+    ? `${rowCount} market${rowCount===1?'':'s'} · ${windowed?periodLabel():'fixed 90d'} · blended ${fmtKr(blended)}`
+    : `${rowCount} ${unitLbl}${rowCount===1?'':'s'} · spend only · fixed 90d`;
+  badge.title = CAC_VIEW==='market'
+    ? (windowed ? `Summed from the monthly rows for ${windowMonths().join(', ')}.`
+                : (derived && months ? `Customers summed from the monthly rows for ${months.join(', ')}.` : ''))
+    : 'The snapshot carries no monthly channel rows, so the channel split stays on its fixed 90-day window.';
   tbody.innerHTML = html;
 
   tfoot.innerHTML = CAC_VIEW==='market'
-    ? `<tr class="tfoot-row"><td>Total · ${esc(filterLabel())}</td><td>${fmtSEK(totCost)}</td><td>${fmtInt(totNew)}</td>` +
+    ? `<tr class="tfoot-row"><td>Total · ${esc(filterLabel('customers'))} · ${esc(windowed?periodLabel():'90d')}</td><td>${fmtSEK(totCost)}</td><td>${fmtInt(totNew)}</td>` +
       `<td class="count-2nd">${fmtInt(totRet)}</td><td class="count-2nd">${fmtInt(totTot)}</td>` +
       `<td>${fmtKr(blended)}</td><td>${blended==null?'<span style="color:var(--muted)">—</span>':'1,0×'}</td><td></td></tr>`
     : `<tr class="tfoot-row"><td>Total · ${esc(filterLabel('spend'))}</td><td>${fmtSEK(totCost)}</td><td>100,0%</td>` +
@@ -1247,9 +1433,12 @@ function renderCAC(){
   const prov = document.getElementById('cac-prov');
   if (prov) prov.innerHTML = !hasCustomers
     ? '<b>Customer columns are empty</b> — no Norce order history in this snapshot yet. Cost is funnel-sourced and unaffected.'
-    : `Cost: funnel export (90-day window). Customers: Norce order history${derived && months
-        ? `, summed from the monthly marts for ${esc(months.map(MONTH_LBL).join(', '))} — a calendar-month approximation of the 90-day cost window until the snapshot ships its own rollup`
-        : ''}. The funnel customer feed is not used.`;
+    : (windowed
+        ? `Market rows: funnel cost and Norce customers summed over <b>${esc(periodLabel())}</b> — whole calendar months including the current
+           month to date, so they will not match a rolling 90-day cut exactly. Cost is counted once per month × market (it is market-level and
+           repeats across shop rows). <b>The two channel views stay on the snapshot's fixed 90-day split</b>, which carries no monthly grain.`
+        : `Cost: funnel export (fixed 90-day window). Customers: Norce order history${derived && months
+            ? `, summed from the monthly marts for ${esc(months.map(MONTH_LBL).join(', '))}` : ''}. The funnel customer feed is not used.`);
 }
 
 /* ══ Norce sections — one renderer per block, fed by either the real
@@ -1395,9 +1584,12 @@ function marketCACMap(){
 }
 
 function renderCLV(src){
-  const rows = ((src && src.clv_1y_by_market) || []).filter(matchCust);
+  const rows = ((src && src.clv_1y_by_market) || []).filter(r=>matchCust(r) && matchQ('clv', r.market, r.shop));
   const tbody = document.getElementById('clv-tbody');
   const tfoot = document.getElementById('clv-tfoot');
+  document.getElementById('clv-thead').innerHTML = `<tr>${thSort('clv','market','Market')}${
+    thSort('clv','customers','Customers','count-2nd')}${thSort('clv','returning','Returning','count-2nd')}${
+    thSort('clv','clv','1y CLV')}${thSort('clv','cac','CAC 90d')}${thSort('clv','ratio','LTV:CAC')}</tr>`;
   if (!rows.length){
     tbody.innerHTML = `<tr class="empty-row"><td colspan="6">No 1-year CLV rows yet.</td></tr>`;
     tfoot.innerHTML = '';
@@ -1408,26 +1600,31 @@ function renderCLV(src){
   let totCust=0, totRev=0;
   const totRet = sumOpt(rows.map(r=>({ ret: num(r.returning_customers) })), 'ret');
   rows.forEach(r=>{ const c=num(r.customers)||0; totCust += c; totRev += (num(r.clv_1y)||0)*c; });
-  renderShopGrouped(rows, tbody, 6, r=>{
+  /* Decorate first so CAC and the ratio are sortable columns, not just cells. */
+  const deco = rows.map(r=>{
     const clv = num(r.clv_1y);
-    const cust = num(r.customers)||0;
     /* The row's own CAC wins (the snapshot leaves it null wherever attaching a
        market CAC to that shop would lie); then shop-grain, then market-level
        for the Babyshop row only. */
     const cac = num(r.cac) ?? (cacMap.shopGrain
       ? cacMap.byMarketShop.get(mkey(r.market)+'|'+mkey(r.shop))
       : (isBabyshop(r) ? cacMap.byMarket.get(mkey(r.market)) : null));
-    const ratio = num(r.ltv_cac_ratio) ?? ((clv!=null && cac) ? clv/cac : null);
-    const w = Math.round(((clv||0)/max)*54)+2;
-    const rc = ratio==null ? '' : (ratio>=3 ? 'cell-pos' : (ratio<2 ? 'cell-neg' : ''));
+    return { ...r, _clv:clv, _cust:num(r.customers)||0, _ret:num(r.returning_customers),
+             _cac:cac ?? null, _ratio: num(r.ltv_cac_ratio) ?? ((clv!=null && cac) ? clv/cac : null) };
+  });
+  const clvVal = (r,key) => ({ market:r.market, customers:r._cust, returning:r._ret,
+                               clv:r._clv, cac:r._cac, ratio:r._ratio }[key]);
+  renderShopGrouped(deco, tbody, 6, r=>{
+    const w = Math.round(((r._clv||0)/max)*54)+2;
+    const rc = r._ratio==null ? '' : (r._ratio>=3 ? 'cell-pos' : (r._ratio<2 ? 'cell-neg' : ''));
     return `<tr>
       <td>${marketCell(r)}</td>
-      <td class="count-2nd">${fmtInt(cust)}</td>
-      <td class="count-2nd">${fmtInt(num(r.returning_customers))}</td>
-      <td><div class="bar-cell"><span class="mini-bar" style="width:${w}px"></span>${fmtKr(clv)}</div></td>
-      <td>${cac?fmtKr(cac):'<span style="color:var(--muted)">—</span>'}</td>
-      <td class="${rc}">${fmtRatio(ratio)}</td></tr>`;
-  }, (a,b)=>(num(b.clv_1y)||0)-(num(a.clv_1y)||0));
+      <td class="count-2nd">${fmtInt(r._cust)}</td>
+      <td class="count-2nd">${fmtInt(r._ret)}</td>
+      <td><div class="bar-cell"><span class="mini-bar" style="width:${w}px"></span>${fmtKr(r._clv)}</div></td>
+      <td>${r._cac?fmtKr(r._cac):'<span style="color:var(--muted)">—</span>'}</td>
+      <td class="${rc}">${fmtRatio(r._ratio)}</td></tr>`;
+  }, (a,b)=>{ const s=sortRows([a,b],'clv',clvVal); return s[0]===a ? -1 : 1; });
   const blendedClv = totCust ? totRev/totCust : null;
   tfoot.innerHTML = `<tr class="tfoot-row"><td>All markets${
       [...new Set(rows.map(r=>r.shop).filter(Boolean))].length > 1 ? ' · both shops' : ''}</td>` +
@@ -1437,25 +1634,32 @@ function renderCLV(src){
 }
 
 function renderChurn(src){
-  const rows = ((src && src.churn) || []).filter(matchCust);
+  const rows = ((src && src.churn) || []).filter(r=>matchCust(r) && matchQ('churn', r.market, r.shop));
   const tbody = document.getElementById('churn-tbody');
   const canvas = document.getElementById('c-repeat');
   if (repeatChart){ repeatChart.destroy(); repeatChart = null; }
 
-  if (!rows.length){
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">No retention rows yet.</td></tr>`;
-    document.getElementById('repeat-wrap').classList.add('is-empty');
-    return;
-  }
-  document.getElementById('repeat-wrap').classList.remove('is-empty');
   /* Two different metrics share a shape here: `orders_per_customer_12m` is
      rolling-12-month, `orders_per_customer` is lifetime over the cohort base.
      Show the 12m one when it exists and relabel the header when falling back,
      rather than crowding both into one narrow table. */
   const has12m = rows.some(r=>num(r.orders_per_customer_12m) != null);
-  const opcCol = document.getElementById('churn-opc-col');
-  if (opcCol) opcCol.textContent = has12m ? 'Purchases / cust. 12m' : 'Orders / customer (lifetime)';
-  const sortByRepeat = (a,b)=>(num(b.repeat_rate)||0)-(num(a.repeat_rate)||0);
+  document.getElementById('churn-thead').innerHTML = `<tr>${thSort('churn','market','Market')}${
+    thSort('churn','customers','Customers','count-2nd')}${thSort('churn','returning','Returning','count-2nd')}${
+    thSort('churn','repeat','Repeat rate')}${thSort('churn','churn','Churn 12m')}${
+    thSort('churn','opc', has12m ? 'Purchases / cust. 12m' : 'Orders / customer (lifetime)')}</tr>`;
+
+  if (!rows.length){
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">${TQ.churn
+      ? `No markets matching “${esc(TQ.churn)}”.` : 'No retention rows yet.'}</td></tr>`;
+    document.getElementById('repeat-wrap').classList.add('is-empty');
+    return;
+  }
+  document.getElementById('repeat-wrap').classList.remove('is-empty');
+  const churnVal = (r,key) => ({ market:r.market, customers:num(r.customers), returning:num(r.returning_customers),
+    repeat:num(r.repeat_rate), churn:num(r.churn_12m) ?? (num(r.repeat_rate)!=null ? 1-num(r.repeat_rate) : null),
+    opc: has12m ? num(r.orders_per_customer_12m) : num(r.orders_per_customer) }[key]);
+  const sortByRepeat = (a,b)=>{ const s=sortRows([a,b],'churn',churnVal); return s[0]===a ? -1 : 1; };
   const sorted = rows.slice().sort(sortByRepeat);
   renderShopGrouped(rows, tbody, 6, r=>{
     const rep = num(r.repeat_rate), ch = num(r.churn_12m) ?? (rep!=null ? 1-rep : null);
@@ -1520,27 +1724,84 @@ function renderChurn(src){
 }
 
 let FP_KIND = 'brands';
+let FP_MODE = 'agg';
 const FP_COL = { brands:'Brand', categories:'Category', products:'Product' };
+
+/* Aggregate the per-slice rows over the selected period and filters.
+   Shares are recomputed from sums, never averaged: each slice's own denominator
+   is recovered from any of its rows (count ÷ share), those denominators are
+   summed, and each name's total is divided by that. */
+function fpAggregate(rows){
+  const nameOf = r => r.name ?? r.brand ?? r.category_l1 ?? r.category ?? r.product ?? '—';
+  const slices = new Map();     // slice key -> {orders, revenue}
+  rows.forEach(r=>{
+    const k = [monthKey(r.month), mkey(r.market), mkey(r.shop)].join('|');
+    const cur = slices.get(k) || { orders:null, revenue:null };
+    const c = num(r.new_customers) ?? num(r.count), s = num(r.share_of_first_orders) ?? num(r.share);
+    const rv = num(r.revenue), rs = num(r.revenue_share);
+    if (cur.orders == null && c != null && s) cur.orders = c/s;
+    if (cur.revenue == null && rv != null && rs) cur.revenue = rv/rs;
+    slices.set(k, cur);
+  });
+  let totOrders = 0, totRev = 0;
+  slices.forEach(v=>{ totOrders += v.orders || 0; totRev += v.revenue || 0; });
+
+  const byName = new Map();
+  rows.forEach(r=>{
+    const n = nameOf(r);
+    const o = byName.get(n) || { name:n, newc:0, rev:0, slices:0 };
+    o.newc += num(r.new_customers) ?? num(r.count) ?? 0;
+    o.rev  += num(r.revenue) || 0;
+    o.slices += 1;
+    byName.set(n,o);
+  });
+  return [...byName.values()].map(o=>({
+    name: o.name,
+    scope: `${o.slices} slice${o.slices===1?'':'s'}`,
+    newc: o.newc,
+    share: totOrders ? o.newc/totOrders : null,
+    rev:   totRev ? o.rev/totRev : null,
+  }));
+}
+
 function renderFirstPurchase(src){
   const fp = (src && src.first_purchase_products) || {};
-  const rows = (fp[FP_KIND] || []).filter(matchCust);
-  document.getElementById('fp-col').textContent = FP_COL[FP_KIND];
+  const all = (fp[FP_KIND] || []).filter(r=>matchCust(r) && inWindowOrUndated(r.month));
   const tbody = document.getElementById('fp-tbody');
-  if (!rows.length){
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="5">No first-purchase ${esc(FP_KIND)} yet.</td></tr>`;
+  const note = document.getElementById('fp-note');
+  document.getElementById('fp-thead').innerHTML = `<tr>${thSort('fp','name',FP_COL[FP_KIND])}${
+    thSort('fp','newc','New customers acquired')}${thSort('fp','share','Share of first orders')}${
+    thSort('fp','rev','Revenue share')}<th></th></tr>`;
+
+  if (!all.length){
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="5">No first-purchase ${esc(FP_KIND)} for this period and filter.</td></tr>`;
+    if (note) note.innerHTML = '';
     return;
   }
-  /* Rows arrive at month × market × shop grain and shares are defined against
-     that month's first orders, so they are shown at their own grain rather than
-     summed into a single "Kuling" row whose share would mean something else. */
-  const norm = rows.map(r=>({
+
+  const built = FP_MODE === 'agg' ? fpAggregate(all) : all.map(r=>({
     name: r.name ?? r.brand ?? r.category_l1 ?? r.category ?? r.product ?? '—',
     scope: [r.month ? MONTH_LBL(monthKey(r.month)) : '', r.market || '',
             r.shop ? SHOP_LBL(r.shop) : ''].filter(Boolean).join(' · '),
     newc: num(r.new_customers) ?? num(r.count) ?? null,
     share: num(r.share_of_first_orders) ?? num(r.share) ?? null,
     rev: num(r.revenue_share) ?? null,
-  })).sort((a,b)=>(b.newc||0)-(a.newc||0)).slice(0,12);
+  }));
+
+  const filtered = built.filter(r=>matchQ('fp', r.name));
+  if (!filtered.length){
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="5">No ${esc(FP_KIND)} matching “${esc(TQ.fp)}”.</td></tr>`;
+    if (note) note.innerHTML = '';
+    return;
+  }
+  const norm = sortRows(filtered,'fp',(r,key)=>r[key]).slice(0,12);
+
+  if (note) note.innerHTML = FP_MODE === 'agg'
+    ? `Aggregated over <b>${esc(periodLabel())}</b> · ${esc(filterLabel('customers'))}. Shares are recomputed from the summed totals, not
+       averaged. The snapshot keeps only the top rows per month × market × shop, so the long tail of small ${esc(FP_KIND)} is missing and
+       these shares are a floor, not an exact split.`
+    : `One row per month × market × shop, exactly as the snapshot stores it — each share is measured against that slice's own first orders.`;
+
   const max = Math.max(...norm.map(r=>r.newc||0)) || 1;
   tbody.innerHTML = norm.map(r=>{
     /* Efficiency read: a driver that acquires many customers but little revenue
@@ -1568,8 +1829,28 @@ function renderNorce(){
   renderFirstPurchase(src);
 }
 
+/* ── Period control ─────────────────────────────────────────────────────── */
+function renderPeriod(){
+  const tabs = document.getElementById('period-tabs');
+  tabs.innerHTML = PERIODS.map(p=>
+    `<button class="ptab${p.key===PERIOD?' active':''}" data-period="${p.key}">${esc(p.label)}</button>`).join('');
+  tabs.querySelectorAll('.ptab').forEach(b=>b.onclick=()=>{
+    PERIOD = b.dataset.period; resetWindow(); renderPeriod(); applyFilters();
+  });
+  const ms = windowMonths(), p = PERIODS.find(x=>x.key===PERIOD) || PERIODS[1];
+  const note = document.getElementById('period-note');
+  if (!ms.length){ note.innerHTML = 'No monthly history in the snapshot yet.'; return; }
+  const cur = ms[ms.length-1];
+  note.innerHTML = `<b>${esc(p.label)}</b> = ${p.months==null ? 'every month in the snapshot' :
+      `the last ${p.months} calendar month${p.months===1?'':'s'} including the current one`} ·
+    <b>${esc(MONTH_LBL(ms[0]))} → ${esc(MONTH_LBL(cur))}</b>, where ${esc(MONTH_LBL(cur))} is month-to-date.
+    Customer value and retention below use fixed 12-month definitions and ignore this.`;
+}
+
 /* ── Render everything ──────────────────────────────────────────────────── */
 function renderAll(){
+  resetWindow();
+  renderPeriod();
   renderMeta();
   renderCaveats();
   renderKPIs();
@@ -1582,7 +1863,31 @@ function renderAll(){
 
 /* Filter wiring */
 /* Every filtered section re-renders — the Norce tables obey market + shop too. */
-function applyFilters(){ syncFilterStyles(); renderTrend(); renderCAC(); renderNorce(); }
+function applyFilters(){ resetWindow(); syncFilterStyles(); renderKPIs(); renderTrend(); renderCAC(); renderNorce(); }
+
+/* ── Sort + text filter wiring (delegated, so re-rendered headers keep working) ── */
+const RERENDER = {
+  cac:   () => renderCAC(),
+  clv:   () => renderNorce(),
+  churn: () => renderNorce(),
+  fp:    () => renderFirstPurchase(DATA.norce || SAMPLE_NORCE),
+};
+document.addEventListener('click', e => {
+  const th = e.target.closest('.th-sort'); if (!th) return;
+  const tbl = th.dataset.tbl, key = th.dataset.key, s = TSORT[tbl];
+  if (!s) return;
+  if (s.key === key) s.dir = -s.dir; else { s.key = key; s.dir = key === 'market' || key === 'name' ? 1 : -1; }
+  (RERENDER[tbl] || (()=>{}))();
+});
+[['cac-q','cac'],['clv-q','clv'],['churn-q','churn'],['fp-q','fp']].forEach(([id,tbl])=>{
+  const el = document.getElementById(id); if (!el) return;
+  el.addEventListener('input', () => { TQ[tbl] = el.value; (RERENDER[tbl] || (()=>{}))(); });
+});
+document.getElementById('fp-mode').querySelectorAll('.seg').forEach(b=>b.onclick=()=>{
+  document.getElementById('fp-mode').querySelectorAll('.seg').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); FP_MODE = b.dataset.mode;
+  renderFirstPurchase(DATA.norce || SAMPLE_NORCE);
+});
 document.getElementById('f-market').onchange = e => { FILTERS.market = e.target.value; applyFilters(); };
 document.getElementById('f-shop').onchange = e => { FILTERS.shop = e.target.value; applyFilters(); };
 document.getElementById('f-channel').onchange = e => { FILTERS.channel = e.target.value; applyFilters(); };
