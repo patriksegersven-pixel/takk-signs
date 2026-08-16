@@ -1,0 +1,1238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Customer Insights · Babyshop</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#F7F8FA; --card:#FFFFFF; --border:#E5E7EB; --border-lt:#F1F3F5;
+      --h:#0F172A; --body:#475569; --muted:#94A3B8;
+      --accent:#1E3A8A; --accent-bg:#EEF2FF; --accent-dark:#1E40AF;
+      --hero:#B45309; --hero-bg:#FFFBEB;
+      --new:#1E3A8A;          /* new customers — KV navy */
+      --ret:#93A8D8;          /* returning — muted navy */
+      --share:#B45309;        /* new-share line — amber */
+      --cac:#6D28D9;          /* CAC line — purple */
+      --blue:#2563EB; --green:#047857; --amber:#B45309; --purple:#6D28D9;
+      --up:#047857; --up-bg:#ECFDF5; --down:#B91C1C; --down-bg:#FEF2F2;
+      --warn:#B45309; --warn-bg:#FEF5E7;
+      --shadow-sm:0 1px 2px rgba(15,23,42,.04); --shadow:0 1px 3px rgba(15,23,42,.06);
+      --r:8px; --r-sm:4px;
+    }
+    html { font-size:16px; }
+    body { font-family:'Inter',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--body); min-height:100vh; -webkit-font-smoothing:antialiased; }
+
+    /* ── Header / nav (identical to the other tabs) ── */
+    header { background:var(--h); color:#fff; padding:0 32px; height:58px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; }
+    .logo { display:flex; align-items:center; gap:12px; }
+    .logo-mark { width:34px; height:34px; background:var(--accent); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; color:#fff; letter-spacing:-.5px; }
+    .logo-wordmark { font-size:14px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+    .logo-sub { font-size:10px; font-weight:400; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,.45); margin-top:1px; }
+    .header-right { display:flex; align-items:center; gap:20px; }
+    .nav-tabs { display:flex; align-items:center; gap:2px; }
+    .nav-tab { padding:6px 14px; font-size:12px; font-weight:500; letter-spacing:.03em; color:rgba(255,255,255,.5); border-radius:6px; text-decoration:none; transition:all .15s; }
+    .nav-tab:hover { color:rgba(255,255,255,.8); background:rgba(255,255,255,.08); }
+    .nav-tab.active { color:#fff; background:rgba(255,255,255,.12); }
+    .live-dot { display:flex; align-items:center; gap:6px; font-size:11px; color:rgba(255,255,255,.45); letter-spacing:.04em; }
+    .live-dot::before { content:''; width:6px; height:6px; border-radius:50%; background:#4E9B65; box-shadow:0 0 0 2px rgba(78,155,101,.3); animation:blink 2s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{box-shadow:0 0 0 2px rgba(78,155,101,.3);} 50%{box-shadow:0 0 0 5px rgba(78,155,101,.1);} }
+    .refresh-pill { display:none; align-items:center; gap:6px; font-size:11px; padding:4px 10px; border-radius:12px; letter-spacing:.03em; cursor:help; background:rgba(220,80,80,.15); color:#ff8a8a; border:1px solid rgba(220,80,80,.35); }
+    .refresh-pill.show { display:inline-flex; }
+    .refresh-pill.stale { background:rgba(220,170,60,.12); color:#f0c060; border-color:rgba(220,170,60,.35); }
+    .refresh-pill.unknown { background:rgba(120,120,130,.12); color:rgba(255,255,255,.55); border-color:rgba(120,120,130,.3); }
+    .refresh-pill::before { content:''; width:6px; height:6px; border-radius:50%; background:currentColor; }
+
+    /* ── Layout ── */
+    main { max-width:1380px; margin:0 auto; padding:26px 32px 56px; }
+    .filter-bar { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:16px; gap:18px; flex-wrap:wrap; }
+    .page-title { font-size:21px; font-weight:700; color:var(--h); letter-spacing:-.3px; }
+    .page-sub { font-size:12px; color:var(--muted); margin-top:3px; max-width:780px; line-height:1.5; }
+    .source-chip { display:flex; align-items:center; gap:9px; background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:8px 14px; font-size:11.5px; line-height:1.5; box-shadow:var(--shadow-sm); }
+    .source-chip b { color:var(--h); font-weight:600; }
+    .source-chip .dot { width:8px; height:8px; border-radius:50%; background:var(--accent); flex-shrink:0; }
+    .source-chip .dot.pending { background:var(--warn); }
+
+    /* ── Caveats strip ── */
+    .caveat-strip { background:var(--warn-bg); border:1px solid #F4D7A8; color:#7C4A11; border-radius:var(--r); padding:11px 16px; font-size:11.5px; line-height:1.55; margin-bottom:18px; display:flex; gap:10px; align-items:flex-start; }
+    .caveat-strip svg { flex-shrink:0; margin-top:2px; }
+    .caveat-strip ul { list-style:none; display:flex; flex-wrap:wrap; gap:4px 20px; }
+    .caveat-strip li { position:relative; padding-left:12px; }
+    .caveat-strip li::before { content:'•'; position:absolute; left:0; opacity:.6; }
+    .caveat-strip b { font-weight:700; }
+
+    /* ── Filter row ── */
+    .filter-row { display:flex; gap:14px; align-items:center; flex-wrap:wrap; background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:10px 14px; box-shadow:var(--shadow-sm); margin-bottom:18px; }
+    .filter-group { display:flex; align-items:center; gap:8px; }
+    .filter-label { font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+    .filter-select { font-family:inherit; font-size:12px; font-weight:500; color:var(--h); background:var(--bg); border:1px solid var(--border); border-radius:var(--r-sm); padding:5px 26px 5px 10px; cursor:pointer; appearance:none; -webkit-appearance:none;
+      background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 4l3 3 3-3' stroke='%2394A3B8' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+      background-repeat:no-repeat; background-position:right 8px center; max-width:230px; }
+    .filter-select.is-active { background-color:var(--accent-bg); border-color:var(--accent); color:var(--accent); font-weight:600; }
+    .filter-select:focus { outline:2px solid var(--accent); outline-offset:1px; }
+    .filter-reset { font-family:inherit; font-size:11px; font-weight:500; color:var(--muted); background:transparent; border:none; cursor:pointer; padding:5px 8px; }
+    .filter-reset:hover { color:var(--h); }
+    .filter-pill { font-size:11px; font-weight:600; padding:3px 8px; border-radius:3px; background:var(--accent-bg); color:var(--accent); }
+    .filter-note { font-size:11px; color:var(--muted); margin-left:auto; }
+
+    /* ── KPI grid ── */
+    .kpi-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:20px; }
+    .kpi-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:16px 17px; box-shadow:var(--shadow-sm); position:relative; overflow:hidden; }
+    .kpi-card.hero { border:1px solid var(--hero); }
+    .kpi-card.hero::after { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--hero); }
+    .kpi-label { font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+    .kpi-badge { display:inline-flex; align-items:center; font-size:8.5px; font-weight:700; letter-spacing:.04em; padding:2px 5px; border-radius:3px; text-transform:uppercase; color:#fff; background:var(--hero); }
+    .kpi-badge.pending { background:var(--muted); }
+    .kpi-value { font-size:25px; font-weight:700; color:var(--h); letter-spacing:-.5px; line-height:1.1; margin-bottom:9px; font-variant-numeric:tabular-nums; }
+    .kpi-value.pending { color:var(--muted); font-size:20px; font-weight:600; }
+    .kpi-delta { display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:600; padding:3px 7px; border-radius:var(--r-sm); }
+    .kpi-delta.up { color:var(--up); background:var(--up-bg); }
+    .kpi-delta.down { color:var(--down); background:var(--down-bg); }
+    .kpi-delta.flat { color:var(--muted); background:var(--bg); }
+    .kpi-delta svg { width:10px; height:10px; flex-shrink:0; }
+    .kpi-note { font-size:10px; color:var(--muted); margin-top:7px; line-height:1.45; }
+
+    /* ── Cards / charts ── */
+    .chart-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:20px 22px; box-shadow:var(--shadow-sm); margin-bottom:20px; }
+    .chart-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:14px; gap:12px; flex-wrap:wrap; }
+    .chart-title { font-size:14px; font-weight:600; color:var(--h); }
+    .chart-sub { font-size:11px; color:var(--muted); margin-top:2px; max-width:760px; line-height:1.5; }
+    .chart-badge { font-size:10px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:3px 8px; white-space:nowrap; }
+    .chart-wrap { position:relative; height:300px; }
+    .chart-wrap.short { height:250px; }
+    /* Collapsed state — a chart with nothing to draw says so instead of leaving a void. */
+    .chart-wrap.is-empty { height:96px; display:flex; align-items:center; justify-content:center;
+      border:1px dashed var(--border); border-radius:var(--r-sm); background:var(--bg); }
+    .chart-wrap.is-empty canvas { display:none; }
+    .chart-empty { display:none; font-size:12px; color:var(--muted); text-align:center; padding:0 20px; line-height:1.5; }
+    .chart-wrap.is-empty .chart-empty { display:block; }
+    .chart-row { display:grid; grid-template-columns:1.35fr 1fr; gap:14px; margin-bottom:20px; }
+    .chart-row.even { grid-template-columns:1fr 1fr; }
+    .metric-chips { display:flex; gap:6px; flex-wrap:wrap; }
+    .metric-chip { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; font-size:11px; font-weight:500; border:1px solid var(--border); border-radius:999px; cursor:pointer; color:var(--muted); background:var(--card); font-family:inherit; transition:all .15s; white-space:nowrap; }
+    .metric-chip:hover { color:var(--h); border-color:var(--muted); }
+    .metric-chip.active { color:#fff; border-color:transparent; }
+    .metric-chip .dot { width:7px; height:7px; border-radius:50%; background:currentColor; flex-shrink:0; }
+
+    .card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); overflow:hidden; margin-bottom:20px; }
+    .card-header { padding:16px 22px 12px; display:flex; align-items:flex-start; justify-content:space-between; border-bottom:1px solid var(--border-lt); gap:14px; flex-wrap:wrap; }
+    .card-body { padding:16px 22px; }
+    table { width:100%; border-collapse:collapse; }
+    thead th { padding:10px 14px; font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); text-align:right; border-bottom:1px solid var(--border); white-space:nowrap; }
+    thead th:first-child { text-align:left; padding-left:22px; }
+    tbody td { padding:10px 14px; font-size:13px; font-weight:500; color:var(--body); border-bottom:1px solid var(--border-lt); text-align:right; font-variant-numeric:tabular-nums; }
+    tbody td:first-child { text-align:left; padding-left:22px; font-weight:600; color:var(--h); }
+    tbody tr:last-child td { border-bottom:none; }
+    tbody tr:hover td { background:var(--bg); }
+    tbody tr.risk td:first-child { box-shadow:inset 3px 0 0 var(--warn); }
+    tbody tr.good td:first-child { box-shadow:inset 3px 0 0 var(--up); }
+    .grp-row td { background:var(--bg); font-size:10px!important; font-weight:700!important; letter-spacing:.06em; text-transform:uppercase; color:var(--muted)!important; padding:7px 14px 7px 22px!important; text-align:left!important; box-shadow:none!important; }
+    tbody tr.grp-row:hover td { background:var(--bg); }
+    .tfoot-row td { font-weight:700; color:var(--h); border-top:1px solid var(--border); border-bottom:none; background:var(--bg); }
+    .empty-row td { text-align:center!important; color:var(--muted)!important; font-weight:500!important; padding:26px 14px!important; font-size:12px!important; box-shadow:none!important; }
+    .cell-pos { color:var(--up)!important; } .cell-neg { color:var(--down)!important; }
+    .sub-cell { font-size:10px; color:var(--muted); font-weight:400; display:block; margin-top:1px; }
+    .pill { display:inline-block; padding:2px 7px; border-radius:3px; font-size:10px; font-weight:600; letter-spacing:.02em; }
+    .pill-warn { background:var(--warn-bg); color:var(--warn); }
+    .pill-up { background:var(--up-bg); color:var(--up); }
+    .pill-down { background:var(--down-bg); color:var(--down); }
+    .pill-neutral { background:var(--bg); color:var(--muted); border:1px solid var(--border); }
+    .bar-cell { display:flex; align-items:center; gap:8px; justify-content:flex-end; }
+    .mini-bar { height:6px; border-radius:3px; background:var(--accent); opacity:.55; flex-shrink:0; }
+
+    /* ── Section heads ── */
+    .section-head { margin:30px 0 14px; display:flex; align-items:flex-start; justify-content:space-between; gap:18px; flex-wrap:wrap; }
+    .section-title { font-size:15px; font-weight:700; color:var(--h); letter-spacing:-.2px; display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+    .section-tag { font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--accent); background:var(--accent-bg); border-radius:3px; padding:2px 7px; }
+    .section-sub { font-size:12px; color:var(--muted); margin-top:4px; max-width:860px; line-height:1.55; }
+
+    /* ── Callouts (actionable outliers) ── */
+    .callouts { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:10px; padding:14px 22px 4px; }
+    .callout { border:1px solid var(--border); border-left:3px solid var(--muted); border-radius:var(--r-sm); padding:10px 13px; font-size:11.5px; line-height:1.5; background:var(--bg); }
+    .callout.warn { border-left-color:var(--warn); background:var(--warn-bg); color:#7C4A11; }
+    .callout.good { border-left-color:var(--up); background:var(--up-bg); color:#15603F; }
+    .callout b { font-weight:700; }
+    .callout .co-head { font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; opacity:.8; margin-bottom:3px; }
+    .callouts:empty { display:none; }
+
+    /* ── Awaiting-Norce sample treatment ── */
+    .awaiting { position:relative; border-style:dashed; border-color:#D8DEE8; }
+    .awaiting::before {
+      content:''; position:absolute; inset:0; pointer-events:none; z-index:1; border-radius:var(--r);
+      background:repeating-linear-gradient(135deg, rgba(148,163,184,.075) 0 9px, rgba(148,163,184,0) 9px 20px);
+    }
+    .awaiting .kpi-value, .awaiting .chart-title, .awaiting tbody td:first-child { color:#64748B; }
+    .awaiting .chart-wrap, .awaiting table { opacity:.72; filter:saturate(.55); }
+    .sample-tag { font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--warn); background:var(--warn-bg); border:1px solid #F4D7A8; border-radius:3px; padding:2px 7px; white-space:nowrap; }
+    .sample-tag.live { color:var(--up); background:var(--up-bg); border-color:#BBE8D0; }
+    .sample-banner { position:relative; z-index:2; font-size:11px; line-height:1.5; padding:9px 13px; border-radius:var(--r-sm); background:var(--warn-bg); border:1px solid #F4D7A8; color:#7C4A11; margin-bottom:14px; display:flex; gap:8px; align-items:flex-start; }
+    .sample-banner svg { flex-shrink:0; margin-top:1px; }
+    .sample-banner b { font-weight:700; }
+    .sample-banner.hidden, .sample-tag.hidden { display:none; }
+    .card .sample-banner { margin:14px 22px 0; }
+
+    /* ── Tabs inside a card (first-purchase drivers) ── */
+    .seg-tabs { display:flex; gap:2px; background:var(--bg); border:1px solid var(--border); border-radius:var(--r-sm); padding:3px; }
+    .seg { padding:4px 12px; font-size:12px; font-weight:500; border-radius:3px; cursor:pointer; color:var(--muted); border:none; background:none; transition:all .15s; white-space:nowrap; font-family:inherit; }
+    .seg.active { background:var(--h); color:#fff; }
+    .seg:hover:not(.active) { color:var(--h); }
+
+    .foot-note { font-size:11px; color:var(--muted); line-height:1.6; margin-top:8px; }
+    .foot-note b { color:var(--body); font-weight:600; }
+
+    @media(max-width:1240px){ .kpi-grid{grid-template-columns:repeat(3,1fr);} }
+    @media(max-width:1080px){ .chart-row,.chart-row.even{grid-template-columns:1fr;} }
+    @media(max-width:760px){ .kpi-grid{grid-template-columns:repeat(2,1fr);} }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">bs</div>
+    <div>
+      <div class="logo-wordmark">Babyshop</div>
+      <div class="logo-sub">Customer Insights</div>
+    </div>
+  </div>
+  <nav class="nav-tabs">
+    <a href="/babyshop-dashboard.html" class="nav-tab">KV Overview</a>
+    <a href="/babyshop-product-dashboard.html" class="nav-tab">Products</a>
+    <a href="/babyshop-customer-dashboard.html" class="nav-tab active">Customer Insights</a>
+    <a href="/babyshop-inventory-dashboard.html" class="nav-tab">Inventory</a>
+    <a href="/babyshop-stoy-dashboard.html" class="nav-tab">Stoy Test</a>
+    <a href="/babyshop-roas-impact.html" class="nav-tab">ROAS Impact</a>
+    <a href="/babyshop-roas-simulations.html" class="nav-tab">ROAS Simulations</a>
+  </nav>
+  <div class="header-right">
+    <div class="refresh-pill" id="refreshPill" title=""></div>
+    <div class="live-dot">Live · Funnel.io · AA/BS/LM/MJ Combo</div>
+  </div>
+</header>
+
+<main>
+
+  <div class="filter-bar">
+    <div>
+      <div class="page-title">Customer Insights</div>
+      <div class="page-sub">Who we acquire, what they cost and what they come back for. Acquisition &amp; cost come from the
+        Funnel BigQuery export (live); value, retention and first-purchase drivers come from Norce order history
+        (pipeline pending). Gross values — returns and cancellations are deliberately not netted out.</div>
+    </div>
+    <div class="source-chip" id="source-chip">
+      <span class="dot" id="source-dot"></span>
+      <div id="source-text">Loading snapshot…</div>
+    </div>
+  </div>
+
+  <div class="caveat-strip" id="caveat-strip" style="display:none">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+    <div style="flex:1">
+      <b>Read these before acting on the numbers</b>
+      <ul id="caveat-list"></ul>
+    </div>
+  </div>
+
+  <div class="kpi-grid" id="kpi-grid"></div>
+
+  <div class="filter-row" id="filter-row">
+    <div class="filter-group">
+      <span class="filter-label">Market</span>
+      <select class="filter-select" id="f-market"><option value="">All markets</option></select>
+    </div>
+    <div class="filter-group">
+      <span class="filter-label">Channel</span>
+      <select class="filter-select" id="f-channel"><option value="">All channels</option></select>
+    </div>
+    <button class="filter-reset" id="f-reset">Reset</button>
+    <span class="filter-note" id="filter-note">Filters apply to the trend and the CAC matrix. The KPI row above always shows the unfiltered total.</span>
+  </div>
+
+  <!-- ── New vs returning trend ── -->
+  <div class="chart-card">
+    <div class="chart-header">
+      <div>
+        <div class="chart-title">New vs returning customers per month</div>
+        <div class="chart-sub" id="trend-sub">Funnel customer feed · monthly from 2025-09 (nothing usable before that). Bars = identified customers,
+          lines = new-customer share and blended CAC for the same slice.</div>
+      </div>
+      <div class="metric-chips" id="trend-chips"></div>
+    </div>
+    <div class="chart-wrap" id="trend-wrap">
+      <canvas id="c-trend"></canvas>
+      <div class="chart-empty">No monthly customer rows in the snapshot yet — this chart fills in on the first successful refresh.</div>
+    </div>
+    <div class="foot-note" id="trend-insight"></div>
+  </div>
+
+  <!-- ── CAC matrix ── -->
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="chart-title">CAC matrix — market × channel (last 90 days)</div>
+        <div class="chart-sub">Paid cost ÷ new customers attributed to the same market and channel. Rows flagged where CAC runs far above
+          the blended average, or where real spend attributes essentially no new customers — those are the two places to act first.</div>
+      </div>
+      <span class="chart-badge" id="cac-badge">—</span>
+    </div>
+    <div class="callouts" id="cac-callouts"></div>
+    <table>
+      <thead>
+        <tr><th>Market / channel</th><th>Cost 90d</th><th>New customers 90d</th><th>CAC</th><th>vs blended</th><th>Flag</th></tr>
+      </thead>
+      <tbody id="cac-tbody"></tbody>
+      <tfoot id="cac-tfoot"></tfoot>
+    </table>
+  </div>
+
+  <!-- ══ Norce-powered sections ══ -->
+  <div class="section-head">
+    <div>
+      <div class="section-title">Customer value &amp; retention
+        <span class="section-tag" id="norce-section-tag">Norce order history</span>
+        <span class="sample-tag" id="norce-sample-tag">Sample layout — awaiting Norce sync</span>
+      </div>
+      <div class="section-sub" id="norce-section-sub">Built against the Norce mart contract (cohort retention, 1-year CLV, churn/repeat, first-purchase drivers).
+        Until the sync runs, the sections below are drawn from a small inline sample so the layout and the questions are reviewable —
+        every number in them is illustrative, not Babyshop data.</div>
+    </div>
+  </div>
+
+  <div class="chart-row">
+    <div class="chart-card awaiting" id="cohort-card" style="margin-bottom:0">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Cohort CLV maturity — cumulative revenue per customer</div>
+          <div class="chart-sub">Months since first order, 0 → 12. Where a cohort's curve sits at month 12 is the 1-year CLV;
+            younger cohorts stop where their data stops, so gaps between the lines show whether newer cohorts are worth more or less.</div>
+        </div>
+        <span class="chart-badge" id="cohort-badge">SEK / customer</span>
+      </div>
+      <div class="sample-banner" id="cohort-banner">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+        <div><b>Sample layout — awaiting Norce sync.</b> Illustrative shape only. Real cohorts start 2025-06-11 (platform cutover), so the first cohort reaches month 12 in mid-2026.</div>
+      </div>
+      <div class="chart-wrap" id="cohort-wrap">
+        <canvas id="c-cohort"></canvas>
+        <div class="chart-empty">No cohort rows in the snapshot yet.</div>
+      </div>
+    </div>
+
+    <div class="card awaiting" id="clv-card" style="margin-bottom:0">
+      <div class="card-header">
+        <div>
+          <div class="chart-title">1-year CLV by market</div>
+          <div class="chart-sub">Revenue in the 365 days after a customer's first order, against that market's blended CAC.</div>
+        </div>
+        <span class="sample-tag" id="clv-tag">Sample</span>
+      </div>
+      <div class="sample-banner" id="clv-banner">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+        <div><b>Sample layout — awaiting Norce sync.</b> CLV column is illustrative. The CAC and ratio columns are marked
+          <i>real</i> only when the funnel snapshot has cost for that market.</div>
+      </div>
+      <table>
+        <thead><tr><th>Market</th><th>1y CLV</th><th>CAC 90d</th><th>LTV:CAC</th></tr></thead>
+        <tbody id="clv-tbody"></tbody>
+        <tfoot id="clv-tfoot"></tfoot>
+      </table>
+    </div>
+  </div>
+
+  <div class="chart-row even">
+    <div class="chart-card awaiting" id="repeat-card" style="margin-bottom:0">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Repeat rate &amp; churn</div>
+          <div class="chart-sub">Share of customers ordering again within 12 months, and the 12-month churn complement, per market.</div>
+        </div>
+        <span class="sample-tag" id="repeat-tag">Sample</span>
+      </div>
+      <div class="sample-banner" id="repeat-banner">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+        <div><b>Sample layout — awaiting Norce sync.</b> Repeat/churn needs order history keyed on hashed buyer email; Norce has no stable customer id.</div>
+      </div>
+      <div class="chart-wrap short" id="repeat-wrap">
+        <canvas id="c-repeat"></canvas>
+        <div class="chart-empty">No retention rows in the snapshot yet.</div>
+      </div>
+    </div>
+
+    <div class="card awaiting" id="churn-card" style="margin-bottom:0">
+      <div class="card-header">
+        <div>
+          <div class="chart-title">Retention detail by market</div>
+          <div class="chart-sub">Repeat rate, churn and orders per customer — the markets to defend vs the ones bleeding first-time buyers.</div>
+        </div>
+        <span class="sample-tag" id="churn-tag">Sample</span>
+      </div>
+      <table>
+        <thead><tr><th>Market</th><th>Customers</th><th>Repeat rate</th><th>Churn 12m</th><th>Orders / customer</th></tr></thead>
+        <tbody id="churn-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card awaiting" id="fp-card">
+    <div class="card-header">
+      <div>
+        <div class="chart-title">What drives new customers — first purchases</div>
+        <div class="chart-sub">Brands, categories and products that appear in NEW customers' first orders. This is the acquisition-assortment view:
+          what to push in prospecting, and which entry products earn a second order.</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+        <span class="sample-tag" id="fp-tag">Sample</span>
+        <div class="seg-tabs" id="fp-tabs">
+          <button class="seg active" data-kind="brands">Brands</button>
+          <button class="seg" data-kind="categories">Categories</button>
+          <button class="seg" data-kind="products">Products</button>
+        </div>
+      </div>
+    </div>
+    <div class="sample-banner" id="fp-banner">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+      <div><b>Sample layout — awaiting Norce sync.</b> Real names come from Norce products/manufacturers/categories joined on part number —
+        order lines only carry variant names, so the sync must resolve them.</div>
+    </div>
+    <table>
+      <thead><tr><th id="fp-col">Brand</th><th>New customers acquired</th><th>Share of first orders</th><th>Revenue share</th><th></th></tr></thead>
+      <tbody id="fp-tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="foot-note" id="page-foot"></div>
+
+</main>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+   Customer Insights — renders the /api/customer-insights Firestore snapshot.
+
+   Two independent halves:
+     • funnel.*  — live BigQuery funnel export (acquisition, cost, CAC)
+     • norce     — order-level value/retention. `null` until the Norce pipeline
+                   has run; the SAME renderers then take the real payload, so
+                   the only difference is which object is passed in and whether
+                   the awaiting-data treatment is on.
+   Every section degrades to an explicit empty/pending state — never a blank card.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Shape used before the fetch resolves and whenever the snapshot is pending. */
+const EMPTY = {
+  generated_at: null,
+  sources: { funnel:{from:null,to:null}, norce:{available:false,last_sync:null,note:null} },
+  kpis: {},
+  funnel: { monthly:[], cac_matrix:[], trend:[] },
+  norce: null,
+  caveats: [],
+};
+
+/* ── Inline sample for the Norce sections (clearly marked in the UI) ──────────
+   Shapes mirror the mart contract exactly, so swapping in the real `norce`
+   object changes nothing but the numbers.                                    */
+const SAMPLE_NORCE = {
+  monthly_customer_metrics: [
+    {month:'2025-10', market:'SE', shop:'babyshop', new_customers:5120, returning_customers:8430, orders:15200, revenue:14800000, repeat_rate:0.34},
+    {month:'2025-11', market:'SE', shop:'babyshop', new_customers:7340, returning_customers:9210, orders:19400, revenue:21300000, repeat_rate:0.36},
+    {month:'2025-12', market:'SE', shop:'babyshop', new_customers:6980, returning_customers:10150, orders:20100, revenue:22800000, repeat_rate:0.38},
+    {month:'2026-01', market:'SE', shop:'babyshop', new_customers:4610, returning_customers:9040, orders:15600, revenue:15100000, repeat_rate:0.39},
+    {month:'2026-02', market:'SE', shop:'babyshop', new_customers:4380, returning_customers:8890, orders:14900, revenue:14400000, repeat_rate:0.40},
+    {month:'2026-03', market:'SE', shop:'babyshop', new_customers:4720, returning_customers:9310, orders:15800, revenue:15600000, repeat_rate:0.41},
+    {month:'2026-04', market:'SE', shop:'babyshop', new_customers:4890, returning_customers:9680, orders:16400, revenue:16300000, repeat_rate:0.41},
+    {month:'2026-05', market:'SE', shop:'babyshop', new_customers:5210, returning_customers:10120, orders:17300, revenue:17400000, repeat_rate:0.42},
+    {month:'2026-06', market:'SE', shop:'babyshop', new_customers:5440, returning_customers:10480, orders:18100, revenue:18200000, repeat_rate:0.42},
+    {month:'2026-07', market:'SE', shop:'babyshop', new_customers:5060, returning_customers:10310, orders:17500, revenue:17600000, repeat_rate:0.43},
+  ],
+  cohorts: [
+    {cohort_month:'2025-07', market:'ALL', months_since_first:0,  active_customers:6100, cumulative_revenue_per_customer:960},
+    {cohort_month:'2025-07', market:'ALL', months_since_first:1,  active_customers:1220, cumulative_revenue_per_customer:1180},
+    {cohort_month:'2025-07', market:'ALL', months_since_first:2,  active_customers:950,  cumulative_revenue_per_customer:1340},
+    {cohort_month:'2025-07', market:'ALL', months_since_first:3,  active_customers:820,  cumulative_revenue_per_customer:1480},
+    {cohort_month:'2025-07', market:'ALL', months_since_first:4,  active_customers:760,  cumulative_revenue_per_customer:1600},
+    {cohort_month:'2025-07', market:'ALL', months_since_first:5,  active_customers:700,  cumulative_revenue_per_customer:1710},
+    {cohort_month:'2025-07', market:'ALL', months_since_first:6,  active_customers:660,  cumulative_revenue_per_customer:1810},
+    {cohort_month:'2025-07', market:'ALL', months_since_first:7,  active_customers:630,  cumulative_revenue_per_customer:1900},
+    {cohort_month:'2025-07', market:'ALL', months_since_first:8,  active_customers:600,  cumulative_revenue_per_customer:1980},
+    {cohort_month:'2025-07', market:'ALL', months_since_first:9,  active_customers:580,  cumulative_revenue_per_customer:2050},
+    {cohort_month:'2025-07', market:'ALL', months_since_first:10, active_customers:560,  cumulative_revenue_per_customer:2120},
+    {cohort_month:'2025-07', market:'ALL', months_since_first:11, active_customers:545,  cumulative_revenue_per_customer:2180},
+    {cohort_month:'2025-07', market:'ALL', months_since_first:12, active_customers:530,  cumulative_revenue_per_customer:2240},
+    {cohort_month:'2025-11', market:'ALL', months_since_first:0,  active_customers:9400, cumulative_revenue_per_customer:1040},
+    {cohort_month:'2025-11', market:'ALL', months_since_first:1,  active_customers:1880, cumulative_revenue_per_customer:1290},
+    {cohort_month:'2025-11', market:'ALL', months_since_first:2,  active_customers:1420, cumulative_revenue_per_customer:1470},
+    {cohort_month:'2025-11', market:'ALL', months_since_first:3,  active_customers:1240, cumulative_revenue_per_customer:1620},
+    {cohort_month:'2025-11', market:'ALL', months_since_first:4,  active_customers:1140, cumulative_revenue_per_customer:1750},
+    {cohort_month:'2025-11', market:'ALL', months_since_first:5,  active_customers:1060, cumulative_revenue_per_customer:1860},
+    {cohort_month:'2025-11', market:'ALL', months_since_first:6,  active_customers:1000, cumulative_revenue_per_customer:1960},
+    {cohort_month:'2025-11', market:'ALL', months_since_first:7,  active_customers:960,  cumulative_revenue_per_customer:2040},
+    {cohort_month:'2025-11', market:'ALL', months_since_first:8,  active_customers:930,  cumulative_revenue_per_customer:2110},
+    {cohort_month:'2026-02', market:'ALL', months_since_first:0,  active_customers:7200, cumulative_revenue_per_customer:1010},
+    {cohort_month:'2026-02', market:'ALL', months_since_first:1,  active_customers:1500, cumulative_revenue_per_customer:1250},
+    {cohort_month:'2026-02', market:'ALL', months_since_first:2,  active_customers:1150, cumulative_revenue_per_customer:1420},
+    {cohort_month:'2026-02', market:'ALL', months_since_first:3,  active_customers:1010, cumulative_revenue_per_customer:1560},
+    {cohort_month:'2026-02', market:'ALL', months_since_first:4,  active_customers:940,  cumulative_revenue_per_customer:1680},
+    {cohort_month:'2026-02', market:'ALL', months_since_first:5,  active_customers:880,  cumulative_revenue_per_customer:1780},
+    {cohort_month:'2026-05', market:'ALL', months_since_first:0,  active_customers:8100, cumulative_revenue_per_customer:1080},
+    {cohort_month:'2026-05', market:'ALL', months_since_first:1,  active_customers:1740, cumulative_revenue_per_customer:1340},
+    {cohort_month:'2026-05', market:'ALL', months_since_first:2,  active_customers:1330, cumulative_revenue_per_customer:1530},
+  ],
+  clv_1y_by_market: [
+    {market:'SE', customers:38200, clv_1y:2240, orders_per_customer:1.9, revenue_365d:85568000},
+    {market:'NO', customers:12400, clv_1y:2680, orders_per_customer:2.0, revenue_365d:33232000},
+    {market:'FI', customers:9800,  clv_1y:1950, orders_per_customer:1.8, revenue_365d:19110000},
+    {market:'DK', customers:7300,  clv_1y:2080, orders_per_customer:1.8, revenue_365d:15184000},
+    {market:'EU', customers:4100,  clv_1y:1620, orders_per_customer:1.5, revenue_365d:6642000},
+  ],
+  churn: [
+    {market:'SE', customers:38200, repeat_rate:0.42, churn_12m:0.58, orders_per_customer:1.9},
+    {market:'NO', customers:12400, repeat_rate:0.45, churn_12m:0.55, orders_per_customer:2.0},
+    {market:'FI', customers:9800,  repeat_rate:0.38, churn_12m:0.62, orders_per_customer:1.8},
+    {market:'DK', customers:7300,  repeat_rate:0.36, churn_12m:0.64, orders_per_customer:1.8},
+    {market:'EU', customers:4100,  repeat_rate:0.27, churn_12m:0.73, orders_per_customer:1.5},
+  ],
+  first_purchase_products: {
+    brands: [
+      {name:'BabyBjörn',   new_customers:4120, share_of_first_orders:0.121, revenue_share:0.148},
+      {name:'Stokke',      new_customers:3380, share_of_first_orders:0.099, revenue_share:0.176},
+      {name:'Kuling',      new_customers:2950, share_of_first_orders:0.086, revenue_share:0.071},
+      {name:'Pampers',     new_customers:2610, share_of_first_orders:0.076, revenue_share:0.032},
+      {name:'Cybex',       new_customers:1980, share_of_first_orders:0.058, revenue_share:0.104},
+      {name:'Liewood',     new_customers:1740, share_of_first_orders:0.051, revenue_share:0.043},
+      {name:'Done by Deer',new_customers:1290, share_of_first_orders:0.038, revenue_share:0.026},
+      {name:'Elodie',      new_customers:1120, share_of_first_orders:0.033, revenue_share:0.029},
+    ],
+    categories: [
+      {name:'Barnvagnar & tillbehör', new_customers:5600, share_of_first_orders:0.164, revenue_share:0.271},
+      {name:'Bilbarnstolar',          new_customers:4310, share_of_first_orders:0.126, revenue_share:0.203},
+      {name:'Blöjor & skötbord',      new_customers:3980, share_of_first_orders:0.117, revenue_share:0.058},
+      {name:'Kläder 0–2 år',          new_customers:3540, share_of_first_orders:0.104, revenue_share:0.072},
+      {name:'Bärsele & bärsjal',      new_customers:2470, share_of_first_orders:0.072, revenue_share:0.061},
+      {name:'Leksaker',               new_customers:1880, share_of_first_orders:0.055, revenue_share:0.034},
+    ],
+    products: [
+      {name:'BabyBjörn Bärsele Mini',        new_customers:1420, share_of_first_orders:0.042, revenue_share:0.028},
+      {name:'Stokke Tripp Trapp',            new_customers:1180, share_of_first_orders:0.035, revenue_share:0.061},
+      {name:'Cybex Cloud T i-Size',          new_customers:980,  share_of_first_orders:0.029, revenue_share:0.047},
+      {name:'Pampers Premium Protection S3', new_customers:940,  share_of_first_orders:0.028, revenue_share:0.009},
+      {name:'Kuling Overall Nordkapp',       new_customers:870,  share_of_first_orders:0.025, revenue_share:0.018},
+      {name:'Liewood Badhandduk',            new_customers:640,  share_of_first_orders:0.019, revenue_share:0.007},
+    ],
+  },
+};
+
+let DATA = EMPTY;
+let FILTERS = { market:'', channel:'' };
+
+/* ── Formatters (match the KV / ROAS dashboards) ── */
+const fmtSEK = v => {
+  if (v == null || !isFinite(v)) return '—';
+  const n = Math.round(v);
+  if (Math.abs(n) >= 1e6) return (n/1e6).toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})+'M kr';
+  if (Math.abs(n) >= 1e3) return (n/1e3).toLocaleString('sv-SE',{minimumFractionDigits:0,maximumFractionDigits:0})+'K kr';
+  return n.toLocaleString('sv-SE')+' kr';
+};
+const fmtKr  = v => (v==null||!isFinite(v)) ? '—' : Math.round(v).toLocaleString('sv-SE')+' kr';
+const fmtInt = v => (v==null||!isFinite(v)) ? '—' : Math.round(v).toLocaleString('sv-SE');
+const fmtPct = (v,d=1) => (v==null||!isFinite(v)) ? '—' : (v*100).toLocaleString('sv-SE',{minimumFractionDigits:d,maximumFractionDigits:d})+'%';
+const fmtPctChg = d => (d>=0?'+':'')+(d*100).toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';
+const fmtRatio = v => (v==null||!isFinite(v)) ? '—' : v.toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})+':1';
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const arrowUp   = `<svg viewBox="0 0 10 10" fill="currentColor"><path d="M5 2 9 8H1z"/></svg>`;
+const arrowDown = `<svg viewBox="0 0 10 10" fill="currentColor"><path d="M5 8 1 2h8z"/></svg>`;
+function kdelta(frac, lowerIsBetter=false, pendingLabel='awaiting data'){
+  if (frac==null || !isFinite(frac)) return `<span class="kpi-delta flat">${pendingLabel}</span>`;
+  const good = lowerIsBetter ? frac<0 : frac>0;
+  const cls = Math.abs(frac)<1e-6 ? 'flat' : (good?'up':'down');
+  return `<span class="kpi-delta ${cls}">${frac>=0?arrowUp:arrowDown}${fmtPctChg(frac)}</span>`;
+}
+const num = v => (typeof v === 'number' && isFinite(v)) ? v : (v==null ? null : (isFinite(+v) ? +v : null));
+const MONTH_LBL = m => {
+  if (!m) return '';
+  const [y,mm] = String(m).split('-');
+  const names = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+  const i = parseInt(mm,10)-1;
+  return (names[i]||mm)+' '+String(y).slice(2);
+};
+
+/* ── Meta / sources ─────────────────────────────────────────────────────── */
+function renderMeta(){
+  const s = DATA.sources || {};
+  const f = s.funnel || {}, n = s.norce || {};
+  const pending = !DATA.generated_at;
+  const norceOn = !!DATA.norce;
+  document.getElementById('source-dot').className = 'dot' + (pending || !norceOn ? ' pending' : '');
+  const gen = DATA.generated_at ? String(DATA.generated_at).replace('T',' ').slice(0,16) : null;
+  document.getElementById('source-text').innerHTML = pending
+    ? `<b>No snapshot yet</b><br><span style="color:var(--muted)">The refresh job has not written <code>customer-insights</code> — the page is showing its empty state.</span>`
+    : `<b>Funnel</b> ${esc(f.from||'—')} → ${esc(f.to||'—')} · snapshot ${esc(gen||'—')}<br>
+       <span style="color:var(--muted)"><b style="color:var(--h)">Norce</b> ${norceOn
+          ? 'synced ' + esc(String(n.last_sync||'').slice(0,10))
+          : 'not available — ' + esc(n.note || 'pipeline pending')}</span>`;
+
+  document.getElementById('page-foot').innerHTML = pending ? '' :
+    `<b>Scope.</b> Customer counts exist only for the Babyshop shop in the funnel feed (Lekmer's are broken upstream) and cover roughly two thirds of orders,
+     so absolute counts under-state reality — trends and ratios are the usable signal. Gross values throughout: returns and cancellations are not netted out.`;
+}
+
+/* ── Caveats strip ──────────────────────────────────────────────────────── */
+function renderCaveats(){
+  const list = Array.isArray(DATA.caveats) ? DATA.caveats.filter(Boolean) : [];
+  const strip = document.getElementById('caveat-strip');
+  if (!list.length){ strip.style.display='none'; return; }
+  strip.style.display='flex';
+  document.getElementById('caveat-list').innerHTML = list.map(c=>`<li>${esc(c)}</li>`).join('');
+}
+
+/* ── KPI header ─────────────────────────────────────────────────────────── */
+function renderKPIs(){
+  const k = DATA.kpis || {};
+  const mtd      = num(k.new_customers_mtd);
+  const prev     = num(k.new_customers_prev_month);
+  const share    = num(k.new_share_90d);
+  const cac      = num(k.blended_cac_90d);
+  const clv      = num(k.clv_1y);
+  const repeat   = num(k.repeat_rate_12m);
+  const churn    = num(k.churn_12m);
+  let ratio      = num(k.ltv_cac_ratio);
+  if (ratio == null && clv != null && cac) ratio = clv / cac;
+
+  /* MTD vs a full previous month is not a like-for-like compare — prorate the
+     previous month to the same elapsed share so the delta means something. */
+  const now = new Date();
+  const dayOfMonth = now.getDate();
+  const daysPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+  const pace = prev != null ? prev * Math.min(1, dayOfMonth/daysPrevMonth) : null;
+  const mtdDelta = (mtd!=null && pace) ? (mtd - pace)/pace : null;
+
+  const pendingCard = (label,note) => ({
+    label, badge:'Awaiting Norce', badgePending:true, pending:true,
+    value:'Awaiting data', delta:`<span class="kpi-delta flat">Norce sync pending</span>`, note,
+  });
+
+  const cards = [
+    { label:'New customers MTD',
+      value: mtd==null ? '—' : fmtInt(mtd),
+      delta: kdelta(mtdDelta, false, mtd==null ? 'no snapshot' : 'no baseline'),
+      note: prev==null ? 'Funnel customer feed · Babyshop shop only'
+        : `vs ${fmtInt(pace)} pace-adjusted (day ${dayOfMonth} of prev month) · full prev month ${fmtInt(prev)}` },
+
+    { label:'New-customer share', badge:'90d',
+      value: fmtPct(share),
+      delta: `<span class="kpi-delta flat">of identified customers</span>`,
+      note: 'New ÷ (new + returning) across all channels. Channel-level splits are plausible; market-level ones are not — see caveats.' },
+
+    { label:'Blended CAC', badge:'90d', hero:true,
+      value: fmtKr(cac),
+      delta: `<span class="kpi-delta flat">all paid cost</span>`,
+      note: 'Total paid cost ÷ new customers, 90 days. Includes channels that acquire nothing — the matrix below splits it.' },
+
+    clv==null ? pendingCard('1-year CLV','Revenue in the 365 days after first order. Needs Norce order history (starts 2025-06-11).')
+      : { label:'1-year CLV', value:fmtKr(clv), delta:`<span class="kpi-delta flat">Norce · 365d</span>`,
+          note:'Gross revenue per acquired customer in their first year.' },
+
+    ratio==null ? pendingCard('LTV : CAC','Healthy ecommerce benchmark is roughly 3:1. Unlocks as soon as CLV lands.')
+      : { label:'LTV : CAC', hero:true, value:fmtRatio(ratio),
+          delta:`<span class="kpi-delta ${ratio>=3?'up':(ratio>=2?'flat':'down')}">${ratio>=3?'healthy':(ratio>=2?'thin':'below 2:1')}</span>`,
+          note:`1y CLV ${fmtKr(clv)} ÷ blended CAC ${fmtKr(cac)} · benchmark ≈ 3:1` },
+
+    repeat==null ? pendingCard('Repeat rate','Share of customers with a second order within 12 months.')
+      : { label:'Repeat rate', badge:'12m', value:fmtPct(repeat),
+          delta:`<span class="kpi-delta flat">${churn!=null?('churn '+fmtPct(churn,0)):'Norce'}</span>`,
+          note:'Second order within 12 months of the first.' },
+  ];
+
+  document.getElementById('kpi-grid').innerHTML = cards.map(c=>`
+    <div class="kpi-card${c.hero&&!c.pending?' hero':''}${c.pending?' awaiting':''}">
+      <div class="kpi-label">${esc(c.label)}${c.badge?`<span class="kpi-badge${c.badgePending?' pending':''}">${esc(c.badge)}</span>`:''}</div>
+      <div class="kpi-value${c.pending?' pending':''}">${c.value}</div>
+      ${c.delta||''}
+      <div class="kpi-note">${c.note}</div>
+    </div>`).join('');
+}
+
+/* ── Filters ────────────────────────────────────────────────────────────── */
+function buildFilters(){
+  const rows = (DATA.funnel && DATA.funnel.monthly) || [];
+  const cac  = (DATA.funnel && DATA.funnel.cac_matrix) || [];
+  const markets  = [...new Set([...rows, ...cac].map(r=>r.market).filter(Boolean))].sort();
+  const channels = [...new Set([...rows, ...cac].map(r=>r.channel_l1).filter(Boolean))].sort();
+  const fill = (el, vals, allLabel, keep) => {
+    el.innerHTML = `<option value="">${allLabel}</option>` + vals.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
+    if (keep && vals.includes(keep)) el.value = keep; else el.value = '';
+    el.disabled = !vals.length;
+  };
+  fill(document.getElementById('f-market'),  markets,  'All markets',  FILTERS.market);
+  fill(document.getElementById('f-channel'), channels, 'All channels', FILTERS.channel);
+  FILTERS.market  = document.getElementById('f-market').value;
+  FILTERS.channel = document.getElementById('f-channel').value;
+  syncFilterStyles();
+}
+function syncFilterStyles(){
+  document.getElementById('f-market').classList.toggle('is-active',  !!FILTERS.market);
+  document.getElementById('f-channel').classList.toggle('is-active', !!FILTERS.channel);
+}
+function filterLabel(){
+  const bits = [FILTERS.market || 'all markets', FILTERS.channel || 'all channels'];
+  return bits.join(' · ');
+}
+function matchRow(r){
+  if (FILTERS.market  && r.market     !== FILTERS.market)  return false;
+  if (FILTERS.channel && r.channel_l1 !== FILTERS.channel) return false;
+  return true;
+}
+
+/* ── New vs returning trend ─────────────────────────────────────────────── */
+const TREND_LINES = {
+  share: { label:'New share %', color:'#B45309' },
+  cac:   { label:'CAC',         color:'#6D28D9' },
+};
+let activeLines = new Set(['share']);
+let trendChart = null;
+
+function trendSeries(){
+  const monthly = (DATA.funnel && DATA.funnel.monthly) || [];
+  /* No per-dimension rows at all? fall back to the pre-aggregated trend array,
+     which only exists unfiltered — so say so when a filter is set. */
+  if (!monthly.length){
+    const t = (DATA.funnel && DATA.funnel.trend) || [];
+    if (!t.length) return { rows:[], fallback:false, reason:'empty' };
+    return {
+      rows: t.map(r=>({
+        month: r.month,
+        new_customers: num(r.new_customers)||0,
+        old_customers: num(r.old_customers)||0,
+        cost: num(r.cost)||0,
+      })).sort((a,b)=>String(a.month).localeCompare(String(b.month))),
+      fallback: !!(FILTERS.market || FILTERS.channel),
+    };
+  }
+  const filtered = monthly.filter(matchRow);
+  /* Rows exist but none match — an empty selection, not a missing snapshot. */
+  if (!filtered.length) return { rows:[], fallback:false, reason:'nomatch' };
+  const byMonth = new Map();
+  filtered.forEach(r=>{
+    const m = r.month; if (!m) return;
+    const o = byMonth.get(m) || {month:m, new_customers:0, old_customers:0, cost:0};
+    o.new_customers += num(r.new_customers)||0;
+    o.old_customers += num(r.old_customers)||0;
+    o.cost          += num(r.cost)||0;
+    byMonth.set(m,o);
+  });
+  return { rows:[...byMonth.values()].sort((a,b)=>String(a.month).localeCompare(String(b.month))), fallback:false };
+}
+
+function renderTrendChips(){
+  document.getElementById('trend-chips').innerHTML = Object.entries(TREND_LINES).map(([k,m])=>{
+    const on = activeLines.has(k);
+    return `<button class="metric-chip${on?' active':''}" data-key="${k}"
+      style="${on?`color:#fff;background:${m.color};border-color:transparent`:`color:${m.color}`}">
+      <span class="dot" style="background:${on?'#fff':m.color}"></span>${m.label}</button>`;
+  }).join('');
+  document.getElementById('trend-chips').querySelectorAll('.metric-chip').forEach(b=>b.onclick=()=>{
+    const k=b.dataset.key;
+    if (activeLines.has(k)) activeLines.delete(k); else activeLines.add(k);
+    renderTrendChips(); renderTrend();
+  });
+}
+
+function renderTrend(){
+  const { rows, fallback, reason } = trendSeries();
+  const canvas = document.getElementById('c-trend');
+  if (trendChart){ trendChart.destroy(); trendChart = null; }
+
+  const insight = document.getElementById('trend-insight');
+  const wrap = document.getElementById('trend-wrap');
+  if (!rows.length){
+    wrap.classList.add('is-empty');
+    wrap.querySelector('.chart-empty').textContent = reason==='nomatch'
+      ? 'No monthly rows for this market/channel combination.'
+      : 'No monthly customer rows in the snapshot yet — this chart fills in on the first successful refresh.';
+    insight.innerHTML = '';
+    return;
+  }
+  wrap.classList.remove('is-empty');
+
+  const labels = rows.map(r=>MONTH_LBL(r.month));
+  const shares = rows.map(r=>{ const t=r.new_customers+r.old_customers; return t? (r.new_customers/t)*100 : null; });
+  const cacs   = rows.map(r=> r.new_customers ? r.cost/r.new_customers : null);
+
+  const datasets = [
+    { type:'bar', label:'New customers', data:rows.map(r=>r.new_customers), backgroundColor:'#1E3A8A', stack:'c', order:3, yAxisID:'y', borderRadius:2 },
+    { type:'bar', label:'Returning customers', data:rows.map(r=>r.old_customers), backgroundColor:'#B7C4E2', stack:'c', order:3, yAxisID:'y', borderRadius:2 },
+  ];
+  if (activeLines.has('share'))
+    datasets.push({ type:'line', label:'New share %', data:shares, borderColor:TREND_LINES.share.color, backgroundColor:TREND_LINES.share.color,
+      yAxisID:'y1', tension:.3, borderWidth:2, pointRadius:2.5, pointHoverRadius:5, order:1, spanGaps:true });
+  if (activeLines.has('cac'))
+    datasets.push({ type:'line', label:'CAC (kr)', data:cacs, borderColor:TREND_LINES.cac.color, backgroundColor:TREND_LINES.cac.color,
+      yAxisID:'y2', tension:.3, borderWidth:2, borderDash:[5,4], pointRadius:2.5, pointHoverRadius:5, order:1, spanGaps:true });
+
+  trendChart = new Chart(canvas, {
+    data:{ labels, datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{ position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569', padding:12 } },
+        tooltip:{ callbacks:{ label:c=>{
+          const v = c.parsed.y;
+          if (v==null) return c.dataset.label+': —';
+          if (c.dataset.yAxisID==='y1') return c.dataset.label+': '+v.toLocaleString('sv-SE',{maximumFractionDigits:1})+'%';
+          if (c.dataset.yAxisID==='y2') return c.dataset.label+': '+fmtKr(v);
+          return c.dataset.label+': '+fmtInt(v);
+        } } },
+      },
+      scales:{
+        x:{ stacked:true, grid:{display:false}, ticks:{ font:{size:10}, color:'#94A3B8' } },
+        y:{ stacked:true, position:'left', beginAtZero:true, grid:{color:'#F1F3F5'},
+            ticks:{ font:{size:10}, color:'#94A3B8', callback:v=>fmtInt(v) },
+            title:{ display:true, text:'customers', font:{size:10}, color:'#94A3B8' } },
+        y1:{ display:activeLines.has('share'), position:'right', beginAtZero:true, suggestedMax:100, grid:{display:false},
+             ticks:{ font:{size:10}, color:TREND_LINES.share.color, callback:v=>v+'%' } },
+        y2:{ display:activeLines.has('cac'), position:'right', beginAtZero:true, grid:{display:false},
+             ticks:{ font:{size:10}, color:TREND_LINES.cac.color, callback:v=>fmtInt(v) } },
+      },
+    },
+  });
+
+  /* Written takeaway — the point of the chart, not just the picture. */
+  const last = rows[rows.length-1], first = rows[0];
+  const lastShare = shares[shares.length-1], firstShare = shares[0];
+  const lastCac = cacs[cacs.length-1];
+  const bits = [];
+  bits.push(`<b>${esc(filterLabel())}</b> · ${MONTH_LBL(first.month)} → ${MONTH_LBL(last.month)}`);
+  if (lastShare!=null && firstShare!=null){
+    const dir = lastShare>firstShare ? 'up' : (lastShare<firstShare ? 'down' : 'flat');
+    bits.push(`new-customer share ${dir === 'flat' ? 'flat at' : dir+' from'} ${firstShare.toLocaleString('sv-SE',{maximumFractionDigits:1})}%${dir==='flat'?'':' to '+lastShare.toLocaleString('sv-SE',{maximumFractionDigits:1})+'%'}`);
+  }
+  if (lastCac!=null) bits.push(`latest month CAC ${fmtKr(lastCac)}`);
+  if (fallback) bits.push(`<span style="color:var(--warn)">filters ignored — the snapshot has no per-market/channel monthly rows, showing the pre-aggregated total</span>`);
+  insight.innerHTML = bits.join(' · ');
+}
+
+/* ── CAC matrix ─────────────────────────────────────────────────────────── */
+/* Outlier thresholds. Kept here (not in the payload) so the analyst-facing
+   rules are visible in one place; tune freely. */
+const CAC_HIGH_MULT = 2.0;    // flag rows above this × blended CAC
+const CAC_GOOD_MULT = 0.6;    // celebrate rows below this × blended CAC
+const DEAD_SPEND_MIN = 5000;  // kr of 90d spend below which "no customers" is noise
+
+function renderCAC(){
+  const raw = ((DATA.funnel && DATA.funnel.cac_matrix) || []).filter(matchRow);
+  const tbody = document.getElementById('cac-tbody');
+  const tfoot = document.getElementById('cac-tfoot');
+  const callouts = document.getElementById('cac-callouts');
+  const badge = document.getElementById('cac-badge');
+
+  if (!raw.length){
+    callouts.innerHTML = '';
+    tfoot.innerHTML = '';
+    badge.textContent = 'no data';
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">${
+      ((DATA.funnel&&DATA.funnel.cac_matrix)||[]).length
+        ? 'No rows for this market/channel combination.'
+        : 'No CAC rows in the snapshot yet — this table fills in on the first successful refresh.'}</td></tr>`;
+    return;
+  }
+
+  const rows = raw.map(r=>({
+    market: r.market || '—',
+    channel: r.channel_l1 || '—',
+    cost: num(r.cost_90d) || 0,
+    newc: num(r.new_customers_90d) || 0,
+    cac: num(r.cac),
+  })).map(r=>({ ...r, cac: (r.cac!=null ? r.cac : (r.newc ? r.cost/r.newc : null)) }));
+
+  const totCost = rows.reduce((s,r)=>s+r.cost,0);
+  const totNew  = rows.reduce((s,r)=>s+r.newc,0);
+  const blended = totNew ? totCost/totNew : null;
+  badge.textContent = `${rows.length} rows · blended ${fmtKr(blended)}`;
+
+  /* Classify */
+  rows.forEach(r=>{
+    r.mult = (blended && r.cac!=null) ? r.cac/blended : null;
+    if (r.newc < 1 && r.cost >= DEAD_SPEND_MIN)      r.flag = 'dead';
+    else if (r.mult!=null && r.mult >= CAC_HIGH_MULT) r.flag = 'high';
+    else if (r.mult!=null && r.mult <= CAC_GOOD_MULT && r.newc >= 10) r.flag = 'good';
+    else r.flag = '';
+  });
+
+  /* Callouts — the explicit "act on this" list */
+  const dead = rows.filter(r=>r.flag==='dead').sort((a,b)=>b.cost-a.cost);
+  const high = rows.filter(r=>r.flag==='high').sort((a,b)=>b.cost-a.cost);
+  const good = rows.filter(r=>r.flag==='good').sort((a,b)=>b.newc-a.newc);
+  const co = [];
+  if (dead.length){
+    const wasted = dead.reduce((s,r)=>s+r.cost,0);
+    co.push(`<div class="callout warn"><div class="co-head">Spend with no attributed new customers</div>
+      <b>${fmtSEK(wasted)}</b> over 90 days across ${dead.length} market×channel cell${dead.length>1?'s':''} — largest:
+      ${dead.slice(0,3).map(r=>`${esc(r.market)} / ${esc(r.channel)} (${fmtSEK(r.cost)})`).join(', ')}.
+      Either the channel genuinely acquires nobody, or the customer feed does not attribute to it — check before cutting.</div>`);
+  }
+  if (high.length){
+    const list = high.slice(0,3).map(r=>`<b>${esc(r.market)} / ${esc(r.channel)}</b> ${fmtKr(r.cac)} (${r.mult.toLocaleString('sv-SE',{maximumFractionDigits:1})}×)`).join(' · ')
+      + (high.length>3 ? ` and ${high.length-3} more` : '');
+    co.push(`<div class="callout warn"><div class="co-head">CAC ≥ ${CAC_HIGH_MULT}× blended</div>${list}. Blended is ${fmtKr(blended)}.</div>`);
+  }
+  if (good.length){
+    co.push(`<div class="callout good"><div class="co-head">Cheapest acquisition — room to scale</div>
+      ${good.slice(0,3).map(r=>`<b>${esc(r.market)} / ${esc(r.channel)}</b> ${fmtKr(r.cac)} · ${fmtInt(r.newc)} new`).join(' · ')}.</div>`);
+  }
+  if (!co.length) co.push(`<div class="callout"><div class="co-head">No outliers</div>
+    Every cell sits between ${CAC_GOOD_MULT}× and ${CAC_HIGH_MULT}× the blended ${fmtKr(blended)}, and no cell spends over ${fmtSEK(DEAD_SPEND_MIN)} without acquiring anyone.</div>`);
+  callouts.innerHTML = co.join('');
+
+  /* Table — grouped by market, channels sorted by spend */
+  const byMarket = new Map();
+  rows.forEach(r=>{ if(!byMarket.has(r.market)) byMarket.set(r.market,[]); byMarket.get(r.market).push(r); });
+  const marketOrder = [...byMarket.entries()]
+    .map(([m,rs])=>({ m, rs, cost: rs.reduce((s,r)=>s+r.cost,0) }))
+    .sort((a,b)=>b.cost-a.cost);
+
+  const flagCell = r =>
+    r.flag==='dead' ? '<span class="pill pill-down">no customers</span>' :
+    r.flag==='high' ? '<span class="pill pill-warn">high CAC</span>' :
+    r.flag==='good' ? '<span class="pill pill-up">efficient</span>' : '';
+
+  let html = '';
+  marketOrder.forEach(({m,rs,cost})=>{
+    const mNew = rs.reduce((s,r)=>s+r.newc,0);
+    if (marketOrder.length > 1)
+      html += `<tr class="grp-row"><td colspan="6">${esc(m)} — ${fmtSEK(cost)} · ${fmtInt(mNew)} new · CAC ${fmtKr(mNew?cost/mNew:null)}</td></tr>`;
+    rs.sort((a,b)=>b.cost-a.cost).forEach(r=>{
+      const cls = r.flag==='dead'||r.flag==='high' ? ' class="risk"' : (r.flag==='good' ? ' class="good"' : '');
+      const vs = r.mult==null ? '<span style="color:var(--muted)">—</span>'
+        : `<span class="${r.mult>=CAC_HIGH_MULT?'cell-neg':(r.mult<=CAC_GOOD_MULT?'cell-pos':'')}">${r.mult.toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})}×</span>`;
+      html += `<tr${cls}>
+        <td>${esc(r.channel)}${marketOrder.length>1?'':`<span class="sub-cell">${esc(r.market)}</span>`}</td>
+        <td>${fmtSEK(r.cost)}</td>
+        <td>${fmtInt(r.newc)}</td>
+        <td>${r.cac==null?'<span style="color:var(--muted)">—</span>':fmtKr(r.cac)}</td>
+        <td>${vs}</td>
+        <td>${flagCell(r)}</td></tr>`;
+    });
+  });
+  tbody.innerHTML = html;
+  tfoot.innerHTML = `<tr class="tfoot-row"><td>Total · ${esc(filterLabel())}</td><td>${fmtSEK(totCost)}</td><td>${fmtInt(totNew)}</td><td>${fmtKr(blended)}</td><td>1,0×</td><td></td></tr>`;
+}
+
+/* ══ Norce sections — one renderer per block, fed by either the real
+      snapshot payload or SAMPLE_NORCE. Nothing below knows the difference
+      except setSampleTreatment(). ══════════════════════════════════════════ */
+function setSampleTreatment(isSample){
+  const cards = ['cohort-card','clv-card','repeat-card','churn-card','fp-card'];
+  cards.forEach(id=>{ const el=document.getElementById(id); if(el) el.classList.toggle('awaiting', isSample); });
+  ['cohort-banner','clv-banner','repeat-banner','fp-banner'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.classList.toggle('hidden', !isSample);
+  });
+  const tag = document.getElementById('norce-sample-tag');
+  tag.textContent = isSample ? 'Sample layout — awaiting Norce sync' : 'Live · Norce';
+  tag.classList.toggle('live', !isSample);
+  ['clv-tag','repeat-tag','churn-tag','fp-tag'].forEach(id=>{
+    const el=document.getElementById(id); if(!el) return;
+    el.textContent = isSample ? 'Sample' : 'Live';
+    el.classList.toggle('live', !isSample);
+  });
+  document.getElementById('norce-section-sub').innerHTML = isSample
+    ? `Built against the Norce mart contract (cohort retention, 1-year CLV, churn/repeat, first-purchase drivers).
+       Until the sync runs, the sections below are drawn from a small inline sample so the layout and the questions are reviewable —
+       <b>every number in them is illustrative, not Babyshop data</b>.`
+    : `Live from the Norce order history (from 2025-06-11 — the platform cutover; nothing exists before that).
+       Customers are identified by hashed buyer email; gross line values excluding shipping.`;
+}
+
+const COHORT_COLORS = ['#1E3A8A','#2563EB','#6D28D9','#B45309','#047857','#0891B2'];
+let cohortChart = null, repeatChart = null;
+
+function renderCohorts(src){
+  const rows = (src && src.cohorts) || [];
+  const canvas = document.getElementById('c-cohort');
+  if (cohortChart){ cohortChart.destroy(); cohortChart = null; }
+  if (!rows.length){
+    document.getElementById('cohort-badge').textContent = 'no data';
+    document.getElementById('cohort-wrap').classList.add('is-empty');
+    return;
+  }
+  document.getElementById('cohort-wrap').classList.remove('is-empty');
+  const byCohort = new Map();
+  rows.forEach(r=>{
+    const key = r.cohort_month; if (!key) return;
+    if (!byCohort.has(key)) byCohort.set(key, new Map());
+    /* Several markets per cohort_month collapse to a weighted average. */
+    const m = num(r.months_since_first); if (m==null) return;
+    const cur = byCohort.get(key).get(m) || { v:0, w:0 };
+    const w = num(r.active_customers) || 1;
+    cur.v += (num(r.cumulative_revenue_per_customer)||0) * w; cur.w += w;
+    byCohort.get(key).set(m, cur);
+  });
+  const maxMonth = Math.min(12, Math.max(...rows.map(r=>num(r.months_since_first)||0)));
+  const labels = Array.from({length:maxMonth+1},(_,i)=>'M'+i);
+  const cohorts = [...byCohort.keys()].sort();
+  const datasets = cohorts.map((c,i)=>({
+    label: MONTH_LBL(c)+' cohort',
+    data: labels.map((_,m)=>{ const e=byCohort.get(c).get(m); return e && e.w ? e.v/e.w : null; }),
+    borderColor: COHORT_COLORS[i % COHORT_COLORS.length],
+    backgroundColor: COHORT_COLORS[i % COHORT_COLORS.length],
+    tension:.25, borderWidth:2, pointRadius:2, pointHoverRadius:5, spanGaps:false, fill:false,
+  }));
+  document.getElementById('cohort-badge').textContent = `${cohorts.length} cohorts · SEK / customer`;
+  cohortChart = new Chart(canvas, {
+    type:'line', data:{ labels, datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{ position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569', padding:12 } },
+        tooltip:{ callbacks:{ label:c=> c.dataset.label+': '+(c.parsed.y==null?'—':fmtKr(c.parsed.y)) } },
+      },
+      scales:{
+        x:{ grid:{display:false}, ticks:{ font:{size:10}, color:'#94A3B8' },
+            title:{display:true, text:'months since first order', font:{size:10}, color:'#94A3B8'} },
+        y:{ beginAtZero:true, grid:{color:'#F1F3F5'}, ticks:{ font:{size:10}, color:'#94A3B8', callback:v=>fmtInt(v) } },
+      },
+    },
+  });
+}
+
+function marketCAC(){
+  /* Real CAC per market from the funnel snapshot (unfiltered) — used to give the
+     sample CLV table a real denominator wherever one exists. */
+  const out = new Map();
+  ((DATA.funnel && DATA.funnel.cac_matrix) || []).forEach(r=>{
+    const m = (r.market||'').toUpperCase(); if (!m) return;
+    const o = out.get(m) || {cost:0,newc:0};
+    o.cost += num(r.cost_90d)||0; o.newc += num(r.new_customers_90d)||0;
+    out.set(m,o);
+  });
+  const cac = new Map();
+  out.forEach((v,k)=>{ if (v.newc) cac.set(k, v.cost/v.newc); });
+  return cac;
+}
+
+function renderCLV(src){
+  const rows = (src && src.clv_1y_by_market) || [];
+  const tbody = document.getElementById('clv-tbody');
+  const tfoot = document.getElementById('clv-tfoot');
+  if (!rows.length){
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="4">No 1-year CLV rows yet.</td></tr>`;
+    tfoot.innerHTML = '';
+    return;
+  }
+  const cacByMarket = marketCAC();
+  const max = Math.max(...rows.map(r=>num(r.clv_1y)||0)) || 1;
+  let totCust=0, totRev=0;
+  tbody.innerHTML = rows.slice().sort((a,b)=>(num(b.clv_1y)||0)-(num(a.clv_1y)||0)).map(r=>{
+    const clv = num(r.clv_1y);
+    const cust = num(r.customers)||0;
+    totCust += cust; totRev += (clv||0)*cust;
+    const cac = cacByMarket.get(String(r.market||'').toUpperCase());
+    const ratio = (clv!=null && cac) ? clv/cac : null;
+    const w = Math.round(((clv||0)/max)*54)+2;
+    const rc = ratio==null ? '' : (ratio>=3 ? 'cell-pos' : (ratio<2 ? 'cell-neg' : ''));
+    return `<tr>
+      <td>${esc(r.market)}<span class="sub-cell">${fmtInt(cust)} customers</span></td>
+      <td><div class="bar-cell"><span class="mini-bar" style="width:${w}px"></span>${fmtKr(clv)}</div></td>
+      <td>${cac?fmtKr(cac):'<span style="color:var(--muted)">—</span>'}${cac?'<span class="sub-cell">real</span>':''}</td>
+      <td class="${rc}">${fmtRatio(ratio)}</td></tr>`;
+  }).join('');
+  const blendedClv = totCust ? totRev/totCust : null;
+  tfoot.innerHTML = `<tr class="tfoot-row"><td>All markets</td><td>${fmtKr(blendedClv)}</td><td>${fmtKr(num((DATA.kpis||{}).blended_cac_90d))}</td><td>${
+    fmtRatio(blendedClv!=null && num((DATA.kpis||{}).blended_cac_90d) ? blendedClv/num(DATA.kpis.blended_cac_90d) : null)}</td></tr>`;
+}
+
+function renderChurn(src){
+  const rows = (src && src.churn) || [];
+  const tbody = document.getElementById('churn-tbody');
+  const canvas = document.getElementById('c-repeat');
+  if (repeatChart){ repeatChart.destroy(); repeatChart = null; }
+
+  if (!rows.length){
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="5">No retention rows yet.</td></tr>`;
+    document.getElementById('repeat-wrap').classList.add('is-empty');
+    return;
+  }
+  document.getElementById('repeat-wrap').classList.remove('is-empty');
+  const sorted = rows.slice().sort((a,b)=>(num(b.repeat_rate)||0)-(num(a.repeat_rate)||0));
+  tbody.innerHTML = sorted.map(r=>{
+    const rep = num(r.repeat_rate), ch = num(r.churn_12m) ?? (rep!=null ? 1-rep : null);
+    const cls = rep==null ? '' : (rep>=0.40 ? 'good' : (rep<0.30 ? 'risk' : ''));
+    return `<tr${cls?` class="${cls}"`:''}>
+      <td>${esc(r.market)}</td>
+      <td>${fmtInt(num(r.customers))}</td>
+      <td class="${rep!=null&&rep>=0.40?'cell-pos':(rep!=null&&rep<0.30?'cell-neg':'')}">${fmtPct(rep,0)}</td>
+      <td>${fmtPct(ch,0)}</td>
+      <td>${num(r.orders_per_customer)!=null?num(r.orders_per_customer).toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1}):'—'}</td></tr>`;
+  }).join('');
+
+  /* Chart: repeat rate over time if monthly metrics exist, else per-market bars. */
+  const monthly = (src && src.monthly_customer_metrics) || [];
+  if (monthly.length){
+    const byMonth = new Map();
+    monthly.forEach(r=>{
+      const m=r.month; if(!m) return;
+      const o = byMonth.get(m) || {n:0,ret:0,rateSum:0,rateW:0};
+      o.n += num(r.new_customers)||0; o.ret += num(r.returning_customers)||0;
+      const rr = num(r.repeat_rate); const w = (num(r.new_customers)||0)+(num(r.returning_customers)||0);
+      if (rr!=null){ o.rateSum += rr*w; o.rateW += w; }
+      byMonth.set(m,o);
+    });
+    const months = [...byMonth.keys()].sort();
+    repeatChart = new Chart(canvas, {
+      type:'line',
+      data:{ labels: months.map(MONTH_LBL), datasets:[
+        { label:'Repeat rate', data: months.map(m=>{ const o=byMonth.get(m); return o.rateW ? o.rateSum/o.rateW*100 : null; }),
+          borderColor:'#047857', backgroundColor:'#04785714', fill:true, tension:.3, borderWidth:2, pointRadius:2, pointHoverRadius:5, spanGaps:true },
+        { label:'Returning share of orders', data: months.map(m=>{ const o=byMonth.get(m); const t=o.n+o.ret; return t? o.ret/t*100 : null; }),
+          borderColor:'#93A8D8', borderDash:[5,4], fill:false, tension:.3, borderWidth:2, pointRadius:2, pointHoverRadius:5, spanGaps:true },
+      ]},
+      options:{
+        responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+        plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569', padding:12 } },
+          tooltip:{ callbacks:{ label:c=> c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y.toLocaleString('sv-SE',{maximumFractionDigits:1})+'%') } } },
+        scales:{ x:{ grid:{display:false}, ticks:{font:{size:10}, color:'#94A3B8'} },
+                 y:{ beginAtZero:true, grid:{color:'#F1F3F5'}, ticks:{font:{size:10}, color:'#94A3B8', callback:v=>v+'%'} } },
+      },
+    });
+  } else {
+    repeatChart = new Chart(canvas, {
+      type:'bar',
+      data:{ labels: sorted.map(r=>r.market), datasets:[
+        { label:'Repeat rate', data: sorted.map(r=>(num(r.repeat_rate)||0)*100), backgroundColor:'#047857', borderRadius:2 },
+        { label:'Churn 12m', data: sorted.map(r=>{ const rep=num(r.repeat_rate); const ch=num(r.churn_12m) ?? (rep!=null?1-rep:0); return ch*100; }),
+          backgroundColor:'#E2E8F0', borderRadius:2 },
+      ]},
+      options:{
+        responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+        plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569', padding:12 } },
+          tooltip:{ callbacks:{ label:c=> c.dataset.label+': '+c.parsed.y.toLocaleString('sv-SE',{maximumFractionDigits:1})+'%' } } },
+        scales:{ x:{ stacked:true, grid:{display:false}, ticks:{font:{size:10}, color:'#94A3B8'} },
+                 y:{ stacked:true, beginAtZero:true, max:100, grid:{color:'#F1F3F5'}, ticks:{font:{size:10}, color:'#94A3B8', callback:v=>v+'%'} } },
+      },
+    });
+  }
+}
+
+let FP_KIND = 'brands';
+const FP_COL = { brands:'Brand', categories:'Category', products:'Product' };
+function renderFirstPurchase(src){
+  const fp = (src && src.first_purchase_products) || {};
+  const rows = fp[FP_KIND] || [];
+  document.getElementById('fp-col').textContent = FP_COL[FP_KIND];
+  const tbody = document.getElementById('fp-tbody');
+  if (!rows.length){
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="5">No first-purchase ${esc(FP_KIND)} yet.</td></tr>`;
+    return;
+  }
+  const norm = rows.map(r=>({
+    name: r.name ?? r.brand ?? r.category_l1 ?? r.category ?? r.product ?? '—',
+    newc: num(r.new_customers) ?? num(r.count) ?? null,
+    share: num(r.share_of_first_orders) ?? num(r.share) ?? null,
+    rev: num(r.revenue_share) ?? null,
+  })).sort((a,b)=>(b.newc||0)-(a.newc||0)).slice(0,12);
+  const max = Math.max(...norm.map(r=>r.newc||0)) || 1;
+  tbody.innerHTML = norm.map(r=>{
+    /* Efficiency read: a driver that acquires many customers but little revenue
+       is a cheap entry point; the inverse is a high-value entry point. */
+    const lift = (r.share && r.rev) ? r.rev/r.share : null;
+    const tag = lift==null ? '' : (lift>=1.3 ? '<span class="pill pill-up">high-value entry</span>'
+      : (lift<=0.7 ? '<span class="pill pill-neutral">volume entry</span>' : ''));
+    const w = Math.round(((r.newc||0)/max)*60)+2;
+    return `<tr>
+      <td>${esc(r.name)}</td>
+      <td><div class="bar-cell"><span class="mini-bar" style="width:${w}px"></span>${fmtInt(r.newc)}</div></td>
+      <td>${fmtPct(r.share)}</td>
+      <td>${fmtPct(r.rev)}</td>
+      <td style="text-align:right">${tag}</td></tr>`;
+  }).join('');
+}
+
+function renderNorce(){
+  const isSample = !DATA.norce;
+  const src = DATA.norce || SAMPLE_NORCE;
+  setSampleTreatment(isSample);
+  renderCohorts(src);
+  renderCLV(src);
+  renderChurn(src);
+  renderFirstPurchase(src);
+}
+
+/* ── Render everything ──────────────────────────────────────────────────── */
+function renderAll(){
+  renderMeta();
+  renderCaveats();
+  renderKPIs();
+  buildFilters();
+  renderTrendChips();
+  renderTrend();
+  renderCAC();
+  renderNorce();
+}
+
+/* Filter wiring */
+document.getElementById('f-market').onchange = e => { FILTERS.market = e.target.value; syncFilterStyles(); renderTrend(); renderCAC(); };
+document.getElementById('f-channel').onchange = e => { FILTERS.channel = e.target.value; syncFilterStyles(); renderTrend(); renderCAC(); };
+document.getElementById('f-reset').onclick = () => {
+  FILTERS = { market:'', channel:'' };
+  document.getElementById('f-market').value = ''; document.getElementById('f-channel').value = '';
+  syncFilterStyles(); renderTrend(); renderCAC();
+};
+document.getElementById('fp-tabs').querySelectorAll('.seg').forEach(b=>b.onclick=()=>{
+  document.getElementById('fp-tabs').querySelectorAll('.seg').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); FP_KIND = b.dataset.kind;
+  renderFirstPurchase(DATA.norce || SAMPLE_NORCE);
+});
+
+renderAll();
+
+/* ── Live snapshot ──────────────────────────────────────────────────────── */
+async function load(){
+  try {
+    const r = await fetch('/api/customer-insights', { cache:'no-store' });
+    if (!r.ok) return;                       // keep the empty state
+    const d = await r.json();
+    if (!d || typeof d !== 'object') return;
+    DATA = {
+      generated_at: d.generated_at || null,
+      sources: d.sources || EMPTY.sources,
+      kpis: d.kpis || {},
+      funnel: {
+        monthly:    Array.isArray(d.funnel && d.funnel.monthly)    ? d.funnel.monthly    : [],
+        cac_matrix: Array.isArray(d.funnel && d.funnel.cac_matrix) ? d.funnel.cac_matrix : [],
+        trend:      Array.isArray(d.funnel && d.funnel.trend)      ? d.funnel.trend      : [],
+      },
+      norce: (d.norce && typeof d.norce === 'object') ? d.norce : null,
+      caveats: Array.isArray(d.caveats) ? d.caveats : [],
+    };
+    renderAll();
+  } catch(e){ /* keep the empty state */ }
+}
+load();
+
+/* ── Refresh status pill (shared with the other dashboards) ── */
+async function checkRefreshStatus(){
+  const pill=document.getElementById('refreshPill'); if(!pill) return;
+  try {
+    const r=await fetch('/api/refresh-status',{cache:'no-store'}); if(!r.ok) return;
+    const s=await r.json();
+    const fmtAgo=(e)=>{ if(!e) return 'never'; const m=Math.max(0,Math.round((Date.now()/1000-e)/60));
+      return m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago'; };
+    if (s.ok===null || s.ok===undefined){ pill.classList.add('show','unknown'); pill.textContent='refresh status unknown'; pill.title=s.reason||''; return; }
+    const ageH = s.last_run ? (Date.now()/1000 - s.last_run)/3600 : 999;
+    const errs = s.errors||[];
+    if (!s.ok || errs.length){
+      pill.classList.remove('stale','unknown'); pill.classList.add('show');
+      pill.textContent = errs.length ? `${errs.length} refresh error${errs.length>1?'s':''} (24 h)` : 'refresh failed';
+      pill.title = [`Last run: ${fmtAgo(s.last_run)} · stage: ${s.last_stage||'—'}`, s.last_message||'',
+        ...errs.slice(0,5).map(e=>`• [${e.stage}] ${(e.error||'').slice(0,120)}`)].filter(Boolean).join('\n');
+    } else if (ageH>30){
+      pill.classList.remove('unknown'); pill.classList.add('show','stale');
+      pill.textContent=`refresh stale · ${fmtAgo(s.last_run)}`; pill.title=`Last successful run ${fmtAgo(s.last_run)} — expected daily.`;
+    } else pill.classList.remove('show','stale','unknown');
+  } catch(e){ /* ignore */ }
+}
+checkRefreshStatus();
+</script>
+</body>
+</html>

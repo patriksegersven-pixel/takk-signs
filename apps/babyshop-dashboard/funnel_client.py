@@ -192,7 +192,19 @@ class _FirestoreCache(_Cache):
         from google.cloud import firestore  # type: ignore
 
         self._firestore_module = firestore
-        self._db = firestore.Client()
+        try:
+            self._db = firestore.Client()
+        except Exception:
+            # ADC in production (Cloud Run SA); gcloud user token as a local
+            # fallback — same pattern as bq_source._credentials()
+            import subprocess
+            import google.oauth2.credentials  # type: ignore
+            tok = subprocess.check_output(
+                ["gcloud", "auth", "print-access-token"]).decode().strip()
+            self._db = firestore.Client(
+                project=os.environ.get("FIRESTORE_PROJECT",
+                                       "project-a7ade44e-e7e3-4871-a83"),
+                credentials=google.oauth2.credentials.Credentials(tok))
         self._collection = self._db.collection(FIRESTORE_COLLECTION)
 
     def _doc_id(self, key: str) -> str:

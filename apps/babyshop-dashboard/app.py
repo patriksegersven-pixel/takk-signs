@@ -130,6 +130,7 @@ def _verify_sims_token(token: str):
 STATIC_DIR     = Path(__file__).parent
 KV_HTML        = STATIC_DIR / "babyshop-dashboard.html"
 PRODUCT_HTML   = STATIC_DIR / "babyshop-product-dashboard.html"
+CUSTOMER_HTML  = STATIC_DIR / "babyshop-customer-dashboard.html"
 INVENTORY_HTML = STATIC_DIR / "babyshop-inventory-dashboard.html"
 STOY_HTML      = STATIC_DIR / "babyshop-stoy-dashboard.html"
 ROAS_HTML      = STATIC_DIR / "babyshop-roas-impact.html"
@@ -149,6 +150,11 @@ def kv_dashboard(_: str = Depends(verify)):
 @app.get("/babyshop-product-dashboard.html")
 def product_dashboard(_: str = Depends(verify)):
     return FileResponse(PRODUCT_HTML, media_type="text/html")
+
+
+@app.get("/babyshop-customer-dashboard.html")
+def customer_dashboard(_: str = Depends(verify)):
+    return FileResponse(CUSTOMER_HTML, media_type="text/html")
 
 
 @app.get("/babyshop-inventory-dashboard.html")
@@ -206,6 +212,43 @@ def api_stoy_data(_: str = Depends(verify)):
     if data is None:
         return JSONResponse({"error": "no stoy snapshot yet"}, status_code=503)
     return data
+
+
+@app.get("/api/customer-insights")
+def api_customer_insights(_: str = Depends(verify)):
+    """Customer Insights snapshot (written to Firestore by refresh_customer_insights.py).
+
+    Same Firestore-cache read as /api/stoy-data and /api/roas-impact — one document,
+    `funnel_cache/{workspace}__customer-insights`, whose TTL the cache layer enforces.
+
+    Deliberately 200-with-an-empty-payload instead of the 503 those two return: the
+    Customer Insights page is shipped BEFORE its refresher has ever run, and half the
+    contract (`norce`) stays null for longer still. Handing the page a well-formed
+    skeleton lets it render its own pending state — KPIs as "awaiting data", empty
+    tables with an explanation — instead of falling back to a generic fetch failure.
+    `generated_at: null` is the page's signal that no snapshot exists yet."""
+    from funnel_client import get_cache
+
+    try:
+        data = get_cache().get("customer-insights")
+    except Exception as e:
+        # A Firestore hiccup must not blank the tab — log and serve the skeleton.
+        print(f"ERROR /api/customer-insights: {type(e).__name__}: {e}", flush=True)
+        data = None
+    if data is not None:
+        return data
+    return {
+        "generated_at": None,
+        "sources": {
+            "funnel": {"from": None, "to": None},
+            "norce": {"available": False, "last_sync": None,
+                      "note": "awaiting NORCE_* secrets"},
+        },
+        "kpis": {},
+        "funnel": {"monthly": [], "cac_matrix": [], "trend": []},
+        "norce": None,
+        "caveats": ["no customer-insights snapshot yet — the refresh job has not run"],
+    }
 
 
 @app.get("/api/roas-impact")
