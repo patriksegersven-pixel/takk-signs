@@ -102,6 +102,13 @@ APPLICATIONS: dict[str, int] = {
     "lekmer-se": 1272, "lekmer-no": 1273, "lekmer-fi": 1274, "lekmer-dk": 1275,
 }
 
+# Tenant-wide queries (Products/*, Application/*, Core/*) still need an
+# applicationId CONTEXT header on this tenant: without one, Products/Products
+# 500s on every request (three backfills died on this before the pattern was
+# clear — orders always send the header and never failed). The header sets
+# context only; it does not filter these client-wide sets.
+CONTEXT_APP_ID = int(os.environ.get("NORCE_CONTEXT_APP_ID", "1244"))  # babyshop-se
+
 # Platform cutover — nothing exists before this date, so a backfill starts here.
 HISTORY_START = os.environ.get("NORCE_HISTORY_START", "2025-06-11")
 # Shipping is booked as a normal order line; it is NOT merchandise revenue.
@@ -533,7 +540,7 @@ def sync_products(since: datetime.datetime | None) -> tuple[int, int, int]:
                              "Categories($select=ProductId,CategoryId,IsPrimary)",
                   "$filter": f, "$orderby": "Id", "$top": page}
         try:
-            rows = _get(f"{NORCE_QUERY_URL}/Products/Products", params, None).get("value") or []
+            rows = _get(f"{NORCE_QUERY_URL}/Products/Products", params, CONTEXT_APP_ID).get("value") or []
         except RuntimeError as e:
             if page > 1:
                 page = max(1, page // 4)
@@ -588,22 +595,22 @@ def sync_dimensions() -> dict[str, int]:
     out["dim_manufacturers"] = replace(
         [{"ManufacturerId": r.get("ManufacturerId"), "Name": r.get("Name"),
           "IsActive": bool(r.get("IsActive"))}
-         for r in query("Application/ClientManufacturers", None,
+         for r in query("Application/ClientManufacturers", CONTEXT_APP_ID,
                         select="ManufacturerId,Name,IsActive")], "dim_manufacturers")
     out["dim_categories"] = replace(
         [{"Id": r.get("Id"), "Code": r.get("Code"), "DefaultName": r.get("DefaultName"),
           "DefaultFullName": r.get("DefaultFullName"), "IsActive": bool(r.get("IsActive"))}
-         for r in query("Application/Categories", None,
+         for r in query("Application/Categories", CONTEXT_APP_ID,
                         select="Id,Code,DefaultName,DefaultFullName,IsActive")], "dim_categories")
     out["dim_payment_methods"] = replace(
         [{"Id": r.get("Id"), "DefaultName": r.get("DefaultName")}
-         for r in query("Core/PaymentMethods", None, select="Id,DefaultName")], "dim_payment_methods")
+         for r in query("Core/PaymentMethods", CONTEXT_APP_ID, select="Id,DefaultName")], "dim_payment_methods")
     out["dim_currencies"] = replace(
         [{"Id": r.get("Id"), "Code": r.get("Code"), "DefaultName": r.get("DefaultName")}
-         for r in query("Core/Currencies", None, select="Id,Code,DefaultName")], "dim_currencies")
+         for r in query("Core/Currencies", CONTEXT_APP_ID, select="Id,Code,DefaultName")], "dim_currencies")
     out["dim_countries"] = replace(
         [{"Id": r.get("Id"), "Code": r.get("Code"), "DefaultName": r.get("DefaultName")}
-         for r in query("Core/Countries", None, select="Id,Code,DefaultName")], "dim_countries")
+         for r in query("Core/Countries", CONTEXT_APP_ID, select="Id,Code,DefaultName")], "dim_countries")
     return out
 
 
