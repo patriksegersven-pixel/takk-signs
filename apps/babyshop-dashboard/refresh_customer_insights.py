@@ -91,7 +91,26 @@ BQ_LOCATION = os.environ.get("BQ_LOCATION", "EU")
 # rolling window on them, not a bigger number here.
 DOC_BUDGET_BYTES = 900_000
 
+# Billing currency per Google Ads account, read live from the API on 2026-08-16
+# (customer.currency_code). Kept here as documentation of WHY no per-account
+# conversion is applied to funnel Cost: the export has already done it. Note DK
+# is split — Babyshop DK bills SEK while Lekmer DK bills DKK, which is what made
+# the raw numbers look like a currency bug.
+AD_ACCOUNT_CURRENCIES = {
+    "Babyshop SE (4851485396)": "SEK", "Babyshop NO (8623945183)": "NOK",
+    "Babyshop FI (6161399704)": "EUR", "Babyshop DK (2054294342)": "SEK",
+    "Babyshop ROW (5541487401)": "SEK", "Lekmer SE (7780114635)": "SEK",
+    "Lekmer NO (8308232278)": "NOK", "Lekmer DK (2756397225)": "DKK",
+}
+
 CAVEATS = [
+    "all money is SEK — Norce order values are converted from local currency; "
+    "funnel Cost is already SEK at source (verified against the Google Ads API)",
+    "FX uses the latest spot rate applied to all history (constant-currency), "
+    "so period comparisons are not distorted by rate moves; Norce's stored rates "
+    "were last updated 2023-06-16 and NOK is ~4% low",
+    "funnel Google Shopping cost is de-duplicated (the export carries the same "
+    "spend as both a campaign total and a brand split in DK/FI/Lekmer slices)",
     "customer counts, orders and revenue are Norce — funnel customer columns "
     "deliberately unused (they undercount DK ~80x, SE ~9x); funnel contributes cost only",
     "channel-level CAC awaiting order-level channel data (Kuvio API) — "
@@ -143,6 +162,63 @@ def _d(name, value):
     return bigquery.ScalarQueryParameter(name, "DATE", value)
 
 
+# ════════════════════════════════════════════════════════════════════════════
+#  Funnel Cost de-duplication — READ THIS BEFORE CHANGING ANY COST QUERY
+#
+#  `SUM(Cost)` over the export DOUBLE-COUNTS Google Shopping spend in some
+#  slices. The export carries, for the same campaign and day, BOTH:
+#     • a campaign-total row with kv_brand blank, AND
+#     • brand-attributed rows that split exactly that same money
+#  ...but only for some shop x market slices (DK, FI, and all of Lekmer). For
+#  SE/NO Babyshop the brand split goes to `shopping_cost` instead and `Cost`
+#  is already correct, which is why the bug hid for so long.
+#
+#  Verified against the Google Ads API for July 2026 (funnel value vs the
+#  account's own cost, in the account's currency):
+#     SE Babyshop  761,356.49 vs 761,356.49 SEK   ratio 1.0000  (exact, to the öre)
+#     DK Babyshop   94,346.90 vs  94,346.90 SEK   ratio 1.0000  (exact)
+#     SE Lekmer     26,549.08 vs  26,549.08 SEK   ratio 1.0000  (exact)
+#     NO Babyshop  403,715.79 vs 412,160.31 NOK   ratio 0.9795
+#     NO Lekmer     10,332.21 vs  10,548.32 NOK   ratio 0.9795  (same rate)
+#     DK Lekmer      8,388.71 vs   5,657.73 DKK   ratio 1.4827
+#     FI Babyshop   98,078.42 vs   8,849.91 EUR   ratio 11.083
+#  Every ratio is that account's currency->SEK rate, and 11.083/1.4827 = 7.475,
+#  the EUR/DKK peg. So Funnel Cost is ALREADY NORMALISED TO SEK — there is no
+#  mixed-currency problem on the cost side, only this duplication.
+#
+#  THE RULE: aggregate to date x campaign x channel x market x shop, then if the
+#  brand-split total equals the brand-blank total (within 1%), they are the same
+#  money at two grains -> keep one. Otherwise they are genuinely different money
+#  -> add them. The second branch matters: Meta cost is almost entirely
+#  brand-attributed with no blank counterpart, and a naive "blank rows only"
+#  filter would have deleted 96.5% of it.
+#  Applying this leaves Affiliate / Naver / Price Comparison / Meta at 100% of
+#  their naive totals and cuts Google Ads by 13.8%.
+# ════════════════════════════════════════════════════════════════════════════
+COST_GRAIN = ("Date, Campaign, Channel_Type_Level_1, Channel_Type_Level_2, "
+              "market_level_1_kv, shop_new")
+COST_BLANK = "SUM(IF(kv_brand IS NULL OR kv_brand = '', Cost, 0))"
+COST_SPLIT = "SUM(IF(kv_brand IS NOT NULL AND kv_brand <> '', Cost, 0))"
+COST_FIXED = ("IF(split > 0 AND blank > 0 "
+              "AND ABS(split - blank) <= 0.01 * GREATEST(split, blank), "
+              "blank, blank + split)")
+
+
+def _cost_cte(where: str) -> str:
+    """CTE `cost_rows` with a de-duplicated `cost` per COST_GRAIN slice."""
+    return f"""
+    cost_grain AS (
+      SELECT {COST_GRAIN}, {COST_BLANK} blank, {COST_SPLIT} split
+      FROM `{BQ_TABLE}` WHERE {where} AND Cost IS NOT NULL
+      GROUP BY Date, Campaign, Channel_Type_Level_1, Channel_Type_Level_2,
+               market_level_1_kv, shop_new),
+    cost_rows AS (
+      SELECT Date, Channel_Type_Level_1, Channel_Type_Level_2,
+             market_level_1_kv, shop_new, {COST_FIXED} AS cost
+      FROM cost_grain)
+    """
+
+
 def D() -> str:
     return f"{NORCE_PROJECT}.{NORCE_DATASET}"
 
@@ -167,13 +243,25 @@ def data_end() -> datetime.date:
 # ── Funnel: COST ONLY ────────────────────────────────────────────────────────
 def cost_by_market_month(start: datetime.date, end: datetime.date) -> dict:
     """{(month, market): {cost, sessions}} — the only funnel read for the trend."""
+    # Sessions come from their own feed rows and are NOT duplicated, so they are
+    # summed separately and joined on month x market — never mixed into the
+    # de-duplication, which would change what "blank vs split" means.
     sql = f"""
-    SELECT FORMAT_DATE('%Y-%m', Date) month, market_level_1_kv market,
-           SUM(Cost) cost, SUM(Sessions) sessions
-    FROM `{BQ_TABLE}`
-    WHERE Date BETWEEN @s AND @e AND market_level_1_kv IS NOT NULL
-      AND (Cost IS NOT NULL OR Sessions IS NOT NULL)
-    GROUP BY 1, 2
+    WITH {_cost_cte("Date BETWEEN @s AND @e AND market_level_1_kv IS NOT NULL")},
+    c AS (
+      SELECT FORMAT_DATE('%Y-%m', Date) month, market_level_1_kv market,
+             SUM(cost) cost
+      FROM cost_rows GROUP BY 1, 2),
+    s AS (
+      SELECT FORMAT_DATE('%Y-%m', Date) month, market_level_1_kv market,
+             SUM(Sessions) sessions
+      FROM `{BQ_TABLE}`
+      WHERE Date BETWEEN @s AND @e AND market_level_1_kv IS NOT NULL
+        AND Sessions IS NOT NULL
+      GROUP BY 1, 2)
+    SELECT COALESCE(c.month, s.month) month, COALESCE(c.market, s.market) market,
+           c.cost, s.sessions
+    FROM c FULL OUTER JOIN s USING (month, market)
     """
     # None, not 0, when a feed reports nothing for that cell: "no session rows"
     # and "zero sessions" are different claims and the UI renders them differently.
@@ -185,10 +273,8 @@ def cost_by_market_month(start: datetime.date, end: datetime.date) -> dict:
 
 def cost_by_market(start: datetime.date, end: datetime.date) -> dict:
     sql = f"""
-    SELECT market_level_1_kv market, SUM(Cost) cost
-    FROM `{BQ_TABLE}`
-    WHERE Date BETWEEN @s AND @e AND Cost IS NOT NULL AND market_level_1_kv IS NOT NULL
-    GROUP BY 1
+    WITH {_cost_cte("Date BETWEEN @s AND @e AND market_level_1_kv IS NOT NULL")}
+    SELECT market_level_1_kv market, SUM(cost) cost FROM cost_rows GROUP BY 1
     """
     return {r["market"]: I(r["cost"]) for r in _rows(sql, [_d("s", start), _d("e", end)])}
 
@@ -202,15 +288,16 @@ def channel_spend(start: datetime.date, end: datetime.date) -> list[dict]:
     nobody can defend.
     """
     sql = f"""
-    WITH ch AS (
-      SELECT market_level_1_kv market, Channel_Type_Level_1 channel_l1, SUM(Cost) cost
-      FROM `{BQ_TABLE}`
-      WHERE Date BETWEEN @s AND @e AND Cost IS NOT NULL AND Cost > 0
-        AND market_level_1_kv IS NOT NULL
-      GROUP BY 1, 2)
+    WITH {_cost_cte("Date BETWEEN @s AND @e AND market_level_1_kv IS NOT NULL")},
+    ch AS (
+      -- The filter lives OUTSIDE this CTE: `HAVING SUM(cost) > 0` would resolve
+      -- `cost` to the SELECT alias, i.e. SUM(SUM(cost)), which BigQuery rejects
+      -- as an aggregation of an aggregation.
+      SELECT market_level_1_kv market, Channel_Type_Level_1 channel_l1, SUM(cost) cost
+      FROM cost_rows GROUP BY 1, 2)
     SELECT market, channel_l1, cost,
            SAFE_DIVIDE(cost, SUM(cost) OVER (PARTITION BY market)) share_of_market_spend
-    FROM ch ORDER BY market, cost DESC
+    FROM ch WHERE cost > 0 ORDER BY market, cost DESC
     """
     return [{"market": r["market"], "channel_l1": r["channel_l1"],
              "cost_90d": I(r["cost"]),
@@ -316,6 +403,22 @@ def build_trend(cost_month: dict) -> list[dict]:
         r["sessions"] = c.get("sessions")
         r["cac"] = F(cost / new) if (cost and new) else None
     return rows
+
+
+def fx_rates() -> dict:
+    """The rates the marts actually used, for meta.fx. Never fails the run.
+
+    Single rate source: the `currency_rates` view, built from Norce's own
+    Core/Currencies.ExchangeRate. Read here rather than recomputed so the
+    snapshot can never disagree with the marts about what a number means.
+    """
+    try:
+        return {r["currency_code"]: F(r["to_sek"], 6)
+                for r in _rows(f"SELECT currency_code, to_sek FROM `{D()}.currency_rates` "
+                               f"WHERE to_sek IS NOT NULL ORDER BY currency_code")}
+    except Exception as e:
+        print(f"   fx rates unavailable: {type(e).__name__}: {str(e)[:120]}")
+        return {}
 
 
 def norce_payload(win_start: datetime.date, end: datetime.date,
@@ -432,6 +535,7 @@ def build_payload() -> dict:
     market_cac = {r["market"]: r["cac"] for r in cac_matrix if r["cac"] is not None}
 
     norce = norce_payload(win_start, end, market_cac, opc_per)
+    fx = fx_rates()
 
     # ── KPIs ──
     months = sorted({r["month"] for r in trend})
@@ -484,6 +588,39 @@ def build_payload() -> dict:
             "window_days": WINDOW_DAYS,
             "window": {"start": win_start.isoformat(), "end": end.isoformat()},
             "months": months,
+            "currency": "SEK",
+            "fx": {
+                "reporting_currency": "SEK",
+                "rates_to_sek": fx,
+                "rate_source": "norce Core/Currencies.ExchangeRate via the currency_rates "
+                               "view — the single rate source; the marts convert with it too",
+                "rate_staleness": "Norce's non-EUR rows were last updated 2023-06-16; vs rates "
+                                  "derived from live Google Ads spend on 2026-08-16, NOK is 4.0% "
+                                  "low, EUR 0.7%, DKK 0.6%. Refresh Core/Currencies upstream to "
+                                  "fix every consumer at once",
+                "norce_revenue": "converted — Norce order values are LOCAL per "
+                                 "storefront (NOK/DKK/EUR/USD/GBP); marts multiply by "
+                                 "currency_rates.to_sek",
+                "funnel_cost": "NOT converted — already SEK at source. Verified against the "
+                               "Google Ads API: for the three SEK-billing accounts the funnel "
+                               "figure equals the account's own cost EXACTLY (SE Babyshop and "
+                               "SE Lekmer and DK Babyshop, to the öre), and for every non-SEK "
+                               "account the ratio is that currency's SEK rate (NOK 0.9795, "
+                               "DKK 1.4827, EUR 11.083; 11.083/1.4827 = 7.475 = the EUR/DKK peg). "
+                               "Converting it again would double-convert",
+                "funnel_cost_non_google": "Meta / Affiliate / Naver / Price Comparison (~10% of "
+                                          "spend) carry no account identifier. Assumed SEK like "
+                                          "Google: their magnitudes are consistent with SEK and "
+                                          "the export normalises cost centrally rather than "
+                                          "per-connector",
+                "funnel_cost_dedup": "Google Shopping spend is duplicated in `Cost` "
+                                     "(campaign-total row + brand-split rows) for DK, FI "
+                                     "and all Lekmer slices; de-duplicated per "
+                                     "date x campaign x channel x market x shop",
+                "rate_basis": "latest spot rate applied to all history (constant-currency), "
+                              "so a market's trend is not partly an FX chart",
+                "ad_account_currencies": AD_ACCOUNT_CURRENCIES,
+            },
             "definitions": {
                 "orders_per_customer_12m": "orders in the trailing 365d / distinct customers "
                                            "with >=1 order in that window (active base)",

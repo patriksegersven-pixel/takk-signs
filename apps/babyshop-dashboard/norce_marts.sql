@@ -49,6 +49,13 @@
 -- This is a CURRENT spot rate. Norce keeps no rate history and orders carry no
 -- rate of their own, so there is nothing to reconstruct a historical rate from —
 -- all history is restated at today's rate, deliberately (see the header).
+--
+-- STALENESS, measured 2026-08-16 — evidence for a separate decision, NOT acted
+-- on here: every non-EUR row was last Updated 2023-06-16. Against rates derived
+-- from live Google Ads spend the same day, NOK is 4.0% low (0.9403 vs 0.9795),
+-- EUR 0.7% and DKK 0.6%. NOK matters most (second-biggest market). Refreshing
+-- Core/Currencies upstream in Norce fixes it for every consumer at once, which
+-- is why no second rate source is bolted on here.
 CREATE OR REPLACE VIEW `${DATASET}.currency_rates` AS
 SELECT
   c.Id                                            AS currency_id,
