@@ -227,7 +227,12 @@ lines AS (
     COALESCE(m.Name, '(unknown brand)')                                  AS brand,
     COALESCE(SPLIT(c.DefaultFullName, ' - ')[SAFE_OFFSET(1)],
              c.DefaultName, '(uncategorised)')                           AS category_l1,
-    COALESCE(p.DefaultName, li.ProductName, li.PartNo)                   AS product
+    -- Channable title FIRST: Norce's DefaultName is variant-grain, so without
+    -- this the product dimension reads "2-4 Y" / "One Size" / "86/92 cm".
+    -- The feed is the CURRENT catalogue and skews Babyshop SE, so discontinued
+    -- SKUs and much of Lekmer miss — those fall back to the Norce name exactly
+    -- as before. Never let this produce a NULL name.
+    COALESCE(t.title, p.DefaultName, li.ProductName, li.PartNo)          AS product
   FROM first_orders fo
   JOIN `${DATASET}.order_items` li ON li.OrderId = fo.order_id
   LEFT JOIN `${DATASET}.product_skus`  s ON s.PartNo = li.PartNo
@@ -236,6 +241,10 @@ lines AS (
   LEFT JOIN `${DATASET}.product_categories` pc
          ON pc.ProductId = p.Id AND pc.IsPrimary
   LEFT JOIN `${DATASET}.dim_categories` c ON c.Id = pc.CategoryId
+  -- Joined on the raw order line, NOT via product_skus: the feed's g:id IS
+  -- OrderItem.PartNo, so a SKU missing from Norce's product tables still gets
+  -- a real title.
+  LEFT JOIN `${DATASET}.sku_titles` t ON t.PartNo = li.PartNo
   WHERE li.PartNo != '1000014'
 ),
 totals AS (

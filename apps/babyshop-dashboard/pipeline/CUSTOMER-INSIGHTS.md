@@ -32,19 +32,28 @@ without a cross-region copy).
 
 ### Rules that are load-bearing (from the data audit — do not "simplify" these)
 
+- **The Funnel customer columns are BANNED.** `newCustomers__File_Import`,
+  `oldCustomers__File_Import` and `Orders_count__File_Import` are a
+  pre-aggregated file import and they are wrong: measured against Norce
+  first-orders they undercount **DK by ~80×** and **SE by ~9×**, which produced
+  a DK CAC of ~17,000 kr where the truth is ~185 kr. Norce is the customer
+  source of record. `refresh_customer_insights.py` reads those columns nowhere.
+- **Funnel contributes cost only** (plus sessions).
 - Market is **`market_level_1_kv`**. Never `market_new` — NULL on 98.8% of cost rows.
-- The Funnel export is a **union of disjoint feeds** (cost / product / session /
-  customer). No row carries both `Cost` and a customer count. Aggregate each feed
-  in its own CTE, then join on month × market × channel. A row-level join
-  produces silent zeros.
-- Customer columns (`newCustomers__File_Import`, `oldCustomers__File_Import`,
-  `Orders_count__File_Import`) are meaningful only **from 2025-09** — before that
-  `newCustomers` is flat zero.
-- Customer counts exist only for **shop 'Babyshop'**; Lekmer's are broken in the
-  export, so the whole tab is Babyshop-only and says so in `caveats`.
-- **Per-market new-share is unreliable** (SE ~3% vs some markets ~70%) — the
-  caveat travels inside the payload so the UI can surface it. Channel-level
-  shares are plausible.
+- The Funnel export is a **union of disjoint feeds**. Cost is aggregated in its
+  own query at its own grain and joined to Norce on month × market — never at
+  row level.
+- **Cost is market-grain, not shop-grain.** Cost rows do carry `shop_new`, but
+  not reliably: FI × Lekmer reports 77 kr over 90 days against 205 Norce
+  first-orders — a CAC of 0.38 kr. All CAC is therefore market-level, and
+  market × shop rows carry it on the `babyshop` row only (that shop is ~93% of
+  spend); `lekmer` rows carry `null`.
+- **Channel-level CAC is impossible today.** Norce has no channel/UTM data
+  (`Source='WEB'` always) and the Funnel export has no order identity, so
+  nothing links an acquisition to the channel that paid for it. `channel_spend`
+  reports spend only. Order-level linkage is expected via a **Kuvio API** — the
+  seam is `channel_spend()` in `refresh_customer_insights.py`; add the join and
+  fill its `cac` field then.
 - Norce order value = `SUM(Items.LineAmount)` **excluding the shipping line
   `PartNo='1000014'`**. There is no order-total field. Amounts are **ex-VAT**
   (the header `VatRate` is 0; real VAT is per line).
@@ -211,6 +220,30 @@ nothing but a staleness bug. `${DATASET}` is substituted by `norce_sync.py`.
 | `cohort_retention` | cohort_month × market × shop × months_since_first | The CLV maturity triangle. 1-year CLV = `cumulative_revenue_per_customer` at offset 12. Offsets are generated densely up to each cohort's elapsed age. |
 | `first_purchase_products` | month × market × shop × dim_type × dim_value | `dim_type` is `brand` / `category_l1` / `product`. Counts first orders *containing* the thing, not units. |
 
+### Product titles (`sku_titles`)
+
+Norce's `Product.DefaultName` is **variant-grain**, so the product dimension
+reads `2-4 Y` / `One Size` / `86/92 cm` instead of a product. `norce.sku_titles`
+fixes it: `PartNo`, `title`, `brand`, loaded from the Channable Google Shopping
+feed, whose `g:id` **is** `OrderItem.PartNo`. The mart takes
+`COALESCE(sku_titles.title, products.DefaultName, order_items.ProductName, PartNo)`,
+joined on the raw order line so a SKU missing from Norce's product tables still
+gets a real title.
+
+Coverage is partial by design — the feed is the **current catalogue** and skews
+Babyshop SE, so discontinued SKUs and much of Lekmer fall back to the Norce name.
+An empty or missing table degrades to exactly the old behaviour.
+
+Loaded by `sync_sku_titles()` in the dimension pass, reusing `inventory_client`'s
+config and streaming iterparse (~30 MB peak on a 96 MB document). Needs
+**`CHANNABLE_FEED_URL`** — mounted on the dashboard *service* but **not** on the
+`norce-sync` job. Without it the step logs and returns 0.
+
+```bash
+# reload titles only (no Norce credentials needed)
+python3 norce_sync.py --titles-only
+```
+
 Identity is scoped **per shop** — Babyshop and Lekmer are separate businesses,
 and the same address shopping in both is two customers.
 
@@ -262,26 +295,48 @@ exists" is deliberately not enough, since `norce_sync` creates its tables before
 it loads anything and a half-finished first run would otherwise serve an
 all-zero tab.
 
+### Snapshot shape
+
+Top level: `generated_at`, `sources`, `meta`, `kpis`, `trend`, `cac_matrix`,
+`channel_spend`, `norce`, `caveats`.
+
+| Section | Grain | Contents |
+|---|---|---|
+| `trend` | month × market × shop | Norce customers/orders/revenue **+ that month's market-level funnel `cost`, `sessions`, `cac`** |
+| `cac_matrix` | market | `cost_90d`, `new/returning/total_customers_90d`, `cac` — the authoritative CAC surface |
+| `channel_spend` | market × channel_l1 | `cost_90d`, `share_of_market_spend`, `cac: null` + `note` |
+| `norce` | — | `cohorts`, `clv_1y_by_market`, `churn`, `first_purchase_products`, `last_sync` |
+
+**`funnel.monthly` and `norce.monthly_customer_metrics` are gone** — both are
+superseded by top-level `trend`, which is the same rows plus cost and CAC.
+
+⚠️ `trend[].cost`, `trend[].sessions` and `trend[].cac` are **market-level** and
+repeat across the shop rows of a market. **Do not sum them across shops.** The
+customer columns are pure Norce and do sum correctly. `meta.trend_cost_is_market_level`
+flags this in the payload.
+
+A market with no recorded spend (EU, ASIA, NA) has `cac: null`, never `0.0` —
+zero would claim acquisition there is free.
+
+### Purchases-per-customer — three different denominators
+
+| Field | Where | Definition |
+|---|---|---|
+| `orders_per_customer_12m` | `kpis`, `clv_1y_by_market[]`, `churn[]` | orders in the trailing 365 d ÷ distinct customers with ≥ 1 order in that window (**active base**) |
+| `orders_per_customer` | `clv_1y_by_market[]`, `churn[]` | **lifetime** orders per customer over that row's cohort base (matured cohorts only) |
+| `orders_per_customer_month` | `trend[]` | that month's orders ÷ that month's active customers |
+
+The KPI is all shops. The per-row variants are keyed on `first_market`, so they
+describe the same population as the row they sit on.
+
 ### Customer-count fields
-
-Every table carries totals alongside the split, so the UI never has to add them
-up itself:
-
-| Section | Fields |
-|---|---|
-| `funnel.cac_matrix` | `new_customers_90d`, `old_customers_90d`, `total_customers_90d` (= new + old) |
-| `norce.monthly_customer_metrics` | `new_customers`, `returning_customers`, `total_customers` (= `active_customers`) |
-| `norce.clv_1y_by_market` | `customers`, `returning_customers` |
-| `norce.churn` | `customers`, `returning_customers` |
 
 `returning_customers` is `COUNTIF(is_repeat)` — customers with ≥ 2 orders —
 computed over **that row's own `customers` base**, so it is always a subset of
 the total beside it. The two Norce bases differ on purpose: `clv_1y_by_market`
 counts customers whose own 365 days have elapsed, `churn` counts customers whose
-first order is at least 365 days old.
-
-`total_customers_90d` is the Funnel feed's own new + old. It is **not** an order
-count — new + old covers only ~68% of `Orders_count__File_Import`.
+first order is at least 365 days old. On `trend` and `cac_matrix`,
+new + returning = total exactly.
 
 ### Document size
 
@@ -289,9 +344,10 @@ The snapshot is one Firestore document, hard-capped at 1,048,576 bytes.
 `refresh_customer_insights.py` refuses to write above `DOC_BUDGET_BYTES`
 (900,000 B of compact JSON) and names the biggest sections when it trips.
 
-Measured 2026-08-16: compact JSON 690,779 B vs Firestore-accounted 608,252 B
-(58% of the limit) — the check over-states cost, so it fires before Firestore
-would reject the write.
+Measured 2026-08-16 after the Funnel demotion: compact JSON **444 KB** (was 690 KB
+— dropping the `funnel.monthly` customer series more than paid for the Norce
+trend). The check over-states Firestore's real accounting, so it fires before
+Firestore would reject the write.
 
 `norce.cohorts` is bounded to keep it that way: `months_since_first <= 12` (the
 1-year CLV is the value at offset 12, and 2-/3-year CLV is ruled out) and

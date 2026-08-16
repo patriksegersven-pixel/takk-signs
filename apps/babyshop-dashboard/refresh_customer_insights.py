@@ -6,31 +6,44 @@ Writes `funnel_cache/<workspace>__customer-insights`, the single document the
 Customer Insights tab reads. Same client/auth wiring and the same
 {data, fetched_at, expires_at, ttl_seconds, workspace} wrapper as bq_source.py.
 
-TWO SOURCES, ONE DOCUMENT
-  funnel  `babyshop-funnel-data.bs_funnel_export.funnel_data` — LIVE today.
-          Spend, sessions and the pre-aggregated new/old customer counts.
-  norce   `project-a7ade44e-e7e3-4871-a83.norce` marts — built by norce_sync.py,
-          which cannot run until the NORCE_* secrets exist. Until the dataset is
-          there AND has rows, `data.norce` is null and the UI renders its Norce
-          sections as awaiting-data. Nothing here fails because Norce is absent.
+TWO SOURCES, STRICTLY SPLIT BY ROLE
+  norce   `project-a7ade44e-e7e3-4871-a83.norce` marts (norce_sync.py) — the ONLY
+          source of customer counts, orders, revenue, cohorts and CLV. History
+          from 2025-06-11.
+  funnel  `babyshop-funnel-data.bs_funnel_export.funnel_data` — COST ONLY
+          (plus sessions). Nothing else from this table reaches the payload.
 
-FUNNEL RULES BAKED IN (from the data audit — do not "simplify" these away)
-  • Market is `market_level_1_kv`. NEVER `market_new` — it is NULL on 98.8% of
-    cost rows.
-  • The export is a UNION OF DISJOINT FEEDS (cost / product / session /
-    customer): no row carries both Cost and a customer count. Each feed is
-    therefore aggregated in its OWN CTE and the results are joined on
-    month x market x channel. Joining at row level would multiply nothing
-    against nothing and silently produce zeros.
-  • Customer columns (`newCustomers__File_Import`, `oldCustomers__File_Import`,
-    `Orders_count__File_Import`) are meaningful only from 2025-09 — before that
-    newCustomers is flat zero. FUNNEL_START enforces it.
-  • Customer counts exist only for shop 'Babyshop'; Lekmer's are broken, so the
-    whole tab is Babyshop-shop-only and says so in `caveats`.
-  • Per-market new-share is suspect (SE ~3% vs DE ~71%); channel-level shares
-    are plausible. The caveat travels with the payload so the UI can show it.
+WHY THE FUNNEL CUSTOMER COLUMNS ARE BANNED
+  `newCustomers__File_Import` / `oldCustomers__File_Import` /
+  `Orders_count__File_Import` are a pre-aggregated file import and they are
+  WRONG: measured against Norce first-orders they undercount DK by ~80x and SE
+  by ~9x. They produced a DK CAC of ~17,000 kr where the truth is ~185 kr. They
+  must not appear in any metric. Norce is the customer source of record.
+  This module reads those columns nowhere — if you are about to add them back,
+  don't.
+
+WHY CHANNEL-LEVEL CAC DOES NOT EXIST
+  Norce carries no channel/UTM data (Source='WEB' on every order) and the Funnel
+  export carries no order identity, so there is no key that links an acquisition
+  to the channel that paid for it. `channel_spend` therefore reports SPEND ONLY.
+  Order-level channel linkage is expected later via a Kuvio API — that is the
+  seam: add the join in `channel_spend()` and fill in its `cac` field then.
+
+COST GRAIN — MARKET, NOT SHOP (verified 2026-08-16)
+  Funnel cost rows do carry `shop_new`, but not reliably: FI x Lekmer reports
+  77 kr of spend over 90 days against 205 Norce first-orders, i.e. a CAC of
+  0.38 kr. So all CAC is computed at MARKET grain. Rows that are market x shop
+  (clv_1y_by_market, churn) carry the market CAC on the babyshop row only and
+  NULL for lekmer, because ~93% of the market's spend is Babyshop's — applying
+  it to Lekmer would be a fabrication.
+
+FUNNEL RULES STILL IN FORCE FOR COST
+  • Market is `market_level_1_kv`. NEVER `market_new` — NULL on 98.8% of cost rows.
+  • The export is a union of DISJOINT feeds, so cost is aggregated in its own
+    query at its own grain and joined to Norce on month x market. Never at row
+    level.
   • Gross values throughout — returns and cancellations are ignored (user
-    decision), so kv_returns is never netted out.
+    decision).
 
 Run locally:  python3 refresh_customer_insights.py
               SKIP_FIRESTORE=1 CUSTOMER_INSIGHTS_OUT=/tmp/ci.json python3 refresh_customer_insights.py
@@ -45,44 +58,50 @@ WORKSPACE  = os.environ.get("FUNNEL_WORKSPACE", "-Ln87GcdqU9CMJV6zMBY")
 COLLECTION = "funnel_cache"
 DOC_KEY    = "customer-insights"
 TTL        = 30 * 24 * 3600
-SOURCE     = "bigquery-export"
 
 FIRESTORE_PROJECT = os.environ.get("FIRESTORE_PROJECT", "project-a7ade44e-e7e3-4871-a83")
 
-# Norce marts (norce_sync.py). Absent until the NORCE_* secrets exist.
 NORCE_PROJECT = os.environ.get("NORCE_BQ_PROJECT", "project-a7ade44e-e7e3-4871-a83")
 NORCE_DATASET = os.environ.get("NORCE_BQ_DATASET", "norce")
 
-# The customer feed is flat zero before this; anything earlier is noise.
-FUNNEL_START = os.environ.get("CUSTOMER_INSIGHTS_START", "2025-09-01")
-# Customer counts only exist for this shop — Lekmer's are broken in the export.
-CUSTOMER_SHOP = os.environ.get("CUSTOMER_INSIGHTS_SHOP", "Babyshop")
+# Norce platform cutover — nothing exists before this, so it bounds every series.
+NORCE_START = os.environ.get("NORCE_HISTORY_START", "2025-06-11")
 WINDOW_DAYS = 90
+LOOKBACK_365 = 365
 
 # Cohort triangle bounds — see the cohorts query for why each exists.
 COHORT_MAX_OFFSET = int(os.environ.get("CUSTOMER_INSIGHTS_COHORT_MAX_OFFSET", "12"))
 COHORT_MIN_SIZE   = int(os.environ.get("CUSTOMER_INSIGHTS_COHORT_MIN_SIZE", "50"))
 
-# Firestore's hard document limit is 1,048,576 bytes. Refuse to write above this
-# and say what is big, rather than let the write fail at the API and leave the
-# tab serving a stale snapshot with nobody the wiser.
-#
-# The check measures COMPACT JSON, which deliberately over-states the real cost:
-# Firestore charges string=bytes+1, number=8, bool/null=1, plus each map key per
-# entry. Measured 2026-08-16 on the untrimmed payload — compact JSON 690,779 B
-# vs Firestore-accounted 608,252 B (58% of the limit). So this budget trips
-# before Firestore would reject the write, which is the safe direction.
-#
-# funnel.monthly and norce.cohorts both grow every month. When this trips, the
-# fix is a rolling window on them, not a bigger number here.
+# Shop that owns the overwhelming majority of paid spend. Market-grain CAC is
+# attached to this shop's rows only (see the module docstring).
+PRIMARY_SHOP = os.environ.get("CUSTOMER_INSIGHTS_PRIMARY_SHOP", "babyshop")
+
+# Both datasets are EU. Pinned explicitly rather than left to inference: when a
+# referenced dataset is missing, BigQuery falls back to the client default (US)
+# and reports a location mismatch instead of a plain "not found".
+BQ_LOCATION = os.environ.get("BQ_LOCATION", "EU")
+
+# Firestore's hard document limit is 1,048,576 bytes. The check measures COMPACT
+# JSON, which deliberately over-states the real cost: Firestore charges
+# string=bytes+1, number=8, bool/null=1, plus each map key per entry. Measured
+# 2026-08-16 — compact JSON 690,779 B vs Firestore-accounted 608,252 B. So this
+# budget trips before Firestore would reject the write, the safe direction.
+# `trend` grows ~26 rows/month and `cohorts` ~170; when this trips, the fix is a
+# rolling window on them, not a bigger number here.
 DOC_BUDGET_BYTES = 900_000
 
 CAVEATS = [
-    "market-level new-share unreliable (feed definition)",
-    "funnel history from 2025-09",
-    "norce history from 2025-06-11",
+    "customer counts, orders and revenue are Norce — funnel customer columns "
+    "deliberately unused (they undercount DK ~80x, SE ~9x); funnel contributes cost only",
+    "channel-level CAC awaiting order-level channel data (Kuvio API) — "
+    "channel_spend reports spend only",
+    "funnel cost is market-grain; shop-level CAC is not available "
+    "(FI x Lekmer cost implies a 0.38 kr CAC), so lekmer rows carry no CAC",
+    "trend[].cost and trend[].cac are MARKET-level and repeat across the shop rows "
+    "of a market — do not sum them across shops",
+    "norce history from 2025-06-11 (platform cutover)",
     "gross values; returns ignored (user decision)",
-    f"customer counts are shop '{CUSTOMER_SHOP}' only — Lekmer's are broken in the export",
 ]
 
 
@@ -106,13 +125,6 @@ def _credentials():
         return google.oauth2.credentials.Credentials(tok)
 
 
-# Both datasets this reads — the Funnel export and the Norce marts — are EU.
-# Pinned explicitly rather than left to inference: when a referenced dataset is
-# missing, BigQuery falls back to the client default (US) and reports a
-# location mismatch instead of a plain "not found", which is a confusing error
-# to debug on the day the Norce dataset is one typo away from existing.
-BQ_LOCATION = os.environ.get("BQ_LOCATION", "EU")
-
 _client = None
 def bq():
     global _client
@@ -131,245 +143,246 @@ def _d(name, value):
     return bigquery.ScalarQueryParameter(name, "DATE", value)
 
 
-# ── Funnel feed predicates ───────────────────────────────────────────────────
-# A row belongs to the customer feed if ANY of the three customer columns is
-# populated — checking only newCustomers would drop months where a market had
-# returning customers but no acquisitions.
-CUST_FEED = ("(newCustomers__File_Import IS NOT NULL "
-             "OR oldCustomers__File_Import IS NOT NULL "
-             "OR Orders_count__File_Import IS NOT NULL)")
-SPEND_FEED = "(Cost IS NOT NULL OR Sessions IS NOT NULL)"
-SHOP_FILTER = "shop_new = @shop"
+def D() -> str:
+    return f"{NORCE_PROJECT}.{NORCE_DATASET}"
 
 
-def _shop_param():
-    return bigquery.ScalarQueryParameter("shop", "STRING", CUSTOMER_SHOP)
-
-
+# ── Window ───────────────────────────────────────────────────────────────────
 def data_end() -> datetime.date:
-    """Last date the customer feed actually reports — the tab's 'as of'."""
-    r = _rows(f"SELECT MAX(Date) d FROM `{BQ_TABLE}` WHERE {CUST_FEED} AND {SHOP_FILTER}",
-              [_shop_param()])
-    return r[0]["d"] if r and r[0]["d"] else datetime.date.today() - datetime.timedelta(days=1)
+    """Last date BOTH sources cover.
+
+    Taking the earlier of the two maxima keeps the 90-day window honest: a
+    Norce day with no matching funnel cost would inflate CAC's denominator,
+    and a funnel day with no Norce orders would inflate its numerator.
+    """
+    f = _rows(f"SELECT MAX(Date) d FROM `{BQ_TABLE}` WHERE Cost IS NOT NULL AND Cost > 0")
+    n = _rows(f"SELECT MAX(order_date) d FROM `{D()}.customer_orders`")
+    fd = f[0]["d"] if f and f[0]["d"] else None
+    nd = n[0]["d"] if n and n[0]["d"] else None
+    if fd and nd:
+        return min(fd, nd)
+    return fd or nd or (datetime.date.today() - datetime.timedelta(days=1))
 
 
-def funnel_monthly(start: datetime.date, end: datetime.date) -> list[dict]:
-    """month x market x channel_l1, customer feed and spend feed joined AFTER aggregation.
+# ── Funnel: COST ONLY ────────────────────────────────────────────────────────
+def cost_by_market_month(start: datetime.date, end: datetime.date) -> dict:
+    """{(month, market): {cost, sessions}} — the only funnel read for the trend."""
+    sql = f"""
+    SELECT FORMAT_DATE('%Y-%m', Date) month, market_level_1_kv market,
+           SUM(Cost) cost, SUM(Sessions) sessions
+    FROM `{BQ_TABLE}`
+    WHERE Date BETWEEN @s AND @e AND market_level_1_kv IS NOT NULL
+      AND (Cost IS NOT NULL OR Sessions IS NOT NULL)
+    GROUP BY 1, 2
+    """
+    # None, not 0, when a feed reports nothing for that cell: "no session rows"
+    # and "zero sessions" are different claims and the UI renders them differently.
+    return {(r["month"], r["market"]): {
+                "cost": I(r["cost"]) if r["cost"] is not None else None,
+                "sessions": I(r["sessions"]) if r["sessions"] is not None else None}
+            for r in _rows(sql, [_d("s", start), _d("e", end)])}
 
-    Rows that carry neither customers nor spend are dropped: a session-only
-    market/channel cell is not actionable and there are ~7k of them, which would
-    push the document past Firestore's 1 MiB limit for no benefit.
+
+def cost_by_market(start: datetime.date, end: datetime.date) -> dict:
+    sql = f"""
+    SELECT market_level_1_kv market, SUM(Cost) cost
+    FROM `{BQ_TABLE}`
+    WHERE Date BETWEEN @s AND @e AND Cost IS NOT NULL AND market_level_1_kv IS NOT NULL
+    GROUP BY 1
+    """
+    return {r["market"]: I(r["cost"]) for r in _rows(sql, [_d("s", start), _d("e", end)])}
+
+
+def channel_spend(start: datetime.date, end: datetime.date) -> list[dict]:
+    """market x channel_l1 SPEND. No customer counts and no CAC, by design.
+
+    THE KUVIO SEAM: when order-level channel data lands, join acquisitions here
+    on market x channel and populate `cac`. Until then it is explicitly null so
+    the UI can render "awaiting order-level channel data" rather than a number
+    nobody can defend.
     """
     sql = f"""
-    WITH cust AS (
-      SELECT FORMAT_DATE('%Y-%m', Date) month, market_level_1_kv market,
-             Channel_Type_Level_1 channel_l1,
-             SUM(newCustomers__File_Import) new_customers,
-             SUM(oldCustomers__File_Import) old_customers,
-             SUM(Orders_count__File_Import) orders
-      FROM `{BQ_TABLE}`
-      WHERE Date BETWEEN @s AND @e AND {SHOP_FILTER} AND {CUST_FEED}
-      GROUP BY 1, 2, 3),
-    spend AS (
-      SELECT FORMAT_DATE('%Y-%m', Date) month, market_level_1_kv market,
-             Channel_Type_Level_1 channel_l1,
-             SUM(Cost) cost, SUM(Sessions) sessions
-      FROM `{BQ_TABLE}`
-      WHERE Date BETWEEN @s AND @e AND {SHOP_FILTER} AND {SPEND_FEED}
-      GROUP BY 1, 2, 3)
-    SELECT COALESCE(c.month, s.month) month, COALESCE(c.market, s.market) market,
-           COALESCE(c.channel_l1, s.channel_l1) channel_l1,
-           c.new_customers, c.old_customers, c.orders, s.cost, s.sessions
-    FROM cust c FULL OUTER JOIN spend s USING (month, market, channel_l1)
-    WHERE COALESCE(c.new_customers, 0) + COALESCE(c.old_customers, 0) > 0
-       OR COALESCE(s.cost, 0) > 0
-    ORDER BY month, market, channel_l1
-    """
-    return [{"month": r["month"], "market": r["market"], "shop": CUSTOMER_SHOP,
-             "channel_l1": r["channel_l1"], "new_customers": I(r["new_customers"]),
-             "old_customers": I(r["old_customers"]), "orders": I(r["orders"]),
-             "cost": I(r["cost"]), "sessions": I(r["sessions"])}
-            for r in _rows(sql, [_d("s", start), _d("e", end), _shop_param()])]
-
-
-def funnel_cac_matrix(start: datetime.date, end: datetime.date) -> list[dict]:
-    """market x channel_l1 over the trailing window: spend, acquisitions, CAC.
-
-    CAC here is last-touch-free: the export gives no channel attribution for the
-    customer counts, so this divides a channel's spend by the new customers the
-    same market x channel cell reports. It is a directional cost-per-acquisition,
-    which is exactly how the tab labels it.
-    """
-    sql = f"""
-    WITH cust AS (
-      SELECT market_level_1_kv market, Channel_Type_Level_1 channel_l1,
-             SUM(newCustomers__File_Import) new_customers,
-             SUM(oldCustomers__File_Import) old_customers
-      FROM `{BQ_TABLE}`
-      WHERE Date BETWEEN @s AND @e AND {SHOP_FILTER} AND {CUST_FEED}
-      GROUP BY 1, 2),
-    spend AS (
+    WITH ch AS (
       SELECT market_level_1_kv market, Channel_Type_Level_1 channel_l1, SUM(Cost) cost
       FROM `{BQ_TABLE}`
-      WHERE Date BETWEEN @s AND @e AND {SHOP_FILTER} AND Cost IS NOT NULL
+      WHERE Date BETWEEN @s AND @e AND Cost IS NOT NULL AND Cost > 0
+        AND market_level_1_kv IS NOT NULL
       GROUP BY 1, 2)
-    SELECT COALESCE(c.market, s.market) market,
-           COALESCE(c.channel_l1, s.channel_l1) channel_l1,
-           s.cost, c.new_customers, c.old_customers
-    FROM cust c FULL OUTER JOIN spend s USING (market, channel_l1)
-    WHERE COALESCE(s.cost, 0) > 0 OR COALESCE(c.new_customers, 0) > 0
-    ORDER BY s.cost DESC NULLS LAST
+    SELECT market, channel_l1, cost,
+           SAFE_DIVIDE(cost, SUM(cost) OVER (PARTITION BY market)) share_of_market_spend
+    FROM ch ORDER BY market, cost DESC
     """
-    out = []
-    for r in _rows(sql, [_d("s", start), _d("e", end), _shop_param()]):
-        cost, new, old = I(r["cost"]), I(r["new_customers"]), I(r["old_customers"])
-        out.append({"market": r["market"], "channel_l1": r["channel_l1"],
-                    "cost_90d": cost, "new_customers_90d": new,
-                    "old_customers_90d": old,
-                    # new + old is the feed's own definition of total customers
-                    # in the window. It is NOT the order count — new+old covers
-                    # ~68% of Orders_count__File_Import.
-                    "total_customers_90d": new + old,
-                    "cac": F(cost / new) if new else None})
-    return out
+    return [{"market": r["market"], "channel_l1": r["channel_l1"],
+             "cost_90d": I(r["cost"]),
+             "share_of_market_spend": F(r["share_of_market_spend"], 4),
+             "cac": None,
+             "note": "awaiting order-level channel data (Kuvio API)"}
+            for r in _rows(sql, [_d("s", start), _d("e", end)])]
 
 
-def funnel_trend(start: datetime.date, end: datetime.date) -> list[dict]:
-    """One row per month: totals across every market and channel."""
-    sql = f"""
-    WITH cust AS (
-      SELECT FORMAT_DATE('%Y-%m', Date) month,
-             SUM(newCustomers__File_Import) new_customers,
-             SUM(oldCustomers__File_Import) old_customers,
-             SUM(Orders_count__File_Import) orders
-      FROM `{BQ_TABLE}`
-      WHERE Date BETWEEN @s AND @e AND {SHOP_FILTER} AND {CUST_FEED}
-      GROUP BY 1),
-    spend AS (
-      SELECT FORMAT_DATE('%Y-%m', Date) month, SUM(Cost) cost, SUM(Sessions) sessions
-      FROM `{BQ_TABLE}`
-      WHERE Date BETWEEN @s AND @e AND {SHOP_FILTER} AND {SPEND_FEED}
-      GROUP BY 1)
-    SELECT COALESCE(c.month, s.month) month, c.new_customers, c.old_customers,
-           c.orders, s.cost, s.sessions
-    FROM cust c FULL OUTER JOIN spend s USING (month)
-    ORDER BY month
-    """
-    out = []
-    for r in _rows(sql, [_d("s", start), _d("e", end), _shop_param()]):
-        new, old, cost = I(r["new_customers"]), I(r["old_customers"]), I(r["cost"])
-        out.append({"month": r["month"], "new_customers": new, "old_customers": old,
-                    "orders": I(r["orders"]), "cost": cost, "sessions": I(r["sessions"]),
-                    "new_share": F(new / (new + old), 4) if (new + old) else None,
-                    "cac": F(cost / new) if new else None})
-    return out
-
-
-# ── Norce side (optional until the sync has run) ─────────────────────────────
+# ── Norce: every customer number ─────────────────────────────────────────────
 def norce_available() -> bool:
-    """True only if the marts exist AND customer_orders actually has rows.
-
-    Dataset-exists is not enough: norce_sync creates the tables before it loads
-    anything, so an interrupted first run would otherwise look 'available' and
-    serve an all-zero tab.
-    """
+    """True only if the marts exist AND customer_orders actually has rows."""
     try:
-        r = _rows(f"SELECT COUNT(*) n FROM `{NORCE_PROJECT}.{NORCE_DATASET}.customer_orders`")
+        r = _rows(f"SELECT COUNT(*) n FROM `{D()}.customer_orders`")
         return bool(r and r[0]["n"])
     except Exception as e:
-        # Expected while the dataset does not exist. Printed anyway, so a
-        # permissions regression after the backfill is not silently mistaken
-        # for "Norce has not run yet".
         print(f"   norce marts unavailable: {type(e).__name__}: {str(e)[:160]}")
         return False
 
 
-def norce_payload() -> dict:
-    """The Norce half of the contract, straight off the marts."""
-    D = f"{NORCE_PROJECT}.{NORCE_DATASET}"
-    # total_customers is the mart's active_customers under the name the UI
-    # wants; by construction new + returning = active, so it is carried rather
-    # than recomputed and the two can never disagree.
-    monthly = [{"month": str(r["month"]), "market": r["market"], "shop": r["shop"],
-                "new_customers": I(r["new_customers"]),
-                "returning_customers": I(r["returning_customers"]),
-                "total_customers": I(r["active_customers"]),
-                "active_customers": I(r["active_customers"]), "orders": I(r["orders"]),
-                "revenue": I(r["revenue"]), "aov": F(r["aov"]),
-                "repeat_rate": F(r["repeat_rate"], 4)}
-               for r in _rows(f"SELECT * FROM `{D}.monthly_customer_metrics` "
-                              f"ORDER BY month, market, shop")]
+def norce_window(start: datetime.date, end: datetime.date) -> list[dict]:
+    """market x shop customer counts over an arbitrary window.
 
-    # Bounded on purpose — this is the one series that grows without limit
-    # (every new month adds a cohort AND extends every existing cohort), and
-    # the whole payload has to fit one 1 MiB Firestore document.
-    #   months_since_first <= 12  1-year CLV is the value at offset 12 and the
-    #                             user decision rules out 2- and 3-year CLV, so
-    #                             offsets past 12 are outside the spec anyway.
-    #   cohort_size >= 50         a retention percentage off 6 customers is
-    #                             noise the UI would have to hide regardless.
+    new / returning split exactly as monthly_customer_metrics does it — by
+    whether the customer's first-ever order predates the window — so total is
+    always new + returning with no double counting.
+    """
+    sql = f"""
+    SELECT o.market, o.shop,
+           COUNT(DISTINCT o.customer_hash) total_customers,
+           COUNT(DISTINCT IF(f.first_order_date >= @s, o.customer_hash, NULL)) new_customers,
+           COUNT(DISTINCT IF(f.first_order_date <  @s, o.customer_hash, NULL)) returning_customers,
+           COUNT(*) orders, SUM(o.order_value) revenue
+    FROM `{D()}.customer_orders` o
+    JOIN `{D()}.customer_facts` f USING (customer_hash, shop)
+    WHERE o.order_date BETWEEN @s AND @e
+    GROUP BY 1, 2
+    """
+    return [{"market": r["market"], "shop": r["shop"],
+             "total_customers": I(r["total_customers"]),
+             "new_customers": I(r["new_customers"]),
+             "returning_customers": I(r["returning_customers"]),
+             "orders": I(r["orders"]), "revenue": I(r["revenue"])}
+            for r in _rows(sql, [_d("s", start), _d("e", end)])]
+
+
+def orders_per_customer_12m(end: datetime.date) -> tuple[float | None, dict]:
+    """Trailing-365d purchases per ACTIVE customer.
+
+    Denominator is customers with >= 1 order in the window — NOT the all-time
+    base and NOT the matured-cohort base that `orders_per_customer` uses. The
+    per-row variant is keyed on first_market so it describes the same population
+    as the clv/churn row it is attached to.
+    """
+    start = end - datetime.timedelta(days=LOOKBACK_365 - 1)
+    g = _rows(f"""
+        SELECT COUNT(*) orders, COUNT(DISTINCT customer_hash) custs
+        FROM `{D()}.customer_orders` WHERE order_date BETWEEN @s AND @e""",
+              [_d("s", start), _d("e", end)])
+    overall = F(g[0]["orders"] / g[0]["custs"]) if g and g[0]["custs"] else None
+    per = {}
+    for r in _rows(f"""
+        SELECT f.first_market market, o.shop,
+               COUNT(*) orders, COUNT(DISTINCT o.customer_hash) custs
+        FROM `{D()}.customer_orders` o
+        JOIN `{D()}.customer_facts` f USING (customer_hash, shop)
+        WHERE o.order_date BETWEEN @s AND @e
+        GROUP BY 1, 2""", [_d("s", start), _d("e", end)]):
+        if r["custs"]:
+            per[(r["market"], r["shop"])] = F(r["orders"] / r["custs"])
+    return overall, per
+
+
+def build_trend(cost_month: dict) -> list[dict]:
+    """month x market x shop from Norce, with that month's MARKET funnel cost.
+
+    Cost and CAC are MARKET-level: the same value appears on every shop row of
+    a market, because funnel cost cannot be split by shop reliably. Summing
+    `cost` across shops would double it — the caveat says so, and `meta` flags
+    it. The customer columns are pure Norce and DO sum correctly.
+    """
+    rows = [{"month": str(r["month"])[:7], "market": r["market"], "shop": r["shop"],
+             "new_customers": I(r["new_customers"]),
+             "returning_customers": I(r["returning_customers"]),
+             "total_customers": I(r["active_customers"]),
+             "orders": I(r["orders"]), "revenue": I(r["revenue"]),
+             "aov": F(r["aov"]), "repeat_rate": F(r["repeat_rate"], 4),
+             "orders_per_customer_month": F(r["orders"] / r["active_customers"])
+                                          if r["active_customers"] else None}
+            for r in _rows(f"SELECT * FROM `{D()}.monthly_customer_metrics` "
+                           f"ORDER BY month, market, shop")]
+    # Market-level new totals drive the market CAC, so a market's CAC is the
+    # same regardless of which shop row it is read from.
+    new_by_mm: dict[tuple, int] = {}
+    for r in rows:
+        k = (r["month"], r["market"])
+        new_by_mm[k] = new_by_mm.get(k, 0) + r["new_customers"]
+    for r in rows:
+        k = (r["month"], r["market"])
+        c = cost_month.get(k) or {}
+        cost, new = c.get("cost"), new_by_mm.get(k, 0)
+        r["cost"] = cost
+        r["sessions"] = c.get("sessions")
+        r["cac"] = F(cost / new) if (cost and new) else None
+    return rows
+
+
+def norce_payload(win_start: datetime.date, end: datetime.date,
+                  market_cac: dict, opc_per: dict) -> dict:
     cohorts = [{"cohort_month": str(r["cohort_month"]), "market": r["market"], "shop": r["shop"],
                 "months_since_first": I(r["months_since_first"]),
                 "cohort_size": I(r["cohort_size"]),
                 "active_customers": I(r["active_customers"]),
                 "retention_rate": F(r["retention_rate"], 4),
                 "cumulative_revenue_per_customer": F(r["cumulative_revenue_per_customer"])}
-               for r in _rows(f"SELECT * FROM `{D}.cohort_retention` "
+               for r in _rows(f"SELECT * FROM `{D()}.cohort_retention` "
                               f"WHERE months_since_first <= {COHORT_MAX_OFFSET} "
                               f"AND cohort_size >= {COHORT_MIN_SIZE} "
                               f"ORDER BY cohort_month, market, shop, months_since_first")]
 
-    # 1-year CLV = mean revenue_365d_from_first over customers whose own 365
-    # days have elapsed (the mart NULLs the rest), per first market.
-    # returning_customers is COUNTIF(is_repeat) over THIS row's own `customers`
-    # base (the matured cohort), not over all customers — so it is always a
-    # subset of the total sitting next to it.
-    clv = [{"market": r["market"], "shop": r["shop"], "customers": I(r["customers"]),
-            "returning_customers": I(r["returning"]),
-            "clv_1y": F(r["clv_1y"]), "aov": F(r["aov"]), "orders_per_customer": F(r["opc"])}
-           for r in _rows(f"""
+    def cac_for(market, shop):
+        # Market CAC belongs to the shop that spent the money. Attaching a
+        # Babyshop-dominated CAC to a Lekmer row would invent a number.
+        return market_cac.get(market) if shop == PRIMARY_SHOP else None
+
+    clv = []
+    for r in _rows(f"""
         SELECT first_market market, shop, COUNT(*) customers,
                COUNTIF(is_repeat) returning,
                AVG(revenue_365d_from_first) clv_1y, AVG(aov) aov, AVG(orders_cnt) opc
-        FROM `{D}.customer_facts`
+        FROM `{D()}.customer_facts`
         WHERE revenue_365d_from_first IS NOT NULL
-        GROUP BY 1, 2 ORDER BY customers DESC""")]
+        GROUP BY 1, 2 ORDER BY customers DESC"""):
+        cac = cac_for(r["market"], r["shop"])
+        clv_1y = F(r["clv_1y"])
+        clv.append({"market": r["market"], "shop": r["shop"], "customers": I(r["customers"]),
+                    "returning_customers": I(r["returning"]), "clv_1y": clv_1y,
+                    "aov": F(r["aov"]), "orders_per_customer": F(r["opc"]),
+                    "orders_per_customer_12m": opc_per.get((r["market"], r["shop"])),
+                    "cac": cac,
+                    "ltv_cac_ratio": F(clv_1y / cac) if (clv_1y and cac) else None})
 
-    # Churn proxy: of the customers who could have come back, how many did not
-    # buy in the last 365 days. Norce history is short, so this is a floor.
-    # repeat_rate is the share who ever placed a second order — a different
-    # question from churn, and the one the LTV story actually rests on.
-    churn = [{"market": r["market"], "shop": r["shop"], "customers": I(r["customers"]),
-              "returning_customers": I(r["returning"]),
-              "lapsed_12m": I(r["lapsed"]), "churn_12m": F(r["churn"], 4),
-              "repeat_rate": F(r["repeat_rate"], 4),
-              "orders_per_customer": F(r["opc"])}
-             for r in _rows(f"""
+    churn = []
+    for r in _rows(f"""
         SELECT first_market market, shop, COUNT(*) customers,
                COUNTIF(is_repeat) returning,
                COUNTIF(days_since_last_order > 365) lapsed,
                SAFE_DIVIDE(COUNTIF(days_since_last_order > 365), COUNT(*)) churn,
                SAFE_DIVIDE(COUNTIF(is_repeat), COUNT(*)) repeat_rate,
                AVG(orders_cnt) opc
-        FROM `{D}.customer_facts`
+        FROM `{D()}.customer_facts`
         WHERE first_order_date <= DATE_SUB(CURRENT_DATE(), INTERVAL 365 DAY)
-        GROUP BY 1, 2 ORDER BY customers DESC""")]
+        GROUP BY 1, 2 ORDER BY customers DESC"""):
+        churn.append({"market": r["market"], "shop": r["shop"], "customers": I(r["customers"]),
+                      "returning_customers": I(r["returning"]), "lapsed_12m": I(r["lapsed"]),
+                      "churn_12m": F(r["churn"], 4), "repeat_rate": F(r["repeat_rate"], 4),
+                      "orders_per_customer": F(r["opc"]),
+                      "orders_per_customer_12m": opc_per.get((r["market"], r["shop"])),
+                      "cac": cac_for(r["market"], r["shop"])})
 
     def fpp(dim_type, limit=200):
-        # Key names are the UI contract: name / new_customers /
-        # share_of_first_orders. revenue + revenue_share ride along as extras.
         return [{"month": str(r["month"]), "market": r["market"], "shop": r["shop"],
                  "name": r["dim_value"], "new_customers": I(r["new_customer_orders"]),
                  "share_of_first_orders": F(r["order_share"], 4),
                  "revenue": I(r["revenue"]), "revenue_share": F(r["revenue_share"], 4)}
                 for r in _rows(f"""
-            SELECT * FROM `{D}.first_purchase_products`
+            SELECT * FROM `{D()}.first_purchase_products`
             WHERE dim_type = @t ORDER BY new_customer_orders DESC LIMIT {limit}""",
                                [bigquery.ScalarQueryParameter("t", "STRING", dim_type)])]
 
-    last_sync = _rows(f"SELECT CAST(MAX(run_at) AS STRING) t FROM `{D}.sync_state`")
+    last_sync = _rows(f"SELECT CAST(MAX(run_at) AS STRING) t FROM `{D()}.sync_state`")
     return {
-        "monthly_customer_metrics": monthly,
         "cohorts": cohorts,
         "clv_1y_by_market": clv,
         "churn": churn,
@@ -381,39 +394,64 @@ def norce_payload() -> dict:
 
 # ── Payload ──────────────────────────────────────────────────────────────────
 def build_payload() -> dict:
+    if not norce_available():
+        raise RuntimeError(
+            "Norce marts are empty or missing — every customer metric now comes "
+            "from Norce, so there is nothing to publish. Run norce_sync.py first.")
+
     end = data_end()
-    start = datetime.date.fromisoformat(FUNNEL_START)
+    start = datetime.date.fromisoformat(NORCE_START)
     win_start = end - datetime.timedelta(days=WINDOW_DAYS - 1)
 
-    monthly = funnel_monthly(start, end)
-    cac = funnel_cac_matrix(win_start, end)
-    trend = funnel_trend(start, end)
+    cost_month = cost_by_market_month(start, end)
+    market_cost = cost_by_market(win_start, end)
+    trend = build_trend(cost_month)
+    win = norce_window(win_start, end)
+    opc_12m, opc_per = orders_per_customer_12m(end)
+
+    # ── cac_matrix: MARKET grain, the authoritative CAC surface ──
+    by_market: dict[str, dict] = {}
+    for r in win:
+        m = by_market.setdefault(r["market"], {"new": 0, "ret": 0, "tot": 0})
+        m["new"] += r["new_customers"]
+        m["ret"] += r["returning_customers"]
+        m["tot"] += r["total_customers"]
+    cac_matrix = []
+    for market in sorted(set(by_market) | set(market_cost),
+                         key=lambda m: -market_cost.get(m, 0)):
+        v = by_market.get(market, {"new": 0, "ret": 0, "tot": 0})
+        cost = market_cost.get(market, 0)
+        cac_matrix.append({"market": market, "cost_90d": cost,
+                           "new_customers_90d": v["new"],
+                           "returning_customers_90d": v["ret"],
+                           "total_customers_90d": v["tot"],
+                           # A market with no recorded spend (EU/ASIA/NA carry
+                           # none) has an UNKNOWN CAC, not a zero one — 0.0
+                           # would claim acquisition there is free.
+                           "cac": F(cost / v["new"]) if (cost and v["new"]) else None})
+    market_cac = {r["market"]: r["cac"] for r in cac_matrix if r["cac"] is not None}
+
+    norce = norce_payload(win_start, end, market_cac, opc_per)
 
     # ── KPIs ──
-    by_month = {t["month"]: t for t in trend}
-    months = sorted(by_month)
-    mtd = by_month.get(end.strftime("%Y-%m"), {})
+    months = sorted({r["month"] for r in trend})
+    mtd_key = end.strftime("%Y-%m")
     prev_key = (end.replace(day=1) - datetime.timedelta(days=1)).strftime("%Y-%m")
-    prev = by_month.get(prev_key, {})
+    sum_new = lambda mk: sum(r["new_customers"] for r in trend if r["month"] == mk)
 
-    new_90 = sum(c["new_customers_90d"] for c in cac)
-    old_90 = sum(c["old_customers_90d"] for c in cac)
-    cost_90 = sum(c["cost_90d"] for c in cac)
+    new_90 = sum(v["new"] for v in by_market.values())
+    ret_90 = sum(v["ret"] for v in by_market.values())
+    cost_90 = sum(market_cost.values())
 
-    norce = norce_payload() if norce_available() else None
-    # The headline CLV is the volume-weighted mean across markets, so a tiny
-    # market with a freak average cannot swing it.
     clv_1y = None
-    if norce and norce["clv_1y_by_market"]:
+    if norce["clv_1y_by_market"]:
         n = sum(r["customers"] for r in norce["clv_1y_by_market"] if r["clv_1y"] is not None)
         if n:
             clv_1y = round(sum(r["clv_1y"] * r["customers"]
                                for r in norce["clv_1y_by_market"] if r["clv_1y"] is not None) / n, 2)
     blended_cac = round(cost_90 / new_90, 2) if new_90 else None
-    # Both are volume-weighted across markets, over the same population: the
-    # customers whose first order is at least 365 days old.
     repeat_12m = churn_12m = None
-    if norce and norce["churn"]:
+    if norce["churn"]:
         cn = sum(r["customers"] for r in norce["churn"])
         if cn:
             churn_12m = round(sum(r["lapsed_12m"] for r in norce["churn"]) / cn, 4)
@@ -423,26 +461,52 @@ def build_payload() -> dict:
     return {
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "sources": {
-            "funnel": {"from": start.isoformat(), "to": end.isoformat(), "source": SOURCE},
-            "norce": ({"available": True, "last_sync": norce["last_sync"],
-                       "note": f"{NORCE_PROJECT}.{NORCE_DATASET} marts"} if norce else
-                      {"available": False, "last_sync": None,
-                       "note": "awaiting NORCE_* secrets"}),
+            "norce": {"role": "customers, orders, revenue, cohorts, CLV",
+                      "from": NORCE_START, "to": end.isoformat(),
+                      "available": True, "last_sync": norce["last_sync"]},
+            "funnel": {"role": "cost only (and sessions)",
+                       "from": NORCE_START, "to": end.isoformat(),
+                       "note": "customer columns deliberately unused — they undercount "
+                               "DK ~80x and SE ~9x versus Norce first-orders"},
+        },
+        "meta": {
+            "customer_source": "norce",
+            "cost_source": "funnel",
+            "cost_grain": "market",
+            "shop_grain_cost_reliable": False,
+            "shop_grain_cost_evidence": "FI x Lekmer = 77 kr / 90d against 205 first-orders "
+                                        "(CAC 0.38 kr)",
+            "cac_shop_scope": f"market CAC attached to '{PRIMARY_SHOP}' rows only; null for others",
+            "kpi_shop_scope": "all shops",
+            "trend_cost_is_market_level": True,
+            "channel_cac_available": False,
+            "channel_cac_blocker": "no order-level channel data; awaiting Kuvio API",
+            "window_days": WINDOW_DAYS,
+            "window": {"start": win_start.isoformat(), "end": end.isoformat()},
+            "months": months,
+            "definitions": {
+                "orders_per_customer_12m": "orders in the trailing 365d / distinct customers "
+                                           "with >=1 order in that window (active base)",
+                "orders_per_customer": "lifetime orders per customer over that row's cohort "
+                                       "base (matured cohorts only)",
+                "orders_per_customer_month": "that month's orders / that month's active customers",
+                "new_share_90d": "norce new / (new + returning) over the 90d window",
+            },
         },
         "kpis": {
-            "new_customers_mtd": mtd.get("new_customers", 0),
-            "new_customers_prev_month": prev.get("new_customers", 0),
-            "new_share_90d": round(new_90 / (new_90 + old_90), 4) if (new_90 + old_90) else None,
+            "new_customers_mtd": sum_new(mtd_key),
+            "new_customers_prev_month": sum_new(prev_key),
+            "new_share_90d": round(new_90 / (new_90 + ret_90), 4) if (new_90 + ret_90) else None,
             "blended_cac_90d": blended_cac,
+            "orders_per_customer_12m": opc_12m,
             "clv_1y": clv_1y,
             "ltv_cac_ratio": round(clv_1y / blended_cac, 2) if (clv_1y and blended_cac) else None,
             "repeat_rate_12m": repeat_12m,
             "churn_12m": churn_12m,
         },
-        "funnel": {"monthly": monthly, "cac_matrix": cac, "trend": trend,
-                   "window_days": WINDOW_DAYS,
-                   "window": {"start": win_start.isoformat(), "end": end.isoformat()},
-                   "months": months},
+        "trend": trend,
+        "cac_matrix": cac_matrix,
+        "channel_spend": channel_spend(win_start, end),
         "norce": norce,
         "caveats": CAVEATS,
     }
@@ -484,11 +548,12 @@ def main():
     where = "(skipped)" if os.environ.get("SKIP_FIRESTORE") else write_firestore(p)
     k = p["kpis"]
     print(f"✓ Customer Insights refresh · {where} · "
-          f"funnel {p['sources']['funnel']['from']}→{p['sources']['funnel']['to']} · "
+          f"{p['sources']['norce']['from']}→{p['sources']['norce']['to']} · "
           f"new MTD {k['new_customers_mtd']:,} (prev {k['new_customers_prev_month']:,}) · "
           f"new-share 90d {k['new_share_90d']} · blended CAC {k['blended_cac_90d']} · "
-          f"norce {'yes' if p['norce'] else 'null'} · "
-          f"{len(p['funnel']['monthly'])} monthly rows · {time.time()-t0:.1f}s")
+          f"orders/cust 12m {k['orders_per_customer_12m']} · "
+          f"{len(p['trend'])} trend rows · {len(p['cac_matrix'])} markets · "
+          f"{len(p['channel_spend'])} channel-spend rows · {time.time()-t0:.1f}s")
 
 
 if __name__ == "__main__":

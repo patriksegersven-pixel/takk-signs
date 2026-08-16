@@ -351,6 +351,10 @@ SCHEMAS: dict[str, list[bigquery.SchemaField]] = {
     "dim_manufacturers":  [S("ManufacturerId", "INT64"), S("Name", "STRING"), S("IsActive", "BOOL")],
     "dim_categories":     [S("Id", "INT64"), S("Code", "STRING"), S("DefaultName", "STRING"),
                            S("DefaultFullName", "STRING"), S("IsActive", "BOOL")],
+    # Real product titles by SKU, from the Channable feed. Norce's
+    # Product.DefaultName is VARIANT-grain ("2-4 Y", "One Size"), so the product
+    # dimension of first_purchase_products is unreadable without this.
+    "sku_titles":         [S("PartNo", "STRING"), S("title", "STRING"), S("brand", "STRING")],
     "dim_payment_methods": [S("Id", "INT64"), S("DefaultName", "STRING")],
     "dim_currencies":      [S("Id", "INT64"), S("Code", "STRING"), S("DefaultName", "STRING")],
     "dim_countries":       [S("Id", "INT64"), S("Code", "STRING"), S("DefaultName", "STRING")],
@@ -585,6 +589,75 @@ def sync_products(since: datetime.datetime | None) -> tuple[int, int, int]:
             merge(cats, "product_categories", ["ProductId", "CategoryId"]))
 
 
+def sync_sku_titles() -> int:
+    """Load real product titles by SKU from the Channable Google Shopping feed.
+
+    WHY: Norce's `Product.DefaultName` is variant-grain, so the product
+    dimension of first_purchase_products reads "2-4 Y" / "One Size" / "86/92 cm"
+    instead of a product. The feed's `g:id` IS `OrderItem.PartNo` (verified in
+    the original audit), so it keys straight onto the order lines.
+
+    Config and the streaming approach are reused from inventory_client — same
+    feed, same env var, same iterparse + elem.clear() pattern that keeps a 96 MB
+    document at ~30 MB of peak memory. Only three fields are pulled here, so the
+    aggregation in that module is deliberately not duplicated.
+
+    COVERAGE IS PARTIAL BY DESIGN. The feed is the CURRENT catalogue and skews
+    Babyshop SE, so discontinued SKUs and much of Lekmer simply are not in it.
+    The mart COALESCEs back to the Norce name, which is why this returning 0 —
+    or the secret being absent entirely — degrades to exactly today's behaviour
+    rather than blanking the dimension.
+
+    Requires CHANNABLE_FEED_URL. It is mounted on the dashboard SERVICE but not
+    (yet) on the sync job; without it this logs and returns 0.
+    """
+    import xml.etree.ElementTree as ET
+    try:
+        import inventory_client
+    except Exception as e:
+        print(f"   !! sku_titles skipped — inventory_client unavailable: {e!r}")
+        return 0
+    feed_url = os.environ.get("CHANNABLE_FEED_URL") or inventory_client.CHANNABLE_FEED_URL
+    if not feed_url:
+        print("   !! sku_titles skipped — CHANNABLE_FEED_URL is not set "
+              "(mounted on the dashboard service, not on this job). "
+              "first_purchase_products falls back to the Norce variant names.")
+        return 0
+
+    tmp_path = f"/tmp/channable-{int(time.time())}.xml"
+    with httpx.stream("GET", feed_url, timeout=300.0, follow_redirects=True) as r:
+        r.raise_for_status()
+        with open(tmp_path, "wb") as fh:
+            for chunk in r.iter_bytes(64 * 1024):
+                fh.write(chunk)
+
+    rows: dict[str, dict] = {}
+    try:
+        for _event, elem in ET.iterparse(tmp_path, events=("end",)):
+            if elem.tag != "item":
+                continue
+
+            def t(tag: str, ns: bool = False) -> str:
+                el = elem.find("g:" + tag, inventory_client.NS) if ns else elem.find(tag)
+                return el.text.strip() if (el is not None and el.text) else ""
+
+            sku = t("id", ns=True)
+            # short_title is the product-level name; `title` carries the variant
+            # suffix. Prefer short_title for exactly that reason.
+            title = t("short_title", ns=True) or t("title")
+            if sku and title:
+                # Keyed by SKU so the load is inherently de-duplicated.
+                rows[sku] = {"PartNo": sku, "title": title,
+                             "brand": t("brand", ns=True) or None}
+            elem.clear()
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+    return replace(list(rows.values()), "sku_titles")
+
+
 def sync_dimensions() -> dict[str, int]:
     """Full reload of the lookup tables — a few thousand rows in total.
 
@@ -645,8 +718,23 @@ def main() -> int:
     ap.add_argument("--from", dest="from_date", help="backfill start date (default 2025-06-11)")
     ap.add_argument("--apps", help="comma-separated application keys (default: all)")
     ap.add_argument("--marts-only", action="store_true", help="only re-apply norce_marts.sql")
+    ap.add_argument("--titles-only", action="store_true",
+                    help="only reload norce.sku_titles from the Channable feed")
     ap.add_argument("--skip-products", action="store_true", help="skip the product/dimension pass")
     args = ap.parse_args()
+
+    t0 = time.time()
+
+    # These two modes touch BigQuery and the Channable feed but NEVER the Norce
+    # API, so they run without Norce credentials — which is the difference
+    # between being able to re-apply a mart fix from a laptop and not.
+    if args.marts_only or args.titles_only:
+        ensure_dataset()
+        if args.titles_only:
+            print(f"✓ sku_titles reloaded · {sync_sku_titles():,} SKUs · {time.time()-t0:.1f}s")
+        if args.marts_only:
+            print(f"✓ Norce marts applied · {apply_marts()} statements · {time.time()-t0:.1f}s")
+        return 0
 
     missing = missing_credentials()
     if missing:
@@ -659,12 +747,7 @@ def main() -> int:
         print("      ./pipeline/setup-customer-insights.sh      (see pipeline/CUSTOMER-INSIGHTS.md)")
         return 0
 
-    t0 = time.time()
     ensure_dataset()
-
-    if args.marts_only:
-        print(f"✓ Norce marts applied · {apply_marts()} statements · {time.time()-t0:.1f}s")
-        return 0
 
     app_keys = [k.strip() for k in args.apps.split(",")] if args.apps else list(APPLICATIONS)
     unknown = [k for k in app_keys if k not in APPLICATIONS]
@@ -687,17 +770,25 @@ def main() -> int:
     set_watermark("orders", run_started, n_orders)
 
     n_forgotten = purge_forgotten()
-    prods = skus = cats = 0
+    prods = skus = cats = titles = 0
     dims: dict[str, int] = {}
     if not args.skip_products:
         prods, skus, cats = sync_products(None if args.backfill else watermark("products"))
         set_watermark("products", run_started, prods)
         dims = sync_dimensions()
+        # Non-fatal: the Channable feed is a nice-to-have that makes the product
+        # dimension readable. If it is down or unconfigured the marts COALESCE
+        # back to the Norce variant names, which is strictly today's behaviour.
+        try:
+            titles = sync_sku_titles()
+        except Exception as e:
+            print(f"   !! sku_titles refresh failed (non-fatal): {e!r}")
 
     n_marts = apply_marts()
     print(f"✓ Norce sync · orders {n_orders:,} · lines {n_items:,} · products {prods:,} "
           f"· skus {skus:,} · category links {cats:,} · dims {sum(dims.values()):,} "
-          f"· forgotten purged {n_forgotten:,} · marts {n_marts} · {time.time()-t0:.1f}s")
+          f"· sku titles {titles:,} · forgotten purged {n_forgotten:,} "
+          f"· marts {n_marts} · {time.time()-t0:.1f}s")
     return 0
 
 
