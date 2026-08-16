@@ -525,7 +525,7 @@ def sync_products(since: datetime.datetime | None) -> tuple[int, int, int]:
         ts = _odata_ts(since)
         clause = f"(Updated ge {ts} or (Updated eq null and Created ge {ts}))"
     prods, skus, cats = [], [], []
-    last, page = 0, 100
+    last, page, skips = 0, 100, 0
     while True:
         f = f"Id gt {last}" + (f" and {clause}" if clause else "")
         params = {"$select": "Id,ManufacturerId,DefaultName,IsActive",
@@ -540,9 +540,21 @@ def sync_products(since: datetime.datetime | None) -> tuple[int, int, int]:
                 continue
             # A single poison row — skip past it. Ids are dense enough that +1
             # converges; the row is logged so it can be chased upstream.
+            skips += 1
+            if skips > 25:
+                # 25 consecutive single-row failures is not poison data, it is
+                # the endpoint being down (observed 2026-08-16: every query
+                # 500ed for a stretch, then recovered). Fail loudly; the
+                # nightly run picks up where the watermark left off.
+                raise RuntimeError(
+                    "Products/Products failing on every row — endpoint outage, "
+                    f"aborting rather than crawling the Id space. Last error: {e}")
             print(f"   !! skipping product Id>{last} after persistent error: {e}", flush=True)
             last += 1
             continue
+        skips = 0
+        time.sleep(0.05)              # be polite — three backfills in one day
+                                      # visibly degraded this endpoint
         for p in rows:
             prods.append({"Id": p["Id"], "ManufacturerId": p.get("ManufacturerId"),
                           "DefaultName": p.get("DefaultName"), "IsActive": bool(p.get("IsActive"))})
