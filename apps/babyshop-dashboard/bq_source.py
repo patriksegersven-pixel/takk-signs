@@ -75,19 +75,36 @@ def _merge_kv(cur, prev, rev_prev_key="revenue_prev"):
                     "cost_prev": I(p["cost"]) if p else None})
     return out
 
-def _kv_dim(col, cs, ce, ps, pe, rev_prev_key="revenue_prev"):
-    def q(s, e):
-        sql = (f"SELECT {col} name, {KV} FROM `{BQ_TABLE}` "
-               f"WHERE Date BETWEEN @cs AND @ce AND {col} IS NOT NULL "
-               f"GROUP BY name HAVING SUM(kv_revenue) > 0 ORDER BY rev DESC")
-        return _rows(sql, _p(s, e, s, e))
-    return _merge_kv(q(cs, ce), q(ps, pe), rev_prev_key)
-
 _KV_FILTER_COLS = {
     "market":  "market_level_1_kv",
     "shop":    "shop_new",
     "channel": "Channel_Type_Level_2",
 }
+
+def _kv_conds(filters):
+    """WHERE fragments + query params for an AND-combination of market/shop/channel.
+
+    `filters` is a dict like {"market": "SE", "channel": "Google"} — only the keys
+    present are constrained. Fully parameterised: no user value reaches the SQL."""
+    conds, params = [], []
+    if not filters:
+        return conds, params
+    for i, dim in enumerate(d for d in _KV_FILTER_COLS if filters.get(d)):
+        pname = f"f{i}"
+        conds.append(f"{_KV_FILTER_COLS[dim]} = @{pname}")
+        params.append(bigquery.ScalarQueryParameter(pname, "STRING", filters[dim]))
+    return conds, params
+
+def _kv_dim(col, cs, ce, ps, pe, rev_prev_key="revenue_prev", filters=None):
+    """Per-value totals for one dimension, optionally scoped to an active filter
+    combination so every breakdown table describes the same slice the KPI cards do."""
+    fconds, fparams = _kv_conds(filters)
+    where = " AND ".join(["Date BETWEEN @cs AND @ce", f"{col} IS NOT NULL"] + fconds)
+    def q(s, e):
+        sql = (f"SELECT {col} name, {KV} FROM `{BQ_TABLE}` WHERE {where} "
+               f"GROUP BY name HAVING SUM(kv_revenue) > 0 ORDER BY rev DESC")
+        return _rows(sql, _p(s, e, s, e) + fparams)
+    return _merge_kv(q(cs, ce), q(ps, pe), rev_prev_key)
 
 def _kv_filtered(filters, cs, ce, ps, pe):
     """KV totals for an arbitrary AND-combination of market/shop/channel.
@@ -96,12 +113,8 @@ def _kv_filtered(filters, cs, ce, ps, pe):
     keys present are constrained, so any subset (including all three) works.
     Returns {"cur": {...}, "prev": {...}} with the same metric shape the
     dashboard's KPI cards consume (revenue/gp2/gp3/txns/cost)."""
-    conds, params = ["Date BETWEEN @cs AND @ce"], []
-    for i, (dim, val) in enumerate(
-            (d, filters[d]) for d in _KV_FILTER_COLS if filters.get(d)):
-        pname = f"f{i}"
-        conds.append(f"{_KV_FILTER_COLS[dim]} = @{pname}")
-        params.append(bigquery.ScalarQueryParameter(pname, "STRING", val))
+    fconds, params = _kv_conds(filters)
+    conds = ["Date BETWEEN @cs AND @ce"] + fconds
 
     def q(s, e):
         p = [bigquery.ScalarQueryParameter("cs", "DATE", s),
@@ -125,13 +138,10 @@ def filtered_daily(filters, start: datetime.date, end: datetime.date):
     Same metric aliases as build_payloads' daily query, but `d` stays the ISO
     date (the caller buckets it) instead of the dd/m display label. Fully
     parameterised — no user-supplied value is interpolated into the SQL."""
-    conds = ["Date BETWEEN @start AND @end"]
+    fconds, fparams = _kv_conds(filters)
+    conds = ["Date BETWEEN @start AND @end"] + fconds
     params = [bigquery.ScalarQueryParameter("start", "DATE", start),
-              bigquery.ScalarQueryParameter("end", "DATE", end)]
-    for i, dim in enumerate(d for d in _KV_FILTER_COLS if filters.get(d)):
-        pname = f"f{i}"
-        conds.append(f"{_KV_FILTER_COLS[dim]} = @{pname}")
-        params.append(bigquery.ScalarQueryParameter(pname, "STRING", filters[dim]))
+              bigquery.ScalarQueryParameter("end", "DATE", end)] + fparams
     rows = _rows(f"SELECT CAST(Date AS STRING) d, {KV} FROM `{BQ_TABLE}` "
                  f"WHERE {' AND '.join(conds)} GROUP BY d ORDER BY d", params)
     return [{"d": r["d"], "rev": I(r["rev"]), "gp2": I(r["gp2"]),

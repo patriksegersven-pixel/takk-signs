@@ -325,13 +325,18 @@ def api_budget(_: str = Depends(verify)):
 
 @app.get("/api/breakdown")
 def api_breakdown(dataset: str, start: str, end: str, cstart: str, cend: str,
+                  market: str = "", shop: str = "", channel: str = "",
                   _: str = Depends(verify)):
     """Per-period breakdown tables computed live from BigQuery for ANY date range +
     comparison window, so the brand/category (product) and market/shop/channel (kv)
     tables reflect the selected period — not a fixed 30-day snapshot.
 
     start/end = current range, cstart/cend = comparison range (computed client-side
-    from the pop / yoy_date / yoy_wday selector)."""
+    from the pop / yoy_date / yoy_wday selector).
+
+    market/shop/channel (kv only) scope every table to that AND-combination, so an
+    active report filter reaches the breakdowns too instead of leaving them showing
+    all markets while the KPI cards show one."""
     import datetime as _dt
     try:
         import bq_source as bs
@@ -348,10 +353,11 @@ def api_breakdown(dataset: str, start: str, end: str, cstart: str, cend: str,
                 "categories": bs._prod_dim("Product_type_2", cs, ce, ps, pe),
             }
         if dataset == "kv":
+            f = {"market": market, "shop": shop, "channel": channel}
             return {
-                "markets":  bs._kv_dim("market_level_1_kv", cs, ce, ps, pe),
-                "shops":    bs._kv_dim("shop_new", cs, ce, ps, pe, rev_prev_key="rev_prev"),
-                "channels": bs._kv_dim("Channel_Type_Level_2", cs, ce, ps, pe),
+                "markets":  bs._kv_dim("market_level_1_kv", cs, ce, ps, pe, filters=f),
+                "shops":    bs._kv_dim("shop_new", cs, ce, ps, pe, rev_prev_key="rev_prev", filters=f),
+                "channels": bs._kv_dim("Channel_Type_Level_2", cs, ce, ps, pe, filters=f),
             }
         return JSONResponse({"error": "dataset must be 'product' or 'kv'"}, status_code=400)
     except Exception as e:

@@ -1414,6 +1414,9 @@ async function fetchLiveAndOverlay() {
     if (Array.isArray(live.markets))  MARKETS.splice (0, MARKETS.length,  ...live.markets);
     if (Array.isArray(live.shops))    SHOPS.splice   (0, SHOPS.length,    ...live.shops);
     if (Array.isArray(live.channels)) CHANNELS.splice(0, CHANNELS.length, ...live.channels);
+    // These arrays are the unfiltered live set — the one moment a scoped view can
+    // still refresh its selector options.
+    if (typeof captureFilterOpts === 'function') captureFilterOpts();
     if (Array.isArray(live.daily))    DAILY.splice   (0, DAILY.length,    ...live.daily);
     if (Array.isArray(live.weeks))    WEEKS.splice   (0, WEEKS.length,    ...live.weeks);
     _captureAllSeries();   // charts' "all markets" baseline = the live series
@@ -1437,14 +1440,7 @@ async function fetchLiveAndOverlay() {
     if (typeof applyFilter   === 'function') applyFilter();
     else if (typeof renderKPIs === 'function') renderKPIs();
     if (typeof loadBreakdown === 'function') loadBreakdown();   // real per-period market/shop/channel tables
-    if (typeof populateFilters === 'function') {
-      // Refresh the SearchSelect options to reflect new market/channel set
-      const prevMarket  = filter.market;
-      const prevChannel = filter.channel;
-      populateFilters();
-      if (prevMarket  && marketSelect)  marketSelect.setValue(prevMarket, false);
-      if (prevChannel && channelSelect) channelSelect.setValue(prevChannel, false);
-    }
+    if (typeof populateFilters === 'function') populateFilters();   // options captured above
     // Mark the live state in the UI
     const dot = document.querySelector('.live-dot');
     if (dot) {
@@ -1633,55 +1629,71 @@ class SearchSelect {
   }
 }
 
+/* The selectors' option lists. Kept separate from MARKETS/SHOPS/CHANNELS because
+ * those arrays are scoped to the active filter — reading options straight off them
+ * would collapse each dropdown to the one value you just picked, with no way back
+ * except Reset. Only an unfiltered breakdown refreshes these. */
+const FILTER_OPTS = { market: [], shop: [], channel: [] };
+function captureFilterOpts() {
+  const names = arr => arr.filter(e => e.revenue > 0)
+                          .sort((a,b) => b.revenue - a.revenue)
+                          .map(e => e.name);
+  FILTER_OPTS.market  = names(MARKETS);
+  FILTER_OPTS.shop    = names(SHOPS);
+  FILTER_OPTS.channel = names(CHANNELS);
+}
+
 function populateFilters() {
-  // Market + Channel → searchable (long lists)
-  marketSelect = new SearchSelect('ss-market', val => setFilter('market', val));
-  marketSelect.setOptions(
-    MARKETS.filter(m => m.revenue > 0)
-      .sort((a,b) => b.revenue - a.revenue)
-      .map(m => ({ value: m.name, label: m.name }))
-  );
-  channelSelect = new SearchSelect('ss-channel', val => setFilter('channel', val));
-  channelSelect.setOptions(
-    CHANNELS.filter(c => c.revenue > 0)
-      .sort((a,b) => b.revenue - a.revenue)
-      .map(c => ({ value: c.name, label: c.name }))
-  );
+  if (!FILTER_OPTS.market.length) captureFilterOpts();   // first run: embedded snapshot
+  const opts = names => names.map(n => ({ value: n, label: n }));
+
+  // Market + Channel → searchable (long lists). Constructed once: SearchSelect
+  // binds a document-level click listener, so rebuilding it on every refresh
+  // would stack a new listener each time.
+  if (!marketSelect)  marketSelect  = new SearchSelect('ss-market',  val => setFilter('market', val));
+  if (!channelSelect) channelSelect = new SearchSelect('ss-channel', val => setFilter('channel', val));
+  marketSelect.setOptions(opts(FILTER_OPTS.market));
+  channelSelect.setOptions(opts(FILTER_OPTS.channel));
 
   // Shop → native <select> (only ~2 entries)
   const sel = document.getElementById('f-shop');
+  const keep = sel.value;
   sel.innerHTML = '<option value="">All</option>' +
-    SHOPS.filter(i => i.revenue > 0)
-      .sort((a,b) => b.revenue - a.revenue)
-      .map(i => `<option value="${i.name}">${i.name}</option>`).join('');
+    FILTER_OPTS.shop.map(n => `<option value="${n}">${n}</option>`).join('');
+  sel.value = keep;
 }
 
 /* Fetch market/shop/channel breakdowns for the current period+comparison from
- * BigQuery, then re-render the tables (embedded/30D arrays are only a fallback). */
+ * BigQuery, then re-render the tables (embedded/30D arrays are only a fallback).
+ * The active filter is sent along, so market=DK returns the DK row plus the shops
+ * and channels *within* DK — the tables describe the same slice as the KPI cards. */
 let _bkSeq = 0;
 async function loadBreakdown(){
   if (!DAILY_LONG.length) return;
   const r = _curRange(), c = _cmpRange(r);
-  const q = `/api/breakdown?dataset=kv&start=${_isoLocal(r.start)}&end=${_isoLocal(r.end)}`
-          + `&cstart=${_isoLocal(c.start)}&cend=${_isoLocal(c.end)}`;
+  const af = _activeFilters();
+  const p = new URLSearchParams({
+    dataset: 'kv',
+    start:  _isoLocal(r.start), end:  _isoLocal(r.end),
+    cstart: _isoLocal(c.start), cend: _isoLocal(c.end),
+  });
+  af.forEach(f => p.set(f.dim, f.val));
   const seq = ++_bkSeq;
   try {
-    const res = await fetch(q, { cache:'no-store' });
+    const res = await fetch(`/api/breakdown?${p}`, { cache:'no-store' });
     if (!res.ok || seq !== _bkSeq) return;
     const d = await res.json();
     if (seq !== _bkSeq || d.error) return;
     if (Array.isArray(d.markets))  MARKETS.splice (0, MARKETS.length,  ...d.markets);
     if (Array.isArray(d.shops))    SHOPS.splice   (0, SHOPS.length,    ...d.shops);
     if (Array.isArray(d.channels)) CHANNELS.splice(0, CHANNELS.length, ...d.channels);
-    renderMarketTable(); renderShopCards(); renderChannelTable();
-    if (typeof populateFilters === 'function') {
-      const pm = filter.market, pc = filter.channel, psh = filter.shop;
+    // Only an unfiltered response is a valid source of selector options.
+    if (!af.length && typeof populateFilters === 'function') {
+      captureFilterOpts();
       populateFilters();
-      if (pm && marketSelect)  marketSelect.setValue(pm, false);
-      if (pc && channelSelect) channelSelect.setValue(pc, false);
-      if (psh) document.getElementById('f-shop').value = psh;   // keep shop selection too
     }
-    applyFilter();                          // refresh KPIs for any active filter combination
+    applyFilter();                          // CUR/PREV first — the tables' totals row reads PREV
+    renderMarketTable(); renderShopCards(); renderChannelTable(); renderChannelChart();
   } catch(e) { /* keep current tables */ }
 }
 
@@ -1851,24 +1863,36 @@ function applyFilter() {
     const activeKey = af[0].dim, activeVal = af[0].val;
     const sourceMap = { market: MARKETS, shop: SHOPS, channel: CHANNELS };
     const entry = sourceMap[activeKey].find(e => e.name === activeVal);
-    if (entry) {
-      CUR = {
-        revenue: entry.revenue,
-        gp2:     entry.gp2,
-        gp3:     entry.gp3,
-        adCost:  entry.cost,
-        txns:    Math.round(periodBase.cur.txns * (entry.revenue / periodBase.cur.revenue)),
-      };
-      const shareOfTotal = entry.revenue / periodBase.cur.revenue;
-      const useRealPoP = (currentCompare === 'pop' && entry.gp3_prev !== undefined);
-      PREV = {
-        revenue: cmpBase.revenue * shareOfTotal,
-        gp2:     cmpBase.gp2     * shareOfTotal,
-        gp3:     useRealPoP ? entry.gp3_prev : cmpBase.gp3 * shareOfTotal,
-        adCost:  cmpBase.adCost  * shareOfTotal,
-        txns:    Math.round(cmpBase.txns * shareOfTotal),
-      };
+    if (!entry) {
+      // The breakdown arrays are still scoped to the *previous* filter (switching
+      // DK → SE), so there is no snapshot row to read. Take exact totals from
+      // BigQuery instead of leaving the cards on the old market's numbers.
+      _fetchCombined(af);
+      return;
     }
+    CUR = {
+      revenue: entry.revenue,
+      gp2:     entry.gp2,
+      gp3:     entry.gp3,
+      adCost:  entry.cost,
+      txns:    Math.round(periodBase.cur.txns * (entry.revenue / periodBase.cur.revenue)),
+    };
+    // Prefer the entity's REAL comparison-window values — loadBreakdown fetches
+    // them for whichever comparison is selected — over scaling the workspace
+    // total by revenue share. The breakdown rows show those same numbers, so the
+    // cards and the table can no longer disagree about the same slice. Scaling
+    // stays as the fallback (embedded snapshot before the first fetch lands, and
+    // txns, which the breakdown doesn't carry per entity).
+    const shareOfTotal = entry.revenue / periodBase.cur.revenue;
+    const real = (v, scaled) => (v != null ? v : scaled);
+    const entryRevPrev = entry.revenue_prev != null ? entry.revenue_prev : entry.rev_prev;
+    PREV = {
+      revenue: real(entryRevPrev,   cmpBase.revenue * shareOfTotal),
+      gp2:     real(entry.gp2_prev,  cmpBase.gp2    * shareOfTotal),
+      gp3:     real(entry.gp3_prev,  cmpBase.gp3    * shareOfTotal),
+      adCost:  real(entry.cost_prev, cmpBase.adCost * shareOfTotal),
+      txns:    Math.round(cmpBase.txns * shareOfTotal),
+    };
     _renderFiltered();
     // KPIs are already right from the snapshot; the charts still need a real
     // filtered daily series, so fetch it (totals from the response are ignored).
@@ -1883,6 +1907,7 @@ function applyFilter() {
 function setFilter(dim, val) {
   filter[dim] = val || '';                // combinable: do NOT clear the other dimensions
   applyFilter();
+  loadBreakdown();                        // re-scope the breakdown tables to the new filter
 }
 
 document.getElementById('f-shop').addEventListener('change', e => setFilter('shop', e.target.value));
@@ -1894,6 +1919,7 @@ document.getElementById('filter-reset').addEventListener('click', () => {
   if (channelSelect) channelSelect.setValue('', false);
   document.getElementById('f-shop').value = '';
   applyFilter();
+  loadBreakdown();                        // back to the full market/shop/channel tables
 });
 
 populateFilters();
@@ -2256,14 +2282,17 @@ SHOPS.forEach(s => {
 }
 renderShopCards();
 
-/* ── Channel GP3 Bar Chart ───────────────────────── */
+/* ── Channel GP3 Bar Chart (re-callable) ─────────── */
+let chChart;
+function renderChannelChart(){
 const chSorted = [...CHANNELS].sort((a,b)=>b.gp3-a.gp3);
 const chColors = chSorted.map(c => c.gp3 >= 0
   ? '#047857'
   : '#B91C1C'
 );
 
-new Chart(document.getElementById('c-channel'), {
+if (chChart) chChart.destroy();
+chChart = new Chart(document.getElementById('c-channel'), {
   type:'bar',
   data:{
     labels: chSorted.map(c=>c.name),
@@ -2293,6 +2322,8 @@ new Chart(document.getElementById('c-channel'), {
     }
   }
 });
+}
+renderChannelChart();
 
 /* ── Long-term Monthly Chart (YoY overlay) ───────── */
 const LT_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
