@@ -4,67 +4,118 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Stoy Funnel-Shift Test · Babyshop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
+  /* Same design system as the other tabs — tokens, header chrome, card and table
+     rhythm are all shared. Only the accent differs: purple is this test's signature,
+     the way Products is teal and Inventory is orange. The legacy aliases below
+     (--ink / --line / --pos / --neg / --rev) are kept so the existing markup and
+     Chart.js colour constants keep resolving. */
   :root{
-    --ink:#0f172a; --muted:#64748b; --line:#e2e8f0; --bg:#f1f5f9; --card:#fff;
-    --pos:#047857; --neg:#be123c; --meta:#6D28D9; --rev:#1E3A8A; --warn:#b45309;
+    --bg:#F7F8FA; --card:#FFFFFF; --border:#E5E7EB; --border-lt:#F1F3F5;
+    --h:#0F172A; --body:#475569; --muted:#94A3B8;
+    --accent:#6D28D9; --accent-bg:#F5F3FF;
+    --up:#047857; --up-bg:#ECFDF5; --down:#B91C1C; --down-bg:#FEF2F2;
+    --warn:#B45309; --warn-bg:#FFFBEB;
+    --shadow-sm:0 1px 2px rgba(15,23,42,.04);
+    --r:8px; --r-sm:4px;
+    --ink:var(--h); --line:var(--border); --pos:var(--up); --neg:var(--down);
+    --meta:#6D28D9; --rev:#1E3A8A;
   }
-  *{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--ink)}
-  .topbar{background:#0b1220;color:#fff;display:flex;align-items:center;gap:24px;padding:14px 28px}
-  .brand{font-weight:800;letter-spacing:.5px} .brand small{display:block;font-weight:500;color:#94a3b8;font-size:11px;letter-spacing:1px}
-  .nav{display:flex;gap:4px;margin-left:8px}
-  .nav a{color:#cbd5e1;text-decoration:none;font-size:13px;font-weight:600;padding:6px 12px;border-radius:8px}
-  .nav a.active{background:#1e293b;color:#fff} .nav a:hover{color:#fff}
-  .live{margin-left:auto;font-size:12px;color:#94a3b8;display:flex;align-items:center;gap:7px}
-  .dot{width:8px;height:8px;border-radius:50%;background:#22c55e}
-  .wrap{max-width:1280px;margin:0 auto;padding:26px}
-  h1{font-size:26px;margin:0 0 2px}
-  .sub{color:var(--muted);font-size:13px}
-  .ctx{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:18px 0;display:grid;grid-template-columns:1fr auto;gap:18px;align-items:center}
-  .ctx .hyp{font-size:14px;line-height:1.5}
-  .ctx .hyp b{color:var(--ink)}
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html{font-size:16px}
+  body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--body);min-height:100vh;-webkit-font-smoothing:antialiased}
+
+  /* ── Header / nav (identical to the other tabs) ── */
+  header{background:var(--h);color:#fff;padding:0 32px;height:58px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+  .logo{display:flex;align-items:center;gap:12px}
+  .logo-mark{width:34px;height:34px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;letter-spacing:-.5px}
+  .logo-wordmark{font-size:14px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+  .logo-sub{font-size:10px;font-weight:400;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.45);margin-top:1px}
+  .nav-tabs{display:flex;align-items:center;gap:2px}
+  .nav-tab{padding:6px 14px;font-size:12px;font-weight:500;letter-spacing:.03em;color:rgba(255,255,255,.5);border-radius:6px;text-decoration:none;transition:all .15s}
+  .nav-tab:hover{color:rgba(255,255,255,.8);background:rgba(255,255,255,.08)}
+  .nav-tab.active{color:#fff;background:rgba(255,255,255,.12)}
+  .live-dot{display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(255,255,255,.45);letter-spacing:.04em}
+  .live-dot::before{content:'';width:6px;height:6px;border-radius:50%;background:#4E9B65;box-shadow:0 0 0 2px rgba(78,155,101,.3);animation:blink 2s ease-in-out infinite}
+  @keyframes blink{0%,100%{box-shadow:0 0 0 2px rgba(78,155,101,.3)}50%{box-shadow:0 0 0 5px rgba(78,155,101,.1)}}
+
+  /* ── Layout ── */
+  .wrap{max-width:1380px;margin:0 auto;padding:26px 32px 56px}
+  h1{font-size:21px;font-weight:700;color:var(--h);letter-spacing:-.3px}
+  .sub{color:var(--muted);font-size:12px;margin-top:3px;line-height:1.5}
+
+  .ctx{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:16px 20px;margin:18px 0;display:grid;grid-template-columns:1fr auto;gap:20px;align-items:center}
+  .ctx .hyp{font-size:12.5px;line-height:1.6}
+  .ctx .hyp b{color:var(--h);font-weight:600}
   .realloc{min-width:260px}
-  .realloc .bar{height:10px;background:#ede9fe;border-radius:6px;overflow:hidden;margin:6px 0}
-  .realloc .bar > i{display:block;height:100%;background:var(--meta)}
-  .realloc .lab{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
-  .grid{display:grid;grid-template-columns:repeat(6,1fr);gap:14px}
-  .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
-  .kpi.spot{border-color:#c7b9f3;box-shadow:0 0 0 1px #c7b9f3}
-  .kpi .k{font-size:11px;font-weight:700;letter-spacing:.6px;color:var(--muted);text-transform:uppercase}
-  .kpi .v{font-size:27px;font-weight:800;margin:6px 0 2px}
-  .kpi .d{font-size:13px;font-weight:700} .kpi .n{font-size:11px;color:var(--muted);margin-top:3px}
-  .up{color:var(--pos)} .down{color:var(--neg)}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-top:18px}
-  .card h3{margin:0 0 2px;font-size:16px} .card .csub{color:var(--muted);font-size:12px;margin-bottom:12px}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{text-align:right;padding:9px 10px;border-bottom:1px solid var(--line)}
-  th:first-child,td:first-child{text-align:left}
-  thead th{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
-  .two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-  .mkt{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
-  .note{background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:14px 16px;font-size:12.5px;color:#78350f;margin-top:18px;line-height:1.55}
-  .pill{display:inline-block;background:#eef2ff;color:#3730a3;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700}
-  .yt{border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:8px;padding:5px 12px;font-weight:700;cursor:pointer}
-  .yt.on{background:var(--rev);border-color:var(--rev);color:#fff}
-  @media(max-width:1180px){.grid{grid-template-columns:repeat(3,1fr)}}
-  @media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}.two{grid-template-columns:1fr}.ctx{grid-template-columns:1fr}}
+  .realloc .bar{height:8px;background:var(--accent-bg);border-radius:4px;overflow:hidden;margin:6px 0}
+  .realloc .bar > i{display:block;height:100%;background:var(--accent)}
+  .realloc .lab{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+
+  /* ── KPI grid ── */
+  .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
+  .kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:15px 14px}
+  .kpi.spot{border-color:var(--accent);position:relative;overflow:hidden}
+  .kpi.spot::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent)}
+  .kpi .k{font-size:10px;font-weight:600;letter-spacing:.07em;color:var(--muted);text-transform:uppercase;margin-bottom:8px}
+  .kpi .v{font-size:23px;font-weight:700;color:var(--h);letter-spacing:-.5px;line-height:1.1;margin-bottom:9px;font-variant-numeric:tabular-nums}
+  .kpi .d{display:inline-flex;align-items:center;font-size:11.5px;font-weight:600;padding:3px 7px;border-radius:var(--r-sm);white-space:nowrap}
+  .kpi .n{font-size:10px;color:var(--muted);margin-top:7px;line-height:1.45}
+  /* Colour-only in table cells; the tinted pill is reserved for the KPI delta,
+     where it has a box of its own to sit in. */
+  .up{color:var(--up)} .down{color:var(--down)}
+  .kpi .d.up{background:var(--up-bg)} .kpi .d.down{background:var(--down-bg)}
+
+  /* ── Cards / tables ── */
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:20px 22px;margin-top:20px}
+  .card h3{font-size:14px;font-weight:600;color:var(--h)}
+  .card .csub{color:var(--muted);font-size:11px;margin-top:2px;margin-bottom:12px;line-height:1.5}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:right;padding:10px 12px;font-size:13px;font-variant-numeric:tabular-nums}
+  th:first-child,td:first-child{text-align:left;padding-left:0}
+  thead th{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap}
+  tbody td{font-weight:500;color:var(--body);border-bottom:1px solid var(--border-lt)}
+  tbody td:first-child{font-weight:600;color:var(--h)}
+  tbody tr:last-child td{border-bottom:none}
+  /* Totals inside tbody still read as a summary line. */
+  tbody tr.tot td{font-weight:700;color:var(--h);border-top:1px solid var(--border)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .note{background:var(--warn-bg);border:1px solid #F4D7A8;border-radius:var(--r);padding:12px 16px;font-size:11.5px;color:#7C4A11;margin-top:20px;line-height:1.55}
+  .pill{display:inline-block;background:var(--accent-bg);color:var(--accent);border-radius:3px;padding:2px 7px;font-size:10px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;vertical-align:middle}
+  /* Chart toggles — same segmented control as the other tabs. */
+  #trend-toggle,#yoy-toggle{background:var(--bg);border:1px solid var(--border);border-radius:var(--r-sm);padding:3px;gap:2px!important}
+  .yt{border:none;background:none;color:var(--muted);border-radius:3px;padding:4px 12px;font-family:inherit;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s}
+  .yt:hover:not(.on){color:var(--h)}
+  .yt.on{background:var(--h);color:#fff}
+  @media(max-width:1240px){.grid{grid-template-columns:repeat(4,1fr)}}
+  @media(max-width:980px){.grid{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:900px){.two{grid-template-columns:1fr}.ctx{grid-template-columns:1fr}}
+  @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
 <body>
-<div class="topbar">
-  <div class="brand">BABYSHOP<small>BI DASHBOARDS</small></div>
-  <nav class="nav">
-    <a href="/babyshop-dashboard.html">KV Overview</a>
-    <a href="/babyshop-product-dashboard.html">Products</a>
-    <a href="/babyshop-customer-dashboard.html">Customer Insights</a>
-    <a href="/babyshop-inventory-dashboard.html">Inventory</a>
-    <a href="/babyshop-stoy-dashboard.html" class="active">Stoy Test</a>
-    <a href="/babyshop-roas-impact.html">ROAS Impact</a>
-    <a href="/babyshop-roas-simulations.html">ROAS Simulations</a>
+<header>
+  <div class="logo">
+    <div class="logo-mark">bs</div>
+    <div>
+      <div class="logo-wordmark">Babyshop</div>
+      <div class="logo-sub">Stoy Funnel-Shift Test</div>
+    </div>
+  </div>
+  <nav class="nav-tabs">
+    <a href="/babyshop-dashboard.html" class="nav-tab">KV Overview</a>
+    <a href="/babyshop-product-dashboard.html" class="nav-tab">Products</a>
+    <a href="/babyshop-customer-dashboard.html" class="nav-tab">Customer Insights</a>
+    <a href="/babyshop-inventory-dashboard.html" class="nav-tab">Inventory</a>
+    <a href="/babyshop-stoy-dashboard.html" class="nav-tab active">Stoy Test</a>
+    <a href="/babyshop-roas-impact.html" class="nav-tab">ROAS Impact</a>
+    <a href="/babyshop-roas-simulations.html" class="nav-tab">ROAS Simulations</a>
   </nav>
-  <div class="live"><span class="dot"></span><span id="live-src">Live · BigQuery</span></div>
-</div>
+  <div class="live-dot" id="live-src">Live · BigQuery</div>
+</header>
 
 <div class="wrap">
   <h1>Stoy Funnel-Shift Test</h1>
@@ -201,7 +252,7 @@ function render(){
   document.querySelector('#mix-tbl tbody').innerHTML =
     mixRow('Google Shopping', s.google_test||0, s.google_base||0) +
     mixRow('Meta', s.meta_test||0, s.meta_base||0) +
-    `<tr style="font-weight:700"><td>Total ad spend</td><td>${fmtSEK(spendB)}</td><td>${fmtSEK(spendT)}</td><td class="${cls(pct(spendT,spendB),false)}">${sgn(pct(spendT,spendB))}%</td><td>100%</td></tr>`;
+    `<tr class="tot"><td>Total ad spend</td><td>${fmtSEK(spendB)}</td><td>${fmtSEK(spendT)}</td><td class="${cls(pct(spendT,spendB),false)}">${sgn(pct(spendT,spendB))}%</td><td>100%</td></tr>`;
 
   // cost per click — Google vs Meta benchmark (+ live Meta test CPC)
   const ref=d.cpc_ref;

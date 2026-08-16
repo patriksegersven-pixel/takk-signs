@@ -206,15 +206,29 @@
       display: flex; align-items: center; gap: 8px;
     }
     .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border-lt); }
+    /* The prose is one flex item on purpose: bare text nodes and inline <code>/<strong>
+       each become their own anonymous flex item, which shreds the sentence into
+       side-by-side columns. Keep the copy wrapped in .source-note > div. */
     .source-note {
-      display: flex; align-items: center; gap: 6px;
-      margin-top: 10px; padding: 7px 10px;
+      display: flex; align-items: flex-start; gap: 7px;
+      margin-top: 10px; padding: 9px 12px;
       background: var(--accent-bg);
       border: 1px solid #FFD9B8;
       border-radius: var(--r-sm);
-      font-size: 11px; color: #9A3412;
+      font-size: 11px; line-height: 1.55; color: #9A3412;
     }
-    .source-note svg { flex-shrink: 0; color: var(--accent); }
+    .source-note svg { flex-shrink: 0; color: var(--accent); margin-top: 2px; }
+    .source-note code { font-size: 10.5px; background: rgba(154,52,18,.08); border-radius: 3px; padding: 1px 4px; }
+    /* A chart with nothing to draw collapses and says so, rather than leaving a
+       280px hole that reads as a failed render. */
+    .chart-wrap { position: relative; height: 280px; }
+    .chart-wrap.is-empty {
+      height: 96px; display: flex; align-items: center; justify-content: center;
+      border: 1px dashed var(--border); border-radius: var(--r-sm); background: var(--bg);
+    }
+    .chart-wrap.is-empty canvas { display: none; }
+    .chart-empty { display: none; font-size: 12px; color: var(--muted); text-align: center; padding: 0 20px; line-height: 1.5; }
+    .chart-wrap.is-empty .chart-empty { display: block; }
   </style>
 </head>
 <body>
@@ -250,8 +264,8 @@
   </div>
 
   <div class="source-note">
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
-    Source: live Channable Google Shopping feed for Babyshop SE, refreshed hourly by Cloud Scheduler. Per-SKU stock comes from the feed's <code>units_for_sale</code> field — real counts, no estimates. <strong>Archive</strong> = old-season / slow-moving stock flagged in the feed. The only modelled number is <strong>OOS lost revenue</strong>: predicted monthly units come from each product's category sales velocity (Funnel kv-product units ÷ active SKUs in that category) × sale_price.
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+    <div>Source: live Channable Google Shopping feed for Babyshop SE, refreshed hourly by Cloud Scheduler. Per-SKU stock comes from the feed's <code>units_for_sale</code> field — real counts, no estimates. <strong>Archive</strong> = old-season / slow-moving stock flagged in the feed. The only modelled number is <strong>OOS lost revenue</strong>: predicted monthly units come from each product's category sales velocity (Funnel kv-product units ÷ active SKUs in that category) × sale_price.</div>
   </div>
 
   <div class="kpi-grid" id="kpi-grid"></div>
@@ -266,7 +280,10 @@
       <span class="chart-badge" id="trend-axis-badge">SEK + count</span>
     </div>
     <div id="trend-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin:12px 0"></div>
-    <div style="position:relative;height:280px"><canvas id="c-inv-trend"></canvas></div>
+    <div class="chart-wrap" id="trend-wrap">
+      <canvas id="c-inv-trend"></canvas>
+      <div class="chart-empty">No daily snapshots to draw yet — the history builds up one snapshot per day, and this chart fills in as soon as the first ones land.</div>
+    </div>
   </div>
 
   <div class="section-label">stockout risk</div>
@@ -726,11 +743,21 @@ function renderTrendChart() {
   });
 }
 
+/* Collapse the chart to its explanation whenever there is nothing to plot — a full
+   height canvas with no line in it reads as a broken render, not as "no data yet". */
+function setTrendEmpty(isEmpty, message) {
+  const wrap = document.getElementById('trend-wrap');
+  wrap.classList.toggle('is-empty', isEmpty);
+  document.getElementById('trend-chips').style.display = isEmpty ? 'none' : 'flex';
+  if (isEmpty && message) wrap.querySelector('.chart-empty').textContent = message;
+}
+
 async function loadTrends() {
   try {
     const r = await fetch('/api/inventory-trends?days=30', { cache: 'no-store' });
     if (!r.ok) {
       document.getElementById('trend-source').textContent = 'history unavailable';
+      setTrendEmpty(true, 'Daily history is unavailable right now — the snapshot service did not answer. The KPIs and tables above are unaffected.');
       return;
     }
     trendHistory = await r.json();
@@ -740,10 +767,13 @@ async function loadTrends() {
       real >= trendHistory.days
         ? `${real} days · live`
         : `${real} of ${trendHistory.days} days live · ${synth} synthesised while history builds up`;
+    if (!(trendHistory.history || []).length) { setTrendEmpty(true); return; }
+    setTrendEmpty(false);
     renderTrendChips();
     renderTrendChart();
   } catch (e) {
     document.getElementById('trend-source').textContent = 'history unavailable (offline)';
+    setTrendEmpty(true, 'Daily history could not be loaded — the browser could not reach the snapshot service. The KPIs and tables above are unaffected.');
   }
 }
 loadTrends();

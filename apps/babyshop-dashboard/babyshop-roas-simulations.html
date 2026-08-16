@@ -352,6 +352,14 @@
     tbody td:first-child { text-align: left; padding-left: 22px; font-weight: 600; color: var(--h); }
     tbody tr:last-child td { border-bottom: none; }
     tbody tr:hover td { background: var(--bg); }
+    /* Summary rows live in <tfoot>, which inherits NONE of the tbody rules — without
+       these the totals fall back to the root 16px, left-aligned and unpadded, so they
+       sit out of line with the very column they total. Mirror tbody, then add weight. */
+    tfoot td {
+      padding: 11px 14px; font-size: 13px; text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    tfoot td:first-child { text-align: left; padding-left: 22px; }
     .tfoot-row td {
       font-weight: 700; color: var(--h);
       border-top: 1px solid var(--border); border-bottom: none;
@@ -503,7 +511,7 @@
     <div class="logo-mark">bs</div>
     <div>
       <div class="logo-wordmark">Babyshop</div>
-      <div class="logo-sub">KV Performance Dashboard</div>
+      <div class="logo-sub">ROAS Simulations</div>
     </div>
   </div>
   <nav class="nav-tabs">

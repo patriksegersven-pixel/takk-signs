@@ -349,6 +349,16 @@
       white-space: nowrap;
     }
     .chart-wrap { position: relative; height: 240px; }
+    /* A chart with nothing to draw collapses and says so, rather than leaving a
+       240px hole that reads as a failed render. */
+    .chart-wrap.is-empty {
+      height: 96px; display: flex; align-items: center; justify-content: center;
+      border: 1px dashed var(--border); border-radius: var(--r-sm); background: var(--bg);
+    }
+    .chart-wrap.is-empty canvas { display: none; }
+    .chart-empty { display: none; font-size: 12px; color: var(--muted); text-align: center; padding: 0 20px; line-height: 1.5; }
+    .chart-wrap.is-empty .chart-empty { display: block; }
+    .pl-table td.pl-empty { padding: 26px 14px; text-align: center; font-size: 12px; color: var(--muted); white-space: normal; }
 
     /* ── Metric chips (Daily Trend) ─────────────────── */
     .metric-chips {
@@ -432,6 +442,14 @@
     tbody td:first-child { text-align: left; padding-left: 22px; font-weight: 600; color: var(--h); }
     tbody tr:last-child td { border-bottom: none; }
     tbody tr:hover td { background: var(--bg); }
+    /* Summary rows live in <tfoot>, which inherits NONE of the tbody rules — without
+       these the totals fall back to the root 16px, left-aligned and unpadded, so they
+       sit out of line with the very column they total. Mirror tbody, then add weight. */
+    tfoot td {
+      padding: 11px 14px; font-size: 13px; text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    tfoot td:first-child { text-align: left; padding-left: 22px; }
     .tfoot-row td {
       font-weight: 700; color: var(--h);
       border-top: 1px solid var(--border); border-bottom: none;
@@ -854,7 +872,10 @@
         <span class="chart-badge">SEK</span>
       </div>
       <div class="metric-chips" id="bd-metric-chips"></div>
-      <div class="chart-wrap"><canvas id="c-budget"></canvas></div>
+      <div class="chart-wrap" id="bd-chart-wrap">
+        <canvas id="c-budget"></canvas>
+        <div class="chart-empty" id="bd-chart-empty"></div>
+      </div>
     </div>
 
     <!-- Full P&L plan table (context) -->
@@ -1145,6 +1166,24 @@ const DAILY_ALL = [], WEEKS_ALL = [];
 function _captureAllSeries() {
   DAILY_ALL.splice(0, DAILY_ALL.length, ...DAILY);
   WEEKS_ALL.splice(0, WEEKS_ALL.length, ...WEEKS);
+}
+
+/* The waterfall splits costs with kv_gp1 (COGS = revenue − gp1). A payload built
+ * before kv_gp1 reached the weekly rollup carries gp1 on `daily` but not on
+ * `weeks` — sum it back from the same 7-day buckets bq_source uses, so the
+ * unfiltered view matches the filtered one (which sums gp1 from the daily rows
+ * anyway) instead of silently dropping to the ratio fallback.
+ * Each week's revenue is re-summed as a guard: if it doesn't match, the buckets
+ * don't line up and the week is left alone. */
+function _backfillWeekGp1() {
+  WEEKS.forEach((w, i) => {
+    if (typeof w.gp1 === 'number') return;
+    const chunk = DAILY.slice(i * 7, i * 7 + 7);
+    if (!chunk.length || !chunk.every(d => typeof d.gp1 === 'number')) return;
+    const rev = chunk.reduce((s, d) => s + d.rev, 0);
+    if (Math.abs(rev - w.revenue) > chunk.length) return;   // ±1 SEK/day rounding
+    w.gp1 = chunk.reduce((s, d) => s + d.gp1, 0);
+  });
 }
 _captureAllSeries();
 
@@ -1492,6 +1531,7 @@ async function fetchLiveAndOverlay() {
     if (typeof captureFilterOpts === 'function') captureFilterOpts();
     if (Array.isArray(live.daily))    DAILY.splice   (0, DAILY.length,    ...live.daily);
     if (Array.isArray(live.weeks))    WEEKS.splice   (0, WEEKS.length,    ...live.weeks);
+    _backfillWeekGp1();    // waterfall needs gp1 per week; payloads may predate it
     _captureAllSeries();   // charts' "all markets" baseline = the live series
 
     // Long-term chart: swap placeholder monthly totals for real BigQuery data
@@ -2934,6 +2974,7 @@ function bdRenderTable(ctx){
 
 function renderBudget(){
   if(!BUDGET) return;
+  document.getElementById('bd-chart-wrap').classList.remove('is-empty');
   const ctx = bdContext();
   const revData = bdMetricData('revenue', ctx);
   document.getElementById('bd-hero').innerHTML =
@@ -2951,14 +2992,27 @@ function renderBudget(){
     `than the P&amp;L's — so treat the gap as directional. Other lines are plan-only context.`;
 }
 
+/* Without a budget payload this whole view is two empty boxes — a blank chart card
+   and a header over an empty table. Say what is missing where the content would be,
+   instead of leaving the reader to infer it from one grey sub-line. */
+function bdUnavailable(reason){
+  document.getElementById('bd-sub').textContent = reason;
+  document.getElementById('bd-chart-wrap').classList.add('is-empty');
+  document.getElementById('bd-chart-empty').textContent =
+    'No plan to chart yet — actual vs plan fills in once the budget refresh has run.';
+  document.getElementById('bd-metric-chips').innerHTML = '';
+  document.getElementById('pl-body').innerHTML =
+    `<tr><td class="pl-empty" colspan="15">The full-year P&amp;L plan loads from the budget snapshot, which has not been refreshed yet.</td></tr>`;
+}
+
 function ensureBudget(){
   if (BUDGET){ renderBudget(); return; }
   if (budgetLoading) return;
   budgetLoading = fetch('/api/budget',{cache:'no-store'})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
     .then(j=>{ if(j&&j.lines){ BUDGET=j; renderBudget(); }
-               else document.getElementById('bd-sub').textContent='Budget data unavailable.'; })
-    .catch(()=>{ document.getElementById('bd-sub').textContent='Budget data unavailable — refresh not yet run.'; });
+               else bdUnavailable('Budget data unavailable.'); })
+    .catch(()=>{ bdUnavailable('Budget data unavailable — refresh not yet run.'); });
 }
 
 function showBudgetView(v){
