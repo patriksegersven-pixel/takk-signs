@@ -220,29 +220,65 @@ nothing but a staleness bug. `${DATASET}` is substituted by `norce_sync.py`.
 | `cohort_retention` | cohort_month × market × shop × months_since_first | The CLV maturity triangle. 1-year CLV = `cumulative_revenue_per_customer` at offset 12. Offsets are generated densely up to each cohort's elapsed age. |
 | `first_purchase_products` | month × market × shop × dim_type × dim_value | `dim_type` is `brand` / `category_l1` / `product`. Counts first orders *containing* the thing, not units. |
 
-### Product titles (`sku_titles`)
+### Product names — resolution order
 
-Norce's `Product.DefaultName` is **variant-grain**, so the product dimension
-reads `2-4 Y` / `One Size` / `86/92 cm` instead of a product. `norce.sku_titles`
-fixes it: `PartNo`, `title`, `brand`, loaded from the Channable Google Shopping
-feed, whose `g:id` **is** `OrderItem.PartNo`. The mart takes
-`COALESCE(sku_titles.title, products.DefaultName, order_items.ProductName, PartNo)`,
-joined on the raw order line so a SKU missing from Norce's product tables still
-gets a real title.
+Norce's `Product.DefaultName` is **variant-grain**, so on its own the product
+dimension reads `2-4 Y` / `One Size` / `86/92 cm` instead of a product. The mart
+resolves a name best-source-first:
 
-Coverage is partial by design — the feed is the **current catalogue** and skews
-Babyshop SE, so discontinued SKUs and much of Lekmer fall back to the Norce name.
-An empty or missing table degrades to exactly the old behaviour.
+```sql
+COALESCE(sku_titles.title,        -- 1. Channable feed
+         variants.DefaultName,    -- 2. the real PARENT product  <- workhorse
+         products.DefaultName,    -- 3. variant label
+         order_items.ProductName, -- 4. variant label
+         order_items.PartNo)      -- 5. never NULL
+```
 
-Loaded by `sync_sku_titles()` in the dimension pass, reusing `inventory_client`'s
-config and streaming iterparse (~30 MB peak on a 96 MB document). Needs
-**`CHANNABLE_FEED_URL`** — mounted on the dashboard *service* but **not** on the
-`norce-sync` job. Without it the step logs and returns 0.
+**`norce.variants`** (`Id`, `DefaultName`) is the primary source.
+`Products/Product.VariantId → Variants.Id`, and `Variants.DefaultName` is the
+real product — e.g. products 501 (`90 cm`) and 502 (`120 cm`) both carry
+`VariantId 77` = **"Pointelle Dress Dusty Violet"**, so every size collapses under
+one title. Measured on the live tenant: 133,970 products, only **14** with a NULL
+`VariantId`, 26,661 variants. Note `Variants.DefaultTitle` is null in practice —
+use `DefaultName`.
+
+**`norce.sku_titles`** (`PartNo`, `title`, `brand`) comes from the Channable
+Google Shopping feed, whose `g:id` **is** `OrderItem.PartNo`. It is preferred
+when present because it is the merchandiser-facing title, but it is the
+**current catalogue only** and skews Babyshop SE.
+
+Measured coverage of first-order lines (664,228 lines, shipping excluded):
+
+| Source | Coverage |
+|---|---|
+| Channable `sku_titles` | **34.4%** |
+| Norce product row → variant parent | **95.7%** |
+| Neither (falls back to variant label / PartNo) | ~4.3% |
+
+Both are joined on the raw order line where possible, so a SKU missing from one
+source still resolves through the other. Empty tables degrade to the old
+behaviour rather than blanking the dimension.
+
+`sync_variants()` and `sync_sku_titles()` run in the product pass.
+`sync_sku_titles` reuses `inventory_client`'s config and streaming iterparse
+(~30 MB peak on a 96 MB document) and needs **`CHANNABLE_FEED_URL`** — mounted on
+the dashboard *service* but **not** on the `norce-sync` job. Without it the step
+logs and returns 0.
 
 ```bash
-# reload titles only (no Norce credentials needed)
+# products + variants + dimensions + titles + marts, skipping the ~30 min orders phase
+python3 norce_sync.py --products-only
+
+# reload titles only, or re-apply marts only (neither needs Norce credentials)
 python3 norce_sync.py --titles-only
+python3 norce_sync.py --marts-only
 ```
+
+`--products-only` forces a **full** product re-pull (never incremental): the
+extract shape changed when `VariantId` was added, so a delta pass would leave
+every untouched product with a NULL `VariantId` and no parent name. It leaves
+the orders watermark alone, so the next normal run still picks up the orders it
+skipped.
 
 Identity is scoped **per shop** — Babyshop and Lekmer are separate businesses,
 and the same address shopping in both is two customers.

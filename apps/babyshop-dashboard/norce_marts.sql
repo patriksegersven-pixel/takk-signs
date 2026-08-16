@@ -227,12 +227,15 @@ lines AS (
     COALESCE(m.Name, '(unknown brand)')                                  AS brand,
     COALESCE(SPLIT(c.DefaultFullName, ' - ')[SAFE_OFFSET(1)],
              c.DefaultName, '(uncategorised)')                           AS category_l1,
-    -- Channable title FIRST: Norce's DefaultName is variant-grain, so without
-    -- this the product dimension reads "2-4 Y" / "One Size" / "86/92 cm".
-    -- The feed is the CURRENT catalogue and skews Babyshop SE, so discontinued
-    -- SKUs and much of Lekmer miss — those fall back to the Norce name exactly
-    -- as before. Never let this produce a NULL name.
-    COALESCE(t.title, p.DefaultName, li.ProductName, li.PartNo)          AS product
+    -- Product NAME RESOLUTION, best source first. Norce's Product.DefaultName is
+    -- variant-grain ("2-4 Y", "One Size", "86/92 cm"), so it is a last resort:
+    --   1. Channable title   — current catalogue only (~26k SKUs), skews Babyshop SE
+    --   2. Variants.DefaultName — the real PARENT product name, and the workhorse:
+    --      133,970 products carry a VariantId on all but 14, and it covers the
+    --      full order history rather than just the live catalogue
+    --   3. Product.DefaultName / line ProductName / PartNo — variant labels, kept
+    --      only so the name can never come out NULL
+    COALESCE(t.title, v.DefaultName, p.DefaultName, li.ProductName, li.PartNo) AS product
   FROM first_orders fo
   JOIN `${DATASET}.order_items` li ON li.OrderId = fo.order_id
   LEFT JOIN `${DATASET}.product_skus`  s ON s.PartNo = li.PartNo
@@ -245,6 +248,9 @@ lines AS (
   -- OrderItem.PartNo, so a SKU missing from Norce's product tables still gets
   -- a real title.
   LEFT JOIN `${DATASET}.sku_titles` t ON t.PartNo = li.PartNo
+  -- The parent product behind the variant. Reached through the product, so it
+  -- needs product_skus -> products to have resolved first.
+  LEFT JOIN `${DATASET}.variants` v ON v.Id = p.VariantId
   WHERE li.PartNo != '1000014'
 ),
 totals AS (

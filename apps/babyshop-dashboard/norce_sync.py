@@ -346,7 +346,12 @@ SCHEMAS: dict[str, list[bigquery.SchemaField]] = {
     ],
     "product_skus":       [S("PartNo", "STRING"), S("ProductId", "INT64"), S("EanCode", "STRING")],
     "products":           [S("Id", "INT64"), S("ManufacturerId", "INT64"),
-                           S("DefaultName", "STRING"), S("IsActive", "BOOL")],
+                           S("DefaultName", "STRING"), S("IsActive", "BOOL"),
+                           S("VariantId", "INT64")],
+    # Variant = the PARENT product ("Lilo Striped Skirt Blue"). Products.DefaultName
+    # is the variant label ("2-4 Y", "One Size"), so this is what makes the product
+    # dimension readable. 133,970 products carry a VariantId on all but 14 of them.
+    "variants":           [S("Id", "INT64"), S("DefaultName", "STRING")],
     "product_categories": [S("ProductId", "INT64"), S("CategoryId", "INT64"), S("IsPrimary", "BOOL")],
     "dim_manufacturers":  [S("ManufacturerId", "INT64"), S("Name", "STRING"), S("IsActive", "BOOL")],
     "dim_categories":     [S("Id", "INT64"), S("Code", "STRING"), S("DefaultName", "STRING"),
@@ -384,7 +389,21 @@ def ensure_dataset() -> None:
             t.time_partitioning = bigquery.TimePartitioning(field=_PARTITION[name])
         if name in _CLUSTER:
             t.clustering_fields = _CLUSTER[name]
-        bq().create_table(t, exists_ok=True)
+        created = bq().create_table(t, exists_ok=True)
+        # create_table(exists_ok=True) is a no-op on an EXISTING table — it does
+        # NOT add columns. So when SCHEMAS grows a field (VariantId on products),
+        # every downstream MERGE and mart would fail on the old table until
+        # somebody noticed. Append the missing NULLABLE columns instead, which
+        # BigQuery allows in place and which is idempotent.
+        have = {f.name for f in created.schema}
+        missing = [f for f in schema if f.name not in have]
+        if missing:
+            created.schema = list(created.schema) + [
+                bigquery.SchemaField(f.name, f.field_type, mode="NULLABLE",
+                                     description=f.description)
+                for f in missing]
+            bq().update_table(created, ["schema"])
+            print(f"   + {name}: added column(s) {', '.join(f.name for f in missing)}")
 
 
 def _load(rows: list[dict], table: str, schema: list[bigquery.SchemaField]) -> str:
@@ -519,32 +538,29 @@ def purge_forgotten() -> int:
     return len(forgotten)
 
 
-def sync_products(since: datetime.datetime | None) -> tuple[int, int, int]:
-    """Products + their SKUs and category links, in one expanded pass.
+def keyset(entity_path: str, select: str, expand: str | None = None,
+           filter_clause: str | None = None, page: int = 100,
+           label: str = "rows") -> Iterator[dict]:
+    """Yield every row of a Products/* set by KEYSET paging (Id gt last).
 
-    ProductCategories has no standalone set (404s), so the only way to get the
-    links is $expand from Products — same for the SKU list.
+    NOT $skip/nextLink: the tenant 500s non-deterministically at deep offsets on
+    these entities, which killed two backfills mid-stream. Keyset holds at any
+    depth, and a page that still 500s after retries is shrunk (100 -> 25 -> 5
+    -> 1); a single row that 500s is skipped with a warning rather than sinking
+    the whole run.
 
-    Paged by KEYSET (Id gt last, orderby Id), not $skip/nextLink: the tenant
-    500s non-deterministically at deep offsets on this entity, which killed
-    two backfills mid-stream. Keyset holds at any depth, and a page that
-    still 500s after retries is shrunk (100 -> 25 -> 5 -> 1); a single row
-    that 500s is skipped with a warning rather than sinking the whole run.
+    Shared by sync_products and sync_variants so there is exactly ONE copy of
+    this endpoint's hard-won failure handling.
     """
-    clause = None
-    if since is not None:
-        ts = _odata_ts(since)
-        clause = f"(Updated ge {ts} or (Updated eq null and Created ge {ts}))"
-    prods, skus, cats = [], [], []
-    last, page, skips = 0, 100, 0
+    last, skips, seen, full = 0, 0, 0, page
     while True:
-        f = f"Id gt {last}" + (f" and {clause}" if clause else "")
-        params = {"$select": "Id,ManufacturerId,DefaultName,IsActive",
-                  "$expand": "Skus($select=PartNo,ProductId,EanCode),"
-                             "Categories($select=ProductId,CategoryId,IsPrimary)",
-                  "$filter": f, "$orderby": "Id", "$top": page}
+        f = f"Id gt {last}" + (f" and {filter_clause}" if filter_clause else "")
+        params = {"$select": select, "$filter": f, "$orderby": "Id", "$top": page}
+        if expand:
+            params["$expand"] = expand
         try:
-            rows = _get(f"{NORCE_QUERY_URL}/Products/Products", params, CONTEXT_APP_ID).get("value") or []
+            rows = _get(f"{NORCE_QUERY_URL}/{entity_path}", params,
+                        CONTEXT_APP_ID).get("value") or []
         except RuntimeError as e:
             if page > 1:
                 page = max(1, page // 4)
@@ -558,32 +574,69 @@ def sync_products(since: datetime.datetime | None) -> tuple[int, int, int]:
                 # 500ed for a stretch, then recovered). Fail loudly; the
                 # nightly run picks up where the watermark left off.
                 raise RuntimeError(
-                    "Products/Products failing on every row — endpoint outage, "
+                    f"{entity_path} failing on every row — endpoint outage, "
                     f"aborting rather than crawling the Id space. Last error: {e}")
-            print(f"   !! skipping product Id>{last} after persistent error: {e}", flush=True)
+            print(f"   !! skipping {label} Id>{last} after persistent error: {e}", flush=True)
             last += 1
             continue
         skips = 0
         time.sleep(0.05)              # be polite — three backfills in one day
                                       # visibly degraded this endpoint
-        for p in rows:
-            prods.append({"Id": p["Id"], "ManufacturerId": p.get("ManufacturerId"),
-                          "DefaultName": p.get("DefaultName"), "IsActive": bool(p.get("IsActive"))})
-            skus.extend({"PartNo": s.get("PartNo"), "ProductId": p["Id"], "EanCode": s.get("EanCode")}
-                        for s in (p.get("Skus") or []))
-            cats.extend({"ProductId": p["Id"], "CategoryId": c.get("CategoryId"),
-                         "IsPrimary": bool(c.get("IsPrimary"))} for c in (p.get("Categories") or []))
+        for r in rows:
+            yield r
         if rows:
+            prev, seen = seen, seen + len(rows)
             last = rows[-1]["Id"]
-            if len(prods) % 10_000 < page:
-                print(f"   products… {len(prods):,} (Id {last})", flush=True)
+            if seen // 10_000 != prev // 10_000:
+                print(f"   {label}… {seen:,} (Id {last})", flush=True)
         done = len(rows) < page
-        if page < 100:                # a shrunk page succeeded — resume full pages
-            page = 100
+        if page < full:               # a shrunk page succeeded — resume full pages
+            page = full
             if rows:                  # only genuinely done when a FULL page comes up short
                 continue
         if done:
-            break
+            return
+
+
+def sync_variants() -> int:
+    """The PARENT product names — the thing that makes the product dimension readable.
+
+    Norce's Product.DefaultName is variant-grain ("2-4 Y", "One Size"), while
+    Variants.DefaultName is the real product ("Lilo Striped Skirt Blue"). This is
+    a plain entity set — no $expand — so it pages far more cheaply than Products
+    and takes a larger page size. DefaultTitle is null in practice; DefaultName
+    is the field to use.
+    """
+    rows = [{"Id": v["Id"], "DefaultName": v.get("DefaultName")}
+            for v in keyset("Products/Variants", "Id,DefaultName",
+                            page=500, label="variants")]
+    return replace(rows, "variants")
+
+
+def sync_products(since: datetime.datetime | None) -> tuple[int, int, int]:
+    """Products + their SKUs and category links, in one expanded pass.
+
+    ProductCategories has no standalone set (404s), so the only way to get the
+    links is $expand from Products — same for the SKU list. VariantId is what
+    joins each product row to its real parent name in `variants`.
+    """
+    clause = None
+    if since is not None:
+        ts = _odata_ts(since)
+        clause = f"(Updated ge {ts} or (Updated eq null and Created ge {ts}))"
+    prods, skus, cats = [], [], []
+    for p in keyset(
+            "Products/Products", "Id,ManufacturerId,DefaultName,IsActive,VariantId",
+            expand="Skus($select=PartNo,ProductId,EanCode),"
+                   "Categories($select=ProductId,CategoryId,IsPrimary)",
+            filter_clause=clause, page=100, label="products"):
+        prods.append({"Id": p["Id"], "ManufacturerId": p.get("ManufacturerId"),
+                      "DefaultName": p.get("DefaultName"), "IsActive": bool(p.get("IsActive")),
+                      "VariantId": p.get("VariantId")})
+        skus.extend({"PartNo": s.get("PartNo"), "ProductId": p["Id"], "EanCode": s.get("EanCode")}
+                    for s in (p.get("Skus") or []))
+        cats.extend({"ProductId": p["Id"], "CategoryId": c.get("CategoryId"),
+                     "IsPrimary": bool(c.get("IsPrimary"))} for c in (p.get("Categories") or []))
     return (merge(prods, "products", ["Id"]),
             merge(skus, "product_skus", ["PartNo"]),
             merge(cats, "product_categories", ["ProductId", "CategoryId"]))
@@ -720,6 +773,8 @@ def main() -> int:
     ap.add_argument("--marts-only", action="store_true", help="only re-apply norce_marts.sql")
     ap.add_argument("--titles-only", action="store_true",
                     help="only reload norce.sku_titles from the Channable feed")
+    ap.add_argument("--products-only", action="store_true",
+                    help="products/variants/dimensions/titles + marts, skipping the orders phase")
     ap.add_argument("--skip-products", action="store_true", help="skip the product/dimension pass")
     args = ap.parse_args()
 
@@ -756,29 +811,42 @@ def main() -> int:
               f"Known: {', '.join(APPLICATIONS)}")
         return 1
 
-    since = None if args.backfill else watermark("orders")
-    start = datetime.date.fromisoformat(args.from_date) if args.from_date else None
-    mode = (f"backfill from {start or HISTORY_START}" if since is None
-            else f"incremental since {since:%Y-%m-%d %H:%M}Z")
-    print(f"Norce sync · {mode} · {len(app_keys)} application(s)")
-
     run_started = datetime.datetime.now(datetime.timezone.utc)
-    n_orders, n_items = sync_orders(app_keys, since, start)
-    # Watermark = when the run STARTED, never max(Updated): an order updated
-    # mid-run would otherwise be skipped forever. WATERMARK_LAP re-reads the
-    # overlap on the next run, and the MERGE makes that idempotent.
-    set_watermark("orders", run_started, n_orders)
+    n_orders = n_items = n_forgotten = 0
 
-    n_forgotten = purge_forgotten()
-    prods = skus = cats = titles = 0
+    # --products-only skips the ~30-minute orders phase. Use it when only the
+    # product/name side changed (a new VariantId column, a re-titled catalogue) —
+    # the orders watermark is left untouched, so the next normal run still picks
+    # up exactly the orders this one did not look at.
+    if not args.products_only:
+        since = None if args.backfill else watermark("orders")
+        start = datetime.date.fromisoformat(args.from_date) if args.from_date else None
+        mode = (f"backfill from {start or HISTORY_START}" if since is None
+                else f"incremental since {since:%Y-%m-%d %H:%M}Z")
+        print(f"Norce sync · {mode} · {len(app_keys)} application(s)")
+        n_orders, n_items = sync_orders(app_keys, since, start)
+        # Watermark = when the run STARTED, never max(Updated): an order updated
+        # mid-run would otherwise be skipped forever. WATERMARK_LAP re-reads the
+        # overlap on the next run, and the MERGE makes that idempotent.
+        set_watermark("orders", run_started, n_orders)
+        n_forgotten = purge_forgotten()
+    else:
+        print("Norce sync · products only (orders phase skipped)")
+
+    prods = skus = cats = titles = variants = 0
     dims: dict[str, int] = {}
     if not args.skip_products:
-        prods, skus, cats = sync_products(None if args.backfill else watermark("products"))
+        # A full re-pull whenever the extract SHAPE changed (VariantId was added
+        # to the select) — an incremental pass would leave every untouched
+        # product with a NULL VariantId and no parent name.
+        prods, skus, cats = sync_products(
+            None if (args.backfill or args.products_only) else watermark("products"))
         set_watermark("products", run_started, prods)
+        variants = sync_variants()
         dims = sync_dimensions()
         # Non-fatal: the Channable feed is a nice-to-have that makes the product
         # dimension readable. If it is down or unconfigured the marts COALESCE
-        # back to the Norce variant names, which is strictly today's behaviour.
+        # back through variants, which is now the primary name source anyway.
         try:
             titles = sync_sku_titles()
         except Exception as e:
@@ -786,9 +854,9 @@ def main() -> int:
 
     n_marts = apply_marts()
     print(f"✓ Norce sync · orders {n_orders:,} · lines {n_items:,} · products {prods:,} "
-          f"· skus {skus:,} · category links {cats:,} · dims {sum(dims.values()):,} "
-          f"· sku titles {titles:,} · forgotten purged {n_forgotten:,} "
-          f"· marts {n_marts} · {time.time()-t0:.1f}s")
+          f"· variants {variants:,} · skus {skus:,} · category links {cats:,} "
+          f"· dims {sum(dims.values()):,} · sku titles {titles:,} "
+          f"· forgotten purged {n_forgotten:,} · marts {n_marts} · {time.time()-t0:.1f}s")
     return 0
 
 
