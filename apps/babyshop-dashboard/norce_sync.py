@@ -437,7 +437,7 @@ def watermark(step: str) -> datetime.datetime | None:
 
 def set_watermark(step: str, w: datetime.datetime, n: int) -> None:
     bq().query(
-        f"INSERT INTO `{T('sync_state')}` (step, watermark, run_at, rows) "
+        f"INSERT INTO `{T('sync_state')}` (step, watermark, run_at, `rows`) "
         f"VALUES (@s, @w, CURRENT_TIMESTAMP(), @n)",
         job_config=bigquery.QueryJobConfig(query_parameters=[
             bigquery.ScalarQueryParameter("s", "STRING", step),
