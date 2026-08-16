@@ -191,16 +191,19 @@ def _get(url: str, params: dict[str, Any] | None, app_id: int | None) -> dict:
     raise RuntimeError(f"Norce request gave up after retries: {url}")
 
 
-def query(entity_path: str, app_id: int | None = None, **opts: Any) -> Iterator[dict]:
+def query(entity_path: str, app_id: int | None = None,
+          page_size: int = PAGE_SIZE, **opts: Any) -> Iterator[dict]:
     """Page through an OData entity set, yielding rows.
 
     `entity_path` is Namespace/EntitySet, e.g. "Orders/Orders". `opts` are OData
     options without the `$` (select/expand/filter/orderby). Paging follows
     @odata.nextLink when the server sends one and falls back to $skip — the
     tenant honours both, but only nextLink is guaranteed stable across versions.
+    `page_size` exists because $top=500 with a double $expand makes the tenant
+    500 on Products/Products; heavy-expand callers pass something smaller.
     """
     params = {f"${k}": v for k, v in opts.items() if v is not None}
-    params["$top"] = PAGE_SIZE
+    params["$top"] = page_size
     url, seen = f"{NORCE_QUERY_URL}/{entity_path}", 0
     while True:
         body = _get(url, params, app_id)
@@ -212,14 +215,14 @@ def query(entity_path: str, app_id: int | None = None, **opts: Any) -> Iterator[
         if nxt:
             url, params = nxt, None       # nextLink already carries every option
             continue
-        if len(rows) < PAGE_SIZE:
+        if len(rows) < page_size:
             return
         # No nextLink but a full page — fall back to $skip. It must be the
         # CUMULATIVE count, not this page's size: a run that started on
         # nextLink and lost it mid-stream would otherwise rewind to page two.
         url = f"{NORCE_QUERY_URL}/{entity_path}"
         params = {f"${k}": v for k, v in opts.items() if v is not None}
-        params["$top"], params["$skip"] = PAGE_SIZE, seen
+        params["$top"], params["$skip"] = page_size, seen
 
 
 def _odata_ts(d: datetime.datetime | datetime.date) -> str:
@@ -516,7 +519,8 @@ def sync_products(since: datetime.datetime | None) -> tuple[int, int, int]:
         ts = _odata_ts(since)
         clause = f"(Updated ge {ts} or (Updated eq null and Created ge {ts}))"
     prods, skus, cats = [], [], []
-    for p in query("Products/Products", None, select="Id,ManufacturerId,DefaultName,IsActive",
+    for p in query("Products/Products", None, page_size=100,
+                   select="Id,ManufacturerId,DefaultName,IsActive",
                    expand="Skus($select=PartNo,ProductId,EanCode),Categories($select=ProductId,CategoryId,IsPrimary)",
                    filter=clause, orderby="Id"):
         prods.append({"Id": p["Id"], "ManufacturerId": p.get("ManufacturerId"),
