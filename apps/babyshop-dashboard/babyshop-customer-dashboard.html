@@ -159,6 +159,18 @@
     .callout .co-head { font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; opacity:.8; margin-bottom:3px; }
     .callouts:empty { display:none; }
     .cac-head-right { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    /* Secondary count columns — present for context, but they must not compete
+       with cost / CAC / vs-blended / flag, which are what the tables are read for. */
+    thead th.count-2nd { color:#B6BFCC; font-weight:500; }
+    tbody td.count-2nd, tfoot td.count-2nd { font-size:11.5px; font-weight:500; color:var(--muted); }
+    /* Tighter gutters so the extra counts never push CAC / ratio off the card. */
+    th.count-2nd, td.count-2nd { padding-left:9px; padding-right:9px; }
+    /* Norce rows are market × shop — without this tag two "SE" rows read as duplicates. */
+    .shop-tag { display:block; width:max-content; margin-top:3px;
+      font-size:9px; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+      color:var(--muted); background:var(--bg); border:1px solid var(--border);
+      border-radius:3px; padding:1px 5px; }
+    .shop-tag.lekmer { color:var(--purple); background:#F5F3FF; border-color:#DDD6FE; }
 
     /* ── Awaiting-Norce sample treatment ── */
     .awaiting { position:relative; border-style:dashed; border-color:#D8DEE8; }
@@ -277,7 +289,8 @@
         <div class="chart-title">CAC matrix — acquisition cost (last 90 days)</div>
         <div class="chart-sub">Paid cost ÷ new customers attributed to the same slice. Rows flagged where CAC runs far above the blended
           average, or where real spend attributes essentially no new customers — those are the two places to act first. The callouts always
-          read the detailed market × channel cells, whichever view is selected.</div>
+          read the detailed market × channel cells, whichever view is selected. Total customers falls back to new + returning where the
+          snapshot carries no total of its own.</div>
       </div>
       <div class="cac-head-right">
         <div class="filter-group">
@@ -294,7 +307,9 @@
     <div class="callouts" id="cac-callouts"></div>
     <table>
       <thead>
-        <tr><th id="cac-col">Market</th><th>Cost 90d</th><th>New customers 90d</th><th>CAC</th><th>vs blended</th><th>Flag</th></tr>
+        <tr><th id="cac-col">Market</th><th>Cost 90d</th><th>New customers 90d</th>
+          <th class="count-2nd">Returning 90d</th><th class="count-2nd">Total customers 90d</th>
+          <th>CAC</th><th>vs blended</th><th>Flag</th></tr>
       </thead>
       <tbody id="cac-tbody"></tbody>
       <tfoot id="cac-tfoot"></tfoot>
@@ -337,8 +352,10 @@
     <div class="card awaiting" id="clv-card" style="margin-bottom:0">
       <div class="card-header">
         <div>
-          <div class="chart-title">1-year CLV by market</div>
-          <div class="chart-sub">Revenue in the 365 days after a customer's first order, against that market's blended CAC.</div>
+          <div class="chart-title">1-year CLV by market &amp; shop</div>
+          <div class="chart-sub">Revenue in the 365 days after a customer's first order, against that market's blended CAC. One row per market
+            <i>and shop</i> — Babyshop and Lekmer are separate customer bases. CAC and the ratio are Babyshop-only, because the funnel feed
+            carries no usable Lekmer customer counts.</div>
         </div>
         <span class="sample-tag" id="clv-tag">Sample</span>
       </div>
@@ -348,7 +365,8 @@
           <i>real</i> only when the funnel snapshot has cost for that market.</div>
       </div>
       <table>
-        <thead><tr><th>Market</th><th>1y CLV</th><th>CAC 90d</th><th>LTV:CAC</th></tr></thead>
+        <thead><tr><th>Market</th><th class="count-2nd">Customers</th><th class="count-2nd">Returning</th>
+          <th>1y CLV</th><th>CAC 90d</th><th>LTV:CAC</th></tr></thead>
         <tbody id="clv-tbody"></tbody>
         <tfoot id="clv-tfoot"></tfoot>
       </table>
@@ -360,7 +378,8 @@
       <div class="chart-header">
         <div>
           <div class="chart-title">Repeat rate &amp; churn</div>
-          <div class="chart-sub">Share of customers ordering again within 12 months, and the 12-month churn complement, per market.</div>
+          <div class="chart-sub">Share of customers ordering again within 12 months, and the 12-month churn complement.
+            Both shops blended into one line — the table beside this splits them.</div>
         </div>
         <span class="sample-tag" id="repeat-tag">Sample</span>
       </div>
@@ -377,13 +396,15 @@
     <div class="card awaiting" id="churn-card" style="margin-bottom:0">
       <div class="card-header">
         <div>
-          <div class="chart-title">Retention detail by market</div>
-          <div class="chart-sub">Repeat rate, churn and orders per customer — the markets to defend vs the ones bleeding first-time buyers.</div>
+          <div class="chart-title">Retention detail by market &amp; shop</div>
+          <div class="chart-sub">Repeat rate, churn and orders per customer — the markets to defend vs the ones bleeding first-time buyers.
+            One row per market <i>and shop</i>.</div>
         </div>
         <span class="sample-tag" id="churn-tag">Sample</span>
       </div>
       <table>
-        <thead><tr><th>Market</th><th>Customers</th><th>Repeat rate</th><th>Churn 12m</th><th>Orders / customer</th></tr></thead>
+        <thead><tr><th>Market</th><th class="count-2nd">Customers</th><th class="count-2nd">Returning</th>
+          <th>Repeat rate</th><th>Churn 12m</th><th>Orders / customer</th></tr></thead>
         <tbody id="churn-tbody"></tbody>
       </table>
     </div>
@@ -393,8 +414,9 @@
     <div class="card-header">
       <div>
         <div class="chart-title">What drives new customers — first purchases</div>
-        <div class="chart-sub">Brands, categories and products that appear in NEW customers' first orders. This is the acquisition-assortment view:
-          what to push in prospecting, and which entry products earn a second order.</div>
+        <div class="chart-sub">First purchases by new customers only — the first order each customer ever placed. Returning-customer orders are
+          excluded entirely, which is why there is no returning or total column here. This is the acquisition-assortment view: what to push in
+          prospecting, and which entry products earn a second order.</div>
       </div>
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
         <span class="sample-tag" id="fp-tag">Sample</span>
@@ -493,18 +515,18 @@ const SAMPLE_NORCE = {
     {cohort_month:'2026-05', market:'ALL', months_since_first:2,  active_customers:1330, cumulative_revenue_per_customer:1530},
   ],
   clv_1y_by_market: [
-    {market:'SE', customers:38200, clv_1y:2240, orders_per_customer:1.9, revenue_365d:85568000},
-    {market:'NO', customers:12400, clv_1y:2680, orders_per_customer:2.0, revenue_365d:33232000},
-    {market:'FI', customers:9800,  clv_1y:1950, orders_per_customer:1.8, revenue_365d:19110000},
-    {market:'DK', customers:7300,  clv_1y:2080, orders_per_customer:1.8, revenue_365d:15184000},
-    {market:'EU', customers:4100,  clv_1y:1620, orders_per_customer:1.5, revenue_365d:6642000},
+    {market:'SE', customers:38200, clv_1y:2240, returning_customers:16044, orders_per_customer:1.9, revenue_365d:85568000},
+    {market:'NO', customers:12400, clv_1y:2680, returning_customers:5580, orders_per_customer:2.0, revenue_365d:33232000},
+    {market:'FI', customers:9800,  clv_1y:1950, returning_customers:3724, orders_per_customer:1.8, revenue_365d:19110000},
+    {market:'DK', customers:7300,  clv_1y:2080, returning_customers:2628, orders_per_customer:1.8, revenue_365d:15184000},
+    {market:'EU', customers:4100,  clv_1y:1620, returning_customers:1107, orders_per_customer:1.5, revenue_365d:6642000},
   ],
   churn: [
-    {market:'SE', customers:38200, repeat_rate:0.42, churn_12m:0.58, orders_per_customer:1.9},
-    {market:'NO', customers:12400, repeat_rate:0.45, churn_12m:0.55, orders_per_customer:2.0},
-    {market:'FI', customers:9800,  repeat_rate:0.38, churn_12m:0.62, orders_per_customer:1.8},
-    {market:'DK', customers:7300,  repeat_rate:0.36, churn_12m:0.64, orders_per_customer:1.8},
-    {market:'EU', customers:4100,  repeat_rate:0.27, churn_12m:0.73, orders_per_customer:1.5},
+    {market:'SE', customers:38200, returning_customers:16044, repeat_rate:0.42, churn_12m:0.58, orders_per_customer:1.9},
+    {market:'NO', customers:12400, returning_customers:5580, repeat_rate:0.45, churn_12m:0.55, orders_per_customer:2.0},
+    {market:'FI', customers:9800,  returning_customers:3724, repeat_rate:0.38, churn_12m:0.62, orders_per_customer:1.8},
+    {market:'DK', customers:7300,  returning_customers:2628, repeat_rate:0.36, churn_12m:0.64, orders_per_customer:1.8},
+    {market:'EU', customers:4100,  returning_customers:1107, repeat_rate:0.27, churn_12m:0.73, orders_per_customer:1.5},
   ],
   first_purchase_products: {
     brands: [
@@ -866,9 +888,19 @@ function cacRowHtml(label, sub, r){
     <td>${esc(label)}${sub?`<span class="sub-cell">${esc(sub)}</span>`:''}</td>
     <td>${fmtSEK(r.cost)}</td>
     <td>${fmtInt(r.newc)}</td>
+    <td class="count-2nd">${fmtInt(r.ret)}</td>
+    <td class="count-2nd">${fmtInt(r.tot)}</td>
     <td>${r.cac==null?'<span style="color:var(--muted)">—</span>':fmtKr(r.cac)}</td>
     <td>${cacMultCell(r)}</td>
     <td>${cacFlagCell(r)}</td></tr>`;
+}
+
+/* Sum a column that may be absent from the snapshot: null only when NO
+   contributing row carried the field, so a real 0 never reads as "missing". */
+function sumOpt(rows, key){
+  let sum = 0, seen = 0;
+  rows.forEach(r=>{ if (r[key] != null){ sum += r[key]; seen += 1; } });
+  return seen ? sum : null;
 }
 
 /* Roll the detailed cells up on one key. CAC stays null when there is no paid
@@ -878,13 +910,18 @@ function cacAggregate(cells, keyFn, blended){
   const m = new Map();
   cells.forEach(c=>{
     const k = keyFn(c);
-    const o = m.get(k) || { key:k, cost:0, newc:0, parts:0, flagged:0 };
-    o.cost += c.cost; o.newc += c.newc; o.parts += 1;
+    const o = m.get(k) || { key:k, cost:0, newc:0, parts:0, flagged:0, cells:[] };
+    o.cost += c.cost; o.newc += c.newc; o.parts += 1; o.cells.push(c);
     if (c.flag==='dead' || c.flag==='high') o.flagged += 1;
     m.set(k,o);
   });
   return [...m.values()]
-    .map(o=>cacClassify({ ...o, cac: (o.cost>0 && o.newc) ? o.cost/o.newc : null }, blended))
+    .map(o=>cacClassify({
+      ...o,
+      ret: sumOpt(o.cells,'ret'),
+      tot: sumOpt(o.cells,'tot'),
+      cac: (o.cost>0 && o.newc) ? o.cost/o.newc : null,
+    }, blended))
     .sort(cacSort);
 }
 
@@ -901,7 +938,7 @@ function renderCAC(){
     callouts.innerHTML = '';
     tfoot.innerHTML = '';
     badge.textContent = 'no data';
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">${
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="8">${
       ((DATA.funnel&&DATA.funnel.cac_matrix)||[]).length
         ? 'No rows for this market/channel combination.'
         : 'No CAC rows in the snapshot yet — this table fills in on the first successful refresh.'}</td></tr>`;
@@ -914,12 +951,20 @@ function renderCAC(){
     const cost = num(r.cost_90d) || 0;
     const newc = num(r.new_customers_90d) || 0;
     const cac  = num(r.cac);
-    return { market: r.market || '—', channel: r.channel_l1 || '—', cost, newc,
+    /* Returning + total are newer snapshot fields. Total falls back to
+       new + returning — the same "identified customers" definition the
+       new-share KPI already uses — and stays null when neither exists. */
+    const ret  = num(r.old_customers_90d);
+    const totF = num(r.total_customers_90d);
+    return { market: r.market || '—', channel: r.channel_l1 || '—', cost, newc, ret,
+             tot: totF != null ? totF : (ret != null ? newc + ret : null),
              cac: cost > 0 ? (cac != null ? cac : (newc ? cost/newc : null)) : null };
   });
 
   const totCost = cells.reduce((s,r)=>s+r.cost,0);
   const totNew  = cells.reduce((s,r)=>s+r.newc,0);
+  const totRet  = sumOpt(cells,'ret');
+  const totTot  = sumOpt(cells,'tot');
   const blended = totNew ? totCost/totNew : null;
   cells.forEach(c=>cacClassify(c, blended));
 
@@ -970,7 +1015,7 @@ function renderCAC(){
     rowCount = cells.length;
     marketOrder.forEach(({m,rs,cost,newc})=>{
       if (marketOrder.length > 1)
-        html += `<tr class="grp-row"><td colspan="6">${esc(m)} — ${fmtSEK(cost)} · ${fmtInt(newc)} new · CAC ${
+        html += `<tr class="grp-row"><td colspan="8">${esc(m)} — ${fmtSEK(cost)} · ${fmtInt(newc)} new · CAC ${
           fmtKr(cost>0 && newc ? cost/newc : null)}</td></tr>`;
       rs.slice().sort(cacSort).forEach(r=>{
         html += cacRowHtml(r.channel, marketOrder.length>1 ? '' : r.market, r);
@@ -980,7 +1025,9 @@ function renderCAC(){
   const unitLbl = CAC_VIEW==='market' ? 'market' : (CAC_VIEW==='channel' ? 'channel' : 'cell');
   badge.textContent = `${rowCount} ${unitLbl}${rowCount===1?'':'s'} · blended ${fmtKr(blended)}`;
   tbody.innerHTML = html;
-  tfoot.innerHTML = `<tr class="tfoot-row"><td>Total · ${esc(filterLabel())}</td><td>${fmtSEK(totCost)}</td><td>${fmtInt(totNew)}</td><td>${fmtKr(blended)}</td><td>1,0×</td><td></td></tr>`;
+  tfoot.innerHTML = `<tr class="tfoot-row"><td>Total · ${esc(filterLabel())}</td><td>${fmtSEK(totCost)}</td><td>${fmtInt(totNew)}</td>` +
+    `<td class="count-2nd">${fmtInt(totRet)}</td><td class="count-2nd">${fmtInt(totTot)}</td>` +
+    `<td>${fmtKr(blended)}</td><td>1,0×</td><td></td></tr>`;
 }
 
 /* ══ Norce sections — one renderer per block, fed by either the real
@@ -1060,6 +1107,34 @@ function renderCohorts(src){
   });
 }
 
+/* ── Market × shop rows ──────────────────────────────────────────────────────
+   The Norce marts key on market AND shop, so "SE" appears twice — once for
+   Babyshop, once for Lekmer. Without the shop spelled out on the row those read
+   as duplicates, so every such table gets a per-row shop tag AND a shop group
+   header (suppressed when the payload only carries one shop).                */
+const SHOP_LBL = s => { const t=String(s||'').trim(); return t ? t.charAt(0).toUpperCase()+t.slice(1) : ''; };
+const isBabyshop = r => !r.shop || String(r.shop).toLowerCase().indexOf('babyshop') === 0;
+const marketCell = r => `${esc(r.market||'—')}${r.shop
+  ? `<span class="shop-tag${isBabyshop(r)?'':' lekmer'}">${esc(SHOP_LBL(r.shop))}</span>` : ''}`;
+
+/* Renders a tbody grouped by shop, each group value-sorted by sortFn. */
+function renderShopGrouped(rows, tbody, colspan, rowHtml, sortFn){
+  const shops = [...new Set(rows.map(r=>r.shop).filter(Boolean))];
+  if (shops.length < 2){
+    tbody.innerHTML = rows.slice().sort(sortFn).map(rowHtml).join('');
+    return;
+  }
+  const byShop = new Map();
+  rows.forEach(r=>{ const s=String(r.shop||'—'); if(!byShop.has(s)) byShop.set(s,[]); byShop.get(s).push(r); });
+  tbody.innerHTML = [...byShop.entries()]
+    .map(([s,rs])=>({ s, rs, cust: rs.reduce((a,r)=>a+(num(r.customers)||0),0) }))
+    .sort((a,b)=>b.cust-a.cust)
+    .map(({s,rs,cust})=>
+      `<tr class="grp-row"><td colspan="${colspan}">${esc(SHOP_LBL(s))} — ${fmtInt(cust)} customers · ${
+        rs.length} market${rs.length===1?'':'s'}</td></tr>` + rs.slice().sort(sortFn).map(rowHtml).join(''))
+    .join('');
+}
+
 function marketCAC(){
   /* Real CAC per market from the funnel snapshot (unfiltered) — used to give the
      sample CLV table a real denominator wherever one exists. */
@@ -1080,29 +1155,37 @@ function renderCLV(src){
   const tbody = document.getElementById('clv-tbody');
   const tfoot = document.getElementById('clv-tfoot');
   if (!rows.length){
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="4">No 1-year CLV rows yet.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">No 1-year CLV rows yet.</td></tr>`;
     tfoot.innerHTML = '';
     return;
   }
   const cacByMarket = marketCAC();
   const max = Math.max(...rows.map(r=>num(r.clv_1y)||0)) || 1;
   let totCust=0, totRev=0;
-  tbody.innerHTML = rows.slice().sort((a,b)=>(num(b.clv_1y)||0)-(num(a.clv_1y)||0)).map(r=>{
+  const totRet = sumOpt(rows.map(r=>({ ret: num(r.returning_customers) })), 'ret');
+  rows.forEach(r=>{ const c=num(r.customers)||0; totCust += c; totRev += (num(r.clv_1y)||0)*c; });
+  renderShopGrouped(rows, tbody, 6, r=>{
     const clv = num(r.clv_1y);
     const cust = num(r.customers)||0;
-    totCust += cust; totRev += (clv||0)*cust;
-    const cac = cacByMarket.get(String(r.market||'').toUpperCase());
+    /* CAC comes from the funnel feed, whose customer counts are Babyshop-only —
+       pinning it to a Lekmer row would invent a ratio out of two different shops. */
+    const cac = isBabyshop(r) ? cacByMarket.get(String(r.market||'').toUpperCase()) : null;
     const ratio = (clv!=null && cac) ? clv/cac : null;
     const w = Math.round(((clv||0)/max)*54)+2;
     const rc = ratio==null ? '' : (ratio>=3 ? 'cell-pos' : (ratio<2 ? 'cell-neg' : ''));
     return `<tr>
-      <td>${esc(r.market)}<span class="sub-cell">${fmtInt(cust)} customers</span></td>
+      <td>${marketCell(r)}</td>
+      <td class="count-2nd">${fmtInt(cust)}</td>
+      <td class="count-2nd">${fmtInt(num(r.returning_customers))}</td>
       <td><div class="bar-cell"><span class="mini-bar" style="width:${w}px"></span>${fmtKr(clv)}</div></td>
       <td>${cac?fmtKr(cac):'<span style="color:var(--muted)">—</span>'}${cac?'<span class="sub-cell">real</span>':''}</td>
       <td class="${rc}">${fmtRatio(ratio)}</td></tr>`;
-  }).join('');
+  }, (a,b)=>(num(b.clv_1y)||0)-(num(a.clv_1y)||0));
   const blendedClv = totCust ? totRev/totCust : null;
-  tfoot.innerHTML = `<tr class="tfoot-row"><td>All markets</td><td>${fmtKr(blendedClv)}</td><td>${fmtKr(num((DATA.kpis||{}).blended_cac_90d))}</td><td>${
+  tfoot.innerHTML = `<tr class="tfoot-row"><td>All markets${
+      [...new Set(rows.map(r=>r.shop).filter(Boolean))].length > 1 ? ' · both shops' : ''}</td>` +
+    `<td class="count-2nd">${fmtInt(totCust)}</td><td class="count-2nd">${fmtInt(totRet)}</td>` +
+    `<td>${fmtKr(blendedClv)}</td><td>${fmtKr(num((DATA.kpis||{}).blended_cac_90d))}</td><td>${
     fmtRatio(blendedClv!=null && num((DATA.kpis||{}).blended_cac_90d) ? blendedClv/num(DATA.kpis.blended_cac_90d) : null)}</td></tr>`;
 }
 
@@ -1113,22 +1196,24 @@ function renderChurn(src){
   if (repeatChart){ repeatChart.destroy(); repeatChart = null; }
 
   if (!rows.length){
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="5">No retention rows yet.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">No retention rows yet.</td></tr>`;
     document.getElementById('repeat-wrap').classList.add('is-empty');
     return;
   }
   document.getElementById('repeat-wrap').classList.remove('is-empty');
-  const sorted = rows.slice().sort((a,b)=>(num(b.repeat_rate)||0)-(num(a.repeat_rate)||0));
-  tbody.innerHTML = sorted.map(r=>{
+  const sortByRepeat = (a,b)=>(num(b.repeat_rate)||0)-(num(a.repeat_rate)||0);
+  const sorted = rows.slice().sort(sortByRepeat);
+  renderShopGrouped(rows, tbody, 6, r=>{
     const rep = num(r.repeat_rate), ch = num(r.churn_12m) ?? (rep!=null ? 1-rep : null);
     const cls = rep==null ? '' : (rep>=0.40 ? 'good' : (rep<0.30 ? 'risk' : ''));
     return `<tr${cls?` class="${cls}"`:''}>
-      <td>${esc(r.market)}</td>
-      <td>${fmtInt(num(r.customers))}</td>
+      <td>${marketCell(r)}</td>
+      <td class="count-2nd">${fmtInt(num(r.customers))}</td>
+      <td class="count-2nd">${fmtInt(num(r.returning_customers))}</td>
       <td class="${rep!=null&&rep>=0.40?'cell-pos':(rep!=null&&rep<0.30?'cell-neg':'')}">${fmtPct(rep,0)}</td>
       <td>${fmtPct(ch,0)}</td>
       <td>${num(r.orders_per_customer)!=null?num(r.orders_per_customer).toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1}):'—'}</td></tr>`;
-  }).join('');
+  }, sortByRepeat);
 
   /* Chart: repeat rate over time if monthly metrics exist, else per-market bars. */
   const monthly = (src && src.monthly_customer_metrics) || [];
@@ -1162,7 +1247,7 @@ function renderChurn(src){
   } else {
     repeatChart = new Chart(canvas, {
       type:'bar',
-      data:{ labels: sorted.map(r=>r.market), datasets:[
+      data:{ labels: sorted.map(r=> r.shop ? `${r.market} · ${SHOP_LBL(r.shop)}` : r.market), datasets:[
         { label:'Repeat rate', data: sorted.map(r=>(num(r.repeat_rate)||0)*100), backgroundColor:'#047857', borderRadius:2 },
         { label:'Churn 12m', data: sorted.map(r=>{ const rep=num(r.repeat_rate); const ch=num(r.churn_12m) ?? (rep!=null?1-rep:0); return ch*100; }),
           backgroundColor:'#E2E8F0', borderRadius:2 },

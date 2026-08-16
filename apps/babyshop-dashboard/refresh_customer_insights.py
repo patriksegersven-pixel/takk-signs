@@ -59,6 +59,24 @@ FUNNEL_START = os.environ.get("CUSTOMER_INSIGHTS_START", "2025-09-01")
 CUSTOMER_SHOP = os.environ.get("CUSTOMER_INSIGHTS_SHOP", "Babyshop")
 WINDOW_DAYS = 90
 
+# Cohort triangle bounds — see the cohorts query for why each exists.
+COHORT_MAX_OFFSET = int(os.environ.get("CUSTOMER_INSIGHTS_COHORT_MAX_OFFSET", "12"))
+COHORT_MIN_SIZE   = int(os.environ.get("CUSTOMER_INSIGHTS_COHORT_MIN_SIZE", "50"))
+
+# Firestore's hard document limit is 1,048,576 bytes. Refuse to write above this
+# and say what is big, rather than let the write fail at the API and leave the
+# tab serving a stale snapshot with nobody the wiser.
+#
+# The check measures COMPACT JSON, which deliberately over-states the real cost:
+# Firestore charges string=bytes+1, number=8, bool/null=1, plus each map key per
+# entry. Measured 2026-08-16 on the untrimmed payload — compact JSON 690,779 B
+# vs Firestore-accounted 608,252 B (58% of the limit). So this budget trips
+# before Firestore would reject the write, which is the safe direction.
+#
+# funnel.monthly and norce.cohorts both grow every month. When this trips, the
+# fix is a rolling window on them, not a bigger number here.
+DOC_BUDGET_BYTES = 900_000
+
 CAVEATS = [
     "market-level new-share unreliable (feed definition)",
     "funnel history from 2025-09",
@@ -204,10 +222,14 @@ def funnel_cac_matrix(start: datetime.date, end: datetime.date) -> list[dict]:
     """
     out = []
     for r in _rows(sql, [_d("s", start), _d("e", end), _shop_param()]):
-        cost, new = I(r["cost"]), I(r["new_customers"])
+        cost, new, old = I(r["cost"]), I(r["new_customers"]), I(r["old_customers"])
         out.append({"market": r["market"], "channel_l1": r["channel_l1"],
                     "cost_90d": cost, "new_customers_90d": new,
-                    "old_customers_90d": I(r["old_customers"]),
+                    "old_customers_90d": old,
+                    # new + old is the feed's own definition of total customers
+                    # in the window. It is NOT the order count — new+old covers
+                    # ~68% of Orders_count__File_Import.
+                    "total_customers_90d": new + old,
                     "cac": F(cost / new) if new else None})
     return out
 
@@ -265,15 +287,27 @@ def norce_available() -> bool:
 def norce_payload() -> dict:
     """The Norce half of the contract, straight off the marts."""
     D = f"{NORCE_PROJECT}.{NORCE_DATASET}"
+    # total_customers is the mart's active_customers under the name the UI
+    # wants; by construction new + returning = active, so it is carried rather
+    # than recomputed and the two can never disagree.
     monthly = [{"month": str(r["month"]), "market": r["market"], "shop": r["shop"],
                 "new_customers": I(r["new_customers"]),
                 "returning_customers": I(r["returning_customers"]),
+                "total_customers": I(r["active_customers"]),
                 "active_customers": I(r["active_customers"]), "orders": I(r["orders"]),
                 "revenue": I(r["revenue"]), "aov": F(r["aov"]),
                 "repeat_rate": F(r["repeat_rate"], 4)}
                for r in _rows(f"SELECT * FROM `{D}.monthly_customer_metrics` "
                               f"ORDER BY month, market, shop")]
 
+    # Bounded on purpose — this is the one series that grows without limit
+    # (every new month adds a cohort AND extends every existing cohort), and
+    # the whole payload has to fit one 1 MiB Firestore document.
+    #   months_since_first <= 12  1-year CLV is the value at offset 12 and the
+    #                             user decision rules out 2- and 3-year CLV, so
+    #                             offsets past 12 are outside the spec anyway.
+    #   cohort_size >= 50         a retention percentage off 6 customers is
+    #                             noise the UI would have to hide regardless.
     cohorts = [{"cohort_month": str(r["cohort_month"]), "market": r["market"], "shop": r["shop"],
                 "months_since_first": I(r["months_since_first"]),
                 "cohort_size": I(r["cohort_size"]),
@@ -281,14 +315,21 @@ def norce_payload() -> dict:
                 "retention_rate": F(r["retention_rate"], 4),
                 "cumulative_revenue_per_customer": F(r["cumulative_revenue_per_customer"])}
                for r in _rows(f"SELECT * FROM `{D}.cohort_retention` "
+                              f"WHERE months_since_first <= {COHORT_MAX_OFFSET} "
+                              f"AND cohort_size >= {COHORT_MIN_SIZE} "
                               f"ORDER BY cohort_month, market, shop, months_since_first")]
 
     # 1-year CLV = mean revenue_365d_from_first over customers whose own 365
     # days have elapsed (the mart NULLs the rest), per first market.
+    # returning_customers is COUNTIF(is_repeat) over THIS row's own `customers`
+    # base (the matured cohort), not over all customers — so it is always a
+    # subset of the total sitting next to it.
     clv = [{"market": r["market"], "shop": r["shop"], "customers": I(r["customers"]),
+            "returning_customers": I(r["returning"]),
             "clv_1y": F(r["clv_1y"]), "aov": F(r["aov"]), "orders_per_customer": F(r["opc"])}
            for r in _rows(f"""
         SELECT first_market market, shop, COUNT(*) customers,
+               COUNTIF(is_repeat) returning,
                AVG(revenue_365d_from_first) clv_1y, AVG(aov) aov, AVG(orders_cnt) opc
         FROM `{D}.customer_facts`
         WHERE revenue_365d_from_first IS NOT NULL
@@ -299,11 +340,13 @@ def norce_payload() -> dict:
     # repeat_rate is the share who ever placed a second order — a different
     # question from churn, and the one the LTV story actually rests on.
     churn = [{"market": r["market"], "shop": r["shop"], "customers": I(r["customers"]),
+              "returning_customers": I(r["returning"]),
               "lapsed_12m": I(r["lapsed"]), "churn_12m": F(r["churn"], 4),
               "repeat_rate": F(r["repeat_rate"], 4),
               "orders_per_customer": F(r["opc"])}
              for r in _rows(f"""
         SELECT first_market market, shop, COUNT(*) customers,
+               COUNTIF(is_repeat) returning,
                COUNTIF(days_since_last_order > 365) lapsed,
                SAFE_DIVIDE(COUNTIF(days_since_last_order > 365), COUNT(*)) churn,
                SAFE_DIVIDE(COUNTIF(is_repeat), COUNT(*)) repeat_rate,
@@ -405,8 +448,23 @@ def build_payload() -> dict:
     }
 
 
+def _check_size(payload: dict) -> int:
+    """Refuse to write a document that is about to hit Firestore's 1 MiB cap."""
+    n = len(json.dumps(payload, ensure_ascii=False))
+    if n > DOC_BUDGET_BYTES:
+        big = sorted(((len(json.dumps(v, ensure_ascii=False)), k)
+                      for k, v in payload.items()), reverse=True)[:3]
+        raise RuntimeError(
+            f"Customer Insights payload is {n:,} B, over the {DOC_BUDGET_BYTES:,} B budget "
+            f"(Firestore's hard limit is 1,048,576). Biggest sections: "
+            + ", ".join(f"{k} {s:,} B" for s, k in big)
+            + ". Put a rolling window on the growing series — do not just raise the budget.")
+    return n
+
+
 def write_firestore(payload: dict) -> str:
     from google.cloud import firestore
+    _check_size(payload)
     db = firestore.Client(project=FIRESTORE_PROJECT, credentials=_credentials())
     doc_id = f"{WORKSPACE}__{DOC_KEY}"
     db.collection(COLLECTION).document(doc_id).set({

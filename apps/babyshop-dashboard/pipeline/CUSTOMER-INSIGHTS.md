@@ -262,6 +262,47 @@ exists" is deliberately not enough, since `norce_sync` creates its tables before
 it loads anything and a half-finished first run would otherwise serve an
 all-zero tab.
 
+### Customer-count fields
+
+Every table carries totals alongside the split, so the UI never has to add them
+up itself:
+
+| Section | Fields |
+|---|---|
+| `funnel.cac_matrix` | `new_customers_90d`, `old_customers_90d`, `total_customers_90d` (= new + old) |
+| `norce.monthly_customer_metrics` | `new_customers`, `returning_customers`, `total_customers` (= `active_customers`) |
+| `norce.clv_1y_by_market` | `customers`, `returning_customers` |
+| `norce.churn` | `customers`, `returning_customers` |
+
+`returning_customers` is `COUNTIF(is_repeat)` — customers with ≥ 2 orders —
+computed over **that row's own `customers` base**, so it is always a subset of
+the total beside it. The two Norce bases differ on purpose: `clv_1y_by_market`
+counts customers whose own 365 days have elapsed, `churn` counts customers whose
+first order is at least 365 days old.
+
+`total_customers_90d` is the Funnel feed's own new + old. It is **not** an order
+count — new + old covers only ~68% of `Orders_count__File_Import`.
+
+### Document size
+
+The snapshot is one Firestore document, hard-capped at 1,048,576 bytes.
+`refresh_customer_insights.py` refuses to write above `DOC_BUDGET_BYTES`
+(900,000 B of compact JSON) and names the biggest sections when it trips.
+
+Measured 2026-08-16: compact JSON 690,779 B vs Firestore-accounted 608,252 B
+(58% of the limit) — the check over-states cost, so it fires before Firestore
+would reject the write.
+
+`norce.cohorts` is bounded to keep it that way: `months_since_first <= 12` (the
+1-year CLV is the value at offset 12, and 2-/3-year CLV is ruled out) and
+`cohort_size >= 50` (a retention rate off six customers is noise). Both are
+tunable via `CUSTOMER_INSIGHTS_COHORT_MAX_OFFSET` / `_MIN_SIZE`.
+
+**Known growth risk:** `funnel.monthly` (+~90 rows/month) and `norce.cohorts`
+(+~170 rows/month even bounded) both grow indefinitely. At the current rate the
+budget is reached in roughly a year. The fix then is a rolling window on both —
+raising `DOC_BUDGET_BYTES` only moves the failure to the Firestore API.
+
 ## Troubleshooting
 
 | Symptom | Cause |
