@@ -513,22 +513,54 @@ def sync_products(since: datetime.datetime | None) -> tuple[int, int, int]:
 
     ProductCategories has no standalone set (404s), so the only way to get the
     links is $expand from Products — same for the SKU list.
+
+    Paged by KEYSET (Id gt last, orderby Id), not $skip/nextLink: the tenant
+    500s non-deterministically at deep offsets on this entity, which killed
+    two backfills mid-stream. Keyset holds at any depth, and a page that
+    still 500s after retries is shrunk (100 -> 25 -> 5 -> 1); a single row
+    that 500s is skipped with a warning rather than sinking the whole run.
     """
     clause = None
     if since is not None:
         ts = _odata_ts(since)
         clause = f"(Updated ge {ts} or (Updated eq null and Created ge {ts}))"
     prods, skus, cats = [], [], []
-    for p in query("Products/Products", None, page_size=100,
-                   select="Id,ManufacturerId,DefaultName,IsActive",
-                   expand="Skus($select=PartNo,ProductId,EanCode),Categories($select=ProductId,CategoryId,IsPrimary)",
-                   filter=clause, orderby="Id"):
-        prods.append({"Id": p["Id"], "ManufacturerId": p.get("ManufacturerId"),
-                      "DefaultName": p.get("DefaultName"), "IsActive": bool(p.get("IsActive"))})
-        skus.extend({"PartNo": s.get("PartNo"), "ProductId": p["Id"], "EanCode": s.get("EanCode")}
-                    for s in (p.get("Skus") or []))
-        cats.extend({"ProductId": p["Id"], "CategoryId": c.get("CategoryId"),
-                     "IsPrimary": bool(c.get("IsPrimary"))} for c in (p.get("Categories") or []))
+    last, page = 0, 100
+    while True:
+        f = f"Id gt {last}" + (f" and {clause}" if clause else "")
+        params = {"$select": "Id,ManufacturerId,DefaultName,IsActive",
+                  "$expand": "Skus($select=PartNo,ProductId,EanCode),"
+                             "Categories($select=ProductId,CategoryId,IsPrimary)",
+                  "$filter": f, "$orderby": "Id", "$top": page}
+        try:
+            rows = _get(f"{NORCE_QUERY_URL}/Products/Products", params, None).get("value") or []
+        except RuntimeError as e:
+            if page > 1:
+                page = max(1, page // 4)
+                continue
+            # A single poison row — skip past it. Ids are dense enough that +1
+            # converges; the row is logged so it can be chased upstream.
+            print(f"   !! skipping product Id>{last} after persistent error: {e}", flush=True)
+            last += 1
+            continue
+        for p in rows:
+            prods.append({"Id": p["Id"], "ManufacturerId": p.get("ManufacturerId"),
+                          "DefaultName": p.get("DefaultName"), "IsActive": bool(p.get("IsActive"))})
+            skus.extend({"PartNo": s.get("PartNo"), "ProductId": p["Id"], "EanCode": s.get("EanCode")}
+                        for s in (p.get("Skus") or []))
+            cats.extend({"ProductId": p["Id"], "CategoryId": c.get("CategoryId"),
+                         "IsPrimary": bool(c.get("IsPrimary"))} for c in (p.get("Categories") or []))
+        if rows:
+            last = rows[-1]["Id"]
+            if len(prods) % 10_000 < page:
+                print(f"   products… {len(prods):,} (Id {last})", flush=True)
+        done = len(rows) < page
+        if page < 100:                # a shrunk page succeeded — resume full pages
+            page = 100
+            if rows:                  # only genuinely done when a FULL page comes up short
+                continue
+        if done:
+            break
     return (merge(prods, "products", ["Id"]),
             merge(skus, "product_skus", ["PartNo"]),
             merge(cats, "product_categories", ["ProductId", "CategoryId"]))
