@@ -146,8 +146,31 @@
     .pill-up { background:var(--up-bg); color:var(--up); }
     .pill-down { background:var(--down-bg); color:var(--down); }
     .pill-neutral { background:var(--bg); color:var(--muted); border:1px solid var(--border); }
-    .bar-cell { display:flex; align-items:center; gap:8px; justify-content:flex-end; }
+    .bar-cell { display:flex; align-items:center; gap:8px; justify-content:flex-end; flex-wrap:nowrap; }
     .mini-bar { height:6px; border-radius:3px; background:var(--accent); opacity:.55; flex-shrink:0; }
+    /* A number is one word — "3 808 kr" breaking after the thousands space reads as
+       two values. Only the name column, which carries a market plus a shop tag, wraps. */
+    tbody td, tfoot td { white-space:nowrap; }
+    tbody td:first-child, tfoot td:first-child { white-space:normal; }
+    /* The two side-by-side cards are narrower than their tables at common widths.
+       .card clips (overflow:hidden), so without this the last column silently
+       disappears — scroll the table, never the page. */
+    .tscroll { overflow-x:auto; }
+    .tscroll table { min-width:100%; }
+    /* Six columns in a half-width card leaves the name column too little to hold
+       even "All markets". Inside a scroller nothing has to be squeezed to fit — let
+       the labels stand on one line and let the scroller absorb the overflow. */
+    .tscroll tbody td:first-child, .tscroll tfoot td:first-child { white-space:nowrap; }
+    /* The mini-bar is decoration; it must yield to the number beside it. */
+    .tscroll .mini-bar { max-width:34px; }
+    /* Tighter gutters buy back the ~20px these six columns were overflowing by, so the
+       common case fits outright and the scroller is only there for narrow windows. */
+    .tscroll thead th, .tscroll tbody td, .tscroll tfoot td { padding-left:10px; padding-right:10px; }
+    .tscroll thead th:first-child, .tscroll tbody td:first-child, .tscroll tfoot td:first-child { padding-left:22px; }
+    .tscroll .bar-cell { gap:6px; }
+    /* Headers are prose and may wrap — "Orders / customer (lifetime)" held on one line
+       is 204px, wider than any value under it. Values still never wrap. */
+    .tscroll thead th { white-space:normal; }
 
     /* ── Section heads ── */
     .section-head { margin:30px 0 14px; display:flex; align-items:flex-start; justify-content:space-between; gap:18px; flex-wrap:wrap; }
@@ -416,11 +439,13 @@
         <div><b>Sample layout — awaiting Norce sync.</b> CLV column is illustrative. The CAC and ratio columns are marked
           <i>real</i> only when the funnel snapshot has cost for that market.</div>
       </div>
-      <table>
-        <thead id="clv-thead"></thead>
-        <tbody id="clv-tbody"></tbody>
-        <tfoot id="clv-tfoot"></tfoot>
-      </table>
+      <div class="tscroll">
+        <table>
+          <thead id="clv-thead"></thead>
+          <tbody id="clv-tbody"></tbody>
+          <tfoot id="clv-tfoot"></tfoot>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -457,10 +482,12 @@
           <span class="sample-tag" id="churn-tag">Sample</span>
         </div>
       </div>
-      <table>
-        <thead id="churn-thead"></thead>
-        <tbody id="churn-tbody"></tbody>
-      </table>
+      <div class="tscroll">
+        <table>
+          <thead id="churn-thead"></thead>
+          <tbody id="churn-tbody"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -1635,8 +1662,11 @@ function renderCLV(src){
       <td class="${rc}">${fmtRatio(r._ratio)}</td></tr>`;
   }, (a,b)=>{ const s=sortRows([a,b],'clv',clvVal); return s[0]===a ? -1 : 1; });
   const blendedClv = totCust ? totRev/totCust : null;
+  /* The scope goes on its own sub-line, exactly as the market rows carry their shop
+     tag — in this narrow card a single run-on label wraps to four lines. */
   tfoot.innerHTML = `<tr class="tfoot-row"><td>All markets${
-      [...new Set(rows.map(r=>r.shop).filter(Boolean))].length > 1 ? ' · both shops' : ''}</td>` +
+      [...new Set(rows.map(r=>r.shop).filter(Boolean))].length > 1
+        ? '<span class="sub-cell">both shops</span>' : ''}</td>` +
     `<td class="count-2nd">${fmtInt(totCust)}</td><td class="count-2nd">${fmtInt(totRet)}</td>` +
     `<td>${fmtKr(blendedClv)}</td><td>${fmtKr(num((DATA.kpis||{}).blended_cac_90d))}</td><td>${
     fmtRatio(blendedClv!=null && num((DATA.kpis||{}).blended_cac_90d) ? blendedClv/num(DATA.kpis.blended_cac_90d) : null)}</td></tr>`;
