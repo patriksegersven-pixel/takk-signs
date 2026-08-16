@@ -100,9 +100,10 @@ def _merge_kv(cur, prev, rev_prev_key="revenue_prev"):
     out = []
     for r in cur:
         p = pm.get(r["name"])
-        out.append({"name": r["name"], "revenue": I(r["rev"]), "gp2": I(r["gp2"]),
-                    "gp3": I(r["gp3"]), "cost": I(r["cost"]),
+        out.append({"name": r["name"], "revenue": I(r["rev"]), "gp1": I(r["gp1"]),
+                    "gp2": I(r["gp2"]), "gp3": I(r["gp3"]), "cost": I(r["cost"]),
                     rev_prev_key: I(p["rev"]) if p else None,
+                    "gp1_prev": I(p["gp1"]) if p else None,
                     "gp2_prev": I(p["gp2"]) if p else None,
                     "gp3_prev": I(p["gp3"]) if p else None,
                     "cost_prev": I(p["cost"]) if p else None})
@@ -154,7 +155,8 @@ def _kv_filtered(filters, cs, ce, ps, pe):
              bigquery.ScalarQueryParameter("ce", "DATE", e)] + params
         rows = _rows(f"WITH {_kv_cte(' AND '.join(conds))} SELECT {KVD} FROM kv_rows", p)
         r = rows[0] if rows else None
-        return {"revenue": I(r["rev"]) if r else 0, "gp2": I(r["gp2"]) if r else 0,
+        return {"revenue": I(r["rev"]) if r else 0, "gp1": I(r["gp1"]) if r else 0,
+                "gp2": I(r["gp2"]) if r else 0,
                 "gp3": I(r["gp3"]) if r else 0, "txns": I(r["txns"]) if r else 0,
                 "cost": I(r["cost"]) if r else 0}
     return {"cur": q(cs, ce), "prev": q(ps, pe)}
@@ -166,7 +168,7 @@ def filtered_daily(filters, start: datetime.date, end: datetime.date):
     only the keys present are constrained). Returns one row per day that has
     data, ordered by date:
 
-        [{"d": "2026-05-24", "rev": …, "gp2": …, "gp3": …, "cost": …}, …]
+        [{"d": "2026-05-24", "rev": …, "gp1": …, "gp2": …, "gp3": …, "cost": …}, …]
 
     Same metric aliases as build_payloads' daily query, but `d` stays the ISO
     date (the caller buckets it) instead of the dd/m display label. Fully
@@ -178,7 +180,7 @@ def filtered_daily(filters, start: datetime.date, end: datetime.date):
     rows = _rows(f"WITH {_kv_cte(' AND '.join(conds))} "
                  f"SELECT CAST(Date AS STRING) d, {KVD} FROM kv_rows GROUP BY d ORDER BY d",
                  params)
-    return [{"d": r["d"], "rev": I(r["rev"]), "gp2": I(r["gp2"]),
+    return [{"d": r["d"], "rev": I(r["rev"]), "gp1": I(r["gp1"]), "gp2": I(r["gp2"]),
              "gp3": I(r["gp3"]), "cost": I(r["cost"])} for r in rows]
 
 def _merge_prod(cur, prev):
@@ -229,6 +231,7 @@ def build_payloads(cur_end: datetime.date | None = None):
         c = dcur[wi:wi+7]
         weeks.append({"label": f"V{wi//7+1} · {_dm(c[0]['d'])}",
                       "revenue": I(sum(r["rev"] or 0 for r in c)),
+                      "gp1": I(sum(r["gp1"] or 0 for r in c)),
                       "gp2": I(sum(r["gp2"] or 0 for r in c)),
                       "gp3": I(sum(r["gp3"] or 0 for r in c)),
                       "cost": I(sum(r["cost"] or 0 for r in c))})
