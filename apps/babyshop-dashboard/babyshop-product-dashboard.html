@@ -7,6 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Shared column filters + CSV/Sheets export. Tables opt in with data-tools and
+       are re-scanned automatically when a render function rebuilds their rows. -->
+  <script src="/table-tools.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -437,6 +440,8 @@
       display: flex; align-items: flex-start; justify-content: space-between;
       border-bottom: 1px solid var(--border-lt);
     }
+    /* right-hand side of a card header: export toolbar next to the badge */
+    .card-header-right { display: flex; align-items: center; gap: 10px; }
     table { width: 100%; border-collapse: collapse; }
     thead th {
       padding: 9px 14px; font-size: 10px; font-weight: 600; letter-spacing: .07em;
@@ -657,12 +662,18 @@
         <div class="chart-title">Category Performance</div>
         <div class="chart-sub">Revenue · GP1 · GP2 · GP3-Shopping · GM% at each step</div>
       </div>
+      <div id="cat-tools"></div>
     </div>
     <div class="table-filter">
       <input type="text" id="cat-filter" placeholder="Filter categories…" autocomplete="off" />
       <span class="count" id="cat-count"></span>
     </div>
-    <table class="sortable" id="cat-table">
+    <!-- data-export-ignore: every money/percent cell carries a trailing .cell-delta
+         badge (▲ +4,2%), which must stay out of filter values and exports. -->
+    <table class="sortable" id="cat-table" data-tools
+           data-export-name="product-category-performance"
+           data-export-ignore=".cell-delta"
+           data-tools-toolbar="#cat-tools">
       <thead>
         <tr>
           <th title="cf1j4pcmic8ucum_Product_type_2">Category</th>
@@ -719,13 +730,20 @@
         <div class="chart-title">Brand Performance</div>
         <div class="chart-sub">Top brands by revenue · GP1 · GP2 · Shopping cost · GP3-Shopping · GM% at each step</div>
       </div>
-      <span class="chart-badge" id="brand-table-badge">Top 20</span>
+      <div class="card-header-right">
+        <div id="brand-tools"></div>
+        <span class="chart-badge" id="brand-table-badge">Top 20</span>
+      </div>
     </div>
     <div class="table-filter">
       <input type="text" id="brand-filter" placeholder="Filter brands…" autocomplete="off" />
       <span class="count" id="brand-count"></span>
     </div>
-    <table class="sortable" id="brand-table">
+    <!-- data-export-ignore: .cell-delta = the inline vs-previous badge on each cell. -->
+    <table class="sortable" id="brand-table" data-tools
+           data-export-name="product-brand-performance"
+           data-export-ignore=".cell-delta"
+           data-tools-toolbar="#brand-tools">
       <thead>
         <tr>
           <th title="dim-1j4p9puragt0f_kv_brand">Brand</th>
@@ -1952,7 +1970,9 @@ function makeSortable(tableEl) {
   const headers = tableEl.querySelectorAll('thead th');
   const tbody = tableEl.querySelector('tbody');
   headers.forEach((th, idx) => {
-    th.addEventListener('click', () => {
+    th.addEventListener('click', e => {
+      // The header filter button lives inside the th — clicking it must not sort.
+      if (e.target.closest('.tt-fbtn')) return;
       const dir = th.classList.contains('sort-asc') ? 'desc' : 'asc';
       headers.forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
       th.classList.add('sort-' + dir);
@@ -1971,6 +1991,10 @@ function makeSortable(tableEl) {
   });
 }
 
+/* Name search box. Hides rows with the `hidden` attribute, which is independent of
+ * the column filters' .tt-hidden class — the two therefore AND together. The count
+ * only tallies rows no filter of either kind is hiding. Returns its update fn so the
+ * column-filter module can re-apply the search after it rebuilds/refreshes a table. */
 function makeFilterable(inputEl, tableEl, countEl) {
   const tbody = tableEl.querySelector('tbody');
   const update = () => {
@@ -1981,18 +2005,37 @@ function makeFilterable(inputEl, tableEl, countEl) {
       const name = row.cells[0].textContent.toLowerCase();
       const match = !q || name.includes(q);
       row.hidden = !match;
-      if (match) shown++;
+      if (match && !row.classList.contains('tt-hidden')) shown++;
     });
     countEl.textContent = `showing ${shown} of ${rows.length}`;
   };
   inputEl.addEventListener('input', update);
   update();
+  return update;
 }
 
 makeSortable(document.getElementById('cat-table'));
 makeSortable(document.getElementById('brand-table'));
-makeFilterable(document.getElementById('cat-filter'),  document.getElementById('cat-table'),  document.getElementById('cat-count'));
-makeFilterable(document.getElementById('brand-filter'), document.getElementById('brand-table'), document.getElementById('brand-count'));
+const catSearch   = makeFilterable(document.getElementById('cat-filter'),   document.getElementById('cat-table'),   document.getElementById('cat-count'));
+const brandSearch = makeFilterable(document.getElementById('brand-filter'), document.getElementById('brand-table'), document.getElementById('brand-count'));
+
+/* ─── Column filters + CSV/Sheets export (shared module) ──
+ * Declarative opt-in lives on each <table>; the two hooks below only reconcile the
+ * module with this page's own name search box:
+ *   onChange     — re-apply the search after every module pass, so a tbody rebuild
+ *                  (loadBreakdown / live overlay) does not resurrect rows the search
+ *                  box is meant to hide, and keeps "showing N of M" honest.
+ *   visibleRows  — the module hides with .tt-hidden and exports whatever is left, so
+ *                  without this wrap a CSV taken while the search box is active would
+ *                  carry rows the user cannot see. */
+if (window.TableTools) {
+  [['cat-table', catSearch], ['brand-table', brandSearch]].forEach(([id, search]) => {
+    const inst = TableTools.enhance(document.getElementById(id), { onChange: () => search() });
+    if (!inst) return;
+    const allVisible = inst.visibleRows.bind(inst);
+    inst.visibleRows = () => allVisible().filter(r => !r.hidden);
+  });
+}
 
 /* ─── Performance Matrix (configurable bubble chart) ──── */
 // Shop dataset for product context (kept distinct from KV's SHOPS)

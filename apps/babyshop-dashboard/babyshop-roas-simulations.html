@@ -7,6 +7,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Shared column filters + CSV/Sheets export. Tables opt in with data-tools and are
+       picked up on DOMContentLoaded. Every table on this page is written whole (thead and
+       tbody together) by its render function, so the module's MutationObserver re-attaches
+       the header buttons on each re-render — the render functions need no hooks. What they
+       DO need, because two of them change their column COUNT with the selection, are the
+       TableTools.clearFilters() calls in the selector handlers at the foot of this file. -->
+  <script src="/table-tools.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -280,6 +287,10 @@
     }
     .chart-wrap { position: relative; height: 240px; }
     .chart-wrap.tall { height: 340px; }
+    /* right-hand cluster of a card header: the CSV/Sheets toolbar sits left of the badge.
+       .card-header is space-between, so without this wrapper a third child would be
+       stranded in the middle of the header. */
+    .hdr-tools { display: flex; align-items: center; gap: 10px; flex: none; }
 
     /* ── Toggle controls ────────────────────────────── */
     .lt-controls {
@@ -597,9 +608,22 @@
         <div class="chart-title">Recommended vs current Target ROAS</div>
         <div class="chart-sub">generic · private label · brand — click a row to open its curve below</div>
       </div>
-      <span class="chart-badge" id="summary-badge">—</span>
+      <div class="hdr-tools">
+        <div id="summary-tools"></div>
+        <span class="chart-badge" id="summary-badge">—</span>
+      </div>
     </div>
-    <div class="tscroll"><table id="summary-table"></table></div>
+    <!-- data-export-ignore: `td .assumption` drops the "obs 350%" annotation under a
+         recommended target (and only in the body — the two Actual ROAS <th>s use the same
+         class for their "conv. time" / "click time" sub-labels, which the export needs to
+         tell those two columns apart). `.mt` drops the campaign cell's meta line, which
+         carries the point count, the bidding type and the multiplier/incrementality pills,
+         leaving the campaign NAME as the filterable value. The Status column is a bare
+         .pill, so .pill itself is deliberately NOT ignored — that would blank the column. -->
+    <div class="tscroll"><table id="summary-table" data-tools
+           data-export-name="roas-sim-campaign-summary"
+           data-export-ignore="td .assumption, .mt"
+           data-tools-toolbar="#summary-tools"></table></div>
   </div>
 
   <!-- ── Campaign drill-down ───────────────────────── -->
@@ -610,7 +634,10 @@
         <div class="chart-title" id="drill-title">—</div>
         <div class="chart-sub" id="drill-sub">GP2 / GP3 / iGP3 against cost, and the marginal-ROAS breakeven</div>
       </div>
-      <span class="chart-badge" id="drill-badge">—</span>
+      <div class="hdr-tools">
+        <div id="point-tools"></div>
+        <span class="chart-badge" id="drill-badge">—</span>
+      </div>
     </div>
     <div class="kv-strip" id="drill-meta"></div>
     <div class="card-body">
@@ -629,7 +656,13 @@
       </div>
       <div id="drill-inc"></div>
     </div>
-    <div class="tscroll"><table id="point-table"></table></div>
+    <!-- data-export-ignore: the Target ROAS cell carries the "GP3 max" / "dominated" pills.
+         .assumption is NOT ignored here — in this table it only ever labels the two measured
+         Actual rows ("conv. time · 2026-08-10 → …"), which is exactly what tells them apart. -->
+    <div class="tscroll"><table id="point-table" data-tools
+           data-export-name="roas-sim-simulation-points"
+           data-export-ignore=".pill"
+           data-tools-toolbar="#point-tools"></table></div>
   </div>
 
   <!-- ── Portfolio allocator ───────────────────────── -->
@@ -640,7 +673,10 @@
         <div class="chart-title">Optimal split of one budget</div>
         <div class="chart-sub">buy the cheapest marginal GP2 first until the budget runs out</div>
       </div>
-      <span class="chart-badge" id="pf-badge">—</span>
+      <div class="hdr-tools">
+        <div id="alloc-tools"></div>
+        <span class="chart-badge" id="pf-badge">—</span>
+      </div>
     </div>
     <div class="card-body">
       <div class="lt-controls">
@@ -670,7 +706,11 @@
         </div>
       </div>
     </div>
-    <div class="tscroll"><table id="alloc-table"></table></div>
+    <!-- data-export-ignore: the campaign cell carries the incrementality pill. -->
+    <div class="tscroll"><table id="alloc-table" data-tools
+           data-export-name="roas-sim-portfolio-allocation"
+           data-export-ignore=".pill"
+           data-tools-toolbar="#alloc-tools"></table></div>
   </div>
 
   <!-- ── Run history ───────────────────────────────── -->
@@ -681,12 +721,22 @@
         <div class="chart-title">Run-date trend</div>
         <div class="chart-sub" id="hist-sub">every run the Ads script appends is kept — the trend fills in by itself</div>
       </div>
-      <span class="chart-badge" id="hist-badge">—</span>
+      <div class="hdr-tools">
+        <div id="run-tools"></div>
+        <span class="chart-badge" id="hist-badge">—</span>
+      </div>
     </div>
     <div class="card-body" id="hist-body">
       <div class="chart-wrap" style="height:280px"><canvas id="c-history"></canvas></div>
     </div>
-    <div class="tscroll"><table id="run-table"></table></div>
+    <!-- data-export-ignore: the current run date carries a "shown" pill.
+         Column 0 is an ISO date, which the 60%-numeric auto-detection would read as the
+         number 2026 (parseNum stops at the first "-"), so the numeric type is forced by
+         numericColumns in the enhance() call at the foot of this file instead. -->
+    <div class="tscroll"><table id="run-table" data-tools
+           data-export-name="roas-sim-run-history"
+           data-export-ignore=".pill"
+           data-tools-toolbar="#run-tools"></table></div>
   </div>
 
   <!-- ── Trust panel ───────────────────────────────── -->
@@ -2558,8 +2608,8 @@ function renderSummaryTable(){
       <th title="the Target ROAS configured right now">Current</th>
       <th title="the simulated target with the highest ${G3}">Rec.</th>
       <th title="target where the marginal krona returns exactly 1.0, interpolated">Breakeven</th>
-      ${act ? `<th title="MEASURED, not simulated: conversion value counted on the date each conversion happened (Google Ads &quot;by conv. time&quot;, this account's default view) divided by cost over the same window.${poasNote}">Actual ROAS<br><span class="assumption">conv. time</span></th>
-      <th title="MEASURED, not simulated: conversion value counted on the date of the click that led to it (Google Ads' standard columns) divided by cost over the same window. This is the scheme the bid simulator and Target ROAS bidding run on.">Actual ROAS<br><span class="assumption">click time</span></th>` : ''}
+      ${act ? `<th data-tt-value="Actual ROAS (conv. time)" title="MEASURED, not simulated: conversion value counted on the date each conversion happened (Google Ads &quot;by conv. time&quot;, this account's default view) divided by cost over the same window.${poasNote}">Actual ROAS<br><span class="assumption">conv. time</span></th>
+      <th data-tt-value="Actual ROAS (click time)" title="MEASURED, not simulated: conversion value counted on the date of the click that led to it (Google Ads' standard columns) divided by cost over the same window. This is the scheme the bid simulator and Target ROAS bidding run on.">Actual ROAS<br><span class="assumption">click time</span></th>` : ''}
       <th>Cost</th><th title="ad cost change at the recommended target">&Delta; cost</th>
       <th title="observed GP3 at the current target, before any incrementality haircut">GP3 obs.</th>
       <th>${G3} now</th><th>${G3} max</th><th>${G3} uplift</th><th>Status</th>
@@ -2645,6 +2695,10 @@ function renderSummaryTable(){
   el.innerHTML = html + '</tbody>';
 
   el.querySelectorAll('tr[data-strategy]').forEach(tr => tr.addEventListener('click', () => {
+    /* Same reason as the #f-strategy handler: the point table below gains or loses its iGP3
+       column with the campaign, which would shift any index-keyed filter onto another metric.
+       This table's own filters are left alone — picking a row must not undo them. */
+    ttClear('#point-table');
     state.strategyKey = tr.dataset.strategy; savePrefs();
     document.getElementById('f-strategy').value = state.strategyKey;
     renderSummaryTable(); renderStrategy(); renderHistory();
@@ -3109,8 +3163,8 @@ function renderHistory(){
   const act = anyActualsLoaded();
 
   let rt = `<thead><tr><th>Run date</th><th>Age</th><th>Campaigns</th><th>Points</th>
-    <th>Current cost</th>${act ? `<th title="MEASURED: total conversion value counted on the date each conversion happened, over total cost, across every campaign in this run.">Actual ROAS<br><span class="assumption">conv. time</span></th>
-    <th title="MEASURED: total conversion value counted on the date of the click that led to it, over total cost, across every campaign in this run.">Actual ROAS<br><span class="assumption">click time</span></th>` : ''}
+    <th>Current cost</th>${act ? `<th data-tt-value="Actual ROAS (conv. time)" title="MEASURED: total conversion value counted on the date each conversion happened, over total cost, across every campaign in this run.">Actual ROAS<br><span class="assumption">conv. time</span></th>
+    <th data-tt-value="Actual ROAS (click time)" title="MEASURED: total conversion value counted on the date of the click that led to it, over total cost, across every campaign in this run.">Actual ROAS<br><span class="assumption">click time</span></th>` : ''}
     <th>Current ${G3}</th><th>Potential ${G3}</th><th>Score</th></tr></thead><tbody>`;
   runs.slice().reverse().forEach(d => {
     const ss = buildStrategies(inAcct.filter(r => r.runDate === d), m.map, m.def, ic, shareIdxFor(d), state.actualIndex);
@@ -3338,17 +3392,33 @@ function renderTrustFlags(){
 
 /* ============================== EVENTS / BOOT ============================== */
 
+/* TableTools filter state is keyed by column INDEX, and two tables here change their column
+   COUNT with the selection: the summary and run-history tables grow two Actual ROAS columns
+   when the selected run has an actuals row, and the point table gains an iGP3 column when the
+   selected campaign carries an incrementality factor. A filter left on "column 7" would land
+   on a different metric after such a switch, so the selectors that can flip a column count
+   drop the filters for the tables they affect. Everything else (row clicks, budget buttons,
+   plain re-renders) keeps its filters, which is the point of having them. */
+function ttClear(){
+  if (!window.TableTools) return;
+  for (var i = 0; i < arguments.length; i++) TableTools.clearFilters(arguments[i]);
+}
+
 document.getElementById('f-account').addEventListener('change', e => {
+  ttClear('#summary-table', '#point-table', '#alloc-table', '#run-table');
   state.account = e.target.value; state.runDate = null; state.budget = null; rebuild(false);
 });
 document.getElementById('f-run').addEventListener('change', e => {
+  ttClear('#summary-table', '#point-table', '#alloc-table', '#run-table');
   state.runDate = e.target.value; state.budget = null; rebuild(false);
 });
 document.getElementById('f-strategy').addEventListener('change', e => {
+  ttClear('#point-table');   // only the drill-down changes shape with the campaign
   state.strategyKey = e.target.value; savePrefs();
   renderSummaryTable(); renderStrategy(); renderHistory();
 });
 document.getElementById('filter-reset').addEventListener('click', () => {
+  ttClear('#summary-table', '#point-table', '#alloc-table', '#run-table');
   state.account = null; state.runDate = null; state.strategyKey = null; state.budget = null;
   try { localStorage.removeItem(PREFS_KEY); } catch(e){}
   rebuild(true);
@@ -3382,6 +3452,17 @@ function submitKey(){
 }
 document.getElementById('keygate-submit').addEventListener('click', submitKey);
 document.getElementById('keygate-input').addEventListener('keydown', e => { if (e.key === 'Enter') submitKey(); });
+
+/* Run-history column 0 is an ISO date. parseNumber stops at the first "-", so every cell
+   would parse as 2026 and the auto-detection would hand the column a greater-than/between
+   condition over a meaningless number. Naming the real numeric columns forces column 0 to
+   text (its value checklist of dates is the useful filter). The list runs past the last
+   column on purpose: the table is 10 columns wide without an actuals row and 12 with one,
+   and indices that do not exist are simply never consulted.
+   This runs before DOMContentLoaded, so the module's own enhanceAll() finds the instance
+   already registered and only refreshes it — the opts set here survive. */
+if (window.TableTools)
+  TableTools.enhance('#run-table', { numericColumns: [1,2,3,4,5,6,7,8,9,10,11] });
 
 loadData(false);
 </script>

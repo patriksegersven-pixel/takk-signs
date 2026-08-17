@@ -135,6 +135,7 @@ INVENTORY_HTML = STATIC_DIR / "babyshop-inventory-dashboard.html"
 STOY_HTML      = STATIC_DIR / "babyshop-stoy-dashboard.html"
 ROAS_HTML      = STATIC_DIR / "babyshop-roas-impact.html"
 SIM_HTML       = STATIC_DIR / "babyshop-roas-simulations.html"
+TABLE_TOOLS_JS = STATIC_DIR / "table-tools.js"
 
 
 @app.get("/")
@@ -175,6 +176,15 @@ def roas_impact_dashboard(_: str = Depends(verify)):
 @app.get("/babyshop-roas-simulations.html")
 def roas_simulations_dashboard(_: str = Depends(verify)):
     return FileResponse(SIM_HTML, media_type="text/html")
+
+
+# Shared table filtering + export module, used by <script src="/table-tools.js">
+# on the dashboard pages. Same `verify` dependency as the HTML routes: the pages
+# are fetched with Basic credentials, so the browser replays them for this
+# sub-resource — an unauthenticated route here would be a hole, not a fix.
+@app.get("/table-tools.js")
+def table_tools_js(_: str = Depends(verify)):
+    return FileResponse(TABLE_TOOLS_JS, media_type="application/javascript")
 
 
 # ── Health (no auth — for Cloud Run probes) ──────────────────────────────────

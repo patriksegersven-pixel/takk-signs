@@ -7,6 +7,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Shared column filters + CSV/Sheets export. The four data tables opt in with
+       data-tools and are picked up on DOMContentLoaded — i.e. AFTER this page's inline
+       script has rendered them once. Every later re-render (renderCAC, renderCLV,
+       renderChurn, renderFirstPurchase) rebuilds <thead> and then <tbody>; the module's
+       MutationObserver fires on the tbody write and re-attaches the header buttons, so
+       the render functions need no hooks. The only wiring they DO need is a
+       TableTools.clearFilters() call wherever a toggle changes what a column index means
+       (the CAC view select, the first-purchase kind tabs) — see those handlers below. -->
+  <script src="/table-tools.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -376,10 +385,19 @@
           </select>
         </div>
         <span class="chart-badge" id="cac-badge">—</span>
+        <div id="cac-tools"></div>
       </div>
     </div>
     <div class="callouts" id="cac-callouts"></div>
-    <table>
+    <!-- data-export-ignore: the market cell carries a trailing .sub-cell line
+         ("3 months · Babyshop") and every sortable <th> carries a .sort-ind arrow.
+         Dropping both keeps the filter's distinct-value list and the export on the
+         market name / column label itself. The flag pills ARE the last column's
+         value, so they stay. -->
+    <table id="cac-table" data-tools
+           data-export-name="customer-cac-matrix"
+           data-export-ignore=".sub-cell,.sort-ind"
+           data-tools-toolbar="#cac-tools">
       <thead id="cac-thead"></thead>
       <tbody id="cac-tbody"></tbody>
       <tfoot id="cac-tfoot"></tfoot>
@@ -432,6 +450,7 @@
           <span class="fixed-tag" title="1-year CLV is a fixed 12-month definition — the period toggle does not change it">12m definition</span>
           <input class="table-filter" id="clv-q" type="search" placeholder="Filter markets…" style="width:120px" aria-label="Filter CLV rows">
           <span class="sample-tag" id="clv-tag">Sample</span>
+          <div id="clv-tools"></div>
         </div>
       </div>
       <div class="sample-banner" id="clv-banner">
@@ -440,7 +459,15 @@
           <i>real</i> only when the funnel snapshot has cost for that market.</div>
       </div>
       <div class="tscroll">
-        <table>
+        <!-- data-export-ignore drops the .mini-bar sparkline, the tfoot's "both shops"
+             .sub-cell and the header .sort-ind arrows. The per-row .shop-tag is NOT
+             ignored: it is the only place the shop appears, so excluding it would merge
+             the Babyshop and Lekmer rows for a market into one filter value and lose the
+             shop from the export entirely. -->
+        <table id="clv-table" data-tools
+               data-export-name="customer-clv-1y-by-market"
+               data-export-ignore=".mini-bar,.sub-cell,.sort-ind"
+               data-tools-toolbar="#clv-tools">
           <thead id="clv-thead"></thead>
           <tbody id="clv-tbody"></tbody>
           <tfoot id="clv-tfoot"></tfoot>
@@ -480,10 +507,16 @@
           <span class="fixed-tag" title="Repeat, churn and purchases-per-customer are fixed 12-month definitions — the period toggle does not change them">12m definition</span>
           <input class="table-filter" id="churn-q" type="search" placeholder="Filter markets…" style="width:120px" aria-label="Filter retention rows">
           <span class="sample-tag" id="churn-tag">Sample</span>
+          <div id="churn-tools"></div>
         </div>
       </div>
       <div class="tscroll">
-        <table>
+        <!-- Same treatment as the CLV table: .shop-tag stays (it is the row's identity),
+             .sort-ind arrows and any .sub-cell are dropped. -->
+        <table id="churn-table" data-tools
+               data-export-name="customer-retention-detail"
+               data-export-ignore=".sub-cell,.sort-ind"
+               data-tools-toolbar="#churn-tools">
           <thead id="churn-thead"></thead>
           <tbody id="churn-tbody"></tbody>
         </table>
@@ -511,6 +544,7 @@
           <button class="seg active" data-mode="agg">Aggregate</button>
           <button class="seg" data-mode="month">By month</button>
         </div>
+        <div id="fp-tools"></div>
       </div>
     </div>
     <div class="sample-banner" id="fp-banner">
@@ -518,7 +552,17 @@
       <div><b>Sample layout — awaiting Norce sync.</b> Real names come from Norce products/manufacturers/categories joined on part number —
         order lines only carry variant names, so the sync must resolve them.</div>
     </div>
-    <table>
+    <!-- data-filter-columns skips the last column: its <th> is empty, so a filter button
+         there would open a panel titled "Column 5". data-export-ignore drops the
+         .mini-bar and the .sub-cell scope line under each name — note that in the
+         "By month" view that scope line is the row's month × market × shop, so the
+         export names repeat; the "Aggregate" view (default) has nothing but a
+         "N slices" note there. -->
+    <table id="fp-table" data-tools
+           data-export-name="customer-first-purchase-drivers"
+           data-export-ignore=".mini-bar,.sub-cell,.sort-ind"
+           data-filter-columns="0,1,2,3"
+           data-tools-toolbar="#fp-tools">
       <thead id="fp-thead"></thead>
       <tbody id="fp-tbody"></tbody>
     </table>
@@ -1562,8 +1606,12 @@ function renderCohorts(src){
    header (suppressed when the payload only carries one shop).                */
 const SHOP_LBL = s => { const t=String(s||'').trim(); return t ? t.charAt(0).toUpperCase()+t.slice(1) : ''; };
 const isBabyshop = r => !r.shop || String(r.shop).toLowerCase().indexOf('babyshop') === 0;
+/* The space before the tag is deliberate: .shop-tag is display:block so it renders
+   identically with or without it, but the column-filter / export layer reads the cell's
+   text nodes — without a separator the value comes out "SEBabyshop" instead of
+   "SE Babyshop". */
 const marketCell = r => `${esc(r.market||'—')}${r.shop
-  ? `<span class="shop-tag${isBabyshop(r)?'':' lekmer'}">${esc(SHOP_LBL(r.shop))}</span>` : ''}`;
+  ? ` <span class="shop-tag${isBabyshop(r)?'':' lekmer'}">${esc(SHOP_LBL(r.shop))}</span>` : ''}`;
 
 /* Renders a tbody grouped by shop, each group value-sorted by sortFn. */
 function renderShopGrouped(rows, tbody, colspan, rowHtml, sortFn){
@@ -1912,6 +1960,9 @@ const RERENDER = {
   fp:    () => renderFirstPurchase(DATA.norce || SAMPLE_NORCE),
 };
 document.addEventListener('click', e => {
+  /* The table-tools filter button lives inside the sortable <th>; it stops its own
+     click, but guard anyway so a click on the funnel can never also re-sort. */
+  if (e.target.closest('.tt-fbtn')) return;
   const th = e.target.closest('.th-sort'); if (!th) return;
   const tbl = th.dataset.tbl, key = th.dataset.key, s = TSORT[tbl];
   if (!s) return;
@@ -1935,14 +1986,20 @@ document.getElementById('f-reset').onclick = () => {
   ['f-market','f-shop','f-channel'].forEach(id=>{ document.getElementById(id).value = ''; });
   applyFilters();
 };
+/* Column filters are keyed by column INDEX, and the three views have 8 / 5 / 4 columns
+   with different meanings — carrying state across would filter the wrong column. */
 document.getElementById('cac-view').onchange = e => {
   CAC_VIEW = e.target.value;
   e.target.classList.toggle('is-active', CAC_VIEW !== 'market');
+  if (window.TableTools) TableTools.clearFilters('#cac-table');
   renderCAC();
 };
 document.getElementById('fp-tabs').querySelectorAll('.seg').forEach(b=>b.onclick=()=>{
   document.getElementById('fp-tabs').querySelectorAll('.seg').forEach(x=>x.classList.remove('active'));
   b.classList.add('active'); FP_KIND = b.dataset.kind;
+  /* Column 0 becomes brands / categories / products — a value filter picked in one
+     kind means nothing in the next, so drop it with the tab. */
+  if (window.TableTools) TableTools.clearFilters('#fp-table');
   renderFirstPurchase(DATA.norce || SAMPLE_NORCE);
 });
 

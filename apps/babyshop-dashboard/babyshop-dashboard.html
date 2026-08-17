@@ -7,6 +7,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Shared column filters + CSV/Sheets export. Tables opt in with data-tools and are
+       picked up on DOMContentLoaded — i.e. AFTER this page's inline script has rendered
+       them once. Every later re-render (loadBreakdown, bdRenderTable) is caught by the
+       module's MutationObserver, so the render functions need no hooks of their own. -->
+  <script src="/table-tools.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -766,8 +771,15 @@
         <div class="chart-title">Performance by Market</div>
         <div class="chart-sub">kv-revenue · kv-gp2 · kv-gp3 · kv-cos% · kv-cop%</div>
       </div>
+      <div id="market-tools"></div>
     </div>
-    <table id="market-table">
+    <!-- data-export-ignore: the money cells carry a trailing .cell-delta badge
+         ("1,2M kr ▲ +4,2%"). Excluding it keeps the exported value and the
+         filter's distinct-value list on the figure itself. -->
+    <table id="market-table" data-tools
+           data-export-name="kv-market-breakdown"
+           data-export-ignore=".cell-delta"
+           data-tools-toolbar="#market-tools">
       <thead>
         <tr>
           <th title="cf1j1qh36fictd7_market_level_1_kv">Market</th>
@@ -821,8 +833,12 @@
         <div class="chart-title">Channel Type Level 2 — Full Breakdown</div>
         <div class="chart-sub">kv-revenue · kv-gp2 · kv-gp3 · kv-cos% · kv-cop%</div>
       </div>
+      <div id="channel-tools"></div>
     </div>
-    <table id="channel-table">
+    <table id="channel-table" data-tools
+           data-export-name="kv-channel-breakdown"
+           data-export-ignore=".cell-delta"
+           data-tools-toolbar="#channel-tools">
       <thead>
         <tr>
           <th title="cf1i7dnbhv3imth_Google__Bing_New">Channel</th>
@@ -884,9 +900,19 @@
         <div class="chart-title">Full-year P&amp;L plan</div>
         <div class="chart-sub">Group forecast · costs shown negative · <span style="color:var(--accent)">shaded rows</span> reconcile with dashboard data (live variance shown in actual months)</div>
       </div>
+      <div id="pl-tools"></div>
     </div>
     <div class="pl-wrap">
-      <table class="pl-table">
+      <!-- Both <thead> and <tbody> are rebuilt by bdRenderTable(); the module re-attaches
+           its header buttons on the tbody mutation, which bdRenderTable always fires last.
+           Only the P&L-line column gets a filter — the 12 month columns hold one figure per
+           line each, so a per-month value filter would have nothing to narrow down.
+           data-export-ignore drops the inline .pl-var variance badge from exported cells. -->
+      <table class="pl-table" id="pl-table" data-tools
+             data-export-name="kv-pl-plan-2026"
+             data-filter-columns="0"
+             data-export-ignore=".pl-var"
+             data-tools-toolbar="#pl-tools">
         <thead><tr id="pl-head"></tr></thead>
         <tbody id="pl-body"></tbody>
       </table>

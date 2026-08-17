@@ -7,6 +7,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<!-- Shared column filters + CSV/Sheets export. Tables opt in with data-tools; auto-init on
+     DOMContentLoaded runs after render() has filled the tbodies once, and every later
+     render() (including the fetchLive overlay) is caught by the module's MutationObserver.
+     #flag-tbl is the one table enhanced from script — see the call at the end of the page. -->
+<script src="/table-tools.js"></script>
 <style>
   /* Same design system as the other tabs — tokens, header chrome, card and table
      rhythm are all shared. Only the accent differs: purple is this test's signature,
@@ -73,6 +78,13 @@
   .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:20px 22px;margin-top:20px}
   .card h3{font-size:14px;font-weight:600;color:var(--h)}
   .card .csub{color:var(--muted);font-size:11px;margin-top:2px;margin-bottom:12px;line-height:1.5}
+  /* Card header row: title block on the left, the table's CSV/Sheets toolbar on the right.
+     Same shape the two chart cards already use for their segmented toggles. */
+  .card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  .card-head .csub{margin-bottom:0}
+  /* In the narrow half-width cards a long description wraps the toolbar onto its own line;
+     the auto margin keeps it right-aligned there instead of dropping it under the text. */
+  .card-head > :last-child{margin-left:auto}
   table{width:100%;border-collapse:collapse}
   th,td{text-align:right;padding:10px 12px;font-size:13px;font-variant-numeric:tabular-nums}
   th:first-child,td:first-child{text-align:left;padding-left:0}
@@ -138,15 +150,35 @@
   <div class="grid" id="kpis"></div>
 
   <div class="card">
-    <h3>Channel reallocation — Google Shopping → Meta</h3>
-    <div class="csub">The lever: shifting brand ad spend from demand-capture (Google Shopping) to demand-generation (Meta)</div>
-    <table id="mix-tbl"><thead><tr><th>Channel</th><th>Baseline</th><th>Test</th><th>Δ</th><th>Share now</th></tr></thead><tbody></tbody></table>
+    <div class="card-head">
+      <div>
+        <h3>Channel reallocation — Google Shopping → Meta</h3>
+        <div class="csub">The lever: shifting brand ad spend from demand-capture (Google Shopping) to demand-generation (Meta)</div>
+      </div>
+      <div id="mix-tools"></div>
+    </div>
+    <!-- data-no-filters: two channel rows plus a total. Every value is unique and the total
+         lives in <tbody>, so hiding a row would leave a total that no longer adds up.
+         Export stays on — the numbers are still worth pulling into a sheet. -->
+    <table id="mix-tbl" data-tools data-no-filters
+           data-export-name="stoy-channel-reallocation"
+           data-tools-toolbar="#mix-tools"><thead><tr><th>Channel</th><th>Baseline</th><th>Test</th><th>Δ</th><th>Share now</th></tr></thead><tbody></tbody></table>
   </div>
 
   <div class="card">
-    <h3>Cost per click — demand capture vs demand generation</h3>
-    <div class="csub">What a click costs on each channel. The reallocation thesis: Meta buys cheaper, higher-funnel reach.</div>
-    <table id="cpc-tbl"><thead><tr><th>Channel</th><th>Spend</th><th>Clicks</th><th>CPC</th></tr></thead><tbody></tbody></table>
+    <div class="card-head">
+      <div>
+        <h3>Cost per click — demand capture vs demand generation</h3>
+        <div class="csub">What a click costs on each channel. The reallocation thesis: Meta buys cheaper, higher-funnel reach.</div>
+      </div>
+      <div id="cpc-tools"></div>
+    </div>
+    <!-- data-no-filters: at most three benchmark rows. The .sub spans in the first column
+         ("(ref 1–9 Jun 2026)" / "(test, live)") are deliberately NOT ignored — they are what
+         tells the two Meta rows apart, so the export needs them. -->
+    <table id="cpc-tbl" data-tools data-no-filters
+           data-export-name="stoy-cost-per-click"
+           data-tools-toolbar="#cpc-tools"><thead><tr><th>Channel</th><th>Spend</th><th>Clicks</th><th>CPC</th></tr></thead><tbody></tbody></table>
     <div class="csub" id="cpc-note" style="margin-top:8px"></div>
   </div>
 
@@ -179,22 +211,52 @@
 
   <div class="two">
     <div class="card" style="margin-top:0">
-      <h3>Stoy vs controls</h3>
-      <div class="csub">Two diff-in-diff baselines isolate the test from June seasonality: Kuling (different brand, same markets) and Stoy's non-test markets DK+FI (same brand, no reallocation)</div>
-      <table id="ctrl-tbl"><thead><tr><th>Group</th><th>Revenue Δ</th><th>GP2 Δ</th><th>COS% Δ</th></tr></thead><tbody></tbody></table>
+      <div class="card-head">
+        <div>
+          <h3>Stoy vs controls</h3>
+          <div class="csub">Two diff-in-diff baselines isolate the test from June seasonality: Kuling (different brand, same markets) and Stoy's non-test markets DK+FI (same brand, no reallocation)</div>
+        </div>
+        <div id="ctrl-tools"></div>
+      </div>
+      <!-- data-no-filters: three fixed comparison rows (test + two controls) — the whole
+           point is reading them side by side, so hiding any of them destroys the comparison. -->
+      <table id="ctrl-tbl" data-tools data-no-filters
+             data-export-name="stoy-vs-controls"
+             data-tools-toolbar="#ctrl-tools"><thead><tr><th>Group</th><th>Revenue Δ</th><th>GP2 Δ</th><th>COS% Δ</th></tr></thead><tbody></tbody></table>
       <div style="margin-top:12px" id="did"></div>
     </div>
     <div class="card" style="margin-top:0">
-      <h3>Market split — SE vs NO</h3>
-      <div class="csub">Stoy revenue &amp; GP2, test vs baseline</div>
-      <table id="mkt-tbl"><thead><tr><th>Market</th><th>Revenue</th><th>vs base</th><th>Ad spend</th><th>COS%</th></tr></thead><tbody></tbody></table>
+      <div class="card-head">
+        <div>
+          <h3>Market split — SE vs NO</h3>
+          <div class="csub">Stoy revenue &amp; GP2, test vs baseline</div>
+        </div>
+        <div id="mkt-tools"></div>
+      </div>
+      <!-- data-no-filters: one row per test market (SE, NO). data-export-ignore drops the
+           trailing "(+1,2pp)" .sub badge from the COS% cell so the export holds the figure. -->
+      <table id="mkt-tbl" data-tools data-no-filters
+             data-export-name="stoy-market-split"
+             data-export-ignore=".sub"
+             data-tools-toolbar="#mkt-tools"><thead><tr><th>Market</th><th>Revenue</th><th>vs base</th><th>Ad spend</th><th>COS%</th></tr></thead><tbody></tbody></table>
     </div>
   </div>
 
   <div class="card">
-    <h3>Flagship products — Vintage Bicycles <span class="pill">test period</span></h3>
-    <div class="csub">Where Meta discovery should show up first (units &amp; revenue on the hero range)</div>
-    <table id="flag-tbl"><thead><tr><th>Product</th><th>Revenue (test)</th></tr></thead><tbody></tbody></table>
+    <div class="card-head">
+      <div>
+        <h3>Flagship products — Vintage Bicycles <span class="pill">test period</span></h3>
+        <div class="csub">Where Meta discovery should show up first (units &amp; revenue on the hero range)</div>
+      </div>
+      <div id="flag-tools"></div>
+    </div>
+    <!-- The one list-shaped table on this page, so it keeps its filters. It is enhanced from
+         script at the bottom with numericColumns:[1]: every product title starts with the wheel
+         size ('12" Vintage Bicycle …'), so the 60 %-numeric auto-detection would otherwise read
+         the Product column as numeric and offer greater-than/between on the inches. -->
+    <table id="flag-tbl" data-tools
+           data-export-name="stoy-flagship-products"
+           data-tools-toolbar="#flag-tools"><thead><tr><th>Product</th><th>Revenue (test)</th></tr></thead><tbody></tbody></table>
   </div>
 
   <div class="note" id="note"></div>
@@ -392,6 +454,16 @@ async function fetchLive(){
   }catch(e){}
 }
 render();
+
+/* Column 0 holds product titles that open with the wheel size ('12" Vintage Bicycle …'), so
+   all ten parse as numbers and the auto-detection would type the column numeric — the value
+   list would sort by inches and the conditions would read "greater than 12". numericColumns
+   pins the typing: revenue numeric, product text. Enhancing here (after render(), before the
+   module's DOMContentLoaded pass) registers the instance with these options; the later
+   enhanceAll() finds it already registered and only refreshes it. Every other table on the
+   page is purely declarative. */
+if (window.TableTools) TableTools.enhance('#flag-tbl', { numericColumns: [1] });
+
 fetchLive();
 </script>
 </body>

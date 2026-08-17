@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="/table-tools.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -187,6 +188,16 @@
     }
     .table-filter input:focus { border-color: var(--accent); background: var(--card); }
     .table-filter .count { font-size: 11px; color: var(--muted); }
+    /* Host for the TableTools CSV/Sheets + "Clear filters" bar: right-hand end of
+       the existing filter row, so it never lands inside the overflow:hidden card
+       body above the table. */
+    .table-filter .table-tools { margin-left: auto; display: flex; align-items: center; }
+    /* The free-text filter above and TableTools' column filters are two
+       independent constraints on the same rows. Both hide with display:none, so a
+       row is visible only when NEITHER marks it — the AND falls out of CSS.
+       (Was row.hidden; a class is used so TableTools' exports and value lists can
+       tell the two apart — see enhanceInventoryTable().) */
+    tbody tr.text-hidden { display: none !important; }
     .chart-row {
       display: grid; grid-template-columns: 1fr 1fr;
       gap: 14px; margin-bottom: 20px;
@@ -298,8 +309,10 @@
     <div class="table-filter">
       <input type="text" id="risk-filter" placeholder="Filter by name / brand / category…" autocomplete="off">
       <span class="count" id="risk-count"></span>
+      <div class="table-tools" id="risk-tools"></div>
     </div>
-    <table class="sortable" id="risk-table">
+    <table class="sortable" id="risk-table"
+           data-tools data-export-name="inventory-stockout-risk" data-tools-toolbar="#risk-tools">
       <thead><tr>
         <th>Product</th><th>Brand</th><th>Category</th><th>Stock</th>
         <th>Sale price</th><th>COGS</th><th>Margin</th>
@@ -345,8 +358,10 @@
       <div class="table-filter">
         <input type="text" id="oos-filter" placeholder="Filter OOS items…" autocomplete="off">
         <span class="count" id="oos-count"></span>
+        <div class="table-tools" id="oos-tools"></div>
       </div>
-      <table class="sortable" id="oos-table">
+      <table class="sortable" id="oos-table"
+             data-tools data-export-name="inventory-out-of-stock" data-tools-toolbar="#oos-tools">
         <thead><tr><th>Product</th><th>Brand</th><th>Sale price</th><th>Pred. units/mo</th><th>Lost rev/mo</th></tr></thead>
         <tbody id="oos-tbody"></tbody>
       </table>
@@ -362,8 +377,10 @@
       <div class="table-filter">
         <input type="text" id="disc-filter" placeholder="Filter on sale items…" autocomplete="off">
         <span class="count" id="disc-count"></span>
+        <div class="table-tools" id="disc-tools"></div>
       </div>
-      <table class="sortable" id="disc-table">
+      <table class="sortable" id="disc-table"
+             data-tools data-export-name="inventory-top-discounts" data-tools-toolbar="#disc-tools">
         <thead><tr><th>Product</th><th>Brand</th><th>Was</th><th>Now</th><th>−%</th></tr></thead>
         <tbody id="disc-tbody"></tbody>
       </table>
@@ -382,8 +399,10 @@
     <div class="table-filter">
       <input type="text" id="health-filter" placeholder="Filter brand…" autocomplete="off">
       <span class="count" id="health-count"></span>
+      <div class="table-tools" id="health-tools"></div>
     </div>
-    <table class="sortable" id="health-table">
+    <table class="sortable" id="health-table"
+           data-tools data-export-name="inventory-brand-health" data-tools-toolbar="#health-tools">
       <thead><tr>
         <th>Brand</th><th>Total SKUs</th><th>Active</th><th>Archive</th>
         <th>OOS</th><th>Archive %</th><th>Stock value</th>
@@ -562,7 +581,10 @@ function makeSortable(tableEl) {
   const headers = tableEl.querySelectorAll('thead th');
   const tbody = tableEl.querySelector('tbody');
   headers.forEach((th, idx) => {
-    th.addEventListener('click', () => {
+    th.addEventListener('click', (e) => {
+      // The TableTools funnel button lives inside the <th>; a click on it must open
+      // the filter dropdown, not re-sort the column behind it.
+      if (e.target.closest('.tt-fbtn')) return;
       const dir = th.classList.contains('sort-asc') ? 'desc' : 'asc';
       headers.forEach(h => h.classList.remove('sort-asc','sort-desc'));
       th.classList.add('sort-' + dir);
@@ -578,12 +600,12 @@ function makeSortable(tableEl) {
     });
   });
 }
+/* Free-text filter. It marks non-matching rows with .text-hidden (rather than the
+   old row.hidden) so it can coexist with TableTools' .tt-hidden: both are
+   display:none, so the two constraints AND, and each side can still tell which
+   rows IT hid. The update function is parked on the table so a TableTools filter
+   change can re-run the "showing N of M" count. */
 function makeFilterable(inputEl, tableEl, countEl) {
-  if (inputEl.dataset.filtered) {
-    inputEl.dispatchEvent(new Event('input'));
-    return;
-  }
-  inputEl.dataset.filtered = '1';
   const tbody = tableEl.querySelector('tbody');
   const update = () => {
     const q = inputEl.value.toLowerCase().trim();
@@ -592,23 +614,66 @@ function makeFilterable(inputEl, tableEl, countEl) {
     rows.forEach(row => {
       const text = Array.from(row.cells).map(c => c.textContent).join(' ').toLowerCase();
       const match = !q || text.includes(q);
-      row.hidden = !match;
-      if (match) shown++;
+      row.classList.toggle('text-hidden', !match);
+      if (match && !row.classList.contains('tt-hidden')) shown++;
     });
     countEl.textContent = `showing ${shown} of ${rows.length}`;
   };
-  inputEl.addEventListener('input', update);
+  tableEl._textFilterUpdate = update;
+  if (!inputEl.dataset.filtered) {
+    inputEl.dataset.filtered = '1';
+    inputEl.addEventListener('input', update);
+  }
   update();
 }
+
+/* ── TableTools wiring ─────────────────────────────────────────────────────────
+   Column filters + CSV/Sheets export come from the shared module; the two
+   page-specific things it cannot infer are handled here:
+
+   1. numericColumns. Auto-detection reads a column as numeric when ≥60% of its
+      cells parse as a number, and Babyshop product titles are full of sizes
+      ("86 cm", "33 EU", "5 Y") — the Product column would be misread as numeric
+      and offer Greater-than instead of Contains. The numeric set is therefore
+      declared per table.
+   2. Reconciliation with the free-text filter above. Row visibility already ANDs
+      via CSS, but the module's exports and value checklists look only at
+      .tt-hidden, so both are narrowed to rows the text filter also lets through —
+      otherwise a CSV would carry rows that are not on screen. */
+function enhanceInventoryTable(tableId, numericColumns) {
+  const table = document.getElementById(tableId);
+  if (!table || !window.TableTools) return null;
+  const inst = TableTools.enhance(table, {
+    numericColumns,
+    onChange: () => { if (table._textFilterUpdate) table._textFilterUpdate(); },
+  });
+  if (!inst || inst._textReconciled) return inst;
+  inst._textReconciled = true;
+  const textVisible = r => !r.classList.contains('text-hidden');
+  inst.visibleRows = function () {
+    return this._bodyRows().filter(r => !r.classList.contains('tt-hidden') && textVisible(r));
+  };
+  // Distinct-value lists should offer only values still reachable under the text
+  // query, the same way they already narrow by the other columns' filters.
+  const distinct = inst._distinct, bodyRows = inst._bodyRows;
+  inst._distinct = function (col) {
+    this._bodyRows = function () { return bodyRows.call(this).filter(textVisible); };
+    try { return distinct.call(this, col); } finally { delete this._bodyRows; }
+  };
+  return inst;
+}
+
 function wireSortFilter() {
   [
-    ['risk-table',   'risk-filter',   'risk-count'],
-    ['oos-table',    'oos-filter',    'oos-count'],
-    ['disc-table',   'disc-filter',   'disc-count'],
-    ['health-table', 'health-filter', 'health-count'],
-  ].forEach(([t,f,c]) => {
+    // table id,      filter input,    count span,      numeric columns
+    ['risk-table',   'risk-filter',   'risk-count',   [3,4,5,6]],
+    ['oos-table',    'oos-filter',    'oos-count',    [2,3,4]],
+    ['disc-table',   'disc-filter',   'disc-count',   [2,3,4]],
+    ['health-table', 'health-filter', 'health-count', [1,2,3,4,5,6]],
+  ].forEach(([t,f,c,num]) => {
     makeSortable(document.getElementById(t));
     makeFilterable(document.getElementById(f), document.getElementById(t), document.getElementById(c));
+    enhanceInventoryTable(t, num);
   });
 }
 

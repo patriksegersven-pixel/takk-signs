@@ -7,6 +7,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Shared column filters + CSV/Sheets export. Tables opt in with data-tools and are
+       picked up on DOMContentLoaded — i.e. AFTER this page's inline script has rendered
+       them once. The live overlay (fetchLiveAndOverlay → renderAll) rebuilds both tbodies,
+       which the module's MutationObserver catches, so no render hooks are needed here. -->
+  <script src="/table-tools.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -85,6 +90,9 @@
 
     .card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); overflow:hidden; }
     .card-header { padding:16px 22px 12px; display:flex; align-items:flex-start; justify-content:space-between; border-bottom:1px solid var(--border-lt); }
+    /* Right-hand side of a card header: the table's CSV/Sheets toolbar next to the badge
+       that already lived there. One flex child, so .card-header stays a two-part header. */
+    .tools-slot { display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
     table { width:100%; border-collapse:collapse; }
     thead th { padding:10px 14px; font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); text-align:right; border-bottom:1px solid var(--border); }
     thead th:first-child { text-align:left; padding-left:22px; }
@@ -206,10 +214,20 @@
         <div class="chart-title">Channel shift — where revenue comes from</div>
         <div class="chart-sub">revenue / day · baseline run-rate vs since change · earned/unpaid channels are the substitution targets</div>
       </div>
-      <span class="chart-badge" id="channel-badge">maturing</span>
+      <div class="tools-slot">
+        <div id="channel-tools"></div>
+        <span class="chart-badge" id="channel-badge">maturing</span>
+      </div>
     </div>
     <div id="maturity-banner" class="maturity-banner"></div>
-    <table>
+    <!-- No data-export-ignore here: unlike the KV tables, .cell-delta IS the whole Δ
+         column and .sub-cell IS the "maturing" placeholder in the post column — ignoring
+         either would blank a column instead of stripping a trailing badge.
+         The .grp-row sub-total rows carry 3 cells against a 4-column header, so the module
+         reads their spanned tail as absent and leaves those columns filter-transparent. -->
+    <table id="ri-channel-table" data-tools
+           data-export-name="roas-impact-channel-shift"
+           data-tools-toolbar="#channel-tools">
       <thead>
         <tr><th>Channel</th><th>Baseline / day</th><th>Since change / day</th><th>Δ</th></tr>
       </thead>
@@ -223,9 +241,19 @@
         <div class="chart-title">Per-group impact</div>
         <div class="chart-sub">new target · baseline spend run-rate · spend since change · profit-ROAS pre → post · revenue-risk groups flagged</div>
       </div>
-      <span class="chart-badge" id="group-badge">6 groups</span>
+      <div class="tools-slot">
+        <div id="group-tools"></div>
+        <span class="chart-badge" id="group-badge">6 groups</span>
+      </div>
     </div>
-    <table>
+    <!-- data-export-ignore drops the .sub-cell notes that sit under the group name, so the
+         Group column filters and exports as "PB-Generic / Generic" rather than the name plus
+         its two-line commentary. tfoot stays on 'auto' — the totals row is exported only
+         while no filter is active, since it would otherwise total rows that are hidden. -->
+    <table id="ri-group-table" data-tools
+           data-export-name="roas-impact-per-group"
+           data-export-ignore=".sub-cell"
+           data-tools-toolbar="#group-tools">
       <thead>
         <tr>
           <th>Group</th>
