@@ -79,6 +79,8 @@
     '.tt-opt input{flex:none;margin:0;accent-color:var(--accent,#4285f4)}',
     '.tt-opt-all{font-weight:600;color:var(--h,#0f172a);border-bottom:1px solid var(--border-lt,#f1f3f5)}',
     '.tt-p-empty{padding:10px;font-size:11px;color:var(--muted,#94a3b8);text-align:center}',
+    '.tt-p-more{padding:6px 10px;font-size:10.5px;font-style:italic;color:var(--muted,#94a3b8);',
+    '  border-top:1px dashed var(--border-lt,#f1f3f5)}',
     '.tt-p-cond{padding:8px 10px;display:flex;flex-direction:column;gap:6px}',
     '.tt-p-cond select,.tt-p-cond input{font-family:inherit;font-size:12px;padding:4px 6px;',
     '  border:1px solid var(--border,#e5e7eb);border-radius:3px;outline:none;',
@@ -93,7 +95,14 @@
     '.tt-p-foot button:hover{border-color:var(--accent,#4285f4);color:var(--accent,#4285f4)}',
     '.tt-p-done{background:var(--accent,#4285f4)!important;border-color:var(--accent,#4285f4)!important;',
     '  color:#fff!important}',
-    '.tt-p-done:hover{opacity:.9;color:#fff!important}'
+    '.tt-p-done:hover{opacity:.9;color:#fff!important}',
+    /* scroll containment — a plain block so it inherits the card's own box */
+    '.tt-scroll{overflow:auto;position:relative;max-width:100%}',
+    '.tt-scroll > table{margin:0}',
+    '.tt-scroll::-webkit-scrollbar{width:9px;height:9px}',
+    '.tt-scroll::-webkit-scrollbar-track{background:transparent}',
+    '.tt-scroll::-webkit-scrollbar-thumb{background:var(--border,#e5e7eb);border-radius:5px}',
+    '.tt-scroll::-webkit-scrollbar-thumb:hover{background:var(--muted,#94a3b8)}'
   ].join('');
 
   /* One markup string, built once per button; the active (filled) look is applied
@@ -180,6 +189,57 @@
     return neg ? -v : v;
   }
 
+  var TRANSPARENT = /^(transparent|rgba?\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))$/i;
+
+  /* A sticky cell painted over scrolling rows has to be opaque, and these pages
+   * theme through CSS vars, so the colour cannot be hard-coded. Walk the cell's
+   * ancestors for the first non-transparent background (th → thead → table → card),
+   * then --card, then white. */
+  function resolveBg(el) {
+    for (var n = el; n && n.nodeType === 1 && n !== document.documentElement; n = n.parentElement) {
+      var c = getComputedStyle(n).backgroundColor;
+      if (c && !TRANSPARENT.test(c.replace(/\s+/g, ' '))) return c;
+    }
+    var v = getComputedStyle(document.body).getPropertyValue('--card').trim();
+    return v || '#ffffff';
+  }
+
+  /* With border-collapse:collapse a sticky cell's own border scrolls away with the
+   * table, so the header edge is drawn as an inset shadow instead. */
+  function resolveBorder(el) {
+    var cs = getComputedStyle(el);
+    var c = cs.borderBottomColor || cs.borderTopColor;
+    if (c && !TRANSPARENT.test(c.replace(/\s+/g, ' '))) return c;
+    var v = getComputedStyle(document.body).getPropertyValue('--border').trim();
+    return v || '#e5e7eb';
+  }
+
+  /* Sticky is set inline, not via the injected stylesheet: table-tools.js is loaded
+   * in <head> before each page's own <style>, so an equally specific page rule such
+   * as `table.sortable thead th { position: relative }` would win the tie and kill
+   * the stick. Inline also survives nothing — a page that rebuilds its <thead> drops
+   * these, and refresh() puts them back. */
+  function stickCell(cell, side, offset, bg, shadow) {
+    var s = cell.style;
+    if (s.position !== 'sticky') s.position = 'sticky';
+    var v = offset + 'px';
+    if (s[side] !== v) s[side] = v;
+    if (!s.zIndex) s.zIndex = '3';
+    if (bg && !s.backgroundColor) s.backgroundColor = bg;
+    if (shadow && !s.boxShadow) s.boxShadow = shadow;
+  }
+
+  function unstickCell(cell) {
+    ['position', 'top', 'bottom', 'zIndex', 'backgroundColor', 'boxShadow']
+      .forEach(function (p) { cell.style[p] = ''; });
+  }
+
+  /* Rendered rows — a page-level search box that hides rows with the `hidden`
+   * attribute counts as hidden here too, since this drives layout height. */
+  function rowShown(r) {
+    return !r.classList.contains('tt-hidden') && !r.hidden;
+  }
+
   function todayISO() {
     var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
@@ -245,6 +305,28 @@
       panelOwner.inst.apply();
     });
     q('.tt-p-search').addEventListener('input', renderList);
+    // One delegated listener for the whole list instead of one per option — at the
+    // cap that is 180 listeners saved per open, and it survives list re-renders.
+    q('.tt-p-list').addEventListener('change', function (e) {
+      var box = e.target;
+      if (!panelOwner || !box || box.type !== 'checkbox') return;
+      var st = panelOwner.inst._state(panelOwner.col);
+      if (box._ttAll) {
+        var m = panelOwner.matches, on = box.checked, i;
+        for (i = 0; i < m.length; i++) {
+          if (on) delete st.excluded[m[i]]; else st.excluded[m[i]] = 1;
+        }
+        // Re-tick the rendered options in place rather than rebuilding the list:
+        // rebuilding mid-change would drop the node the event came from.
+        var boxes = panel.querySelectorAll('.tt-p-list .tt-opt:not(.tt-opt-all) input');
+        for (i = 0; i < boxes.length; i++) boxes[i].checked = on;
+        box.indeterminate = false;
+      } else {
+        if (box.checked) delete st.excluded[box._ttVal]; else st.excluded[box._ttVal] = 1;
+        syncAllBox();
+      }
+      panelOwner.inst.apply();
+    });
     q('.tt-p-op').addEventListener('change', function () {
       var st = panelOwner && panelOwner.inst._state(panelOwner.col);
       if (!st) return;
@@ -286,6 +368,7 @@
     if (panelOwner && panelOwner.btn === btn) { closePanel(); return; }
     closePanel();
     panelOwner = { inst: inst, col: col, btn: btn, numeric: numeric,
+                   container: btn.closest('.tt-scroll'),
                    /* Frozen on open: recomputing while the user ticks boxes would
                       make the list shrink under the pointer. */
                    values: inst._distinct(col) };
@@ -318,63 +401,118 @@
     panel.querySelector('.tt-p-a').placeholder = op === 'between' ? 'from' : 'value';
   }
 
-  /* Checkbox list. State is stored as an *excluded* set, so values that appear
-   * for the first time after a re-render default to visible. */
+  /* Checkbox list.
+   *
+   * State is an *excluded* set keyed by value, never a list of DOM nodes: values
+   * that show up for the first time after a re-render default to visible, and the
+   * checked state survives any re-render of this list.
+   *
+   * Only LIST_CAP options are ever put in the DOM. A column with ~1000 distinct
+   * values took ~1.1s to open when each one became a <label> — the distinct scan is
+   * cheap, building the option DOM was not. Everything past the cap stays reachable
+   * through the search box, which always searches the FULL distinct list (o.values),
+   * not the rendered slice.
+   *
+   * "Select all" semantics under truncation: it operates on every value matching the
+   * current search — including matches past the cap — and on nothing else. With an
+   * empty search box that is all distinct values; with "naver" typed it is every
+   * Naver value whether rendered or not. The rendered slice is never the unit of
+   * selection, and its tri-state is likewise computed over the full matching set.
+   * That keeps one invariant: what the box says is what a click will do. */
+  var LIST_CAP = 180;
+
   function renderList() {
     var o = panelOwner, st = o.inst._state(o.col);
     var needle = panel.querySelector('.tt-p-search').value.trim().toLowerCase();
-    var shown = o.values.filter(function (v) {
-      return !needle || v.toLowerCase().indexOf(needle) > -1;
-    });
+    var matches = o.values, i;
+    if (needle) {
+      matches = [];
+      for (i = 0; i < o.values.length; i++) {
+        if (o.values[i].toLowerCase().indexOf(needle) > -1) matches.push(o.values[i]);
+      }
+    }
+    o.matches = matches;                       // what "Select all" and the tri-state act on
     var list = panel.querySelector('.tt-p-list');
-    list.innerHTML = '';
-    if (!shown.length) {
-      list.innerHTML = '<div class="tt-p-empty">No matching values</div>';
+    list.textContent = '';
+    o.allBox = null;
+    if (!matches.length) {
+      var empty = document.createElement('div');
+      empty.className = 'tt-p-empty';
+      empty.textContent = 'No matching values';
+      list.appendChild(empty);
       return;
     }
-    var allOn = shown.every(function (v) { return !st.excluded[v]; });
-    var someOn = shown.some(function (v) { return !st.excluded[v]; });
+
+    var frag = document.createDocumentFragment();
     var all = document.createElement('label');
     all.className = 'tt-opt tt-opt-all';
-    all.innerHTML = '<input type="checkbox"><span>Select all</span>';
-    var allBox = all.firstChild;
-    allBox.checked = allOn;
-    allBox.indeterminate = !allOn && someOn;
-    allBox.addEventListener('change', function () {
-      var on = this.checked;
-      shown.forEach(function (v) { on ? delete st.excluded[v] : (st.excluded[v] = 1); });
-      renderList();
-      o.inst.apply();
-    });
-    list.appendChild(all);
-    shown.forEach(function (v) {
+    var allBox = document.createElement('input');
+    allBox.type = 'checkbox';
+    allBox._ttAll = true;
+    var allLabel = document.createElement('span');
+    allLabel.textContent = needle ? 'Select all ' + matches.length + ' matching' : 'Select all';
+    all.appendChild(allBox);
+    all.appendChild(allLabel);
+    frag.appendChild(all);
+    o.allBox = allBox;
+
+    // createElement over innerHTML: no HTML parse per option, and one insertion.
+    var n = Math.min(matches.length, LIST_CAP);
+    for (i = 0; i < n; i++) {
+      var v = matches[i];
       var row = document.createElement('label');
       row.className = 'tt-opt';
-      row.innerHTML = '<input type="checkbox"><span></span>';
-      row.lastChild.textContent = v === '' ? '(blank)' : v;
-      row.lastChild.title = v;
-      var box = row.firstChild;
+      var box = document.createElement('input');
+      box.type = 'checkbox';
       box.checked = !st.excluded[v];
-      box.addEventListener('change', function () {
-        this.checked ? delete st.excluded[v] : (st.excluded[v] = 1);
-        var f = panel.querySelector('.tt-p-list').firstChild.firstChild;
-        var allOn2 = shown.every(function (x) { return !st.excluded[x]; });
-        var someOn2 = shown.some(function (x) { return !st.excluded[x]; });
-        f.checked = allOn2; f.indeterminate = !allOn2 && someOn2;
-        o.inst.apply();
-      });
-      list.appendChild(row);
-    });
+      box._ttVal = v;
+      var span = document.createElement('span');
+      span.textContent = v === '' ? '(blank)' : v;
+      span.title = v;
+      row.appendChild(box);
+      row.appendChild(span);
+      frag.appendChild(row);
+    }
+    if (matches.length > n) {
+      var more = document.createElement('div');
+      more.className = 'tt-p-more';
+      more.textContent = '…and ' + (matches.length - n) + ' more — type to search';
+      frag.appendChild(more);
+    }
+    list.appendChild(frag);
+    syncAllBox();
+    list.scrollTop = 0;
+  }
+
+  /* Tri-state of "Select all", over the full matching set — not the rendered slice. */
+  function syncAllBox() {
+    var o = panelOwner;
+    if (!o || !o.allBox) return;
+    var st = o.inst._state(o.col), m = o.matches, on = 0;
+    for (var i = 0; i < m.length; i++) if (!st.excluded[m[i]]) on++;
+    o.allBox.checked = on === m.length;
+    o.allBox.indeterminate = on > 0 && on < m.length;
   }
 
   /* Keep the dropdown on screen — it is position:fixed, so viewport-relative.
    * Flips above the button when it does not fit below, and caps its height (the
    * value list scrolls) so the footer buttons can never sit past the fold. */
-  function placePanel() {
+  function placePanel(autoClose) {
     if (!panelOwner) return;
     var vw = window.innerWidth || document.documentElement.clientWidth || 1024;
     var vh = window.innerHeight || document.documentElement.clientHeight || 768;
     var r = panelOwner.btn.getBoundingClientRect();
+    // Scrolling (the page, or a table inside its own scrollport) can carry the
+    // anchoring header off screen; a dropdown floating next to nothing is worse
+    // than a closed one. Only on scroll/resize — never on the initial open.
+    if (autoClose) {
+      if (r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) { closePanel(); return; }
+      var cont = panelOwner.container;
+      if (cont) {
+        var cr = cont.getBoundingClientRect();
+        if (r.bottom < cr.top - 1 || r.top > cr.bottom + 1) { closePanel(); return; }
+      }
+    }
     var pw = panel.offsetWidth || 250;
     panel.style.left = Math.max(8, Math.min(r.left - 8, vw - pw - 8)) + 'px';
     panel.style.top = '0px';
@@ -398,8 +536,11 @@
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && panelOwner) closePanel();
   });
-  window.addEventListener('resize', function () { if (panelOwner) placePanel(); });
-  window.addEventListener('scroll', function () { if (panelOwner) placePanel(); }, true);
+  window.addEventListener('resize', function () { if (panelOwner) placePanel(true); });
+  // Capture phase on window: scroll does not bubble, but it is still dispatched
+  // through the capture path — this is what catches a .tt-scroll container's own
+  // scrolling as well as the page's.
+  window.addEventListener('scroll', function () { if (panelOwner) placePanel(true); }, true);
 
   /* ── Instance ───────────────────────────────────────────────────────────── */
 
@@ -433,6 +574,16 @@
              .filter(function (n) { return !isNaN(n); });
     }
     this.filterColumns = fc == null ? null : fc;
+
+    // Scroll containment. A table longer than maxRows rendered rows is wrapped in
+    // its own scrollport so the page stops growing; maxVh additionally caps that
+    // port to a share of the viewport, without which a 25-row container is taller
+    // than the screen and its sticky header never actually sticks in view.
+    this.scroll = opts.scroll !== false && d.scroll !== 'false';
+    this.maxRows = opts.maxRows != null ? +opts.maxRows : (d.maxRows != null ? +d.maxRows : 25);
+    this.maxHeight = opts.maxHeight != null ? opts.maxHeight : d.maxHeight;
+    this.maxVh = opts.maxVh != null ? +opts.maxVh : (d.maxVh != null ? +d.maxVh : 78);
+    this.stickyFoot = opts.stickyFoot !== false && d.stickyFoot !== 'false';
 
     // Header row carrying the filter buttons: the LAST thead row by default, so
     // grouped headers (a spanning row above a leaf row) land on the leaf row.
@@ -493,19 +644,32 @@
     return cellText(this._cell(row, col), this.ignoreSel);
   };
 
+  /* excluded uses a null prototype: the keys are arbitrary cell values, and on a
+   * plain object a value of "__proto__" would silently fail to register. */
+  function newColState() {
+    return { excluded: Object.create(null), op: '', a: '', b: '' };
+  }
+
+  /* Emptiness in O(1). Object.keys().length allocated an array per call, which at a
+   * thousand excluded values ran once per row per filter pass. */
+  function hasKeys(o) {
+    for (var k in o) return true;
+    return false;
+  }
+
   Tools.prototype._state = function (col) {
-    if (!this.state[col]) this.state[col] = { excluded: {}, op: '', a: '', b: '' };
+    if (!this.state[col]) this.state[col] = newColState();
     return this.state[col];
   };
 
   Tools.prototype._resetCol = function (col) {
-    this.state[col] = { excluded: {}, op: '', a: '', b: '' };
+    this.state[col] = newColState();
   };
 
   Tools.prototype._colActive = function (col) {
     var st = this.state[col];
     if (!st) return false;
-    if (Object.keys(st.excluded).length) return true;
+    if (hasKeys(st.excluded)) return true;
     if (!st.op) return false;
     if (st.op === 'between') return st.a !== '' || st.b !== '';
     return st.a !== '';
@@ -521,7 +685,7 @@
     var st = this.state[col];
     if (!st) return true;
     var raw = this._val(row, col);
-    if (Object.keys(st.excluded).length && st.excluded[raw]) return false;
+    if (st.excluded[raw]) return false;
     if (!st.op) return true;
     if (this._numeric[col]) {
       var v = parseNum(raw);
@@ -577,21 +741,29 @@
    * and lose its greater-than/between conditions. */
   var BLANKISH = /^(—|–|-|−|n\/?a|null|na)$/i;
 
-  /* A column counts as numeric when most of its filled cells parse. */
+  /* A column counts as numeric when most of its filled cells parse.
+   *
+   * Sampled with a stride rather than read in full: this runs for every column on
+   * every refresh, and a thousand rows × a dozen columns is twelve thousand DOM text
+   * walks for what is only a heuristic. The stride spans the whole table, so it does
+   * not misread a column whose first screenful happens to be all dashes. */
+  var NUMERIC_SAMPLE = 150;
+
   Tools.prototype._detectNumeric = function () {
     var self = this, rows = this._bodyRows();
     this._numeric = {};
     var override = this.opts.numericColumns;
+    var stride = Math.max(1, Math.ceil(rows.length / NUMERIC_SAMPLE));
     this._headerCells().forEach(function (h) {
       if (h.span !== 1) return;
       if (override) { self._numeric[h.col] = override.indexOf(h.col) > -1; return; }
       var n = 0, ok = 0;
-      rows.forEach(function (row) {
-        var v = cellText(self._cell(row, h.col), self.ignoreSel);
-        if (!v || BLANKISH.test(v)) return;
+      for (var i = 0; i < rows.length; i += stride) {
+        var v = cellText(self._cell(rows[i], h.col), self.ignoreSel);
+        if (!v || BLANKISH.test(v)) continue;
         n++;
         if (parseNum(v) != null) ok++;
-      });
+      }
       self._numeric[h.col] = n > 0 && ok / n >= 0.6;
     });
   };
@@ -698,6 +870,107 @@
     this.bar = bar;
   };
 
+  /* ── Scroll containment ─────────────────────────────────────────────────── */
+
+  /* Wraps the table in its own scrollport once it is longer than maxRows, and keeps
+   * the header (and footer totals) stuck. Idempotent — the MutationObserver calls
+   * refresh() after every re-render, so this must never wrap twice.
+   *
+   * Deliberately one-way: once wrapped the table stays wrapped. max-height only
+   * caps, so a container whose rows are filtered down to three simply shrinks to
+   * fit; unwrapping would mean re-measuring and re-laying out on every keystroke in
+   * a filter box for no visible gain. */
+  Tools.prototype._ensureScroll = function () {
+    if (!this.scroll) return;
+    if (!this.wrap) {
+      var rows = this._bodyRows();
+      var shown = 0;
+      for (var i = 0; i < rows.length; i++) if (rowShown(rows[i])) shown++;
+      if (shown <= this.maxRows) return;
+      var parent = this.table.parentNode;
+      if (!parent) return;
+      if (parent.classList && parent.classList.contains('tt-scroll')) {
+        this.wrap = parent;                       // adopted (e.g. after a destroy/re-enhance)
+      } else {
+        var wrap = document.createElement('div');
+        wrap.className = 'tt-scroll';
+        parent.insertBefore(wrap, this.table);
+        wrap.appendChild(this.table);             // moving the table fires no childList on it
+        this.wrap = wrap;
+      }
+    }
+    this._applyMaxHeight();
+    this._applySticky();
+  };
+
+  Tools.prototype._applyMaxHeight = function () {
+    if (!this.wrap) return;
+    if (this.maxHeight) {
+      var v = String(this.maxHeight).trim();
+      this.wrap.style.maxHeight = /^[\d.]+$/.test(v) ? v + 'px' : v;
+      return;
+    }
+    var rows = this._bodyRows(), probe = null;
+    for (var i = 0; i < rows.length; i++) if (rowShown(rows[i])) { probe = rows[i]; break; }
+    var rowH = probe ? probe.offsetHeight : 0;
+    if (!rowH) return;                                        // nothing rendered to measure yet
+    if (this._rowH && Math.abs(this._rowH - rowH) < 1.5) return;   // unchanged — skip the write
+    this._rowH = rowH;
+    var head = this.table.tHead ? this.table.tHead.offsetHeight : 0;
+    var foot = this.table.tFoot ? this.table.tFoot.offsetHeight : 0;
+    var px = Math.round(head + foot + rowH * this.maxRows + 2);
+    this.wrap.style.maxHeight = px + 'px';
+    // Viewport cap as CSS so it survives resizes. An engine without min() ignores
+    // the assignment and keeps the plain px value set above.
+    if (this.maxVh > 0) this.wrap.style.maxHeight = 'min(' + px + 'px, ' + this.maxVh + 'vh)';
+  };
+
+  Tools.prototype._applySticky = function () {
+    if (!this.wrap) return;
+    var head = this.table.tHead, r, c, row;
+    if (head) {
+      var top = 0;
+      for (r = 0; r < head.rows.length; r++) {
+        row = head.rows[r];
+        for (c = 0; c < row.cells.length; c++) {
+          stickCell(row.cells[c], 'top', top, resolveBg(row.cells[c]),
+                    'inset 0 -1px 0 ' + resolveBorder(row.cells[c]));
+        }
+        top += row.offsetHeight;                  // grouped header rows stack below each other
+      }
+    }
+    // <tfoot> totals stick to the bottom edge: the spreadsheet behaviour, and the
+    // reason the totals row stays readable while scrolling a few hundred rows.
+    if (this.stickyFoot && this.table.tFoot) {
+      var foot = this.table.tFoot, bottom = 0;
+      for (r = foot.rows.length - 1; r >= 0; r--) {
+        row = foot.rows[r];
+        for (c = 0; c < row.cells.length; c++) {
+          stickCell(row.cells[c], 'bottom', bottom, resolveBg(row.cells[c]),
+                    'inset 0 1px 0 ' + resolveBorder(row.cells[c]));
+        }
+        bottom += row.offsetHeight;
+      }
+    }
+  };
+
+  Tools.prototype._unwrap = function () {
+    var t = this.table;
+    ['thead', 'tfoot'].forEach(function (part) {
+      var sec = t.querySelector(part);
+      if (!sec) return;
+      for (var r = 0; r < sec.rows.length; r++) {
+        for (var c = 0; c < sec.rows[r].cells.length; c++) unstickCell(sec.rows[r].cells[c]);
+      }
+    });
+    if (this.wrap && this.wrap.parentNode) {
+      this.wrap.parentNode.insertBefore(t, this.wrap);
+      this.wrap.remove();
+    }
+    this.wrap = null;
+    this._rowH = 0;
+  };
+
   /* ── Public per-instance operations ─────────────────────────────────────── */
 
   Tools.prototype.apply = function () {
@@ -725,6 +998,7 @@
     this._detectNumeric();
     this._decorateHeaders();
     this.apply();
+    this._ensureScroll();          // after apply(): the wrap test counts rendered rows
     if (panelOwner && panelOwner.inst === this) placePanel();
     return this;
   };
@@ -765,10 +1039,12 @@
       }
       out.push(r);
     });
-    // Footer totals are stale the moment a filter hides a row, so 'auto' drops
-    // them exactly then. exportFooter: true/false forces the behaviour.
+    // Footer totals are stale the moment any row is hidden, so 'auto' drops them
+    // exactly then — judged on what is actually rendered, which also catches a
+    // page's own search box hiding rows with the `hidden` attribute, not just this
+    // module's column filters. exportFooter: true/false forces the behaviour.
     var wantFoot = this.footerMode === true || this.footerMode === 'true'
-      || (this.footerMode === 'auto' && this.activeCount() === 0);
+      || (this.footerMode === 'auto' && this._bodyRows().every(rowShown));
     if (wantFoot && this.table.tFoot) {
       for (var f = 0; f < this.table.tFoot.rows.length; f++) {
         var fr = this.table.tFoot.rows[f], rr = [];
@@ -847,6 +1123,7 @@
       h.th.classList.remove('tt-th-active');
     });
     this._bodyRows().forEach(function (r) { r.classList.remove('tt-hidden'); });
+    this._unwrap();
     if (this.bar) this.bar.remove();
     registry = registry.filter(function (e) { return e.inst !== this; }, this);
   };

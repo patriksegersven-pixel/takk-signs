@@ -196,7 +196,15 @@ def _merge_prod(cur, prev):
                     "gp3_prev": I(p["gp3"]) if p else None})
     return out
 
-def _prod_dim(col, cs, ce, ps, pe, limit=25):
+def _prod_dim(col, cs, ce, ps, pe, limit=1000):
+    """Per-value product P&L for one dimension (brand / category), every row that
+    has revenue — the dashboard tables are scrollable, so they show the full list.
+
+    `limit` is a defensive ceiling, not a top-N: at ~180 B/row a full brand list
+    is a couple of hundred KB, which is fine over HTTP and still leaves the
+    product-overview Firestore doc far under its 1 MiB cap. It exists only so a
+    dimension that unexpectedly explodes (a dirty column with 100k values) can't
+    produce an unbounded response. Raise it if a real dimension ever hits it."""
     def q(s, e):
         sql = (f"SELECT COALESCE(NULLIF({col}, ''), 'Uncategorised') name, {PR} FROM `{BQ_TABLE}` "
                f"WHERE Date BETWEEN @cs AND @ce "
@@ -412,11 +420,15 @@ def build_stoy_payload(test_end: datetime.date | None = None):
     yoy_sum = {k: sum(e[k] for e in yoy) for k in ("rev", "gp1", "gp2", "rev_ly", "gp1_ly", "gp2_ly")}
     yoy_sum["window"] = _lbl(yoy_start, te)
 
-    # Flagship Stoy products (test window, SE+NO)
+    # Stoy products with revenue in the test window (SE+NO) — every one of them.
+    # This feeds the page's one list-shaped TABLE (#flag-tbl, scrollable + export),
+    # not a chart or a chip list, so it must not be a top-10. LIMIT 1000 is a
+    # defensive ceiling only: rows are ~55 B, so even a full 1000 is ~55 KB in the
+    # stoy-test Firestore doc.
     flagship = [{"title": r["title"], "rev": I(r["rev"])} for r in _rows(
         f"SELECT Product_title__File_Import title, SUM(kv_revenue_product) rev FROM `{BQ_TABLE}` "
         f"WHERE LOWER(kv_brand)='stoy' AND market_level_1_kv IN {mkts} AND Date BETWEEN DATE '{ts}' AND DATE '{te}' "
-        f"AND Product_title__File_Import IS NOT NULL GROUP BY title HAVING rev > 0 ORDER BY rev DESC LIMIT 10", [])]
+        f"AND Product_title__File_Import IS NOT NULL GROUP BY title HAVING rev > 0 ORDER BY rev DESC LIMIT 1000", [])]
 
     # per-market Stoy: revenue/GP + Google/Meta/total spend (SE vs NO)
     markets = {m: {} for m in STOY_MARKETS}

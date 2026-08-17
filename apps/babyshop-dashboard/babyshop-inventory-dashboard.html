@@ -188,6 +188,19 @@
     }
     .table-filter input:focus { border-color: var(--accent); background: var(--card); }
     .table-filter .count { font-size: 11px; color: var(--muted); }
+    /* Snapshot-truncation note. The refresh job trims a list when the whole
+       snapshot would not fit Firestore's 1 MiB document budget (top_discounts is
+       the usual casualty: ~2.6k of ~27k on-sale items). It sits on its own line
+       just under the "showing N of M" count and stays quiet — the row count is the
+       headline, this only explains why M is not the whole catalogue.
+       Deliberately a sibling of .table-filter rather than a flex item inside it: a
+       ~330px sentence in that row would either squeeze the input and the CSV
+       buttons or force flex-wrap on, which reflows the row in the narrow
+       half-width cards even when there is no note. :empty collapses it away
+       entirely, which is the common case. */
+    .trunc { font-size: 11px; color: var(--muted); padding: 4px 22px 0; }
+    .trunc:empty { display: none; }
+    .trunc b { font-weight: 600; color: var(--body); }
     /* Host for the TableTools CSV/Sheets + "Clear filters" bar: right-hand end of
        the existing filter row, so it never lands inside the overflow:hidden card
        body above the table. */
@@ -311,6 +324,7 @@
       <span class="count" id="risk-count"></span>
       <div class="table-tools" id="risk-tools"></div>
     </div>
+    <div class="trunc" id="risk-trunc"></div>
     <table class="sortable" id="risk-table"
            data-tools data-export-name="inventory-stockout-risk" data-tools-toolbar="#risk-tools">
       <thead><tr>
@@ -360,6 +374,7 @@
         <span class="count" id="oos-count"></span>
         <div class="table-tools" id="oos-tools"></div>
       </div>
+      <div class="trunc" id="oos-trunc"></div>
       <table class="sortable" id="oos-table"
              data-tools data-export-name="inventory-out-of-stock" data-tools-toolbar="#oos-tools">
         <thead><tr><th>Product</th><th>Brand</th><th>Sale price</th><th>Pred. units/mo</th><th>Lost rev/mo</th></tr></thead>
@@ -379,6 +394,7 @@
         <span class="count" id="disc-count"></span>
         <div class="table-tools" id="disc-tools"></div>
       </div>
+      <div class="trunc" id="disc-trunc"></div>
       <table class="sortable" id="disc-table"
              data-tools data-export-name="inventory-top-discounts" data-tools-toolbar="#disc-tools">
         <thead><tr><th>Product</th><th>Brand</th><th>Was</th><th>Now</th><th>−%</th></tr></thead>
@@ -401,6 +417,7 @@
       <span class="count" id="health-count"></span>
       <div class="table-tools" id="health-tools"></div>
     </div>
+    <div class="trunc" id="health-trunc"></div>
     <table class="sortable" id="health-table"
            data-tools data-export-name="inventory-brand-health" data-tools-toolbar="#health-tools">
       <thead><tr>
@@ -557,6 +574,44 @@ function renderHealth() {
   document.getElementById('brand-health-badge').textContent = DATA.brand_health.length + ' brands';
 }
 
+/* ── Snapshot truncation notes ──────────────────────────────────────────────
+   The refresh job trims a list when the whole snapshot would otherwise blow
+   Firestore's 1 MiB document budget, and records what it dropped in
+   DATA.truncated:
+
+     truncated: { top_discounts: { kept: 2651, total: 26909, reason: "…" } }
+
+   Absent on the embedded snapshot and on any payload written before the caps
+   landed, and an empty object when everything fit — all three cases must render
+   nothing rather than "undefined more not shown". Only `total` is really needed;
+   `kept` falls back to the rendered list length so a partial record still says
+   something true. Wired for all four tables even though discounts is the only one
+   expected to trim in practice. */
+const TRUNC_TABLES = [
+  ['stockout_risk', 'risk-trunc',   'stockout_risk'],
+  ['oos_items',     'oos-trunc',    'oos_items'],
+  ['top_discounts', 'disc-trunc',   'top_discounts'],
+  ['brand_health',  'health-trunc', 'brand_health'],
+];
+
+function renderTruncationNotes() {
+  const trunc = (DATA && DATA.truncated) || {};
+  TRUNC_TABLES.forEach(([listKey, noteId, truncKey]) => {
+    const el = document.getElementById(noteId);
+    if (!el) return;
+    const t = trunc[truncKey];
+    const total = t && Number(t.total);
+    const list = (DATA && DATA[listKey]) || [];
+    const kept = t && Number(t.kept) > 0 ? Number(t.kept) : list.length;
+    // Nothing to say unless the payload reports a total larger than what it kept.
+    if (!t || !isFinite(total) || !(total > kept)) { el.innerHTML = ''; el.removeAttribute('title'); return; }
+    el.innerHTML = `top <b>${fmtNum(kept)}</b> of ${fmtNum(total)} — ${fmtNum(total - kept)} more not shown (snapshot size limit)`;
+    el.title = t.reason
+      ? `The refresh job kept the top ${fmtNum(kept)} of ${fmtNum(total)} rows (${t.reason}).`
+      : `The refresh job kept the top ${fmtNum(kept)} of ${fmtNum(total)} rows to stay inside the snapshot size limit.`;
+  });
+}
+
 function renderAll() {
   updateFeedStamp();
   renderKPIs();
@@ -565,6 +620,7 @@ function renderAll() {
   renderOos();
   renderDiscounts();
   renderHealth();
+  renderTruncationNotes();
 }
 
 // Sort + filter helpers

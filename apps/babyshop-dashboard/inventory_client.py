@@ -18,6 +18,7 @@ to keep memory low (~30 MB peak even on 96 MB input).
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -44,6 +45,28 @@ OOS_LOST_QTY = int(os.environ.get("OOS_LOST_QTY", 5))    # fallback units/month/
 # kv-product Quantity measure and written to the shared cache by the daily
 # refresh task. Used to predict OOS lost units instead of a flat assumption.
 VELOCITY_KEY = "inventory-category-velocity"
+
+# ── Firestore write budget ───────────────────────────────────────────────────
+# The whole snapshot is ONE Firestore document (funnel_cache/<ws>__inventory-
+# snapshot, written through funnel_client's cache) and Firestore's hard document
+# limit is 1,048,576 bytes. The table lists below are deliberately UNCAPPED — the
+# dashboard tables scroll, so they show every qualifying row — but uncapped is not
+# a promise that the data fits: `on_sale` alone was 26,909 SKUs on 2026-08-17
+# (~291 B/row ≈ 7.8 MB of JSON). So the payload is measured before it is written
+# and the list-shaped tables are trimmed to fit, largest list first, keeping sort
+# order so the highest-value rows always survive.
+#
+# The measurement is COMPACT JSON, which over-states Firestore's own accounting
+# (string = bytes+1, number = 8, bool/null = 1, plus one key per map entry), so
+# this budget trips before Firestore would reject the write — the safe direction.
+SNAPSHOT_BUDGET_BYTES = int(os.environ.get("INVENTORY_SNAPSHOT_BUDGET_BYTES", 900_000))
+
+# Only these are trimmable: they are list-shaped TABLES, sorted worst/biggest
+# first, so dropping the tail costs the least. dead_by_brand / dead_by_cat feed
+# CHARTS (fixed small top-N by design) and `kpis` are scalars computed over the
+# full feed — trimming either would change what the page reports, not just how
+# much of it. Order here is the tie-break order when shaving the last few bytes.
+_TRIMMABLE = ("top_discounts", "oos_items", "stockout_risk", "brand_health")
 
 
 def _load_category_velocity() -> dict:
@@ -74,6 +97,88 @@ def _parse_sek(s: Optional[str]) -> float:
 
 def _short(s: str, n: int = 70) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def _jlen(obj) -> int:
+    """Serialized size of `obj` as compact UTF-8 JSON, in bytes."""
+    return len(json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8"))
+
+
+def _fit_to_budget(payload: dict, budget: int = SNAPSHOT_BUDGET_BYTES) -> dict:
+    """Trim the table lists just enough for the snapshot to fit one Firestore doc.
+
+    Mutates and returns `payload`. Adds:
+      payload["snapshot_bytes"] — compact-JSON size of what is actually returned
+      payload["truncated"]     — {list_name: {"kept": n, "total": m, "reason": …}}
+                                 for every list that lost rows (empty dict when
+                                 nothing was trimmed, so the page can rely on it)
+    and prints a warning naming each trimmed list.
+
+    Rows are dropped from the TAIL only, so the sort each list was built with
+    (worst stockout risk / priciest OOS / deepest discount / biggest catalogue
+    first) decides what survives.
+
+    Allocation is fair-share, not flat-proportional: every list is offered an
+    equal slice of the room left after the non-trimmable parts, a list that fits
+    inside its slice keeps ALL its rows, and the unused slack rolls on to the
+    bigger lists. So the one list that caused the overflow (`top_discounts`, 26.9k
+    rows) gives up the rows, and the small tables stay complete — a proportional
+    split would instead cut 191 stockout rows to ~22 to buy the giant list a few
+    hundred more.
+    """
+    payload.setdefault("truncated", {})
+    total = _jlen(payload)
+    if total <= budget:
+        payload["snapshot_bytes"] = total
+        return payload
+
+    lists = {k: payload[k] for k in _TRIMMABLE
+             if isinstance(payload.get(k), list) and payload[k]}
+    if not lists:
+        payload["snapshot_bytes"] = total
+        print(f"⚠️  inventory_client: snapshot is {total:,} B, over the {budget:,} B "
+              f"budget, but no trimmable list is populated")
+        return payload
+
+    sizes = {k: _jlen(v) for k, v in lists.items()}
+    fixed = total - sum(sizes.values())                # kpis, charts, metadata
+    remaining = max(budget - fixed, 0)
+
+    # Smallest list first, so each pass hands its unused slack to the bigger ones.
+    for n, k in enumerate(sorted(lists, key=lambda n: sizes[n])):
+        rws, share = lists[k], remaining / (len(lists) - n)
+        if sizes[k] <= share:
+            remaining -= sizes[k]                      # fits whole, keep every row
+            continue
+        per_row = sizes[k] / len(rws)
+        keep = max(min(int(share // per_row), len(rws)), 1)   # never empty a table
+        remaining -= keep * per_row
+        if keep < len(rws):
+            payload["truncated"][k] = {"kept": keep, "total": len(rws),
+                                       "reason": "firestore-1mib-budget"}
+            payload[k] = rws[:keep]
+
+    # Per-row averages and the note itself can leave it a hair over — shave the
+    # biggest remaining list until it fits (bounded: each pass drops ≥1 row).
+    for _ in range(400):
+        if _jlen(payload) <= budget:
+            break
+        k = max(_TRIMMABLE, key=lambda n: _jlen(payload.get(n) or []))
+        rws = payload.get(k) or []
+        if len(rws) <= 1:
+            break                                      # nothing left to give
+        keep = min(int(len(rws) * 0.95), len(rws) - 1) or 1
+        note = payload["truncated"].setdefault(
+            k, {"kept": keep, "total": len(rws), "reason": "firestore-1mib-budget"})
+        note["kept"] = keep
+        payload[k] = rws[:keep]
+
+    payload["snapshot_bytes"] = _jlen(payload)
+    print("⚠️  inventory_client: snapshot was {:,} B (budget {:,}) — trimmed to {:,} B: {}".format(
+        total, budget, payload["snapshot_bytes"],
+        ", ".join(f"{k} {v['kept']:,}/{v['total']:,}"
+                  for k, v in payload["truncated"].items()) or "nothing"))
+    return payload
 
 
 def _fetch_and_parse_feed() -> dict:
@@ -189,12 +294,12 @@ def _fetch_and_parse_feed() -> dict:
         "on_sale_count":        len(on_sale),
     }
 
-    # Stockout-risk top 30
+    # Stockout risk — every low-stock SKU, worst first (the table scrolls).
     risk_rows = sorted(
         low_stock,
         key=lambda i: i["sale_price"] * (3 - (i["stock"] or 0)),
         reverse=True,
-    )[:30]
+    )
     stockout_risk = [{
         "id":         i["id"],
         "title":      _short(i["title"]),
@@ -223,8 +328,8 @@ def _fetch_and_parse_feed() -> dict:
         key=lambda r: r["value"], reverse=True
     )[:15]
 
-    # OOS top by sale_price
-    oos_top = sorted(oos, key=lambda i: i["sale_price"], reverse=True)[:30]
+    # Out of stock — every OOS SKU, most valuable first
+    oos_top = sorted(oos, key=lambda i: i["sale_price"], reverse=True)
     oos_list = [{
         "id": i["id"], "title": _short(i["title"]),
         "brand": i["brand"], "cat1": i["cat1"], "cat2": i["cat2"],
@@ -233,8 +338,10 @@ def _fetch_and_parse_feed() -> dict:
         "lost_mo": round(i["sale_price"] * i.get("_pred_units", 0)),
     } for i in oos_top]
 
-    # Top discounts
-    on_sale_sorted = sorted(on_sale, key=lambda i: i["price"] - i["sale_price"], reverse=True)[:30]
+    # Discounts — every discounted SKU, deepest absolute discount first. This is
+    # the one list that routinely blows the Firestore budget (26,909 rows on
+    # 2026-08-17), so _fit_to_budget below usually trims its tail.
+    on_sale_sorted = sorted(on_sale, key=lambda i: i["price"] - i["sale_price"], reverse=True)
     top_discounts = [{
         "id": i["id"], "title": _short(i["title"]),
         "brand": i["brand"], "cat1": i["cat1"], "cat2": i["cat2"],
@@ -243,7 +350,7 @@ def _fetch_and_parse_feed() -> dict:
         "url": i["url"],
     } for i in on_sale_sorted]
 
-    # Brand inventory health top 40
+    # Brand inventory health — every brand with 5+ SKUs, biggest catalogue first
     brand_health = defaultdict(lambda: {"active": 0, "dead": 0, "oos": 0, "stock_value": 0.0})
     for i in items:
         b = brand_health[i["brand"]]
@@ -270,18 +377,21 @@ def _fetch_and_parse_feed() -> dict:
         })
     rows.sort(key=lambda r: r["total_skus"], reverse=True)
 
-    return {
+    payload = {
         "kpis":            kpis,
         "stockout_risk":   stockout_risk,
         "dead_by_brand":   dead_brand_top,
         "dead_by_cat":     dead_cat_top,
         "oos_items":       oos_list,
         "top_discounts":   top_discounts,
-        "brand_health":    rows[:40],
+        "brand_health":    rows,
         "generated_at":    time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "feed_pub_date":   feed_pub_date,
         "feed_skus_total": len(items),
     }
+    # Trim here, once, so the Firestore write and the /api/inventory response are
+    # the same dict — the page can never show rows the cache didn't keep.
+    return _fit_to_budget(payload)
 
 
 def fetch_inventory(force: bool = False) -> dict:

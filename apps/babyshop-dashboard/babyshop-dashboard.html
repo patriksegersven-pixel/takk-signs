@@ -907,10 +907,15 @@
            its header buttons on the tbody mutation, which bdRenderTable always fires last.
            Only the P&L-line column gets a filter — the 12 month columns hold one figure per
            line each, so a per-month value filter would have nothing to narrow down.
-           data-export-ignore drops the inline .pl-var variance badge from exported cells. -->
+           data-export-ignore drops the inline .pl-var variance badge from exported cells.
+           data-scroll="false": this table already lives in .pl-wrap, which scrolls
+           horizontally and carries its own sticky thead + sticky first column. A second,
+           nested scrollport would double the scrollbars for a table that is ~15 P&L lines
+           long and will never reach the row threshold. -->
       <table class="pl-table" id="pl-table" data-tools
              data-export-name="kv-pl-plan-2026"
              data-filter-columns="0"
+             data-scroll="false"
              data-export-ignore=".pl-var"
              data-tools-toolbar="#pl-tools">
         <thead><tr id="pl-head"></tr></thead>

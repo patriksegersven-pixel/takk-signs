@@ -1881,7 +1881,9 @@ function renderFirstPurchase(src){
     if (note) note.innerHTML = '';
     return;
   }
-  const norm = sortRows(filtered,'fp',(r,key)=>r[key]).slice(0,12);
+  /* No client-side top-N: the table renders every row the payload carries and
+     table-tools contains it in its own scrollport past 25 rows. */
+  const norm = sortRows(filtered,'fp',(r,key)=>r[key]);
 
   if (note) note.innerHTML = FP_MODE === 'agg'
     ? `Aggregated over <b>${esc(periodLabel())}</b> · ${esc(filterLabel('customers'))}. Shares are recomputed from the summed totals, not

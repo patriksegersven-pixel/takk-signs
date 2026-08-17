@@ -91,6 +91,23 @@ BQ_LOCATION = os.environ.get("BQ_LOCATION", "EU")
 # rolling window on them, not a bigger number here.
 DOC_BUDGET_BYTES = 900_000
 
+# Rows per dimension in `first_purchase_products`. These are TABLES on the page
+# (scrollable), not top-N chips, so the ceiling is as high as one Firestore
+# document can carry — and that is the binding constraint, measured not guessed:
+#
+#   compact JSON, fpp at 200/dim (2026-08-16)     690,779 B
+#   fpp rows measured                             ~190 B/row (brand 182, product 199)
+#   everything else in the doc                    ~576,800 B
+#   → 350/dim ≈ 776 KB · 500/dim ≈ 862 KB · 600/dim ≈ 919 KB (over budget)
+#     1000/dim ≈ 1,147 KB — over DOC_BUDGET_BYTES by ~247 KB, i.e. _check_size
+#     would refuse every write and the tab would go stale.
+#
+# So 500 (2.5x the old 200) is the largest round ceiling that fits with headroom
+# for `trend`/`cohorts` growth. Going higher needs the rolling window on those two
+# series that _check_size's error message asks for — not a bigger number here.
+# Override per-job without a redeploy if a table demonstrably needs more:
+FPP_LIMIT = int(os.environ.get("CUSTOMER_INSIGHTS_FPP_LIMIT", "500"))
+
 # Billing currency per Google Ads account, read live from the API on 2026-08-16
 # (customer.currency_code). Kept here as documentation of WHY no per-account
 # conversion is applied to funnel Cost: the export has already done it. Note DK
@@ -474,7 +491,7 @@ def norce_payload(win_start: datetime.date, end: datetime.date,
                       "orders_per_customer_12m": opc_per.get((r["market"], r["shop"])),
                       "cac": cac_for(r["market"], r["shop"])})
 
-    def fpp(dim_type, limit=200):
+    def fpp(dim_type, limit=FPP_LIMIT):
         return [{"month": str(r["month"]), "market": r["market"], "shop": r["shop"],
                  "name": r["dim_value"], "new_customers": I(r["new_customer_orders"]),
                  "share_of_first_orders": F(r["order_share"], 4),
@@ -659,7 +676,9 @@ def _check_size(payload: dict) -> int:
             f"Customer Insights payload is {n:,} B, over the {DOC_BUDGET_BYTES:,} B budget "
             f"(Firestore's hard limit is 1,048,576). Biggest sections: "
             + ", ".join(f"{k} {s:,} B" for s, k in big)
-            + ". Put a rolling window on the growing series — do not just raise the budget.")
+            + ". Put a rolling window on the growing series — do not just raise the budget. "
+            f"(`norce` includes first_purchase_products, {FPP_LIMIT} rows/dimension: "
+            "CUSTOMER_INSIGHTS_FPP_LIMIT lowers that without a redeploy.)")
     return n
 
 
@@ -690,7 +709,14 @@ def main():
           f"new-share 90d {k['new_share_90d']} · blended CAC {k['blended_cac_90d']} · "
           f"orders/cust 12m {k['orders_per_customer_12m']} · "
           f"{len(p['trend'])} trend rows · {len(p['cac_matrix'])} markets · "
-          f"{len(p['channel_spend'])} channel-spend rows · {time.time()-t0:.1f}s")
+          f"{len(p['channel_spend'])} channel-spend rows · "
+          # first-purchase row counts: a dimension sitting exactly on FPP_LIMIT is
+          # still truncated, which is the signal to window `trend`/`cohorts` and
+          # raise CUSTOMER_INSIGHTS_FPP_LIMIT.
+          + " ".join(f"fpp-{k[:4]} {len(v)}"
+                     for k, v in p["norce"]["first_purchase_products"].items())
+          + f" (cap {FPP_LIMIT}) · {len(json.dumps(p, ensure_ascii=False)):,} B · "
+          f"{time.time()-t0:.1f}s")
 
 
 if __name__ == "__main__":
