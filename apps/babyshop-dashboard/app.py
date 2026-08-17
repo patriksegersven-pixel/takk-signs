@@ -137,6 +137,7 @@ ROAS_HTML      = STATIC_DIR / "babyshop-roas-impact.html"
 SIM_HTML       = STATIC_DIR / "babyshop-roas-simulations.html"
 VOYADO_HTML    = STATIC_DIR / "babyshop-voyado-dashboard.html"
 TABLE_TOOLS_JS = STATIC_DIR / "table-tools.js"
+CHART_JS       = STATIC_DIR / "chart.umd.js"
 
 
 @app.get("/")
@@ -191,6 +192,14 @@ def voyado_dashboard(_: str = Depends(verify)):
 @app.get("/table-tools.js")
 def table_tools_js(_: str = Depends(verify)):
     return FileResponse(TABLE_TOOLS_JS, media_type="application/javascript")
+
+
+# Chart.js v4.4.1 UMD, vendored. Served same-origin because cdn.jsdelivr.net is
+# unreachable from some networks — a failed CDN load threw "Chart is not
+# defined", blanking every chart and leaving the KPI cards on embedded data.
+@app.get("/chart.umd.js")
+def chart_js(_: str = Depends(verify)):
+    return FileResponse(CHART_JS, media_type="application/javascript")
 
 
 # ── Health (no auth — for Cloud Run probes) ──────────────────────────────────
