@@ -7,3 +7,11 @@ google-cloud-bigquery==3.27.0
 # 31.x targets Google Ads API v25 by default — refresh_roas_sims.API_VERSION pins the
 # version explicitly, so bumping this line must be paired with checking that constant.
 google-ads==31.2.0
+# Voyado Engage arrives over Delta Sharing (voyado_sync.py) — the Engage REST
+# API has no campaign-statistics endpoints, so this is the only route to sends,
+# opens and clicks. pandas/pyarrow come in as its dependencies but are pinned
+# explicitly because voyado_sync also needs them directly for
+# BigQuery load_table_from_dataframe.
+delta-sharing==1.4.2
+pandas==2.3.3
+pyarrow==23.0.1

@@ -135,6 +135,7 @@ INVENTORY_HTML = STATIC_DIR / "babyshop-inventory-dashboard.html"
 STOY_HTML      = STATIC_DIR / "babyshop-stoy-dashboard.html"
 ROAS_HTML      = STATIC_DIR / "babyshop-roas-impact.html"
 SIM_HTML       = STATIC_DIR / "babyshop-roas-simulations.html"
+VOYADO_HTML    = STATIC_DIR / "babyshop-voyado-dashboard.html"
 TABLE_TOOLS_JS = STATIC_DIR / "table-tools.js"
 
 
@@ -176,6 +177,11 @@ def roas_impact_dashboard(_: str = Depends(verify)):
 @app.get("/babyshop-roas-simulations.html")
 def roas_simulations_dashboard(_: str = Depends(verify)):
     return FileResponse(SIM_HTML, media_type="text/html")
+
+
+@app.get("/babyshop-voyado-dashboard.html")
+def voyado_dashboard(_: str = Depends(verify)):
+    return FileResponse(VOYADO_HTML, media_type="text/html")
 
 
 # Shared table filtering + export module, used by <script src="/table-tools.js">
@@ -258,6 +264,41 @@ def api_customer_insights(_: str = Depends(verify)):
         "funnel": {"monthly": [], "cac_matrix": [], "trend": []},
         "norce": None,
         "caveats": ["no customer-insights snapshot yet — the refresh job has not run"],
+    }
+
+
+@app.get("/api/voyado-email")
+def api_voyado_email(_: str = Depends(verify)):
+    """Voyado email snapshot (written to Firestore by refresh_voyado.py).
+
+    Same Firestore-cache read as /api/customer-insights, and the same
+    200-with-a-skeleton contract rather than the 503 that /api/stoy-data and
+    /api/roas-impact return: the tab ships before its refresher has run, and
+    the event tables backfill over hours, so the page must be able to render its
+    own pending state. `generated_at: null` is that signal.
+
+    The skeleton carries the caveats even when empty — this dataset has no
+    bounce data and its revenue is last-click, and a reader should meet those
+    facts on the empty state too, not only once numbers appear."""
+    from funnel_client import get_cache
+
+    try:
+        data = get_cache().get("voyado-email")
+    except Exception as e:
+        # A Firestore hiccup must not blank the tab — log and serve the skeleton.
+        print(f"ERROR /api/voyado-email: {type(e).__name__}: {e}", flush=True)
+        data = None
+    if data is not None:
+        return data
+    return {
+        "generated_at": None,
+        "sources": {"voyado": {"dataset": None, "coverage": {}},
+                    "window": {"from": None, "to": None, "days": 0},
+                    "attribution": {"model": "last click", "window_days": 7,
+                                    "key": "voyado contactId"}},
+        "kpis": {}, "trend": [], "markets": [], "campaigns": [],
+        "automations": [], "revenue_share": [],
+        "caveats": ["no Voyado snapshot yet — refresh_voyado.py has not run"],
     }
 
 

@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Email (Voyado) · Babyshop</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Shared column filters + CSV/Sheets export. Tables opt in with data-tools and are
+       picked up on DOMContentLoaded — i.e. AFTER this page's inline script has rendered
+       them once. The live overlay (fetchLiveAndOverlay → renderAll) rebuilds the tbodies,
+       which the module's MutationObserver catches, so no render hooks are needed here. -->
+  <script src="/table-tools.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#F7F8FA; --card:#FFFFFF; --border:#E5E7EB; --border-lt:#F1F3F5;
+      --h:#0F172A; --body:#475569; --muted:#94A3B8;
+      --accent:#1E3A8A; --accent-bg:#EEF2FF;
+      --hero:#047857; --hero-bg:#ECFDF5;        /* green — revenue is the win */
+      --sent:#1E3A8A; --click:#2563EB; --rev:#047857; --unsub:#B91C1C; --open:#94A3B8;
+      --up:#047857; --up-bg:#ECFDF5; --down:#B91C1C; --down-bg:#FEF2F2;
+      --warn:#B45309; --warn-bg:#FEF5E7;
+      --shadow-sm:0 1px 2px rgba(15,23,42,.04); --r:8px; --r-sm:4px;
+    }
+    html { font-size:16px; }
+    body { font-family:'Inter',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--body); min-height:100vh; -webkit-font-smoothing:antialiased; }
+
+    header { background:var(--h); color:#fff; padding:0 32px; height:58px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; }
+    .logo { display:flex; align-items:center; gap:12px; }
+    .logo-mark { width:34px; height:34px; background:var(--accent); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; color:#fff; letter-spacing:-.5px; }
+    .logo-wordmark { font-size:14px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+    .logo-sub { font-size:10px; font-weight:400; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,.45); margin-top:1px; }
+    .header-right { display:flex; align-items:center; gap:20px; }
+    .nav-tabs { display:flex; align-items:center; gap:2px; }
+    .nav-tab { padding:6px 14px; font-size:12px; font-weight:500; letter-spacing:.03em; color:rgba(255,255,255,.5); border-radius:6px; text-decoration:none; transition:all .15s; }
+    .nav-tab:hover { color:rgba(255,255,255,.8); background:rgba(255,255,255,.08); }
+    .nav-tab.active { color:#fff; background:rgba(255,255,255,.12); }
+    .live-dot { display:flex; align-items:center; gap:6px; font-size:11px; color:rgba(255,255,255,.45); letter-spacing:.04em; }
+    .live-dot::before { content:''; width:6px; height:6px; border-radius:50%; background:#4E9B65; box-shadow:0 0 0 2px rgba(78,155,101,.3); animation:blink 2s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{box-shadow:0 0 0 2px rgba(78,155,101,.3);} 50%{box-shadow:0 0 0 5px rgba(78,155,101,.1);} }
+    .refresh-pill { display:none; align-items:center; gap:6px; font-size:11px; padding:4px 10px; border-radius:12px; letter-spacing:.03em; cursor:help; background:rgba(220,80,80,.15); color:#ff8a8a; border:1px solid rgba(220,80,80,.35); }
+    .refresh-pill.show { display:inline-flex; }
+    .refresh-pill.stale { background:rgba(220,170,60,.12); color:#f0c060; border-color:rgba(220,170,60,.35); }
+    .refresh-pill.unknown { background:rgba(120,120,130,.12); color:rgba(255,255,255,.55); border-color:rgba(120,120,130,.3); }
+    .refresh-pill::before { content:''; width:6px; height:6px; border-radius:50%; background:currentColor; }
+
+    main { max-width:1380px; margin:0 auto; padding:26px 32px 56px; }
+    .filter-bar { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:18px; gap:18px; flex-wrap:wrap; }
+    .page-title { font-size:20px; font-weight:700; color:var(--h); letter-spacing:-.3px; }
+    .page-sub { font-size:12px; color:var(--muted); margin-top:3px; max-width:760px; line-height:1.5; }
+    .change-chip { display:flex; align-items:center; gap:8px; background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:8px 14px; font-size:12px; }
+    .change-chip b { color:var(--h); }
+    .change-chip .dot { width:8px; height:8px; border-radius:50%; background:var(--accent); }
+
+    .note-bar { background:var(--warn-bg); border:1px solid #F4D7A8; color:#7C4A11; border-radius:var(--r); padding:11px 16px; font-size:12px; line-height:1.5; margin-bottom:20px; display:flex; gap:9px; align-items:flex-start; }
+    .note-bar svg { flex-shrink:0; margin-top:1px; }
+
+    .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }
+    .kpi-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:18px 20px; box-shadow:var(--shadow-sm); position:relative; overflow:hidden; }
+    .kpi-card.hero { border:1px solid var(--hero); }
+    .kpi-card.hero::after { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--hero); }
+    .kpi-label { font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+    .kpi-badge { display:inline-flex; align-items:center; font-size:9px; font-weight:700; letter-spacing:.04em; padding:2px 6px; border-radius:3px; text-transform:uppercase; color:#fff; background:var(--hero); }
+    .kpi-badge.soft { background:var(--muted); }
+    .kpi-value { font-size:27px; font-weight:700; color:var(--h); letter-spacing:-.5px; line-height:1.1; margin-bottom:9px; font-variant-numeric:tabular-nums; }
+    .kpi-card.hero .kpi-value { color:var(--hero); }
+    .kpi-sub { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; padding:3px 7px; border-radius:var(--r-sm); color:var(--muted); background:var(--bg); }
+    .kpi-note { font-size:10.5px; color:var(--muted); margin-top:7px; line-height:1.45; }
+
+    .chart-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:20px 22px; box-shadow:var(--shadow-sm); margin-bottom:20px; }
+    .chart-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:14px; gap:12px; flex-wrap:wrap; }
+    .chart-title { font-size:14px; font-weight:600; color:var(--h); }
+    .chart-sub { font-size:11px; color:var(--muted); margin-top:2px; }
+    .chart-wrap { position:relative; height:310px; }
+    .chart-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; font-size:12.5px; color:var(--muted); line-height:1.6; padding:0 24px; }
+    .chart-empty[hidden] { display:none; }
+    @media(max-width:1080px){ .kpi-grid{grid-template-columns:1fr 1fr;} }
+
+    .metric-chips { display:flex; gap:6px; flex-wrap:wrap; }
+    .metric-chip { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; font-size:11px; font-weight:500; border:1px solid var(--border); border-radius:999px; cursor:pointer; color:var(--muted); background:var(--card); font-family:inherit; transition:all .15s; white-space:nowrap; }
+    .metric-chip:hover { color:var(--h); border-color:var(--muted); }
+    .metric-chip.active { color:#fff; border-color:transparent; }
+    .metric-chip .dot { width:7px; height:7px; border-radius:50%; background:currentColor; flex-shrink:0; }
+
+    .card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); overflow:hidden; margin-bottom:20px; }
+    .card-header { padding:16px 22px 12px; display:flex; align-items:flex-start; justify-content:space-between; border-bottom:1px solid var(--border-lt); gap:12px; flex-wrap:wrap; }
+    .card-title { font-size:14px; font-weight:600; color:var(--h); }
+    .card-sub { font-size:11px; color:var(--muted); margin-top:2px; max-width:720px; line-height:1.5; }
+    .tools-slot { display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+    table { width:100%; border-collapse:collapse; }
+    thead th { padding:10px 14px; font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); text-align:right; border-bottom:1px solid var(--border); white-space:nowrap; }
+    thead th:first-child { text-align:left; padding-left:22px; }
+    tbody td { padding:11px 14px; font-size:13px; font-weight:500; color:var(--body); border-bottom:1px solid var(--border-lt); text-align:right; font-variant-numeric:tabular-nums; }
+    tbody td:first-child { text-align:left; padding-left:22px; font-weight:600; color:var(--h); }
+    tbody tr:last-child td { border-bottom:none; }
+    tbody tr:hover td { background:var(--bg); }
+    /* Summary rows live in <tfoot>, which inherits NONE of the tbody rules — without
+       these the totals fall back to the root 16px, left-aligned and unpadded, so they
+       sit out of line with the very column they total. Mirror tbody, then add weight. */
+    tfoot td { padding:11px 14px; font-size:13px; text-align:right; font-variant-numeric:tabular-nums; }
+    tfoot td:first-child { text-align:left; padding-left:22px; }
+    .tfoot-row td { font-weight:700; color:var(--h); border-top:1px solid var(--border); border-bottom:none; background:var(--bg); }
+    .sub-cell { font-size:10px; color:var(--muted); font-weight:400; display:block; margin-top:2px; }
+    .pill { display:inline-block; padding:2px 7px; border-radius:3px; font-size:10px; font-weight:600; letter-spacing:.02em; }
+    .pill-soft { background:var(--bg); color:var(--muted); border:1px solid var(--border); }
+    .pill-warn { background:var(--warn-bg); color:var(--warn); }
+    .cell-muted { color:var(--muted)!important; font-weight:500!important; }
+
+    .section-head { margin:28px 0 14px; display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
+    .section-title { font-size:15px; font-weight:700; color:var(--h); letter-spacing:-.2px; display:flex; align-items:center; gap:8px; }
+    .section-tag { font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--accent); background:var(--accent-bg); border-radius:3px; padding:2px 7px; }
+    .section-sub { font-size:12px; color:var(--muted); margin-top:3px; max-width:860px; line-height:1.5; }
+
+    .empty { padding:34px 22px; text-align:center; font-size:12.5px; color:var(--muted); line-height:1.6; }
+    .caveats { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:16px 22px 18px; box-shadow:var(--shadow-sm); }
+    .caveats h3 { font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin-bottom:9px; }
+    .caveats ul { list-style:none; display:grid; gap:6px; }
+    .caveats li { font-size:11.5px; line-height:1.55; padding-left:15px; position:relative; }
+    .caveats li::before { content:''; position:absolute; left:0; top:7px; width:5px; height:5px; border-radius:50%; background:var(--muted); }
+    .coverage { display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; }
+    .coverage span { font-size:10.5px; color:var(--muted); background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:3px 8px; font-variant-numeric:tabular-nums; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <div class="logo-mark">bs</div>
+    <div>
+      <div class="logo-wordmark">Babyshop</div>
+      <div class="logo-sub">Email · Voyado Engage</div>
+    </div>
+  </div>
+  <nav class="nav-tabs">
+    <a href="/babyshop-dashboard.html" class="nav-tab">KV Overview</a>
+    <a href="/babyshop-product-dashboard.html" class="nav-tab">Products</a>
+    <a href="/babyshop-customer-dashboard.html" class="nav-tab">Customer Insights</a>
+    <a href="/babyshop-inventory-dashboard.html" class="nav-tab">Inventory</a>
+    <a href="/babyshop-stoy-dashboard.html" class="nav-tab">Stoy Test</a>
+    <a href="/babyshop-roas-impact.html" class="nav-tab">ROAS Impact</a>
+    <a href="/babyshop-roas-simulations.html" class="nav-tab">ROAS Simulations</a>
+    <a href="/babyshop-voyado-dashboard.html" class="nav-tab active">Email (Voyado)</a>
+  </nav>
+  <div class="header-right">
+    <div class="refresh-pill" id="refreshPill" title=""></div>
+    <div class="live-dot" id="liveDot">Live · Voyado Delta Share</div>
+  </div>
+</header>
+
+<main>
+  <div class="filter-bar">
+    <div>
+      <div class="page-title">Email (Voyado)</div>
+      <div class="page-sub" id="page-sub">—</div>
+    </div>
+    <div class="change-chip">
+      <span class="dot"></span>
+      <div>Attribution <b>last click</b> · <b>7-day</b> window<br>
+        <span class="sub-cell" id="chip-key">on Voyado contactId · marketing mail only</span></div>
+    </div>
+  </div>
+
+  <!-- These three caveats are not footnotes: each one changes how a number should be
+       read, so they sit above the numbers rather than below them. -->
+  <div class="note-bar">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+    <div><b>Read these first.</b> <b>“Sent” is not “delivered”</b> — the Voyado share carries no bounce or delivery-status data, so there is no deliverability rate here.
+      <b>Open rate is inflated</b> by Apple Mail Privacy Protection pre-fetching images; lead on click rate.
+      <b>Revenue is last-click within 7 days</b>, an upper bound on email's contribution — not incrementality, because only 25 of 737,751 sendouts run a control group.
+      Transactional mail is excluded throughout. Currency: SEK.</div>
+  </div>
+
+  <div class="kpi-grid" id="kpi-grid"></div>
+
+  <div class="chart-card">
+    <div class="chart-header">
+      <div>
+        <div class="chart-title">Daily activity</div>
+        <div class="chart-sub">Each metric sits on the date it happened — a click on the 3rd counts on the 3rd even if the send was the 1st.</div>
+      </div>
+      <div class="metric-chips" id="trend-chips"></div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="trendChart"></canvas>
+      <!-- Empty state as a DOM sibling, not text painted onto the canvas: the
+           canvas backing store is device-pixel sized, so fillText positioned in
+           those units lands off-centre and clipped on a HiDPI screen. -->
+      <div class="chart-empty" id="trend-empty" hidden></div>
+    </div>
+  </div>
+
+  <div class="section-head">
+    <div>
+      <div class="section-title">Campaigns <span class="section-tag">manual sendouts</span></div>
+      <div class="section-sub">Manual campaigns only. An automation “campaign” is one triggered send per recipient — those are rolled up by flow below, because listing them individually would be hundreds of thousands of rows.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Campaign performance</div>
+        <div class="card-sub" id="camp-sub">Engagement is credited to the campaign whenever it happened; revenue to the last campaign clicked before the order.</div>
+      </div>
+      <div class="tools-slot">
+        <input class="table-filter" id="camp-q" type="search" placeholder="Filter campaigns…" aria-label="Filter campaigns">
+      </div>
+    </div>
+    <table id="camp-table" data-tools data-tools-name="voyado-campaigns">
+      <thead><tr>
+        <th>Campaign</th><th>Date</th><th>Sent</th><th>Open&nbsp;rate</th><th>Click&nbsp;rate</th>
+        <th>CTOR</th><th>Unsub</th><th>Orders</th><th>Revenue</th><th>AOV</th><th>Rev/send</th>
+      </tr></thead>
+      <tbody id="camp-body"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Automations by flow</div>
+        <div class="card-sub">Grouped by workflow — the flow is the unit you manage, not the individual triggered send.</div>
+      </div>
+      <div class="tools-slot">
+        <input class="table-filter" id="auto-q" type="search" placeholder="Filter flows…" aria-label="Filter automations">
+      </div>
+    </div>
+    <table id="auto-table" data-tools data-tools-name="voyado-automations">
+      <thead><tr>
+        <th>Flow</th><th>Sendouts</th><th>Sent</th><th>Clickers</th><th>Click&nbsp;rate</th>
+        <th>Unsub</th><th>Orders</th><th>Revenue</th><th>Rev/send</th>
+      </tr></thead>
+      <tbody id="auto-body"></tbody>
+    </table>
+  </div>
+
+  <div class="section-head">
+    <div>
+      <div class="section-title">Markets &amp; list health <span class="section-tag">from contact country</span></div>
+      <div class="section-sub">Market comes from the contact, never the message — Voyado is a single tenant here with no market on the sendout. “Unknown” is real: ~12% of contacts carry no country, and contacts Voyado has erased carry none either.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">By market</div>
+        <div class="card-sub">List size and permission state alongside the same window's sending.</div>
+      </div>
+      <div class="tools-slot">
+        <input class="table-filter" id="mkt-q" type="search" placeholder="Filter markets…" aria-label="Filter markets">
+      </div>
+    </div>
+    <table id="mkt-table" data-tools data-tools-name="voyado-markets">
+      <thead><tr>
+        <th>Market</th><th>Contacts</th><th>Subscribed</th><th>Sub&nbsp;rate</th><th>Unsub'd</th>
+        <th>Undeliverable</th><th>Sent</th><th>Click&nbsp;rate</th><th>Orders</th><th>Revenue</th>
+      </tr></thead>
+      <tbody id="mkt-body"></tbody>
+      <tfoot id="mkt-foot"></tfoot>
+    </table>
+  </div>
+
+  <div class="section-head">
+    <div>
+      <div class="section-title">Email's share of revenue <span class="section-tag">upper bound</span></div>
+      <div class="section-sub">Every receipt is the denominator, email-attributed the numerator. Because attribution is last click on a 7-day window with no holdout, treat this as the ceiling on email's contribution rather than a measurement of it.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Revenue share by month and market</div>
+        <div class="card-sub">Months before 2025-06 are flagged: Voyado's own exchange rates were unreliable then and those rows are reconverted from the local amount.</div>
+      </div>
+      <div class="tools-slot">
+        <input class="table-filter" id="rs-q" type="search" placeholder="Filter…" aria-label="Filter revenue share">
+      </div>
+    </div>
+    <table id="rs-table" data-tools data-tools-name="voyado-revenue-share">
+      <thead><tr>
+        <th>Month</th><th>Market</th><th>Orders</th><th>Revenue</th>
+        <th>Email&nbsp;orders</th><th>Email&nbsp;revenue</th><th>Email&nbsp;share</th>
+      </tr></thead>
+      <tbody id="rs-body"></tbody>
+    </table>
+  </div>
+
+  <div class="caveats">
+    <h3>Caveats &amp; coverage</h3>
+    <ul id="caveat-list"></ul>
+    <div class="coverage" id="coverage"></div>
+  </div>
+</main>
+
+<script>
+/* ── Embedded skeleton. The page ships before refresh_voyado.py has ever run and
+   before the event tables finish backfilling, so it renders its own pending
+   state and /api/voyado-email overlays whatever exists. `generated_at: null`
+   is the signal that no snapshot is there yet. ── */
+const SNAP = {"generated_at":null,"sources":{"voyado":{"dataset":null,"coverage":{}},"window":{"from":null,"to":null,"days":0},"attribution":{"model":"last click","window_days":7,"key":"voyado contactId"}},"kpis":{},"trend":[],"markets":[],"campaigns":[],"automations":[],"revenue_share":[],"caveats":["no Voyado snapshot yet — refresh_voyado.py has not run"]};
+let DATA = SNAP;
+
+/* ── Formatters (match the other tabs) ── */
+const fmtSEK = v => {
+  if (v == null) return '—';
+  const n = Math.round(v);
+  if (Math.abs(n) >= 1e6) return (n/1e6).toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})+'M kr';
+  if (Math.abs(n) >= 1e3) return (n/1e3).toLocaleString('sv-SE',{minimumFractionDigits:0,maximumFractionDigits:0})+'K kr';
+  return n.toLocaleString('sv-SE')+' kr';
+};
+const fmtInt = v => v == null ? '—' : Math.round(v).toLocaleString('sv-SE');
+const fmtPct = (v, nd=2) => v == null ? '—' : (v*100).toLocaleString('sv-SE',{minimumFractionDigits:nd,maximumFractionDigits:nd})+'%';
+const fmtKr  = (v, nd=2) => v == null ? '—' : v.toLocaleString('sv-SE',{minimumFractionDigits:nd,maximumFractionDigits:nd})+' kr';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hasData = () => !!(DATA && DATA.generated_at !== null && DATA.kpis && Object.keys(DATA.kpis).length);
+
+/* ── Header meta ── */
+function renderMeta(){
+  const w = (DATA.sources && DATA.sources.window) || {};
+  const sub = document.getElementById('page-sub');
+  sub.textContent = hasData()
+    ? `Marketing email from Voyado Engage · window ${w.from} → ${w.to} (${w.days} days) · campaigns and revenue share run longer.`
+    : 'Awaiting the first Voyado snapshot — the sync and refresh jobs have not produced data yet.';
+  const a = (DATA.sources && DATA.sources.attribution) || {};
+  const chip = document.getElementById('chip-key');
+  if (a.key) chip.textContent = `on Voyado ${a.key.replace('voyado ','')} · marketing mail only`;
+}
+
+/* ── KPI cards ── */
+function renderKPIs(){
+  const k = DATA.kpis || {}, empty = !hasData();
+  const dash = v => empty ? '—' : v;
+  const cards = [
+    { label:'Sent', value:dash(fmtInt(k.sent)),
+      sub:empty?'':`${fmtInt(k.unique_openers)} opened`,
+      note:'Delivery rows in the window. Not delivered — this share has no bounce data.' },
+    { label:'Click rate', badge:'LEAD METRIC', value:dash(fmtPct(k.click_rate)),
+      sub:empty?'':`${fmtInt(k.unique_clickers)} unique clickers`,
+      note:`Unique clickers ÷ sent. Open rate ${empty?'—':fmtPct(k.open_rate)} is MPP-inflated and directional only.` },
+    { label:'Email-influenced revenue', hero:true, badge:'UPPER BOUND',
+      value:dash(fmtSEK(k.attributed_revenue_sek)),
+      sub:empty?'':`${fmtInt(k.attributed_orders)} orders · ${fmtKr(k.revenue_per_send_sek,3)}/send`,
+      note:'Last click within 7 days on contactId. No control group exists, so this is a ceiling, not incrementality.' },
+    { label:'Unsubscribe rate', value:dash(fmtPct(k.unsubscribe_rate)),
+      sub:empty?'':`${fmtInt(k.unsubscribes)} unsubscribes`,
+      note:`${empty?'—':fmtInt(k.subscribers)} subscribed of ${empty?'—':fmtInt(k.contacts)} contacts on the list.` },
+  ];
+  document.getElementById('kpi-grid').innerHTML = cards.map(c=>`
+    <div class="kpi-card${c.hero?' hero':''}">
+      <div class="kpi-label">${c.label}${c.badge?`<span class="kpi-badge${c.hero?'':' soft'}">${c.badge}</span>`:''}</div>
+      <div class="kpi-value">${c.value}</div>
+      ${c.sub?`<span class="kpi-sub">${c.sub}</span>`:''}
+      <div class="kpi-note">${c.note}</div>
+    </div>`).join('');
+}
+
+/* ── Daily trend ── */
+const TREND_METRICS = {
+  sent:      { label:'Sent',         color:'#1E3A8A', key:'sent' },
+  clickers:  { label:'Clickers',     color:'#2563EB', key:'clickers' },
+  revenue:   { label:'Revenue',      color:'#047857', key:'revenue_sek', axis:'y1' },
+  unsubs:    { label:'Unsubscribes', color:'#B91C1C', key:'unsubscribes' },
+};
+let activeTrend = new Set(['sent','clickers']);
+let splitType = false;
+let trendChart = null;
+
+function renderTrendChips(){
+  const wrap = document.getElementById('trend-chips');
+  const chips = Object.entries(TREND_METRICS).map(([k,m])=>{
+    const on = activeTrend.has(k);
+    return `<button class="metric-chip${on?' active':''}" data-key="${k}"
+      style="${on?`color:#fff;background:${m.color};border-color:transparent`:`color:${m.color}`}">
+      <span class="dot" style="background:${on?'#fff':m.color}"></span>${m.label}</button>`;
+  }).join('');
+  wrap.innerHTML = chips +
+    `<button class="metric-chip${splitType?' active':''}" data-split="1"
+      style="${splitType?'color:#fff;background:#0F172A;border-color:transparent':''}">Split manual / automation</button>`;
+  wrap.querySelectorAll('.metric-chip').forEach(ch=>ch.onclick=()=>{
+    if (ch.dataset.split){ splitType = !splitType; }
+    else {
+      const k = ch.dataset.key;
+      if (activeTrend.has(k)) { if (activeTrend.size > 1) activeTrend.delete(k); }
+      else activeTrend.add(k);
+    }
+    renderTrendChips(); renderTrend();
+  });
+}
+
+function trendSeries(){
+  // Rows arrive at (date × message_type) grain. Collapse to date unless the
+  // user asks for the split — a combined line hides that manual mail spikes on
+  // send days while automation is a flat daily drip.
+  const rows = DATA.trend || [];
+  const dates = [...new Set(rows.map(r=>r.date))].sort();
+  const types = splitType ? [...new Set(rows.map(r=>r.type))].sort() : [null];
+  const out = [];
+  for (const key of activeTrend){
+    const m = TREND_METRICS[key];
+    for (const t of types){
+      const byDate = new Map(dates.map(d=>[d,0]));
+      rows.filter(r=>t===null||r.type===t).forEach(r=>byDate.set(r.date,(byDate.get(r.date)||0)+(r[m.key]||0)));
+      out.push({ label: t ? `${m.label} · ${t}` : m.label, color: m.color,
+                 dashed: t && t !== 'Manual campaign',
+                 axis: m.axis || 'y', data: dates.map(d=>byDate.get(d)||0) });
+    }
+  }
+  return { dates, series: out };
+}
+
+function renderTrend(){
+  const { dates, series } = trendSeries();
+  const ctx = document.getElementById('trendChart');
+  const blank = document.getElementById('trend-empty');
+  if (trendChart) { trendChart.destroy(); trendChart = null; }
+  if (!dates.length){
+    ctx.hidden = true; blank.hidden = false;
+    blank.textContent = hasData()
+      ? 'No daily activity in this window — the delivery and open tables may still be backfilling.'
+      : 'No snapshot yet. Run voyado_sync.py, then refresh_voyado.py.';
+    return;
+  }
+  ctx.hidden = false; blank.hidden = true;
+  const needsRight = series.some(s=>s.axis==='y1');
+  trendChart = new Chart(ctx, {
+    type:'line',
+    data:{ labels:dates.map(d=>d.slice(5)), datasets: series.map(s=>({
+      label:s.label, data:s.data, borderColor:s.color, backgroundColor:s.color+'22',
+      borderWidth:2, borderDash:s.dashed?[4,3]:[], pointRadius:0, pointHoverRadius:4,
+      tension:.28, yAxisID:s.axis, fill:false })) },
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      plugins:{ legend:{ display:true, position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569', usePointStyle:true, pointStyle:'line' } },
+        tooltip:{ callbacks:{ label: c => {
+          const isRev = /Revenue/.test(c.dataset.label);
+          return ` ${c.dataset.label}: ${isRev ? fmtSEK(c.parsed.y) : fmtInt(c.parsed.y)}`; } } } },
+      scales:{ x:{ grid:{display:false}, ticks:{ color:'#94A3B8', font:{size:10}, maxTicksLimit:16 } },
+        y:{ beginAtZero:true, grid:{color:'#F1F3F5'}, ticks:{ color:'#94A3B8', font:{size:10}, callback:v=>fmtInt(v) } },
+        y1:{ display:needsRight, position:'right', beginAtZero:true, grid:{display:false},
+             ticks:{ color:'#047857', font:{size:10}, callback:v=>fmtSEK(v) } } } }
+  });
+}
+
+/* ── Tables ── */
+function emptyRow(tbody, cols, msg){
+  document.getElementById(tbody).innerHTML =
+    `<tr><td colspan="${cols}"><div class="empty">${msg}</div></td></tr>`;
+}
+
+function renderCampaigns(){
+  const rows = DATA.campaigns || [];
+  // Say so when the list is capped. A truncated table that looks complete is
+  // worse than a shorter one that admits it.
+  const cw = (DATA.sources && DATA.sources.campaign_window) || {};
+  const sub = document.getElementById('camp-sub');
+  const base = 'Engagement is credited to the campaign whenever it happened; revenue to the last campaign clicked before the order.';
+  sub.textContent = (cw.total && cw.total > rows.length)
+    ? `${base} Showing the ${fmtInt(rows.length)} most recent of ${fmtInt(cw.total)} campaigns since ${cw.from}.`
+    : (cw.total ? `${base} All ${fmtInt(cw.total)} campaigns since ${cw.from}.` : base);
+  if (!rows.length) return emptyRow('camp-body', 11,
+    'No manual campaigns in the window yet.<br>They appear once <code>voyado_sync.py</code> has landed the message and delivery tables for these dates.');
+  document.getElementById('camp-body').innerHTML = rows.map(c=>`
+    <tr>
+      <td>${esc(c.name || '(unnamed)')}<span class="sub-cell">${esc(c.subject || '')}</span></td>
+      <td class="cell-muted">${esc(c.date || '—')}</td>
+      <td>${fmtInt(c.sent)}</td>
+      <td class="cell-muted">${fmtPct(c.open_rate)}</td>
+      <td>${fmtPct(c.click_rate)}</td>
+      <td class="cell-muted">${fmtPct(c.click_to_open_rate)}</td>
+      <td>${fmtPct(c.unsubscribe_rate)}</td>
+      <td>${fmtInt(c.orders)}</td>
+      <td>${fmtSEK(c.revenue_sek)}</td>
+      <td>${fmtKr(c.aov_sek, 0)}</td>
+      <td>${fmtKr(c.revenue_per_send_sek, 2)}</td>
+    </tr>`).join('');
+}
+
+function renderAutomations(){
+  const rows = DATA.automations || [];
+  if (!rows.length) return emptyRow('auto-body', 9, 'No automation flows in the window yet.');
+  document.getElementById('auto-body').innerHTML = rows.map(a=>`
+    <tr>
+      <td>${esc(a.name || '(unnamed flow)')}<span class="sub-cell">${esc(a.workflowId || '')}</span></td>
+      <td class="cell-muted">${fmtInt(a.sendouts)}</td>
+      <td>${fmtInt(a.sent)}</td>
+      <td>${fmtInt(a.clickers)}</td>
+      <td>${fmtPct(a.click_rate)}</td>
+      <td>${fmtInt(a.unsubscribes)}</td>
+      <td>${fmtInt(a.orders)}</td>
+      <td>${fmtSEK(a.revenue_sek)}</td>
+      <td>${fmtKr(a.revenue_per_send_sek, 2)}</td>
+    </tr>`).join('');
+}
+
+function renderMarkets(){
+  const rows = DATA.markets || [];
+  if (!rows.length){ emptyRow('mkt-body', 10, 'No market data yet.'); document.getElementById('mkt-foot').innerHTML=''; return; }
+  document.getElementById('mkt-body').innerHTML = rows.map(m=>`
+    <tr>
+      <td>${esc(m.market)}${m.market==='Unknown'?' <span class="pill pill-warn">no country</span>':''}</td>
+      <td>${fmtInt(m.contacts)}</td>
+      <td>${fmtInt(m.subscribed)}</td>
+      <td>${fmtPct(m.subscribed_rate, 1)}</td>
+      <td class="cell-muted">${fmtInt(m.unsubscribed)}</td>
+      <td class="cell-muted">${fmtInt(m.undeliverable)}</td>
+      <td>${fmtInt(m.sent)}</td>
+      <td>${fmtPct(m.click_rate)}</td>
+      <td>${fmtInt(m.orders)}</td>
+      <td>${fmtSEK(m.revenue_sek)}</td>
+    </tr>`).join('');
+  const sum = f => rows.reduce((a,r)=>a+(r[f]||0),0);
+  const contacts = sum('contacts'), subscribed = sum('subscribed'), sent = sum('sent'), clickers = sum('clickers');
+  document.getElementById('mkt-foot').innerHTML = `
+    <tr class="tfoot-row">
+      <td>All markets</td><td>${fmtInt(contacts)}</td><td>${fmtInt(subscribed)}</td>
+      <td>${fmtPct(contacts?subscribed/contacts:null,1)}</td>
+      <td>${fmtInt(sum('unsubscribed'))}</td><td>${fmtInt(sum('undeliverable'))}</td>
+      <td>${fmtInt(sent)}</td><td>${fmtPct(sent?clickers/sent:null)}</td>
+      <td>${fmtInt(sum('orders'))}</td><td>${fmtSEK(sum('revenue_sek'))}</td>
+    </tr>`;
+}
+
+function renderRevenueShare(){
+  const rows = DATA.revenue_share || [];
+  if (!rows.length) return emptyRow('rs-body', 7, 'No revenue-share data yet.');
+  document.getElementById('rs-body').innerHTML = rows.map(r=>`
+    <tr>
+      <td>${esc(r.month)}${r.fx_caveat?' <span class="pill pill-warn">FX recovered</span>':''}</td>
+      <td>${esc(r.market)}</td>
+      <td class="cell-muted">${fmtInt(r.orders)}</td>
+      <td>${fmtSEK(r.revenue_sek)}</td>
+      <td class="cell-muted">${fmtInt(r.email_orders)}</td>
+      <td>${fmtSEK(r.email_revenue_sek)}</td>
+      <td>${fmtPct(r.email_share, 1)}</td>
+    </tr>`).join('');
+}
+
+function renderCaveats(){
+  document.getElementById('caveat-list').innerHTML =
+    (DATA.caveats || []).map(c=>`<li>${esc(c)}</li>`).join('');
+  const cov = (DATA.sources && DATA.sources.voyado && DATA.sources.voyado.coverage) || {};
+  document.getElementById('coverage').innerHTML = Object.entries(cov).map(([t,c])=>
+    `<span><b>${esc(t)}</b> ${fmtInt(c.rows)} rows · ${esc(c.from||'—')} → ${esc(c.to||'—')}</span>`).join('');
+}
+
+function renderAll(){
+  renderMeta(); renderKPIs(); renderTrendChips(); renderTrend();
+  renderCampaigns(); renderAutomations(); renderMarkets(); renderRevenueShare(); renderCaveats();
+}
+renderAll();
+
+/* ── Live overlay ── */
+async function fetchLiveAndOverlay(){
+  try {
+    const r = await fetch('/api/voyado-email', { cache:'no-store' });
+    if (!r.ok) return;
+    const live = await r.json();
+    if (!live || !live.kpis) return;
+    DATA = live;
+    renderAll();
+    const dot = document.getElementById('liveDot');
+    if (dot && live.generated_at !== null){
+      const cov = (live.sources && live.sources.voyado && live.sources.voyado.dataset) || 'voyado';
+      dot.title = `Live · ${cov} · window ${live.sources.window.from} → ${live.sources.window.to}`;
+      dot.style.color = 'rgba(255,255,255,.75)';
+    }
+  } catch(e){ /* keep the embedded skeleton */ }
+}
+fetchLiveAndOverlay();
+
+/* ── Shared refresh-status pill (same contract as the other tabs) ── */
+async function checkRefreshStatus(){
+  const pill=document.getElementById('refreshPill'); if(!pill) return;
+  try {
+    const r=await fetch('/api/refresh-status',{cache:'no-store'}); if(!r.ok) return;
+    const s=await r.json();
+    const fmtAgo=(e)=>{ if(!e) return 'never'; const m=Math.max(0,Math.round((Date.now()/1000-e)/60));
+      return m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago'; };
+    if (s.ok===null || s.ok===undefined){ pill.classList.add('show','unknown'); pill.textContent='refresh status unknown'; pill.title=s.reason||''; return; }
+    const ageH = s.last_run ? (Date.now()/1000 - s.last_run)/3600 : 999;
+    const errs = s.errors||[];
+    if (!s.ok || errs.length){
+      pill.classList.remove('stale','unknown'); pill.classList.add('show');
+      pill.textContent = errs.length ? `${errs.length} refresh error${errs.length>1?'s':''} (24 h)` : 'refresh failed';
+      pill.title = [`Last run: ${fmtAgo(s.last_run)} · stage: ${s.last_stage||'—'}`, s.last_message||'',
+        ...errs.slice(0,5).map(e=>`• [${e.stage}] ${(e.error||'').slice(0,120)}`)].filter(Boolean).join('\n');
+    } else if (ageH>30){
+      pill.classList.remove('unknown'); pill.classList.add('show','stale');
+      pill.textContent=`refresh stale · ${fmtAgo(s.last_run)}`; pill.title=`Last successful run ${fmtAgo(s.last_run)} — expected daily.`;
+    } else pill.classList.remove('show','stale','unknown');
+  } catch(e){ /* ignore */ }
+}
+checkRefreshStatus();
+</script>
+</body>
+</html>
