@@ -131,6 +131,7 @@ STATIC_DIR     = Path(__file__).parent
 KV_HTML        = STATIC_DIR / "babyshop-dashboard.html"
 PRODUCT_HTML   = STATIC_DIR / "babyshop-product-dashboard.html"
 CUSTOMER_HTML  = STATIC_DIR / "babyshop-customer-dashboard.html"
+SEGMENTS_HTML  = STATIC_DIR / "babyshop-segments-dashboard.html"
 INVENTORY_HTML = STATIC_DIR / "babyshop-inventory-dashboard.html"
 STOY_HTML      = STATIC_DIR / "babyshop-stoy-dashboard.html"
 ROAS_HTML      = STATIC_DIR / "babyshop-roas-impact.html"
@@ -158,6 +159,11 @@ def product_dashboard(_: str = Depends(verify)):
 @app.get("/babyshop-customer-dashboard.html")
 def customer_dashboard(_: str = Depends(verify)):
     return FileResponse(CUSTOMER_HTML, media_type="text/html")
+
+
+@app.get("/babyshop-segments-dashboard.html")
+def segments_dashboard(_: str = Depends(verify)):
+    return FileResponse(SEGMENTS_HTML, media_type="text/html")
 
 
 @app.get("/babyshop-inventory-dashboard.html")
@@ -273,6 +279,37 @@ def api_customer_insights(_: str = Depends(verify)):
         "funnel": {"monthly": [], "cac_matrix": [], "trend": []},
         "norce": None,
         "caveats": ["no customer-insights snapshot yet — the refresh job has not run"],
+    }
+
+
+@app.get("/api/segments")
+def api_segments(_: str = Depends(verify)):
+    """Customer Segments snapshot (written to Firestore by refresh_segments.py).
+
+    Same 200-with-a-skeleton contract as /api/customer-insights: the tab ships
+    before its refresher has run, and `generated_at: null` tells the page to
+    render its pending state. The skeleton's shape mirrors the page's embedded
+    SNAP constant — keep the two in sync."""
+    from funnel_client import get_cache
+
+    try:
+        data = get_cache().get("segments")
+    except Exception as e:
+        # A Firestore hiccup must not blank the tab — log and serve the skeleton.
+        print(f"ERROR /api/segments: {type(e).__name__}: {e}", flush=True)
+        data = None
+    if data is not None:
+        return data
+    return {
+        "generated_at": None,
+        "sources": {"norce": {"dataset": None, "coverage": {}},
+                    "history_start": "2025-06-11", "identity": ""},
+        "kpis": {},
+        "lifecycle": [], "cohorts": [], "value_deciles": [],
+        "lifestage": {"distribution": [], "sized_customers": 0,
+                      "ltv_by_entry": [], "aging_out": {}},
+        "discount": [], "cross_brand": [], "markets": [],
+        "caveats": ["no Segments snapshot yet — refresh_segments.py has not run"],
     }
 
 

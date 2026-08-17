@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Segments · Babyshop</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="/chart.umd.js"></script>
+  <!-- Shared column filters + CSV/Sheets export; tables opt in with data-tools.
+       The MutationObserver in the module catches re-rendered tbodies, so the
+       fetch overlay needs no hooks. -->
+  <script src="/table-tools.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#F7F8FA; --card:#FFFFFF; --border:#E5E7EB; --border-lt:#F1F3F5;
+      --h:#0F172A; --body:#475569; --muted:#94A3B8;
+      --accent:#1E3A8A; --accent-bg:#EEF2FF;
+      --hero:#047857; --hero-bg:#ECFDF5;
+      --new:#2563EB; --repeat:#047857; --risk:#D97706; --lapsed:#94A3B8;
+      --up:#047857; --down:#B91C1C;
+      --warn:#B45309; --warn-bg:#FEF5E7;
+      --shadow-sm:0 1px 2px rgba(15,23,42,.04); --r:8px; --r-sm:4px;
+    }
+    html { font-size:16px; }
+    body { font-family:'Inter',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--body); min-height:100vh; -webkit-font-smoothing:antialiased; }
+
+    header { background:var(--h); color:#fff; padding:0 32px; height:58px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; }
+    .logo { display:flex; align-items:center; gap:12px; }
+    .logo-mark { width:34px; height:34px; background:var(--accent); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; color:#fff; letter-spacing:-.5px; }
+    .logo-wordmark { font-size:14px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+    .logo-sub { font-size:10px; font-weight:400; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,.45); margin-top:1px; }
+    .header-right { display:flex; align-items:center; gap:20px; }
+    .nav-tabs { display:flex; align-items:center; gap:2px; }
+    .nav-tab { padding:6px 14px; font-size:12px; font-weight:500; letter-spacing:.03em; color:rgba(255,255,255,.5); border-radius:6px; text-decoration:none; transition:all .15s; }
+    .nav-tab:hover { color:rgba(255,255,255,.8); background:rgba(255,255,255,.08); }
+    .nav-tab.active { color:#fff; background:rgba(255,255,255,.12); }
+    .live-dot { display:flex; align-items:center; gap:6px; font-size:11px; color:rgba(255,255,255,.45); letter-spacing:.04em; }
+    .live-dot::before { content:''; width:6px; height:6px; border-radius:50%; background:#4E9B65; box-shadow:0 0 0 2px rgba(78,155,101,.3); animation:blink 2s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{box-shadow:0 0 0 2px rgba(78,155,101,.3);} 50%{box-shadow:0 0 0 5px rgba(78,155,101,.1);} }
+    .refresh-pill { display:none; align-items:center; gap:6px; font-size:11px; padding:4px 10px; border-radius:12px; letter-spacing:.03em; cursor:help; background:rgba(220,80,80,.15); color:#ff8a8a; border:1px solid rgba(220,80,80,.35); }
+    .refresh-pill.show { display:inline-flex; }
+    .refresh-pill.stale { background:rgba(220,170,60,.12); color:#f0c060; border-color:rgba(220,170,60,.35); }
+    .refresh-pill.unknown { background:rgba(120,120,130,.12); color:rgba(255,255,255,.55); border-color:rgba(120,120,130,.3); }
+    .refresh-pill::before { content:''; width:6px; height:6px; border-radius:50%; background:currentColor; }
+
+    main { max-width:1380px; margin:0 auto; padding:26px 32px 56px; }
+    .filter-bar { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:18px; gap:18px; flex-wrap:wrap; }
+    .page-title { font-size:20px; font-weight:700; color:var(--h); letter-spacing:-.3px; }
+    .page-sub { font-size:12px; color:var(--muted); margin-top:3px; max-width:760px; line-height:1.5; }
+    .change-chip { display:flex; align-items:center; gap:8px; background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:8px 14px; font-size:12px; }
+    .change-chip b { color:var(--h); }
+    .change-chip .dot { width:8px; height:8px; border-radius:50%; background:var(--accent); }
+
+    .note-bar { background:var(--warn-bg); border:1px solid #F4D7A8; color:#7C4A11; border-radius:var(--r); padding:11px 16px; font-size:12px; line-height:1.5; margin-bottom:20px; display:flex; gap:9px; align-items:flex-start; }
+    .note-bar svg { flex-shrink:0; margin-top:1px; }
+
+    .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }
+    .kpi-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:18px 20px; box-shadow:var(--shadow-sm); position:relative; overflow:hidden; }
+    .kpi-card.hero { border:1px solid var(--hero); }
+    .kpi-card.hero::after { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--hero); }
+    .kpi-label { font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+    .kpi-badge { display:inline-flex; align-items:center; font-size:9px; font-weight:700; letter-spacing:.04em; padding:2px 6px; border-radius:3px; text-transform:uppercase; color:#fff; background:var(--hero); }
+    .kpi-badge.soft { background:var(--muted); }
+    .kpi-value { font-size:27px; font-weight:700; color:var(--h); letter-spacing:-.5px; line-height:1.1; margin-bottom:9px; font-variant-numeric:tabular-nums; }
+    .kpi-card.hero .kpi-value { color:var(--hero); }
+    .kpi-sub { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; padding:3px 7px; border-radius:var(--r-sm); color:var(--muted); background:var(--bg); }
+    .kpi-note { font-size:10.5px; color:var(--muted); margin-top:7px; line-height:1.45; }
+
+    .chart-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:20px 22px; box-shadow:var(--shadow-sm); margin-bottom:20px; }
+    .chart-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:14px; gap:12px; flex-wrap:wrap; }
+    .chart-title { font-size:14px; font-weight:600; color:var(--h); }
+    .chart-sub { font-size:11px; color:var(--muted); margin-top:2px; max-width:820px; line-height:1.5; }
+    .chart-wrap { position:relative; height:310px; }
+    .chart-wrap.short { height:260px; }
+    .chart-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; font-size:12.5px; color:var(--muted); line-height:1.6; padding:0 24px; }
+    .chart-empty[hidden] { display:none; }
+    .two-col { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    @media(max-width:1080px){ .kpi-grid{grid-template-columns:1fr 1fr;} .two-col{grid-template-columns:1fr;} }
+
+    .metric-chips { display:flex; gap:6px; flex-wrap:wrap; }
+    .metric-chip { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; font-size:11px; font-weight:500; border:1px solid var(--border); border-radius:999px; cursor:pointer; color:var(--muted); background:var(--card); font-family:inherit; transition:all .15s; white-space:nowrap; }
+    .metric-chip:hover { color:var(--h); border-color:var(--muted); }
+    .metric-chip.active { color:#fff; background:var(--h); border-color:transparent; }
+
+    .card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); overflow:hidden; margin-bottom:20px; }
+    .card-header { padding:16px 22px 12px; display:flex; align-items:flex-start; justify-content:space-between; border-bottom:1px solid var(--border-lt); gap:12px; flex-wrap:wrap; }
+    .card-title { font-size:14px; font-weight:600; color:var(--h); }
+    .card-sub { font-size:11px; color:var(--muted); margin-top:2px; max-width:760px; line-height:1.5; }
+    .tools-slot { display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+    table { width:100%; border-collapse:collapse; }
+    thead th { padding:10px 14px; font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); text-align:right; border-bottom:1px solid var(--border); white-space:nowrap; }
+    thead th:first-child { text-align:left; padding-left:22px; }
+    tbody td { padding:11px 14px; font-size:13px; font-weight:500; color:var(--body); border-bottom:1px solid var(--border-lt); text-align:right; font-variant-numeric:tabular-nums; }
+    tbody td:first-child { text-align:left; padding-left:22px; font-weight:600; color:var(--h); }
+    tbody tr:last-child td { border-bottom:none; }
+    tbody tr:hover td { background:var(--bg); }
+    tfoot td { padding:11px 14px; font-size:13px; text-align:right; font-variant-numeric:tabular-nums; }
+    tfoot td:first-child { text-align:left; padding-left:22px; }
+    .tfoot-row td { font-weight:700; color:var(--h); border-top:1px solid var(--border); border-bottom:none; background:var(--bg); }
+    .sub-cell { font-size:10px; color:var(--muted); font-weight:400; display:block; margin-top:2px; }
+    .pill { display:inline-block; padding:2px 7px; border-radius:3px; font-size:10px; font-weight:600; letter-spacing:.02em; }
+    .pill-soft { background:var(--bg); color:var(--muted); border:1px solid var(--border); }
+    .pill-warn { background:var(--warn-bg); color:var(--warn); }
+    .cell-muted { color:var(--muted)!important; font-weight:500!important; }
+
+    .section-head { margin:28px 0 14px; }
+    .section-title { font-size:15px; font-weight:700; color:var(--h); letter-spacing:-.2px; display:flex; align-items:center; gap:8px; }
+    .section-tag { font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--accent); background:var(--accent-bg); border-radius:3px; padding:2px 7px; }
+    .section-sub { font-size:12px; color:var(--muted); margin-top:3px; max-width:860px; line-height:1.5; }
+
+    /* Cohort heatmap — an HTML table, not a canvas: the numbers ARE the chart. */
+    .heat-scroll { overflow-x:auto; padding:0 22px 18px; }
+    .heat { border-collapse:separate; border-spacing:2px; width:100%; }
+    .heat th { font-size:10px; font-weight:600; color:var(--muted); padding:4px 6px; text-transform:none; letter-spacing:0; border:none; text-align:center; }
+    .heat th.rowh { text-align:left; white-space:nowrap; padding-right:10px; }
+    .heat td { font-size:11px; font-weight:600; text-align:center; padding:6px 4px; border-radius:3px; min-width:44px; border:none; font-variant-numeric:tabular-nums; }
+    .heat td.blank { background:transparent; }
+    .heat td .sz { font-weight:400; font-size:10px; }
+
+    .empty { padding:34px 22px; text-align:center; font-size:12.5px; color:var(--muted); line-height:1.6; }
+    .caveats { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:16px 22px 18px; box-shadow:var(--shadow-sm); }
+    .caveats h3 { font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin-bottom:9px; }
+    .caveats ul { list-style:none; display:grid; gap:6px; }
+    .caveats li { font-size:11.5px; line-height:1.55; padding-left:15px; position:relative; }
+    .caveats li::before { content:''; position:absolute; left:0; top:7px; width:5px; height:5px; border-radius:50%; background:var(--muted); }
+    .coverage { display:flex; gap:14px; flex-wrap:wrap; margin-top:10px; }
+    .coverage span { font-size:10.5px; color:var(--muted); background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:3px 8px; font-variant-numeric:tabular-nums; }
+  </style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <div class="logo-mark">bs</div>
+    <div>
+      <div class="logo-wordmark">Babyshop</div>
+      <div class="logo-sub">Customer Segments</div>
+    </div>
+  </div>
+  <nav class="nav-tabs">
+    <a href="/babyshop-dashboard.html" class="nav-tab">KV Overview</a>
+    <a href="/babyshop-product-dashboard.html" class="nav-tab">Products</a>
+    <a href="/babyshop-customer-dashboard.html" class="nav-tab">Customer Insights</a>
+    <a href="/babyshop-segments-dashboard.html" class="nav-tab active">Segments</a>
+    <a href="/babyshop-inventory-dashboard.html" class="nav-tab">Inventory</a>
+    <a href="/babyshop-stoy-dashboard.html" class="nav-tab">Stoy Test</a>
+    <a href="/babyshop-roas-impact.html" class="nav-tab">ROAS Impact</a>
+    <a href="/babyshop-roas-simulations.html" class="nav-tab">ROAS Simulations</a>
+    <a href="/babyshop-voyado-dashboard.html" class="nav-tab">Email (Voyado)</a>
+  </nav>
+  <div class="header-right">
+    <div class="refresh-pill" id="refreshPill" title=""></div>
+    <div class="live-dot" id="liveDot">Live · Norce orders</div>
+  </div>
+</header>
+
+<main>
+  <div class="filter-bar">
+    <div>
+      <div class="page-title">Customer Segments</div>
+      <div class="page-sub" id="page-sub">—</div>
+    </div>
+    <div class="change-chip">
+      <span class="dot"></span>
+      <div>Identity <b>hashed buyer email</b> · scoped <b>per shop</b><br>
+        <span class="sub-cell">SEK constant-currency · ex-VAT · gross (no returns netted)</span></div>
+    </div>
+  </div>
+
+  <div class="note-bar">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+    <div><b>Read these first.</b> History starts <b>2025-06-11</b> (platform cutover) — "lapsed" cannot yet mean more than ~14 months, and customers first seen before 2025-09-11 may be pre-cutover regulars.
+      <b>Life stage is inferred from sizes</b> on order lines (EU kids' sizes are the child's height in cm); lines without a parseable size contribute nothing.
+      Babyshop and Lekmer are counted as <b>separate customers</b> everywhere except the cross-brand section. Currency: SEK.</div>
+  </div>
+
+  <div class="kpi-grid" id="kpi-grid"></div>
+
+  <!-- ══════════ LIFE STAGE ══════════ -->
+  <div class="section-head">
+    <div class="section-title">Life stage — child age from sizes <span class="section-tag">babyshop-native</span></div>
+    <div class="section-sub" id="lifestage-sub">Each order line's size ("86 cm", "98/104 cm", "18-24 Months", "25 EU") implies the child's age. A customer's latest sized purchase places them in a stage; their first sized purchase is the runway they were acquired with.</div>
+  </div>
+
+  <div class="two-col">
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Customers by child age</div>
+          <div class="chart-sub">Stage of the latest sized purchase. "Active" = ordered within 180 days.</div>
+        </div>
+      </div>
+      <div class="chart-wrap short">
+        <canvas id="stageChart"></canvas>
+        <div class="chart-empty" id="stage-empty" hidden></div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">1-year CLV by entry stage</div>
+          <div class="chart-sub">Average revenue in the customer's own first 365 days — matured customers only. Earlier entry = longer runway.</div>
+        </div>
+      </div>
+      <div class="chart-wrap short">
+        <canvas id="ltvChart"></canvas>
+        <div class="chart-empty" id="ltv-empty" hidden></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Value &amp; behavior by entry life stage</div>
+        <div class="card-sub" id="entry-sub">The stage implied by each customer's FIRST sized purchase. 1-yr CLV averages only customers whose own 365 days have elapsed (n shown).</div>
+      </div>
+      <div class="tools-slot"></div>
+    </div>
+    <table id="entry-table" data-tools data-tools-name="segments-entry-stage">
+      <thead><tr>
+        <th>Entry stage</th><th>Age band</th><th>Customers</th><th>Avg revenue</th>
+        <th>Avg orders</th><th>AOV</th><th>Repeat rate</th><th>1-yr CLV</th><th>Matured n</th>
+      </tr></thead>
+      <tbody id="entry-body"></tbody>
+    </table>
+  </div>
+
+  <!-- ══════════ LIFECYCLE & VALUE ══════════ -->
+  <div class="section-head">
+    <div class="section-title">Lifecycle &amp; value</div>
+    <div class="section-sub">Where the base is in its purchase lifecycle, how cohorts retain, and how concentrated revenue is.</div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-header">
+      <div>
+        <div class="chart-title">Customer base by lifecycle state</div>
+        <div class="chart-sub">Month-end state of every identified customer. Repeat active = 2+ orders &amp; ordered ≤90d · New = single order ≤90d old · At-risk = last order 91–180d · Lapsed = &gt;180d.</div>
+      </div>
+      <div class="metric-chips" id="lc-chips"></div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="lcChart"></canvas>
+      <div class="chart-empty" id="lc-empty" hidden></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Cohort retention</div>
+        <div class="card-sub">Of customers whose first order was in a given month, the share ordering again N months later. Cohort size at left.</div>
+      </div>
+      <div class="metric-chips" id="cohort-chips"></div>
+    </div>
+    <div class="heat-scroll"><table class="heat" id="cohort-heat"></table></div>
+  </div>
+
+  <div class="two-col">
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Revenue concentration</div>
+          <div class="chart-sub">Customers ranked by lifetime revenue, in deciles. Bars: decile share. Line: cumulative.</div>
+        </div>
+      </div>
+      <div class="chart-wrap short">
+        <canvas id="paretoChart"></canvas>
+        <div class="chart-empty" id="pareto-empty" hidden></div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Cross-brand shoppers</div>
+          <div class="chart-sub">Same hashed email in both Babyshop and Lekmer — the one place the per-shop identity rule is deliberately crossed.</div>
+        </div>
+      </div>
+      <div class="chart-wrap short">
+        <canvas id="xbChart"></canvas>
+        <div class="chart-empty" id="xb-empty" hidden></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ BEHAVIOR ══════════ -->
+  <div class="section-head">
+    <div class="section-title">Shopping behavior</div>
+    <div class="section-sub">Discount dependence and how the lifecycle mix differs per storefront.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Discount sensitivity</div>
+        <div class="card-sub">Customers by the share of their line value bought at a discount. The "mixed" bucket self-selects multi-order customers — its high repeat rate is composition, not causation.</div>
+      </div>
+      <div class="tools-slot"></div>
+    </div>
+    <table id="disc-table" data-tools data-tools-name="segments-discount">
+      <thead><tr>
+        <th>Segment</th><th>Definition</th><th>Customers</th><th>Share</th>
+        <th>Repeat rate</th><th>Avg revenue</th><th>AOV</th>
+      </tr></thead>
+      <tbody id="disc-body"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Lifecycle mix by storefront</div>
+        <div class="card-sub">Current state of everyone who has ever bought in each storefront. A customer active in two storefronts appears in both rows.</div>
+      </div>
+      <div class="tools-slot">
+        <input class="table-filter" id="mkt-q" type="search" placeholder="Filter markets…" aria-label="Filter markets">
+      </div>
+    </div>
+    <table id="mkt-table" data-tools data-tools-name="segments-markets">
+      <thead><tr>
+        <th>Storefront</th><th>Customers</th><th>New</th><th>Repeat active</th>
+        <th>At-risk</th><th>Lapsed</th><th>Repeat&nbsp;%</th><th>Lapsed&nbsp;%</th>
+      </tr></thead>
+      <tbody id="mkt-body"></tbody>
+      <tfoot id="mkt-foot"></tfoot>
+    </table>
+  </div>
+
+  <div class="caveats">
+    <h3>Caveats &amp; coverage</h3>
+    <ul id="caveat-list"></ul>
+    <div class="coverage" id="coverage"></div>
+  </div>
+</main>
+
+<script>
+/* ── Embedded skeleton: the page ships before refresh_segments.py has run.
+   `generated_at: null` is the signal that no snapshot exists yet. ── */
+const SNAP = {"generated_at":null,"sources":{"norce":{"dataset":null,"coverage":{}},"history_start":"2025-06-11","identity":""},
+  "kpis":{},"lifecycle":[],"cohorts":[],"value_deciles":[],
+  "lifestage":{"distribution":[],"sized_customers":0,"ltv_by_entry":[],"aging_out":{}},
+  "discount":[],"cross_brand":[],"markets":[],
+  "caveats":["no Segments snapshot yet — refresh_segments.py has not run"]};
+let DATA = SNAP;
+
+const STAGE_META = {
+  newborn:  { label:'Newborn',  band:'0–6 m',   sizes:'50–68 cm'  },
+  baby:     { label:'Baby',     band:'6–18 m',  sizes:'74–86 cm'  },
+  toddler:  { label:'Toddler',  band:'1.5–4 y', sizes:'92–104 cm' },
+  kids:     { label:'Kids',     band:'4–8 y',   sizes:'110–128 cm'},
+  big_kids: { label:'Big kids', band:'8–12 y',  sizes:'134–152 cm'},
+  teen:     { label:'Teen',     band:'12 y +',  sizes:'158–176 cm'},
+};
+const LC_META = {
+  new:           { label:'New',           color:'#2563EB' },
+  repeat_active: { label:'Repeat active', color:'#047857' },
+  at_risk:       { label:'At-risk',       color:'#D97706' },
+  lapsed:        { label:'Lapsed',        color:'#94A3B8' },
+};
+
+/* ── Formatters (match the other tabs) ── */
+const fmtSEK = v => {
+  if (v == null) return '—';
+  const n = Math.round(v);
+  if (Math.abs(n) >= 1e6) return (n/1e6).toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})+'M kr';
+  if (Math.abs(n) >= 1e3) return (n/1e3).toLocaleString('sv-SE',{minimumFractionDigits:0,maximumFractionDigits:0})+'K kr';
+  return n.toLocaleString('sv-SE')+' kr';
+};
+const fmtInt = v => v == null ? '—' : Math.round(v).toLocaleString('sv-SE');
+// Axis variant: keeps one decimal on K values so adjacent ticks stay distinct
+// (fmtSEK rounds 1.4K and 1.6K both to "1K kr" / "2K kr").
+const fmtSEKAxis = v => v == null ? '—'
+  : Math.abs(v) >= 1e3 ? (v/1e3).toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})+'K kr'
+  : Math.round(v).toLocaleString('sv-SE')+' kr';
+const fmtPct = (v, nd=1) => v == null ? '—' : (v*100).toLocaleString('sv-SE',{minimumFractionDigits:nd,maximumFractionDigits:nd})+'%';
+const fmtKr  = (v, nd=0) => v == null ? '—' : v.toLocaleString('sv-SE',{minimumFractionDigits:nd,maximumFractionDigits:nd})+' kr';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hasData = () => !!(DATA && DATA.generated_at !== null && DATA.kpis && Object.keys(DATA.kpis).length);
+
+/* ── Header meta ── */
+function renderMeta(){
+  const cov = (DATA.sources && DATA.sources.norce && DATA.sources.norce.coverage) || {};
+  document.getElementById('page-sub').textContent = hasData()
+    ? `Segments computed from ${fmtInt(cov.orders)} Norce orders, ${cov.from} → ${cov.to} · refreshed nightly after the Norce sync.`
+    : 'Awaiting the first Segments snapshot — refresh_segments.py has not produced data yet.';
+}
+
+/* ── KPI cards ── */
+function renderKPIs(){
+  const k = DATA.kpis || {}, ao = (DATA.lifestage && DATA.lifestage.aging_out) || {}, empty = !hasData();
+  const dash = v => empty ? '—' : v;
+  const cards = [
+    { label:'Identified customers', value:dash(fmtInt(k.customers)),
+      sub:empty?'':`${fmtPct(k.size_coverage)} of lines carry a size`,
+      note:'Distinct hashed buyer emails, per shop, entire Norce history.' },
+    { label:'Repeat rate', hero:true, value:dash(fmtPct(k.repeat_rate)),
+      sub:empty?'':`${(k.orders_per_customer||0).toLocaleString('sv-SE')} orders per customer`,
+      note:'Share of customers with 2+ orders, lifetime. The single number segmentation exists to move.' },
+    { label:'Cross-brand shoppers', value:dash(fmtPct(k.cross_brand_share)),
+      sub:empty?'':'of hashed emails buy both brands',
+      note:'Same email in Babyshop and Lekmer. See the cross-brand chart for what they are worth.' },
+    { label:'Aging-out risk', value:dash(fmtPct(k.aging_out_share)),
+      sub:empty?'':`${fmtInt(ao.customers)} customers · ${fmtSEK(ao.revenue_12m_sek)} last 12m`,
+      note:'Latest sized purchase implies age ≥11y (~size 152+): predictable churn as the child outgrows the assortment.' },
+  ];
+  document.getElementById('kpi-grid').innerHTML = cards.map(c=>`
+    <div class="kpi-card${c.hero?' hero':''}">
+      <div class="kpi-label">${c.label}${c.badge?`<span class="kpi-badge${c.hero?'':' soft'}">${c.badge}</span>`:''}</div>
+      <div class="kpi-value">${c.value}</div>
+      ${c.sub?`<span class="kpi-sub">${c.sub}</span>`:''}
+      <div class="kpi-note">${c.note}</div>
+    </div>`).join('');
+}
+
+/* ── Chart helpers ── */
+const charts = {};
+function draw(id, cfg, emptyId, emptyMsg){
+  const ctx = document.getElementById(id);
+  const blank = emptyId ? document.getElementById(emptyId) : null;
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+  const isEmpty = !cfg;
+  if (blank){ blank.hidden = !isEmpty; if (isEmpty) blank.textContent = emptyMsg || 'No data yet.'; }
+  ctx.hidden = isEmpty;
+  if (!isEmpty) charts[id] = new Chart(ctx, cfg);
+}
+const GRID = { color:'#F1F3F5' };
+const TICKS = { color:'#94A3B8', font:{size:10} };
+const LEGEND = { display:true, position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569' } };
+
+/* ── Life stage distribution ── */
+function renderStageChart(){
+  const rows = (DATA.lifestage && DATA.lifestage.distribution) || [];
+  if (!rows.length || !rows.some(r=>r.customers))
+    return draw('stageChart', null, 'stage-empty', hasData() ? 'No sized purchases parsed yet.' : 'No snapshot yet.');
+  const labels = rows.map(r=>`${STAGE_META[r.stage].label} (${STAGE_META[r.stage].band})`);
+  draw('stageChart', {
+    type:'bar',
+    data:{ labels, datasets:[
+      { label:'All customers', data:rows.map(r=>r.customers), backgroundColor:'#93B4E8', borderRadius:3 },
+      { label:'Active (≤180d)', data:rows.map(r=>r.active_customers), backgroundColor:'#1E3A8A', borderRadius:3 },
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:LEGEND, tooltip:{ callbacks:{ label:c=>` ${c.dataset.label}: ${fmtInt(c.parsed.y)}` } } },
+      scales:{ x:{ grid:{display:false}, ticks:{...TICKS, maxRotation:0, autoSkip:false, font:{size:9.5}} },
+               y:{ beginAtZero:true, grid:GRID, ticks:{...TICKS, callback:v=>fmtInt(v)} } } }
+  }, 'stage-empty');
+}
+
+/* ── 1-yr CLV by entry stage ── */
+function renderLtvChart(){
+  const rows = (DATA.lifestage && DATA.lifestage.ltv_by_entry) || [];
+  if (!rows.length || !rows.some(r=>r.customers))
+    return draw('ltvChart', null, 'ltv-empty', hasData() ? 'No entry-stage data yet.' : 'No snapshot yet.');
+  draw('ltvChart', {
+    type:'bar',
+    data:{ labels:rows.map(r=>STAGE_META[r.stage].label), datasets:[
+      { label:'1-yr CLV (matured customers)', data:rows.map(r=>r.clv_1y_sek), backgroundColor:'#047857', borderRadius:3 },
+      { label:'Avg lifetime revenue to date', data:rows.map(r=>r.avg_revenue_sek), backgroundColor:'#A7D5C4', borderRadius:3 },
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:LEGEND, tooltip:{ callbacks:{
+        label:c=>` ${c.dataset.label}: ${fmtKr(c.parsed.y)}`,
+        afterBody:items=>{ const r=rows[items[0].dataIndex];
+          return [`repeat rate ${fmtPct(r.repeat_rate)} · ${r.avg_orders} orders`,
+                  `matured n=${fmtInt(r.mature_customers)} of ${fmtInt(r.customers)}`]; } } } },
+      scales:{ x:{ grid:{display:false}, ticks:TICKS },
+               y:{ beginAtZero:true, grid:GRID, ticks:{...TICKS, callback:v=>fmtSEKAxis(v)} } } }
+  }, 'ltv-empty');
+}
+
+function renderEntryTable(){
+  const rows = (DATA.lifestage && DATA.lifestage.ltv_by_entry) || [];
+  if (!rows.length || !rows.some(r=>r.customers))
+    return document.getElementById('entry-body').innerHTML =
+      `<tr><td colspan="9"><div class="empty">No entry-stage rows yet.</div></td></tr>`;
+  document.getElementById('entry-body').innerHTML = rows.map(r=>`
+    <tr>
+      <td>${STAGE_META[r.stage].label}<span class="sub-cell">${STAGE_META[r.stage].sizes}</span></td>
+      <td class="cell-muted">${STAGE_META[r.stage].band}</td>
+      <td>${fmtInt(r.customers)}</td>
+      <td>${fmtKr(r.avg_revenue_sek)}</td>
+      <td>${r.avg_orders ?? '—'}</td>
+      <td>${fmtKr(r.aov_sek)}</td>
+      <td>${fmtPct(r.repeat_rate)}</td>
+      <td>${r.clv_1y_sek != null ? fmtKr(r.clv_1y_sek) : '<span class="pill pill-soft">not matured</span>'}</td>
+      <td class="cell-muted">${fmtInt(r.mature_customers)}</td>
+    </tr>`).join('');
+}
+
+/* ── Lifecycle stacked bars, with shop chips ── */
+let lcShop = 'all';
+function renderLcChips(){
+  const wrap = document.getElementById('lc-chips');
+  wrap.innerHTML = [['all','All'],['babyshop','Babyshop'],['lekmer','Lekmer']].map(([v,l])=>
+    `<button class="metric-chip${lcShop===v?' active':''}" data-v="${v}">${l}</button>`).join('');
+  wrap.querySelectorAll('.metric-chip').forEach(b=>b.onclick=()=>{ lcShop=b.dataset.v; renderLcChips(); renderLifecycle(); });
+}
+function lcRows(){
+  const rows = DATA.lifecycle || [];
+  if (lcShop !== 'all') return rows.filter(r=>r.shop===lcShop);
+  const byM = new Map();
+  rows.forEach(r=>{
+    const t = byM.get(r.month) || { month:r.month, new:0, repeat_active:0, at_risk:0, lapsed:0 };
+    for (const k of ['new','repeat_active','at_risk','lapsed']) t[k] += r[k]||0;
+    byM.set(r.month, t);
+  });
+  return [...byM.values()].sort((a,b)=>a.month<b.month?-1:1);
+}
+function renderLifecycle(){
+  const rows = lcRows();
+  if (!rows.length) return draw('lcChart', null, 'lc-empty', 'No lifecycle rows yet.');
+  draw('lcChart', {
+    type:'bar',
+    data:{ labels:rows.map(r=>r.month), datasets: Object.entries(LC_META).map(([k,m])=>({
+      label:m.label, data:rows.map(r=>r[k]||0), backgroundColor:m.color, stack:'s', borderRadius:2,
+    }))},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:LEGEND, tooltip:{ mode:'index', callbacks:{
+        label:c=>` ${c.dataset.label}: ${fmtInt(c.parsed.y)}`,
+        footer:items=>`Total: ${fmtInt(items.reduce((a,i)=>a+i.parsed.y,0))}` } } },
+      scales:{ x:{ stacked:true, grid:{display:false}, ticks:TICKS },
+               y:{ stacked:true, beginAtZero:true, grid:GRID, ticks:{...TICKS, callback:v=>fmtInt(v)} } } }
+  }, 'lc-empty');
+}
+
+/* ── Cohort heatmap (HTML table) ── */
+let cohortShop = 'all';
+function renderCohortChips(){
+  const wrap = document.getElementById('cohort-chips');
+  wrap.innerHTML = [['all','All'],['babyshop','Babyshop'],['lekmer','Lekmer']].map(([v,l])=>
+    `<button class="metric-chip${cohortShop===v?' active':''}" data-v="${v}">${l}</button>`).join('');
+  wrap.querySelectorAll('.metric-chip').forEach(b=>b.onclick=()=>{ cohortShop=b.dataset.v; renderCohortChips(); renderCohorts(); });
+}
+function heatColor(v, max){
+  // 0 → near-white, max → dashboard accent. Text flips to white past mid.
+  if (v == null) return null;
+  const t = Math.max(0, Math.min(1, max ? v/max : 0));
+  const mix = (a,b)=>Math.round(a+(b-a)*t);
+  return { bg:`rgb(${mix(238,30)},${mix(242,58)},${mix(255,138)})`, fg: t>0.55?'#fff':'#334155' };
+}
+function renderCohorts(){
+  const cells = (DATA.cohorts||[]).filter(c=>cohortShop==='all'||c.shop===cohortShop);
+  const tbl = document.getElementById('cohort-heat');
+  if (!cells.length){ tbl.innerHTML = `<tr><td class="blank"><div class="empty">No cohort rows yet.</div></td></tr>`; return; }
+  const agg = new Map();   // cohort → {size, offsets: Map(offset → active)}
+  cells.forEach(c=>{
+    const a = agg.get(c.cohort) || { sizes:new Map(), off:new Map() };
+    // per-shop rows repeat the cohort size; sum sizes once per shop
+    a.sizes.set(c.shop ?? 'x', Math.max(a.sizes.get(c.shop ?? 'x')||0, c.size));
+    a.off.set(c.offset, (a.off.get(c.offset)||0) + Math.round((c.retention||0)*c.size));
+    agg.set(c.cohort, a);
+  });
+  const cohorts = [...agg.keys()].sort();
+  const maxOff = 12;
+  let maxV = 0;
+  const grid = cohorts.map(cm=>{
+    const a = agg.get(cm);
+    const size = [...a.sizes.values()].reduce((x,y)=>x+y,0);
+    const vals = [];
+    for (let o=1;o<=maxOff;o++){
+      const act = a.off.has(o) ? a.off.get(o) : null;
+      const v = (act!=null && size) ? act/size : null;
+      if (v!=null) maxV = Math.max(maxV, v);
+      vals.push(v);
+    }
+    return { cm, size, vals };
+  });
+  tbl.innerHTML =
+    `<tr><th class="rowh">Cohort</th><th>Size</th>${Array.from({length:maxOff},(_,i)=>`<th>M${i+1}</th>`).join('')}</tr>` +
+    grid.map(g=>`<tr><th class="rowh">${esc(g.cm)}</th><td class="blank cell-muted" style="font-size:10px">${fmtInt(g.size)}</td>${
+      g.vals.map(v=>{
+        if (v==null) return '<td class="blank"></td>';
+        const c = heatColor(v, maxV);
+        return `<td style="background:${c.bg};color:${c.fg}">${(v*100).toFixed(1)}</td>`;
+      }).join('')}</tr>`).join('');
+}
+
+/* ── Pareto ── */
+function renderPareto(){
+  const rows = DATA.value_deciles || [];
+  if (!rows.length) return draw('paretoChart', null, 'pareto-empty', 'No decile rows yet.');
+  let acc = 0;
+  const cum = rows.map(r=>+(acc += (r.revenue_share||0)*100).toFixed(1));
+  draw('paretoChart', {
+    data:{ labels:rows.map(r=>'D'+r.decile), datasets:[
+      { type:'line', label:'Cumulative', data:cum, borderColor:'#B45309', backgroundColor:'#B45309',
+        borderWidth:2, pointRadius:3, tension:.25 },
+      { type:'bar', label:'Decile share', data:rows.map(r=>+((r.revenue_share||0)*100).toFixed(1)),
+        backgroundColor:'#1E3A8A', borderRadius:3 },
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:LEGEND, tooltip:{ callbacks:{
+        label:c=>` ${c.dataset.label}: ${c.parsed.y.toLocaleString('sv-SE')}%`,
+        afterBody:items=>{ const r=rows[items[0].dataIndex];
+          return [`${fmtInt(r.customers)} customers · avg ${fmtKr(r.avg_revenue_sek)} · ${r.avg_orders} orders`]; } } } },
+      scales:{ x:{ grid:{display:false}, ticks:TICKS },
+               y:{ beginAtZero:true, max:100, grid:GRID, ticks:{...TICKS, callback:v=>v+'%'} } } }
+  }, 'pareto-empty');
+}
+
+/* ── Cross-brand ── */
+function renderCrossBrand(){
+  const rows = DATA.cross_brand || [];
+  if (!rows.length) return draw('xbChart', null, 'xb-empty', 'No cross-brand rows yet.');
+  const meta = { babyshop_only:['Babyshop only','#93B4E8'], lekmer_only:['Lekmer only','#C7D4EA'], both:['Both brands','#1E3A8A'] };
+  draw('xbChart', {
+    type:'bar',
+    data:{ labels:rows.map(r=>meta[r.group]?.[0]||r.group), datasets:[
+      { label:'Customers', data:rows.map(r=>r.customers),
+        backgroundColor:rows.map(r=>meta[r.group]?.[1]||'#94A3B8'), borderRadius:3 } ]},
+    options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{
+        label:c=>` ${fmtInt(c.parsed.x)} customers`,
+        afterBody:items=>{ const r=rows[items[0].dataIndex];
+          return [`avg revenue ${fmtKr(r.avg_revenue_sek)} · ${r.avg_orders} orders · AOV ${fmtKr(r.aov_sek)}`]; } } } },
+      scales:{ x:{ beginAtZero:true, grid:GRID, ticks:{...TICKS, callback:v=>fmtInt(v)} },
+               y:{ grid:{display:false}, ticks:{...TICKS, font:{size:11}} } } }
+  }, 'xb-empty');
+}
+
+/* ── Discount table ── */
+const DISC_META = {
+  full_price:{ label:'Full-price', def:'0% of line value discounted' },
+  mixed:{ label:'Mixed', def:'<50% discounted' },
+  promo_only:{ label:'Promo-driven', def:'≥50% discounted' },
+};
+function renderDiscount(){
+  const rows = DATA.discount || [];
+  if (!rows.length) return document.getElementById('disc-body').innerHTML =
+    `<tr><td colspan="7"><div class="empty">No discount rows yet.</div></td></tr>`;
+  document.getElementById('disc-body').innerHTML = rows.map(r=>`
+    <tr>
+      <td>${DISC_META[r.bucket]?.label||r.bucket}</td>
+      <td class="cell-muted">${DISC_META[r.bucket]?.def||''}</td>
+      <td>${fmtInt(r.customers)}</td>
+      <td>${fmtPct(r.share)}</td>
+      <td>${fmtPct(r.repeat_rate)}${r.bucket==='mixed'?' <span class="pill pill-warn" title="multi-order customers self-select into this bucket">composition</span>':''}</td>
+      <td>${fmtKr(r.avg_revenue_sek)}</td>
+      <td>${fmtKr(r.aov_sek)}</td>
+    </tr>`).join('');
+}
+
+/* ── Markets ── */
+function renderMarkets(){
+  const rows = DATA.markets || [];
+  if (!rows.length){ document.getElementById('mkt-body').innerHTML =
+    `<tr><td colspan="8"><div class="empty">No market rows yet.</div></td></tr>`;
+    document.getElementById('mkt-foot').innerHTML=''; return; }
+  document.getElementById('mkt-body').innerHTML = rows.map(m=>{
+    const rep = m.base ? m.repeat_active/m.base : null, lap = m.base ? m.lapsed/m.base : null;
+    return `<tr>
+      <td>${esc(m.app_key)}</td>
+      <td>${fmtInt(m.base)}</td>
+      <td>${fmtInt(m.new)}</td>
+      <td>${fmtInt(m.repeat_active)}</td>
+      <td class="cell-muted">${fmtInt(m.at_risk)}</td>
+      <td class="cell-muted">${fmtInt(m.lapsed)}</td>
+      <td>${fmtPct(rep)}</td>
+      <td>${fmtPct(lap)}</td>
+    </tr>`; }).join('');
+  const sum = f => rows.reduce((a,r)=>a+(r[f]||0),0);
+  const base = sum('base');
+  document.getElementById('mkt-foot').innerHTML = `
+    <tr class="tfoot-row">
+      <td>All storefronts</td><td>${fmtInt(base)}</td><td>${fmtInt(sum('new'))}</td>
+      <td>${fmtInt(sum('repeat_active'))}</td><td>${fmtInt(sum('at_risk'))}</td>
+      <td>${fmtInt(sum('lapsed'))}</td>
+      <td>${fmtPct(base?sum('repeat_active')/base:null)}</td>
+      <td>${fmtPct(base?sum('lapsed')/base:null)}</td>
+    </tr>`;
+}
+
+function renderCaveats(){
+  document.getElementById('caveat-list').innerHTML =
+    (DATA.caveats || []).map(c=>`<li>${esc(c)}</li>`).join('');
+  const cov = (DATA.sources && DATA.sources.norce && DATA.sources.norce.coverage) || {};
+  const bits = [];
+  if (cov.orders) bits.push(`<span><b>orders</b> ${fmtInt(cov.orders)} · ${esc(cov.from||'—')} → ${esc(cov.to||'—')}</span>`);
+  if (cov.customers) bits.push(`<span><b>customers</b> ${fmtInt(cov.customers)}</span>`);
+  if (cov.lines) bits.push(`<span><b>order lines</b> ${fmtInt(cov.lines)} · ${fmtInt(cov.sized_lines)} sized (${fmtPct(cov.size_coverage)})</span>`);
+  if (DATA.lifestage && DATA.lifestage.sized_customers) bits.push(`<span><b>sized customers</b> ${fmtInt(DATA.lifestage.sized_customers)}</span>`);
+  document.getElementById('coverage').innerHTML = bits.join('');
+}
+
+function renderAll(){
+  renderMeta(); renderKPIs();
+  renderStageChart(); renderLtvChart(); renderEntryTable();
+  renderLcChips(); renderLifecycle();
+  renderCohortChips(); renderCohorts();
+  renderPareto(); renderCrossBrand();
+  renderDiscount(); renderMarkets(); renderCaveats();
+}
+renderAll();
+
+/* ── Live overlay ── */
+async function fetchLiveAndOverlay(){
+  try {
+    const r = await fetch('/api/segments', { cache:'no-store' });
+    if (!r.ok) return;
+    const live = await r.json();
+    if (!live || !live.kpis) return;
+    DATA = live;
+    renderAll();
+    const dot = document.getElementById('liveDot');
+    if (dot && live.generated_at !== null){
+      dot.title = `Live · ${(live.sources.norce||{}).dataset||'norce'} · generated ${live.generated_at}`;
+      dot.style.color = 'rgba(255,255,255,.75)';
+    }
+  } catch(e){ /* keep the embedded skeleton */ }
+}
+fetchLiveAndOverlay();
+
+/* ── Shared refresh-status pill (same contract as the other tabs) ── */
+async function checkRefreshStatus(){
+  const pill=document.getElementById('refreshPill'); if(!pill) return;
+  try {
+    const r=await fetch('/api/refresh-status',{cache:'no-store'}); if(!r.ok) return;
+    const s=await r.json();
+    const fmtAgo=(e)=>{ if(!e) return 'never'; const m=Math.max(0,Math.round((Date.now()/1000-e)/60));
+      return m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago'; };
+    if (s.ok===null || s.ok===undefined){ pill.classList.add('show','unknown'); pill.textContent='refresh status unknown'; pill.title=s.reason||''; return; }
+    const ageH = s.last_run ? (Date.now()/1000 - s.last_run)/3600 : 999;
+    const errs = s.errors||[];
+    if (!s.ok || errs.length){
+      pill.classList.remove('stale','unknown'); pill.classList.add('show');
+      pill.textContent = errs.length ? `${errs.length} refresh error${errs.length>1?'s':''} (24 h)` : 'refresh failed';
+      pill.title = [`Last run: ${fmtAgo(s.last_run)} · stage: ${s.last_stage||'—'}`, s.last_message||'',
+        ...errs.slice(0,5).map(e=>`• [${e.stage}] ${(e.error||'').slice(0,120)}`)].filter(Boolean).join('\n');
+    } else if (ageH>30){
+      pill.classList.remove('unknown'); pill.classList.add('show','stale');
+      pill.textContent=`refresh stale · ${fmtAgo(s.last_run)}`; pill.title=`Last successful run ${fmtAgo(s.last_run)} — expected daily.`;
+    } else pill.classList.remove('show','stale','unknown');
+  } catch(e){ /* ignore */ }
+}
+checkRefreshStatus();
+</script>
+</body>
+</html>
