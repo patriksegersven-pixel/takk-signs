@@ -142,6 +142,7 @@ CHART_JS       = STATIC_DIR / "chart.umd.js"
 BRAND_CSS      = STATIC_DIR / "brand.css"
 NAV_JS         = STATIC_DIR / "nav.js"
 LOGO_SVG       = STATIC_DIR / "babyshop-logo.svg"
+FAVICON_SVG    = STATIC_DIR / "babyshop-favicon.svg"
 FONTS_DIR      = STATIC_DIR / "fonts"
 # Explicit allow-list, not a directory walk: the path segment comes from the
 # request, and a whitelist is the only traversal-proof way to use it.
@@ -232,6 +233,13 @@ def nav_js(_: str = Depends(verify)):
 @app.get("/babyshop-logo.svg")
 def logo_svg(_: str = Depends(verify)):
     return FileResponse(LOGO_SVG, media_type="image/svg+xml")
+
+
+# The teddy-bear mark alone (wordmark cropped out) — the full logo is
+# illegible at favicon size.
+@app.get("/babyshop-favicon.svg")
+def favicon_svg(_: str = Depends(verify)):
+    return FileResponse(FAVICON_SVG, media_type="image/svg+xml")
 
 
 # Jost, vendored for the same reason Chart.js is: fonts.gstatic.com is not
