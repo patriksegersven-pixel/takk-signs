@@ -332,9 +332,26 @@
     .kpi-note { font-size: 10px; color: var(--muted); margin-top: 4px; }
 
     /* ── Chart cards ────────────────────────────────── */
+    /* Single column: the Daily Trend spans the full width (same treatment as the
+       long-term trend below it) so a full period of days stays readable, and the
+       waterfall follows underneath rather than being squeezed beside it. */
     .chart-row {
-      display: grid; grid-template-columns: 1.1fr 1fr;
+      display: grid; grid-template-columns: 1fr;
       gap: 14px; margin-bottom: 20px;
+    }
+    /* Comparison-period overlay switch, sitting with the metric chips. */
+    .trend-cmp {
+      display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+      font-size: 11px; font-weight: 600; color: var(--muted);
+      border: 1px solid var(--border); border-radius: 999px;
+      padding: 4px 11px 4px 9px; background: var(--card); user-select: none;
+      transition: color .15s, border-color .15s, background .15s;
+    }
+    .trend-cmp:hover { color: var(--h); }
+    .trend-cmp input { accent-color: var(--accent); margin: 0; cursor: pointer; }
+    .trend-cmp.is-on { color: var(--h); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--card)); }
+    .trend-cmp .trend-cmp-dash {
+      width: 15px; height: 0; border-top: 2px dashed currentColor; opacity: .65;
     }
     .chart-card {
       background: var(--card); border: 1px solid var(--border);
@@ -543,7 +560,54 @@
     .bd-chip-actual { display:inline-block; width:9px;height:9px;border-radius:2px;background:var(--accent);vertical-align:middle;margin-right:4px; }
     .bd-chip-plan   { display:inline-block; width:9px;height:9px;border-radius:2px;background:#CBD5E1;vertical-align:middle;margin-right:4px; }
 
-    .bd-hero-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; }
+    /* ── This month vs targets (the hero) ─────────────
+       The section the client actually reads: MTD against the target-to-date the
+       daily model implies, with month-end projection. YTD keeps its own, much
+       smaller, strip further down. */
+    .bd-month-bar {
+      display:flex; align-items:baseline; justify-content:space-between; gap:16px;
+      flex-wrap:wrap; margin: 0 0 12px;
+    }
+    .bd-month-title { font-size: 19px; font-weight: 800; color: var(--h); letter-spacing:-.4px; }
+    .bd-month-meta { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .bd-month-meta b { color: var(--h); font-weight: 700; }
+    .bd-mtd-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); gap: 14px; margin-bottom: 20px; }
+    .bd-mtd-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--r);
+      padding: 17px 18px; box-shadow: var(--shadow-sm);
+    }
+    .bd-mtd-card.hero { border-color: var(--hero); box-shadow: 0 0 0 1px var(--hero-bg, transparent), var(--shadow-sm); }
+    .bd-mtd-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:11px; }
+    .bd-mtd-name { font-size: 12.5px; font-weight: 700; color: var(--h); letter-spacing:-.2px; }
+    .bd-mtd-val { font-size: 30px; font-weight: 800; color: var(--h); letter-spacing:-.8px; line-height:1; font-variant-numeric: tabular-nums; }
+    .bd-mtd-vs { font-size: 11.5px; color: var(--muted); margin-top: 7px; font-variant-numeric: tabular-nums; }
+    .bd-mtd-vs b { color: var(--h); font-weight: 700; }
+    .bd-mtd-foot { display:flex; justify-content:space-between; gap:10px; font-size:10.5px;
+      color:var(--muted); margin-top:11px; font-variant-numeric: tabular-nums; }
+    .bd-mtd-foot b { display:block; font-size:13.5px; font-weight:700; color:var(--h); margin-top:2px; }
+    /* Pacing bar: fill = MTD actual, marker = where the target curve says we
+       should be today, cap = full-month target. */
+    /* margin-top leaves room for the marker's floating "on target" caption,
+       which would otherwise sit on top of the target-to-date line above it. */
+    .bd-pace { position:relative; height:10px; background:var(--border-lt); border-radius:5px; margin-top:26px; }
+    .bd-pace-fill { position:absolute; top:0; left:0; height:100%; border-radius:5px; }
+    .bd-pace-mark { position:absolute; top:-4px; width:2px; height:18px; background:var(--h); }
+    .bd-pace-mark::after { content:attr(data-lbl); position:absolute; top:-14px; left:50%; transform:translateX(-50%);
+      font-size:9px; font-weight:600; color:var(--muted); white-space:nowrap; }
+
+    /* YTD, demoted to a compact strip */
+    .bd-ytd-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap:10px; margin-bottom:18px; }
+    .bd-ytd-cell { background:var(--card); border:1px solid var(--border); border-radius:var(--r-sm);
+      padding:12px 14px; box-shadow:var(--shadow-sm); }
+    .bd-ytd-lbl { font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+    .bd-ytd-val { font-size:18px; font-weight:700; color:var(--h); margin-top:4px; letter-spacing:-.3px; font-variant-numeric: tabular-nums; }
+    .bd-ytd-sub { font-size:10.5px; color:var(--muted); margin-top:3px; font-variant-numeric: tabular-nums; }
+
+    .bd-view-tabs { display:inline-flex; gap:2px; background:var(--border-lt); padding:2px; border-radius:var(--r-sm); }
+    .bd-view-tabs button { border:0; background:transparent; font:inherit; font-size:11px; font-weight:600;
+      color:var(--muted); padding:4px 11px; border-radius:calc(var(--r-sm) - 1px); cursor:pointer; }
+    .bd-view-tabs button.active { background:var(--card); color:var(--h); box-shadow:var(--shadow-sm); }
+
     .bd-card {
       background: var(--card); border: 1px solid var(--border);
       border-radius: var(--r); padding: 20px 22px; box-shadow: var(--shadow-sm);
@@ -589,7 +653,6 @@
     .pl-table .pl-var { font-size: 9.5px; font-weight: 700; margin-left: 5px; }
     .pl-table .pl-var.up { color: var(--up); }
     .pl-table .pl-var.down { color: var(--down); }
-    @media (max-width: 900px) { .bd-hero-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -621,10 +684,10 @@
 
 <main>
 
-  <!-- View toggle: Overview | Budget vs Plan -->
+  <!-- View toggle: Overview | Budget vs Targets -->
   <div class="view-toggle" id="view-toggle">
     <button class="vtab active" data-view="overview">Overview</button>
-    <button class="vtab" data-view="budget">Budget vs Plan</button>
+    <button class="vtab" data-view="budget">Budget vs Targets</button>
   </div>
 
   <div id="view-overview">
@@ -703,6 +766,24 @@
     <div class="chart-card">
       <div class="chart-header">
         <div>
+          <div class="chart-title">Daily Trend</div>
+          <div class="chart-sub" id="trend-sub">pick metrics to overlay</div>
+        </div>
+        <span class="chart-badge" id="trend-badge">SEK</span>
+      </div>
+      <div class="metric-chips" id="trend-chips"></div>
+      <div class="metric-chips" style="margin-top:2px">
+        <label class="trend-cmp" id="trend-cmp-label" title="Overlay the comparison period, day 1 aligned with day 1">
+          <input type="checkbox" id="trend-cmp-toggle">
+          <span class="trend-cmp-dash"></span>
+          <span id="trend-cmp-text">Compare period</span>
+        </label>
+      </div>
+      <div class="chart-wrap" style="height:320px"><canvas id="c-trend"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
           <div class="chart-title">Weekly P&amp;L Waterfall</div>
           <div class="chart-sub" id="wf-sub">kv-revenue stacked → COGS (rev−gp1) · ops costs (gp1−gp2) · ad spend · kv-gp3</div>
         </div>
@@ -718,17 +799,6 @@
         <div class="legend-item"><div class="legend-dot" style="background:#E0AF6B"></div>Returns</div>
         <div class="legend-item"><div class="legend-dot" style="background:#CBD5E1"></div>COGS</div>
       </div>
-    </div>
-    <div class="chart-card">
-      <div class="chart-header">
-        <div>
-          <div class="chart-title">Daily Trend</div>
-          <div class="chart-sub" id="trend-sub">pick metrics to overlay</div>
-        </div>
-        <span class="chart-badge" id="trend-badge">SEK</span>
-      </div>
-      <div class="metric-chips" id="trend-chips"></div>
-      <div class="chart-wrap"><canvas id="c-trend"></canvas></div>
     </div>
   </div>
 
@@ -771,7 +841,7 @@
     <div class="card-header">
       <div>
         <div class="chart-title">Performance by Market</div>
-        <div class="chart-sub">kv-revenue · kv-gp2 · kv-gp3 · kv-cos% · kv-cop%</div>
+        <div class="chart-sub">kv-revenue · kv-gp1 · kv-gp2 · kv-gp3 · kv-gm1% · kv-cos% · kv-cop%</div>
       </div>
       <div id="market-tools"></div>
     </div>
@@ -787,10 +857,12 @@
           <th title="cf1j1qh36fictd7_market_level_1_kv">Market</th>
           <th title="cf1ijsm2qp2r9v3_kv_revenue">Revenue</th>
           <th title="kv-revenue share of total">Rev share</th>
+          <th title="kv_gp1 · Kuvio (Funnel→BQ export)">kv-GP1</th>
           <th title="cf1ijsmd6ra2jmj_kv_gp2">kv-GP2</th>
           <th title="cf1ijsubsqmhepf_kv_gp3">kv-GP3</th>
           <th title="kv-gp3 share of total">GP3 share</th>
           <th title="Cost · total ad spend">Total cost</th>
+          <th title="kv_gp1 / kv_revenue · Kuvio (derived)">kv-GM1%</th>
           <th title="cf1jfduntq34ns6_kv_gm3">kv-GM3%</th>
           <th title="cf1ik1q18tt61mj_kv_cos">kv-COS%</th>
           <th title="cf1ijsu9g9io330_kv_cop">kv-COP%</th>
@@ -833,7 +905,7 @@
     <div class="card-header">
       <div>
         <div class="chart-title">Channel Type Level 2 — Full Breakdown</div>
-        <div class="chart-sub">kv-revenue · kv-gp2 · kv-gp3 · kv-cos% · kv-cop%</div>
+        <div class="chart-sub">kv-revenue · kv-gp1 · kv-gp2 · kv-gp3 · kv-gm1% · kv-cos% · kv-cop%</div>
       </div>
       <div id="channel-tools"></div>
     </div>
@@ -846,10 +918,12 @@
           <th title="cf1i7dnbhv3imth_Google__Bing_New">Channel</th>
           <th title="cf1ijsm2qp2r9v3_kv_revenue">Revenue</th>
           <th title="kv-revenue share of total">Rev share</th>
+          <th title="kv_gp1 · Kuvio (Funnel→BQ export)">kv-GP1</th>
           <th title="cf1ijsmd6ra2jmj_kv_gp2">kv-GP2</th>
           <th title="cf1ijsubsqmhepf_kv_gp3">kv-GP3</th>
           <th title="kv-gp3 share of total">GP3 share</th>
           <th title="Cost · total ad spend">Total cost</th>
+          <th title="kv_gp1 / kv_revenue · Kuvio (derived)">kv-GM1%</th>
           <th title="cf1jfduntq34ns6_kv_gm3">kv-GM3%</th>
           <th title="cf1ik1q18tt61mj_kv_cos">kv-COS%</th>
           <th title="cf1ijsu9g9io330_kv_cop">kv-COP%</th>
@@ -863,43 +937,70 @@
 
   </div><!-- /view-overview -->
 
-  <!-- ══ BUDGET VS PLAN VIEW ══════════════════════════ -->
+  <!-- ══ BUDGET VS TARGETS VIEW ═══════════════════════ -->
   <div id="view-budget" style="display:none">
 
     <div class="bd-head">
       <div>
-        <div class="page-title">Budget vs Plan · 2026</div>
-        <div class="bd-sub" id="bd-sub">Tracking actuals against the rolling P&amp;L forecast.</div>
+        <div class="page-title">Budget vs Targets · 2026</div>
+        <div class="bd-sub" id="bd-sub">Tracking actuals against the rolling P&amp;L targets.</div>
       </div>
       <div class="bd-legend">
         <span><span class="bd-chip-actual"></span>Actual</span>
-        <span><span class="bd-chip-plan"></span>Plan / forecast</span>
+        <span><span class="bd-chip-plan"></span>Target</span>
       </div>
     </div>
 
-    <!-- Live-tracked hero cards: Revenue + Marketing spend -->
-    <div class="bd-hero-grid" id="bd-hero"></div>
+    <!-- ── HERO: this month vs targets ───────────────── -->
+    <div class="bd-month-bar">
+      <div class="bd-month-title" id="bd-month-title">This month</div>
+      <div class="bd-month-meta" id="bd-month-meta"></div>
+    </div>
+    <div class="bd-mtd-grid" id="bd-mtd"></div>
 
-    <!-- Monthly actual-vs-plan chart -->
+    <!-- Daily actual vs daily target for the current month -->
+    <div class="chart-card" style="margin-bottom:24px">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title" id="bd-daily-title">This month · actual vs daily targets</div>
+          <div class="chart-sub" id="bd-daily-sub">daily targets modelled from the monthly target</div>
+        </div>
+        <div class="bd-view-tabs" id="bd-daily-mode">
+          <button data-mode="cum" class="active" title="Cumulative month-to-date vs cumulative target — the pacing view">Cumulative</button>
+          <button data-mode="day" title="One bar/line per day">Per day</button>
+        </div>
+      </div>
+      <div class="metric-chips" id="bd-metric-chips"></div>
+      <div class="chart-wrap" id="bd-daily-wrap" style="height:320px">
+        <canvas id="c-daily-target"></canvas>
+        <div class="chart-empty" id="bd-daily-empty"></div>
+      </div>
+      <div class="bd-mtd-foot" id="bd-model-note" style="margin-top:12px"></div>
+    </div>
+
+    <!-- ── YTD (secondary) ───────────────────────────── -->
+    <div class="section-label">year to date</div>
+    <div class="bd-ytd-grid" id="bd-ytd"></div>
+
+    <!-- Monthly actual-vs-target chart -->
     <div class="chart-card" style="margin-bottom:20px">
       <div class="chart-header">
         <div>
-          <div class="chart-title">Monthly · Actual vs Plan</div>
-          <div class="chart-sub" id="bd-chart-sub">solid = actual · light = plan</div>
+          <div class="chart-title">Monthly · Actual vs Targets</div>
+          <div class="chart-sub" id="bd-chart-sub">solid = actual · light = target</div>
         </div>
         <span class="chart-badge">SEK</span>
       </div>
-      <div class="metric-chips" id="bd-metric-chips"></div>
       <div class="chart-wrap" id="bd-chart-wrap">
         <canvas id="c-budget"></canvas>
         <div class="chart-empty" id="bd-chart-empty"></div>
       </div>
     </div>
 
-    <!-- Full P&L plan table (context) -->
+    <!-- Full P&L target table (context) -->
     <div class="chart-header" style="margin-bottom:12px">
       <div>
-        <div class="chart-title">Full-year P&amp;L plan</div>
+        <div class="chart-title">Full-year P&amp;L targets</div>
         <div class="chart-sub">Group forecast · costs shown negative · <span style="color:var(--accent)">shaded rows</span> reconcile with dashboard data (live variance shown in actual months)</div>
       </div>
       <div id="pl-tools"></div>
@@ -915,7 +1016,7 @@
            nested scrollport would double the scrollbars for a table that is ~15 P&L lines
            long and will never reach the row threshold. -->
       <table class="pl-table" id="pl-table" data-tools
-             data-export-name="kv-pl-plan-2026"
+             data-export-name="kv-pl-targets-2026"
              data-filter-columns="0"
              data-scroll="false"
              data-export-ignore=".pl-var"
@@ -1368,6 +1469,21 @@ const _delta     = (cur, prev, lowerIsBetter=false, isPP=false) =>
   (_num(cur) && _num(prev) && (isPP || Math.abs(prev) > 0))
     ? deltaBadge(cur, prev, lowerIsBetter, isPP)
     : '<span class="kpi-delta" style="color:var(--muted)">—</span>';
+
+/* ── kv-GP1 / kv-GM1% breakdown-table cells ───────────
+ * Every live payload carries gp1 — bq_source's KVD aggregate selects it for the
+ * market / shop / channel breakdowns alike — but the static seed rows above do
+ * not, and a breakdown row can be pure ad spend with no revenue at all (a
+ * cost-only channel, or the ROW-unattributed market). Both render '—' rather
+ * than a fabricated 0 or NaN%. `gm1Of` is `_ratio`, which already guards both. */
+const gm1Of   = _ratio;
+const gp1Cell = (e, prevKey='gp1_prev') =>
+  _num(e.gp1) ? `${fmtSEK(e.gp1)}${cellDelta(e.gp1, e[prevKey])}` : '—';
+/* One % cell of a breakdown table (GM1/GM3/COS/COP). A null ratio — no revenue
+ * to divide by, or no spend — prints '—' with NO delta badge: "— ▼ -3.0pp"
+ * reads as a real move when nothing was measured. */
+const ratioCell = (cur, prev, lowerIsBetter=false) =>
+  !_num(cur) ? '—' : `${fmtPct(cur)}${_num(prev) ? cellDelta(cur, prev, lowerIsBetter, true) : ''}`;
 
 function renderKPIs() {
   const cos_cur  = _ratio(CUR.adCost, CUR.revenue);
@@ -1866,13 +1982,65 @@ function _renderFiltered() {
  * the pristine all-markets arrays, or a filtered series fetched from BigQuery
  * (/api/filtered?series=daily). The KPI cards have their own source (embedded
  * snapshot for one dimension, /api/filtered totals for a cross-filter). */
-const _trendSeries = window._trendSeries = { daily: DAILY_ALL, weeks: WEEKS_ALL };
+const _trendSeries = window._trendSeries = { daily: DAILY_ALL, weeks: WEEKS_ALL, cmp: [] };
 let _seriesState = 'all';                 // 'all' | 'filtered' | 'fallback'
 
+/* Row source for the Daily Trend. `null` = unfiltered, read straight off
+ * DAILY_LONG (the full 2025→data-end daily history the payload already ships,
+ * the same array the KPI cards sum). Otherwise it's the filtered daily rows
+ * fetched from /api/filtered?series=daily. Either way the trend is rebuilt for
+ * whatever range the date picker currently selects — it is NOT the fixed
+ * ~30-day snapshot window it used to show. */
+let _seriesRows = null;
+
+/* Comparison-period overlay on the Daily Trend. Declared here, above
+ * _seriesSpan, which reads it: a `let` further down would be in the temporal
+ * dead zone if _seriesSpan ever ran during page init. */
+let showTrendCompare = false;
+
+/* iso → row, for whichever source is active. DAILY_LONG keys the date as `iso`
+ * and revenue as `revenue`; the filtered rows use `d` and `rev`. _normDay reads
+ * both shapes so the rest of the chart code sees one. */
+function _dayIndex() {
+  const by = Object.create(null);
+  for (const r of (_seriesRows || DAILY_LONG)) by[_seriesRows ? r.d : r.iso] = r;
+  return by;
+}
+function _normDay(iso, r) {
+  const n = (a, b) => (typeof a === 'number' ? a : (typeof b === 'number' ? b : 0));
+  return {
+    d: `${+iso.slice(8, 10)}/${+iso.slice(5, 7)}`, iso,
+    rev:  n(r && r.rev, r && r.revenue),
+    // A day with no gp1 stays null so the GP1/GM1 lines show a gap instead of
+    // claiming a real zero margin.
+    gp1:  (r && typeof r.gp1 === 'number') ? r.gp1 : (r ? null : 0),
+    gp2:  n(r && r.gp2), gp3: n(r && r.gp3), cost: n(r && r.cost),
+  };
+}
+// Every ISO date in [range.start, range.end]. Capped: the custom picker can
+// select an arbitrary span and a multi-year daily line is unreadable anyway.
+const _MAX_TREND_DAYS = 400;
+function _daysBetween(range) {
+  const out = [], d = new Date(range.start);
+  while (d <= range.end && out.length < _MAX_TREND_DAYS) {
+    out.push(_isoLocal(d)); d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+/* Rebuild the trend's current-period and comparison-period series. The two are
+ * index-aligned by construction — element i of each is day i+1 of its own
+ * range — which is exactly the "day 1 vs day 1" overlay the chart draws. */
+function _recomputeTrendSeries() {
+  const r = _curRange(), c = _cmpRange(r), by = _dayIndex();
+  _trendSeries.daily = _daysBetween(r).map(iso => _normDay(iso, by[iso]));
+  _trendSeries.cmp   = _daysBetween(c).map(iso => _normDay(iso, by[iso]));
+}
+
 function _useAllSeries() {
-  _trendSeries.daily = DAILY_ALL;
+  _seriesRows = null;
   _trendSeries.weeks = WEEKS_ALL;
   _seriesState = 'all';
+  _recomputeTrendSeries();
 }
 // Note appended to both chart subtitles so the series' provenance is visible.
 function _seriesSuffix() {
@@ -1885,28 +2053,34 @@ function _seriesSuffix() {
 // DAILY labels are "25/4" — resolve to a real ISO date against the data end.
 function _dailyISO(label) { return _isoLocal(_parseDailyD(label, _dataEndDate())); }
 
-// Full span the two charts need: first day of WEEKS' first week → last DAILY day.
+/* Full span the charts need, as one fetch: the selected period, the waterfall's
+ * fixed weekly window, and — only when the comparison overlay is switched on —
+ * the comparison period too. That last one is gated deliberately: a 90-day
+ * period compared year-over-year spans ~15 months, and asking BigQuery for a
+ * filtered daily series that wide costs ~17 s vs ~5 s. Nobody should pay that
+ * for a dashed line they are not looking at. The toggle re-runs the fetch when
+ * it is switched on under an active filter. */
 function _seriesSpan() {
-  if (!DAILY_ALL.length) return null;
-  return { sstart: _dailyISO(DAILY_ALL[0].d),
-           send:   _dailyISO(DAILY_ALL[DAILY_ALL.length - 1].d) };
+  const r = _curRange();
+  const t = [r.start, r.end].map(d => d.getTime());
+  if (showTrendCompare) {
+    const c = _cmpRange(r);
+    t.push(c.start.getTime(), c.end.getTime());
+  }
+  if (DAILY_ALL.length) {
+    t.push(_parseDailyD(DAILY_ALL[0].d, _dataEndDate()).getTime(),
+           _parseDailyD(DAILY_ALL[DAILY_ALL.length - 1].d, _dataEndDate()).getTime());
+  }
+  return { sstart: _isoLocal(new Date(Math.min(...t))),
+           send:   _isoLocal(new Date(Math.max(...t))) };
 }
 
 /* Reshape the fetched daily rows ([{d:'2026-05-24',rev,gp2,gp3,cost}]) into the
- * two shapes the charts read. Days are keyed off DAILY_ALL so the x-axis stays
- * label-for-label identical (a day with no rows under the filter → 0), and the
- * weeks reuse WEEKS_ALL's labels, summing by each bucket's date range. */
-function _buildFilteredSeries(days) {
+ * WEEKS shape the waterfall reads: WEEKS_ALL's labels and 7-day buckets, summed
+ * from the filtered rows. (The Daily Trend no longer comes from here — it is
+ * rebuilt per selected period by _recomputeTrendSeries, off the same rows.) */
+function _buildFilteredWeeks(days) {
   const n = (r, k) => (r && typeof r[k] === 'number' ? r[k] : 0);
-  const by = Object.create(null);
-  for (const r of days) by[r.d] = r;
-
-  const daily = DAILY_ALL.map(o => {
-    const r = by[_dailyISO(o.d)];
-    return { d: o.d, rev: n(r, 'rev'), gp1: n(r, 'gp1'), gp2: n(r, 'gp2'),
-             gp3: n(r, 'gp3'), cost: n(r, 'cost') };
-  });
-
   const weeks = WEEKS_ALL.map((w, i) => {
     const chunk = DAILY_ALL.slice(i * 7, i * 7 + 7);   // same 7-day bucketing the snapshot uses
     const acc = { label: w.label, revenue: 0, gp1: 0, gp2: 0, gp3: 0, cost: 0 };
@@ -1919,13 +2093,16 @@ function _buildFilteredSeries(days) {
     }
     return acc;
   });
-  return { daily, weeks };
+  return weeks;
 }
 
-function _applySeries(daily, weeks, state) {
-  _trendSeries.daily = daily;
+/* Point the charts at a row source and redraw. `rows` = filtered daily rows, or
+ * null for the unfiltered DAILY_LONG history. */
+function _applySeries(rows, weeks, state) {
+  _seriesRows = rows;
   _trendSeries.weeks = weeks;
   _seriesState = state;
+  _recomputeTrendSeries();
   if (typeof renderTrend === 'function') renderTrend();
   if (typeof refreshWaterfall === 'function') refreshWaterfall();
 }
@@ -1963,8 +2140,10 @@ async function _fetchCombined(af, applyTotals = true) {
       PREV = { revenue: d.prev.revenue, gp1: _gp1(d.prev), gp2: d.prev.gp2, gp3: d.prev.gp3, adCost: d.prev.cost, txns: d.prev.txns };
     }
     if (span && Array.isArray(d.days)) {
-      const s = _buildFilteredSeries(d.days);
-      _trendSeries.daily = s.daily; _trendSeries.weeks = s.weeks; _seriesState = 'filtered';
+      _seriesRows = d.days;
+      _trendSeries.weeks = _buildFilteredWeeks(d.days);
+      _seriesState = 'filtered';
+      _recomputeTrendSeries();
     } else {
       _useAllSeries();                      // no series in the response → charts show totals
     }
@@ -1973,7 +2152,7 @@ async function _fetchCombined(af, applyTotals = true) {
     // Cards keep their current values; the charts fall back to the unfiltered
     // series and say so, rather than silently implying they're filtered.
     if (seq !== _filtSeq) return;
-    _applySeries(DAILY_ALL, WEEKS_ALL, 'fallback');
+    _applySeries(null, WEEKS_ALL, 'fallback');
   }
 }
 
@@ -2225,22 +2404,54 @@ function _parseDailyD(s, ref) {
   if (m > ref.getMonth() + 1) y -= 1;
   return new Date(y, m - 1, d);
 }
-// The active daily series: all-markets, or the filtered equivalent.
+// The active daily series: the selected period, all-markets or filtered.
 function _trendDaily() {
   return (window._trendSeries && _trendSeries.daily) || DAILY;
+}
+function _trendCmp() {
+  return (window._trendSeries && _trendSeries.cmp) || [];
 }
 function _updateTrendSub() {
   const sub = document.getElementById('trend-sub');
   const D = _trendDaily();
   if (!sub || !D.length) return;
-  const first = _parseDailyD(D[0].d, _YESTERDAY);
-  const last  = _parseDailyD(D[D.length-1].d, _YESTERDAY);
-  sub.textContent = `${_fmtRange(first, last)} · pick metrics to overlay` + _seriesSuffix();
+  // Rows built by _recomputeTrendSeries carry `iso`; the embedded placeholder
+  // series only has the "25/4" label, so fall back to parsing that.
+  const at = r => (r.iso ? _parseISO(r.iso) : _parseDailyD(r.d, _YESTERDAY));
+  const first = at(D[0]), last = at(D[D.length - 1]);
+  const cmp = _trendCmp();
+  const cmpTxt = (showTrendCompare && cmp.length)
+    ? ` · dashed = ${_fmtRange(at(cmp[0]), at(cmp[cmp.length - 1]))}`
+    : '';
+  sub.textContent = `${_fmtRange(first, last)} · ${D.length} days`
+    + cmpTxt + ' · pick metrics to overlay' + _seriesSuffix();
+}
+/* The overlay switch. Its label names the comparison currently selected in the
+ * date picker, so the two controls read as one idea. */
+function _wireTrendCompare() {
+  const box = document.getElementById('trend-cmp-toggle');
+  if (!box) return;
+  box.addEventListener('change', () => {
+    showTrendCompare = box.checked;
+    // Unfiltered, the comparison series is already in DAILY_LONG client-side —
+    // just redraw. Under a filter the comparison days were deliberately left
+    // out of the last fetch (see _seriesSpan), so re-run it to bring them in.
+    if (_seriesState === 'filtered' && _activeFilters().length) applyFilter();
+    else renderTrend();
+  });
+}
+function _updateTrendCompareLabel() {
+  const lab = document.getElementById('trend-cmp-label');
+  const txt = document.getElementById('trend-cmp-text');
+  if (!lab || !txt) return;
+  txt.textContent = 'vs ' + (COMPARE_LABELS[currentCompare] || 'comparison period');
+  lab.classList.toggle('is-on', showTrendCompare);
 }
 
 function renderTrend() {
   _updateTrendSub();
-  const D = _trendDaily();
+  _updateTrendCompareLabel();
+  const D = _trendDaily(), C = _trendCmp();
   // Refresh chip visuals
   document.querySelectorAll('#trend-chips .metric-chip').forEach(chip => {
     const key = chip.dataset.key;
@@ -2258,22 +2469,46 @@ function renderTrend() {
   document.getElementById('trend-badge').textContent =
     hasSek && hasPct ? 'SEK + %' : hasPct ? '%' : 'SEK';
 
-  const datasets = [...activeTrendMetrics].map(key => {
+  const showCmp = showTrendCompare && C.length > 0;
+  const datasets = [];
+  [...activeTrendMetrics].forEach(key => {
     const m = TREND_METRICS[key];
     const yAxisID = m.unit === 'pct' ? 'yPct' : 'ySek';
-    return {
+    datasets.push({
       label: m.label,
       data: D.map(m.compute),
       borderColor: m.color,
       backgroundColor: m.color + '0F',
-      fill: activeTrendMetrics.size <= 2 && m.unit === 'sek',
+      // The area fill reads as noise once a dashed twin sits underneath it.
+      fill: !showCmp && activeTrendMetrics.size <= 2 && m.unit === 'sek',
       tension: .35,
       pointRadius: 0,
       pointHoverRadius: 4,
       borderWidth: 2,
       yAxisID,
       _unit: m.unit,
-    };
+    });
+    if (!showCmp) return;
+    /* Comparison twin: same metric, same colour at ~60% alpha, dashed. Data is
+     * index-aligned — element i is day i+1 of the comparison range against day
+     * i+1 of the current one — so the x-axis stays the current period's dates
+     * and `_dates` carries the comparison day for the tooltip. A comparison
+     * range shorter than the current one simply ends early. */
+    datasets.push({
+      label: `${m.label} · ${COMPARE_LABELS[currentCompare] || 'jfr'}`,
+      data: D.map((_, i) => (i < C.length ? m.compute(C[i]) : null)),
+      borderColor: m.color + '99',
+      backgroundColor: 'transparent',
+      fill: false,
+      borderDash: [5, 4],
+      tension: .35,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      borderWidth: 1.5,
+      yAxisID,
+      _unit: m.unit,
+      _dates: D.map((_, i) => (i < C.length ? C[i].d : null)),
+    });
   });
 
   const scales = {
@@ -2316,7 +2551,11 @@ function renderTrend() {
               const v = ctx.parsed.y;
               if (v == null) return null;
               const isPct = ctx.dataset._unit === 'pct';
-              return ` ${ctx.dataset.label}: ${isPct ? v.toFixed(1) + '%' : fmtSEK(v)}`;
+              const val = isPct ? v.toFixed(1) + '%' : fmtSEK(v);
+              // Comparison lines carry their own date — the x-axis shows the
+              // current period's, so without this the overlay is unreadable.
+              const on = ctx.dataset._dates && ctx.dataset._dates[ctx.dataIndex];
+              return ` ${ctx.dataset.label}: ${val}` + (on ? `  (${on})` : '');
             },
           },
         },
@@ -2327,6 +2566,8 @@ function renderTrend() {
 }
 
 renderTrendChips();
+_wireTrendCompare();
+_recomputeTrendSeries();   // first paint already follows the selected period
 renderTrend();
 
 /* ── Market Table (re-callable) ──────────────────── */
@@ -2338,8 +2579,11 @@ tbody.innerHTML = '';
 const maxRev = Math.max(...MARKETS.map(m=>m.revenue));
 
 MARKETS.forEach(m => {
-  const gm3  = m.gp3 / m.revenue;
-  const cos  = m.cost / m.revenue;
+  // A market row can now be pure ad spend with no attributed revenue (the
+  // ROW-unattributed bucket) — guard the revenue denominators so those cells
+  // read '—' rather than '∞%'. Same guard the channel table already uses.
+  const gm3  = m.revenue > 0 ? m.gp3 / m.revenue : null;
+  const cos  = m.revenue > 0 ? m.cost / m.revenue : null;
   const cop  = m.gp2 > 0 ? m.cost / m.gp2 : null;
   const share = m.revenue / totalRev;
   const gp3Share = totalGp3 ? m.gp3 / totalGp3 : null;
@@ -2353,18 +2597,22 @@ MARKETS.forEach(m => {
   const gm3_prev = (m.gp3_prev != null && m.revenue_prev) ? m.gp3_prev / m.revenue_prev : null;
   const cos_prev = (m.cost_prev != null && m.revenue_prev) ? m.cost_prev / m.revenue_prev : null;
   const cop_prev = (m.cost_prev != null && m.gp2_prev > 0) ? m.cost_prev / m.gp2_prev : null;
+  const gm1      = gm1Of(m.gp1, m.revenue);
+  const gm1_prev = gm1Of(m.gp1_prev, m.revenue_prev);
 
   tbody.innerHTML += `<tr>
     <td>${m.name}</td>
     <td><div class="bar-cell"><div class="mini-bar" style="width:${barW}px"></div>${fmtSEK(m.revenue)}${cellDelta(m.revenue, m.revenue_prev)}</div></td>
     <td><span class="share-pct">${(share*100).toFixed(0)}%</span></td>
+    <td>${gp1Cell(m)}</td>
     <td>${fmtSEK(m.gp2)}${cellDelta(m.gp2, m.gp2_prev)}</td>
     <td class="${m.gp3<0?'cell-neg':''}">${fmtSEK(m.gp3)}${cellDelta(m.gp3, m.gp3_prev)}</td>
     <td>${gp3Share!==null?`<span class="share-pct${m.gp3<0?' cell-neg':''}">${(gp3Share*100).toFixed(0)}%</span>`:'—'}</td>
     <td>${fmtSEK(m.cost)}${cellDelta(m.cost, m.cost_prev, true)}</td>
-    <td class="${gm3Class}">${fmtPct(gm3)}${cellDelta(gm3, gm3_prev, false, true)}</td>
-    <td class="${cosClass}">${fmtPct(cos)}${cellDelta(cos, cos_prev, true, true)}</td>
-    <td class="${copClass}">${cop!==null?fmtPct(cop):'—'}${cellDelta(cop, cop_prev, true, true)}</td>
+    <td>${ratioCell(gm1, gm1_prev)}</td>
+    <td class="${gm3Class}">${ratioCell(gm3, gm3_prev)}</td>
+    <td class="${cosClass}">${ratioCell(cos, cos_prev, true)}</td>
+    <td class="${copClass}">${ratioCell(cop, cop_prev, true)}</td>
     <td>${pctDeltaPill(m.gp3, m.gp3_prev)}</td>
   </tr>`;
 });
@@ -2374,12 +2622,17 @@ const tRev  = MARKETS.reduce((s,m)=>s+m.revenue,0);
 const tGp2  = MARKETS.reduce((s,m)=>s+m.gp2,0);
 const tGp3  = MARKETS.reduce((s,m)=>s+m.gp3,0);
 const tCost = MARKETS.reduce((s,m)=>s+m.cost,0);
+// gp1 only totals if EVERY row carries it — a partial sum would understate it.
+const tGp1  = MARKETS.every(m=>_num(m.gp1)) ? MARKETS.reduce((s,m)=>s+m.gp1,0) : null;
 const _sumPrev = (k) => MARKETS.reduce((s,m)=> s + (m[k] != null ? m[k] : 0), 0)
                   || null;
 const tRevP  = (PREV && PREV.revenue) || _sumPrev('revenue_prev');
+const tGp1P  = (PREV && _num(PREV.gp1) && PREV.gp1) || _sumPrev('gp1_prev');
 const tGp2P  = (PREV && PREV.gp2)     || _sumPrev('gp2_prev');
 const tGp3P  = (PREV && PREV.gp3)     || _sumPrev('gp3_prev');
 const tCostP = (PREV && PREV.adCost)  || _sumPrev('cost_prev');
+const tGm1   = gm1Of(tGp1, tRev);
+const tGm1P  = gm1Of(tGp1P, tRevP);
 const tGm3P  = (tRevP && tGp3P != null) ? tGp3P / tRevP : null;
 const tCosP  = (tRevP && tCostP != null) ? tCostP / tRevP : null;
 const tCopP  = (tGp2P > 0 && tCostP != null) ? tCostP / tGp2P : null;
@@ -2387,13 +2640,15 @@ document.getElementById('market-tfoot').innerHTML = `<tr class="tfoot-row">
   <td>Total</td>
   <td>${fmtSEK(tRev)}${cellDelta(tRev, tRevP)}</td>
   <td>100%</td>
+  <td>${tGp1!==null?`${fmtSEK(tGp1)}${cellDelta(tGp1, tGp1P)}`:'—'}</td>
   <td>${fmtSEK(tGp2)}${cellDelta(tGp2, tGp2P)}</td>
   <td>${fmtSEK(tGp3)}${cellDelta(tGp3, tGp3P)}</td>
   <td>100%</td>
   <td>${fmtSEK(tCost)}${cellDelta(tCost, tCostP, true)}</td>
-  <td>${fmtPct(tGp3/tRev)}${cellDelta(tGp3/tRev, tGm3P, false, true)}</td>
-  <td>${fmtPct(tCost/tRev)}${cellDelta(tCost/tRev, tCosP, true, true)}</td>
-  <td>${fmtPct(tCost/tGp2)}${cellDelta(tCost/tGp2, tCopP, true, true)}</td>
+  <td>${ratioCell(tGm1, tGm1P)}</td>
+  <td>${ratioCell(_ratio(tGp3, tRev), tGm3P)}</td>
+  <td>${ratioCell(_ratio(tCost, tRev), tCosP, true)}</td>
+  <td>${ratioCell(_ratio(tCost, tGp2), tCopP, true)}</td>
   <td>${pctDeltaPill(tGp3,tGp3P)}</td>
 </tr>`;
 }
@@ -2407,6 +2662,8 @@ SHOPS.forEach(s => {
   const gm3  = s.gp3 / s.revenue;
   const cos  = s.cost / s.revenue;
   const cop  = s.gp2 > 0 ? s.cost / s.gp2 : null;
+  // Shops use `rev_prev` (not `revenue_prev`) — see _kv_dim's rev_prev_key.
+  const gm1  = gm1Of(s.gp1, s.revenue);
   const gp3Delta = ((s.gp3 - s.gp3_prev) / Math.abs(s.gp3_prev) * 100).toFixed(1);
   const gp3Good  = s.gp3 > s.gp3_prev;
   shopStack.innerHTML += `
@@ -2434,9 +2691,19 @@ SHOPS.forEach(s => {
           <div class="shop-metric-sub">ad/gp2</div>
         </div>
         <div class="shop-metric">
+          <div class="shop-metric-label">kv-GM1%</div>
+          <div class="shop-metric-value" style="font-size:14px">${gm1!==null?fmtPct(gm1):'—'}</div>
+          <div class="shop-metric-sub">gp1/revenue</div>
+        </div>
+        <div class="shop-metric">
           <div class="shop-metric-label">kv-GM3%</div>
           <div class="shop-metric-value" style="font-size:14px">${fmtPct(gm3)}</div>
           <div class="shop-metric-sub">gp3/revenue</div>
+        </div>
+        <div class="shop-metric">
+          <div class="shop-metric-label">kv-GP1</div>
+          <div class="shop-metric-value" style="font-size:14px">${_num(s.gp1)?fmtSEK(s.gp1):'—'}</div>
+          <div class="shop-metric-sub">${_num(s.gp1)?pctDeltaPill(s.gp1, s.gp1_prev):'after COGS'}</div>
         </div>
         <div class="shop-metric">
           <div class="shop-metric-label">kv-GP2</div>
@@ -2755,17 +3022,21 @@ chByRev.forEach(c => {
   const gm3_prev = (c.gp3_prev != null && c.revenue_prev) ? c.gp3_prev / c.revenue_prev : null;
   const cos_prev = (c.cost_prev != null && c.revenue_prev) ? c.cost_prev / c.revenue_prev : null;
   const cop_prev = (c.cost_prev != null && c.gp2_prev > 0) ? c.cost_prev / c.gp2_prev : null;
+  const gm1      = gm1Of(c.gp1, c.revenue);
+  const gm1_prev = gm1Of(c.gp1_prev, c.revenue_prev);
   chTbody.innerHTML += `<tr>
     <td>${c.name}</td>
     <td><div class="bar-cell"><div class="mini-bar" style="width:${barW}px"></div>${fmtSEK(c.revenue)}${cellDelta(c.revenue, c.revenue_prev)}</div></td>
     <td><span class="share-pct">${(share*100).toFixed(0)}%</span></td>
+    <td>${gp1Cell(c)}</td>
     <td>${fmtSEK(c.gp2)}${cellDelta(c.gp2, c.gp2_prev)}</td>
     <td class="${negGp3?'cell-neg':c.gp3>c.gp2*0.7?'cell-pos':''}">${fmtSEK(c.gp3)}${cellDelta(c.gp3, c.gp3_prev)}</td>
     <td>${gp3Share!==null?`<span class="share-pct${negGp3?' cell-neg':''}">${(gp3Share*100).toFixed(0)}%</span>`:'—'}</td>
     <td>${fmtSEK(c.cost)}${cellDelta(c.cost, c.cost_prev, true)}</td>
-    <td>${gm3!==null?fmtPct(gm3):'—'}${cellDelta(gm3, gm3_prev, false, true)}</td>
-    <td class="${cosHigh?'cell-neg':''}">${cos!==null?fmtPct(cos):'—'}${cellDelta(cos, cos_prev, true, true)}</td>
-    <td class="${copHigh?'cell-neg':''}">${cop!==null?fmtPct(cop):'—'}${cellDelta(cop, cop_prev, true, true)}</td>
+    <td>${ratioCell(gm1, gm1_prev)}</td>
+    <td>${ratioCell(gm3, gm3_prev)}</td>
+    <td class="${cosHigh?'cell-neg':''}">${ratioCell(cos, cos_prev, true)}</td>
+    <td class="${copHigh?'cell-neg':''}">${ratioCell(cop, cop_prev, true)}</td>
     <td>${pctDeltaPill(c.gp3, c.gp3_prev)}</td>
   </tr>`;
 });
@@ -2775,11 +3046,16 @@ const tRev  = chByRev.reduce((s,c)=>s+c.revenue,0);
 const tGp2  = chByRev.reduce((s,c)=>s+c.gp2,0);
 const tGp3  = chByRev.reduce((s,c)=>s+c.gp3,0);
 const tCost = chByRev.reduce((s,c)=>s+c.cost,0);
+// gp1 only totals if EVERY row carries it — a partial sum would understate it.
+const tGp1  = chByRev.every(c=>_num(c.gp1)) ? chByRev.reduce((s,c)=>s+c.gp1,0) : null;
 const _sumPrev = (k) => chByRev.reduce((s,c)=> s + (c[k] != null ? c[k] : 0), 0) || null;
 const tRevP  = _sumPrev('revenue_prev');
+const tGp1P  = _sumPrev('gp1_prev');
 const tGp2P  = _sumPrev('gp2_prev');
 const tGp3P  = _sumPrev('gp3_prev');
 const tCostP = _sumPrev('cost_prev');
+const tGm1   = gm1Of(tGp1, tRev);
+const tGm1P  = gm1Of(tGp1P, tRevP);
 const tGm3P  = (tRevP && tGp3P != null) ? tGp3P / tRevP : null;
 const tCosP  = (tRevP && tCostP != null) ? tCostP / tRevP : null;
 const tCopP  = (tGp2P > 0 && tCostP != null) ? tCostP / tGp2P : null;
@@ -2787,19 +3063,21 @@ document.getElementById('channel-tfoot').innerHTML = `<tr class="tfoot-row">
   <td>Total</td>
   <td>${fmtSEK(tRev)}${cellDelta(tRev, tRevP)}</td>
   <td>100%</td>
+  <td>${tGp1!==null?`${fmtSEK(tGp1)}${cellDelta(tGp1, tGp1P)}`:'—'}</td>
   <td>${fmtSEK(tGp2)}${cellDelta(tGp2, tGp2P)}</td>
   <td>${fmtSEK(tGp3)}${cellDelta(tGp3, tGp3P)}</td>
   <td>100%</td>
   <td>${fmtSEK(tCost)}${cellDelta(tCost, tCostP, true)}</td>
-  <td>${fmtPct(tGp3/tRev)}${cellDelta(tGp3/tRev, tGm3P, false, true)}</td>
-  <td>${fmtPct(tCost/tRev)}${cellDelta(tCost/tRev, tCosP, true, true)}</td>
-  <td>${tGp2>0?fmtPct(tCost/tGp2):'—'}${cellDelta(tCost/tGp2, tCopP, true, true)}</td>
+  <td>${ratioCell(tGm1, tGm1P)}</td>
+  <td>${ratioCell(_ratio(tGp3, tRev), tGm3P)}</td>
+  <td>${ratioCell(_ratio(tCost, tRev), tCosP, true)}</td>
+  <td>${ratioCell(_ratio(tCost, tGp2), tCopP, true)}</td>
   <td>${pctDeltaPill(tGp3,tGp3P)}</td>
 </tr>`;
 }
 renderChannelTable();
 
-/* ══ Budget vs Plan view ══════════════════════════════════════════════════
+/* ══ Budget vs Targets view ═══════════════════════════════════════════════
  * Tracks actuals against the 2026 rolling P&L forecast (/api/budget).
  * Revenue: months the Excel already has as Actual (Jan–Feb) use the recorded
  * gross sales from the plan itself; all later months use live KV-revenue
@@ -2829,6 +3107,22 @@ const BD_METRICS = {
                actual:()=> TOTAL_2026.cost.slice() },
 };
 let BUDGET = null, budgetChart = null, budgetMetric = 'revenue', budgetLoading = null;
+/* Daily target curve for the CURRENT month (/api/daily-targets). Monthly budget
+ * targets spread across days by a day-of-week / day-of-month / calendar-event
+ * index — see daily_targets.py. Null until it loads; every consumer degrades to
+ * the old straight-line pace, so the view never waits on it. */
+let DAILY_TGT = null, dailyTgtChart = null, dailyTgtMode = 'cum', dailyTgtLoading = null;
+// Budget-line key per BD_METRICS key — /api/daily-targets is keyed by P&L line.
+const BD_TGT_KEY = { revenue:'gross_sales', gp1:'gp1', gp2:'gp2', gp3:'gp3', marketing:'marketing' };
+/* Cumulative modelled target through day `dom` (1-based), or null when the
+ * model has not loaded / does not cover this metric+month. */
+function bdModelPace(key, ctx){
+  if (!DAILY_TGT || DAILY_TGT.year !== ctx.y || DAILY_TGT.month !== ctx.curM + 1) return null;
+  const t = DAILY_TGT.targets && DAILY_TGT.targets[BD_TGT_KEY[key]];
+  if (!t || !Array.isArray(t.cum) || !t.cum.length) return null;
+  const i = _bdClamp(ctx.dom - 1, 0, t.cum.length - 1);
+  return t.cum[i];
+}
 const _bdClamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 const _bdDim   = (y,m0)=>new Date(y, m0+1, 0).getDate();
 
@@ -2859,77 +3153,86 @@ function bdMetricData(key, ctx){
   ytdAct += mtd;
   let ytdPlan=0; for(let i=0;i<ctx.curM;i++) if(plan[i]!=null) ytdPlan += plan[i];
   const monthPlan = plan[ctx.curM] || 0;
-  const paceTarget = monthPlan * ctx.dom / ctx.dim;
+  // Target-to-date: the modelled cumulative curve when available, else the old
+  // straight line. `paceModelled` tells the UI which one it is looking at.
+  const modelPace = bdModelPace(key, ctx);
+  const paceModelled = modelPace != null;
+  const paceTarget = paceModelled ? modelPace : monthPlan * ctx.dom / ctx.dim;
   ytdPlan += paceTarget;
   const variance  = ytdPlan>0 ? (ytdAct-ytdPlan)/ytdPlan : 0;
   const paceRatio = ytdPlan>0 ? ytdAct/ytdPlan : 1;
-  return { plan, actual, fyPlan, mtd, monthPlan, paceTarget, ytdAct, ytdPlan,
-           variance, projFY: fyPlan * paceRatio };
+  // Month-end projection: scale MTD by the share of the month the target curve
+  // says should have landed by now. With the flat fallback this reduces to the
+  // familiar mtd x days/day.
+  const elapsedShare = monthPlan>0 ? paceTarget/monthPlan : ctx.dom/ctx.dim;
+  const projMonth = elapsedShare>0 ? mtd/elapsedShare : 0;
+  return { plan, actual, fyPlan, mtd, monthPlan, paceTarget, paceModelled,
+           ytdAct, ytdPlan, variance, projFY: fyPlan * paceRatio, projMonth };
 }
 
-function bdHeroCard(key, ctx, revData){
+/* ── This month vs targets ─────────────────────────────────────────────────
+ * The hero. `paceTarget` comes from the DAILY TARGET MODEL (/api/daily-targets)
+ * whenever it has loaded: the cumulative modelled target through today, which
+ * knows that a Sunday is worth more than a Saturday and that the 25th is
+ * payday. Only when the model is unavailable does it fall back to the old
+ * straight-line monthPlan x day/days pace.
+ * Projection scales MTD by the share of the month the target curve says has
+ * elapsed — the same idea, so pacing and projection can never disagree. */
+function bdMtdCard(key, ctx){
   const m = BD_METRICS[key], d = bdMetricData(key, ctx);
-  const good = m.higherIsGood ? d.variance>=0 : d.variance<=0;
-  const pillCls = Math.abs(d.variance)<0.005 ? 'flat' : (good?'up':'down');
-  const varLbl = `${d.variance>=0?'+':''}${(d.variance*100).toFixed(1)}%`;
-  const fill = _bdClamp(d.ytdAct/d.fyPlan*100, 0, 100);
-  const mark = _bdClamp(d.ytdPlan/d.fyPlan*100, 0, 100);
-  let fillStyle = `width:${fill}%;`;
-  if (key==='marketing') fillStyle += (d.ytdAct>d.ytdPlan) ? 'background:var(--down);' : 'background:var(--up);';
-  else fillStyle += `background:${m.color};`;
-  // Month-to-date bar — scaled to the full-month plan (100%): fill = MTD actual, marker = pace (plan-to-date).
-  const mFillPct = d.monthPlan>0 ? d.mtd/d.monthPlan*100 : 0;
-  const mMark    = _bdClamp(d.monthPlan>0 ? d.paceTarget/d.monthPlan*100 : 0, 0, 100);
-  let mFillStyle = `width:${_bdClamp(mFillPct,0,100)}%;`;
-  if (key==='marketing') mFillStyle += (d.mtd>d.paceTarget) ? 'background:var(--down);' : 'background:var(--up);';
-  else mFillStyle += `background:${m.color};`;
-  // GM% (GP / gross sales) for GP metrics — actual vs plan, YTD.
-  let marginHtml = '';
-  if (m.margin && revData && revData.ytdAct && revData.ytdPlan){
-    const gmA = d.ytdAct/revData.ytdAct, gmP = d.ytdPlan/revData.ytdPlan;
-    const gmGood = gmA>=gmP;
-    marginHtml = `<div class="bd-metric-sub" style="margin-top:7px">GM
-      <b style="color:${gmGood?'var(--up)':'var(--down)'}">${fmtPct(gmA)}</b> · plan ${fmtPct(gmP)}</div>`;
-  }
-  return `<div class="bd-card"${m.holy?' style="border-color:var(--hero)"':''}>
-    <div class="bd-card-head">
-      <div class="bd-card-title">${m.label}${m.holy?' <span style="font-size:10px;color:var(--hero)">★</span>':''}</div>
-      <span class="bd-card-tag">live vs plan</span>
+  const paceT = d.paceTarget;
+  const gap   = d.mtd - paceT;
+  const ratio = paceT > 0 ? d.mtd / paceT : null;
+  const good  = m.higherIsGood ? gap >= 0 : gap <= 0;
+  const pill  = (ratio === null || Math.abs(ratio - 1) < 0.005) ? 'flat' : (good ? 'up' : 'down');
+  const pctTxt = ratio === null ? '—'
+    : `${gap >= 0 ? '+' : ''}${((ratio - 1) * 100).toFixed(1)}%`;
+  const fillPct = _bdClamp(d.monthPlan > 0 ? d.mtd / d.monthPlan * 100 : 0, 0, 100);
+  const markPct = _bdClamp(d.monthPlan > 0 ? paceT / d.monthPlan * 100 : 0, 0, 100);
+  const barColor = (key === 'marketing')
+    ? (d.mtd > paceT ? 'var(--down)' : 'var(--up)') : m.color;
+  const projGood = m.higherIsGood ? d.projMonth >= d.monthPlan : d.projMonth <= d.monthPlan;
+  return `<div class="bd-mtd-card${m.holy ? ' hero' : ''}">
+    <div class="bd-mtd-head">
+      <div class="bd-mtd-name">${m.label}${m.holy ? ' <span style="font-size:10px;color:var(--hero)">★</span>' : ''}</div>
+      <span class="bd-pill ${pill}" style="margin:0">${pctTxt} vs target</span>
     </div>
-    <div class="bd-metrics">
-      <div>
-        <div class="bd-metric-lbl">YTD actual</div>
-        <div class="bd-metric-val">${fmtSEK(d.ytdAct)}</div>
-        <div class="bd-metric-sub">plan-to-date ${fmtSEK(d.ytdPlan)}</div>
-        <span class="bd-pill ${pillCls}">${varLbl} vs plan</span>
-        ${marginHtml}
-      </div>
-      <div>
-        <div class="bd-metric-lbl">${BD_MONTHS[ctx.curM]} so far</div>
-        <div class="bd-metric-val" style="font-size:22px">${fmtSEK(d.mtd)}</div>
-        <div class="bd-metric-sub">pace ${fmtSEK(d.paceTarget)} · month ${fmtSEK(d.monthPlan)}</div>
-      </div>
-      <div>
-        <div class="bd-metric-lbl">Proj. full year</div>
-        <div class="bd-metric-val" style="font-size:22px">${fmtSEK(d.projFY)}</div>
-        <div class="bd-metric-sub">target ${fmtSEK(d.fyPlan)}</div>
-      </div>
+    <div class="bd-mtd-val">${fmtSEK(d.mtd)}</div>
+    <div class="bd-mtd-vs">target to date <b>${fmtSEK(paceT)}</b> · ${gap >= 0 ? '+' : '−'}${fmtSEK(Math.abs(gap))}</div>
+    <div class="bd-pace">
+      <div class="bd-pace-fill" style="width:${fillPct}%;background:${barColor}"></div>
+      <div class="bd-pace-mark" data-lbl="on target" style="left:${markPct}%"></div>
     </div>
-    <div class="bd-bar">
-      <div class="bd-bar-fill" style="${fillStyle}"></div>
-      <div class="bd-bar-marker" data-lbl="on plan" style="left:${mark}%"></div>
+    <div class="bd-mtd-foot">
+      <span>Projected ${BD_MONTHS[ctx.curM]}<b style="color:${projGood ? 'var(--up)' : 'var(--down)'}">${fmtSEK(d.projMonth)}</b></span>
+      <span style="text-align:right">Month target<b>${fmtSEK(d.monthPlan)}</b></span>
     </div>
-    <div class="bd-bar-cap"><span>YTD = ${fill.toFixed(0)}% of full-year target</span><span>${fmtSEK(d.fyPlan)}</span></div>
-    <div class="bd-bar" style="margin-top:14px">
-      <div class="bd-bar-fill" style="${mFillStyle}"></div>
-      <div class="bd-bar-marker" data-lbl="pace" style="left:${mMark}%"></div>
-    </div>
-    <div class="bd-bar-cap"><span>${BD_MONTHS[ctx.curM]} MTD = ${mFillPct.toFixed(0)}% of month plan</span><span>${fmtSEK(d.monthPlan)}</span></div>
   </div>`;
 }
 
+/* YTD, demoted: one compact tile per metric. Still visible — the client said
+ * YTD matters too — but it no longer competes with the month for attention. */
+function bdYtdCell(key, ctx){
+  const m = BD_METRICS[key], d = bdMetricData(key, ctx);
+  const good = m.higherIsGood ? d.variance >= 0 : d.variance <= 0;
+  const pill = Math.abs(d.variance) < 0.005 ? 'flat' : (good ? 'up' : 'down');
+  const pctOfFy = d.fyPlan > 0 ? d.ytdAct / d.fyPlan * 100 : 0;
+  return `<div class="bd-ytd-cell">
+    <div class="bd-ytd-lbl">${m.label} · YTD</div>
+    <div class="bd-ytd-val">${fmtSEK(d.ytdAct)}</div>
+    <div class="bd-ytd-sub">target to date ${fmtSEK(d.ytdPlan)}
+      <span class="bd-pill ${pill}" style="margin:0 0 0 4px;font-size:10px;padding:1px 6px">${d.variance >= 0 ? '+' : ''}${(d.variance * 100).toFixed(1)}%</span></div>
+    <div class="bd-ytd-sub">${pctOfFy.toFixed(0)}% of FY target ${fmtSEK(d.fyPlan)}</div>
+  </div>`;
+}
+
+/* One metric selector for the whole Budget view — it drives both the daily
+ * actual-vs-target chart and the monthly one, so the two can never disagree
+ * about what is being looked at. */
 function bdRenderChips(){
-  const wrap = document.getElementById('bd-metric-chips'); wrap.innerHTML='';
+  const wrap = document.getElementById('bd-metric-chips');
+  if (!wrap) return;
+  wrap.innerHTML='';
   Object.entries(BD_METRICS).forEach(([key,m])=>{
     const on = key===budgetMetric;
     const chip = document.createElement('button');
@@ -2938,9 +3241,106 @@ function bdRenderChips(){
     chip.style.color = on?'white':m.color;
     chip.style.backgroundColor = on?m.color:'';
     chip.innerHTML=`<span class="dot" style="background:${on?'white':m.color}"></span>${m.label}`;
-    chip.addEventListener('click',()=>{ budgetMetric=key; bdRenderChips(); bdRenderChart(bdContext()); });
+    chip.addEventListener('click',()=>{
+      budgetMetric=key; bdRenderChips();
+      const c = bdContext(); bdRenderDaily(c); bdRenderChart(c);
+    });
     wrap.appendChild(chip);
   });
+}
+
+/* ── This month · actual vs daily targets ──────────────────────────────────
+ * Cumulative is the default: "how far ahead / behind are we right now" is the
+ * question the section exists to answer, and a cumulative pair answers it at a
+ * glance where 31 daily bars do not. Per-day stays one click away.
+ *
+ * Actuals come from DAILY_LONG — the same series the MTD cards and the KV
+ * Overview sum — rather than from the endpoint's own copy, so the chart can
+ * never disagree with the card above it. Days after the last data day are left
+ * null so the actual line simply stops instead of dropping to zero. */
+function bdRenderDaily(ctx){
+  const wrap = document.getElementById('bd-daily-wrap');
+  const empty = document.getElementById('bd-daily-empty');
+  const m = BD_METRICS[budgetMetric];
+  const t = DAILY_TGT && DAILY_TGT.targets && DAILY_TGT.targets[BD_TGT_KEY[budgetMetric]];
+  document.getElementById('bd-daily-title').textContent =
+    `${BD_MONTHS[ctx.curM]} ${ctx.y} · ${m.label} · actual vs daily targets`;
+  if (!t) {
+    if (dailyTgtChart) { dailyTgtChart.destroy(); dailyTgtChart = null; }
+    wrap.classList.add('is-empty');
+    empty.textContent = DAILY_TGT === null
+      ? 'Loading the daily target model…'
+      : DAILY_TGT === false
+        ? 'Daily target model unavailable — the pacing figures above fall back to a straight line.'
+        : 'No daily target for this metric — its monthly budget line is empty.';
+    document.getElementById('bd-model-note').innerHTML = '';
+    return;
+  }
+  wrap.classList.remove('is-empty');
+
+  const dim = t.daily.length;
+  const pre = `${ctx.y}-${String(ctx.curM+1).padStart(2,'0')}-`;
+  const by = Object.create(null);
+  for (const r of DAILY_LONG) if (r.iso.startsWith(pre)) by[r.iso] = r;
+  const lastIso = ctx.lastIso || '';
+  const act = [];
+  for (let i=1;i<=dim;i++){
+    const iso = pre + String(i).padStart(2,'0');
+    act.push(iso > lastIso ? null : Math.round((by[iso] && by[iso][m.dailyField]) || 0));
+  }
+  const actCum = []; let run = 0;
+  for (let i=0;i<dim;i++){
+    if (act[i] == null) { actCum.push(null); continue; }
+    run += act[i]; actCum.push(run);
+  }
+
+  const cumMode = dailyTgtMode === 'cum';
+  const labels = Array.from({length:dim},(_,i)=>String(i+1));
+  const tData = cumMode ? t.cum : t.daily;
+  const aData = cumMode ? actCum : act;
+  if (dailyTgtChart) dailyTgtChart.destroy();
+  dailyTgtChart = new Chart(document.getElementById('c-daily-target'), {
+    type: cumMode ? 'line' : 'bar',
+    data:{ labels, datasets:[
+      { label:'Target', data:tData, type: cumMode ? 'line' : 'bar',
+        borderColor:'#94A3B8', backgroundColor: cumMode ? 'rgba(148,163,184,.10)' : '#CBD5E1',
+        borderDash: cumMode ? [5,4] : undefined, borderWidth: cumMode ? 2 : 0,
+        fill: cumMode, tension:.25, pointRadius:0, pointHoverRadius:4,
+        borderRadius:3, categoryPercentage:0.72, barPercentage:0.9, order:2 },
+      { label:'Actual', data:aData, type: cumMode ? 'line' : 'bar',
+        borderColor:m.color, backgroundColor: cumMode ? m.color+'1A' : m.color,
+        borderWidth: cumMode ? 2.5 : 0, fill:false, tension:.25,
+        pointRadius:0, pointHoverRadius:4, spanGaps:false,
+        borderRadius:3, categoryPercentage:0.72, barPercentage:0.9, order:1 },
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{ legend:{ display:true, position:'bottom',
+                  labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569', padding:12 } },
+        tooltip:{ callbacks:{
+          title: items => `${BD_MONTHS[ctx.curM]} ${items[0].label}`,
+          label: c => c.parsed.y==null ? null : ` ${c.dataset.label}: ${fmtSEK(c.parsed.y)}`,
+          afterBody: items => {
+            const i = items[0].dataIndex;
+            const a = aData[i], tv = tData[i];
+            if (a==null || !tv) return '';
+            const g = a - tv;
+            return `  ${g>=0?'+':'−'}${fmtSEK(Math.abs(g))} vs target (${((a/tv-1)*100).toFixed(1)}%)`;
+          } } } },
+      scales:{ x:{ grid:{display:false}, title:{display:true, text:`day of ${BD_MONTHS[ctx.curM]}`,
+                   font:{size:10}, color:'#94A3B8'}, ticks:{font:{size:10}, autoSkip:true, maxTicksLimit:16} },
+               y:{ grid:{color:'#F1F3F5'}, ticks:{ font:{size:10}, callback:v=>fmtSEK(v) } } } }
+  });
+
+  const mdl = DAILY_TGT.model && DAILY_TGT.model[t.shape_field];
+  const yrs = mdl && mdl.prior_years && mdl.prior_years.length
+    ? mdl.prior_years.join(', ') : 'none yet';
+  document.getElementById('bd-model-note').innerHTML =
+    `<span>Daily targets = ${BD_MONTHS[ctx.curM]} target ${fmtSEK(t.target_month)} spread by a `
+    + `day-of-week × day-of-month × calendar-event index (payday ${DAILY_TGT.payday}, `
+    + `prior years: ${yrs}); the daily targets sum to the monthly target exactly.</span>`
+    + `<span style="text-align:right">Targets are group-wide — the budget carries no market split, `
+    + `so this section ignores the market/shop/channel filter.</span>`;
 }
 
 function bdRenderChart(ctx){
@@ -2949,7 +3349,7 @@ function bdRenderChart(ctx){
   budgetChart = new Chart(document.getElementById('c-budget'), {
     type:'bar',
     data:{ labels: BD_MONTHS, datasets:[
-      { label:'Plan',   data:d.plan,   backgroundColor:'#CBD5E1', borderRadius:3, categoryPercentage:0.72, barPercentage:0.9 },
+      { label:'Target', data:d.plan,   backgroundColor:'#CBD5E1', borderRadius:3, categoryPercentage:0.72, barPercentage:0.9 },
       { label:'Actual', data:d.actual, backgroundColor:m.color,   borderRadius:3, categoryPercentage:0.72, barPercentage:0.9 },
     ]},
     options:{ responsive:true, maintainAspectRatio:false,
@@ -2965,7 +3365,7 @@ function bdRenderChart(ctx){
     gp3:       ` · actual = live kv-GP3 (kv-GP2 − ad spend); P&amp;L GP3 also nets shipping/fulfillment — directional`,
   };
   document.getElementById('bd-chart-sub').innerHTML =
-    `${m.label} · <span style="color:${m.color}">■</span> actual · <span style="color:#CBD5E1">■</span> plan`+
+    `${m.label} · <span style="color:${m.color}">■</span> actual · <span style="color:#CBD5E1">■</span> target`+
     (notes[budgetMetric]||``);
 }
 
@@ -3005,25 +3405,60 @@ function bdRenderTable(ctx){
   document.getElementById('pl-body').innerHTML = body;
 }
 
+const BD_ORDER = ['revenue','gp3','gp1','gp2','marketing'];   // GP3 ★ up front
+
 function renderBudget(){
   if(!BUDGET) return;
   document.getElementById('bd-chart-wrap').classList.remove('is-empty');
   const ctx = bdContext();
-  const revData = bdMetricData('revenue', ctx);
-  document.getElementById('bd-hero').innerHTML =
-    bdHeroCard('revenue',ctx) + bdHeroCard('gp1',ctx,revData) +
-    bdHeroCard('gp2',ctx,revData) + bdHeroCard('gp3',ctx,revData) +
-    bdHeroCard('marketing',ctx);
+
+  // ── Hero: the month ──
+  const monthLbl = `${BD_MONTHS[ctx.curM]} ${ctx.y}`;
+  document.getElementById('bd-month-title').textContent = `${monthLbl} vs targets`;
+  const rev = bdMetricData('revenue', ctx);
+  const pacePct = rev.monthPlan>0 ? rev.paceTarget/rev.monthPlan*100 : ctx.dom/ctx.dim*100;
+  document.getElementById('bd-month-meta').innerHTML =
+    `Day <b>${ctx.dom}</b> of ${ctx.dim} · <b>${pacePct.toFixed(0)}%</b> of the month's target should have landed `+
+    `(${rev.paceModelled ? 'modelled daily curve' : 'straight-line — daily model unavailable'}) · through <b>${ctx.lastIso||'—'}</b>`;
+  document.getElementById('bd-mtd').innerHTML = BD_ORDER.map(k=>bdMtdCard(k,ctx)).join('');
+
+  // ── Daily actual vs target ──
   bdRenderChips();
+  bdRenderDaily(ctx);
+
+  // ── YTD, secondary ──
+  document.getElementById('bd-ytd').innerHTML = BD_ORDER.map(k=>bdYtdCell(k,ctx)).join('');
+
   bdRenderChart(ctx);
   bdRenderTable(ctx);
   document.getElementById('bd-sub').innerHTML =
-    `Actuals vs the 2026 rolling P&amp;L forecast, through <b>${ctx.lastIso||'—'}</b>. `+
+    `How <b>${monthLbl}</b> is tracking against the 2026 rolling P&amp;L targets, through <b>${ctx.lastIso||'—'}</b>. `+
     `Tracked live: revenue, <b>GP3 ★</b>, GP1, GP2 and marketing — closed months (Jan–Feb) use `+
-    `the recorded plan value, later months the live dashboard figure, <b>uncalibrated</b>. `+
+    `the recorded target value, later months the live dashboard figure, <b>uncalibrated</b>. `+
     `GP1–GP3 are the dashboard's KV profit (kv-GP3 = kv-GP2 − ad spend), a lighter cost stack `+
-    `than the P&amp;L's — so treat the gap as directional. Other lines are plan-only context.`;
+    `than the P&amp;L's — so treat the gap as directional. Other lines are target-only context.`;
 }
+
+/* Daily target curve for the current month. Fetched once per view open; the
+ * whole section renders without it and re-renders when it lands, so a slow
+ * BigQuery-backed model never blocks the numbers the client came for. */
+function ensureDailyTargets(ctx){
+  if (dailyTgtLoading) return;
+  const month = `${ctx.y}-${String(ctx.curM+1).padStart(2,'0')}`;
+  dailyTgtLoading = fetch(`/api/daily-targets?month=${month}`, {cache:'no-store'})
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(j=>{ if(j && j.targets){ DAILY_TGT = j; renderBudget(); }
+               else { DAILY_TGT = false; bdRenderDaily(bdContext()); } })
+    .catch(()=>{ DAILY_TGT = false; try{ bdRenderDaily(bdContext()); }catch(_){} });
+}
+
+document.getElementById('bd-daily-mode').addEventListener('click', e=>{
+  const b = e.target.closest('button'); if(!b) return;
+  dailyTgtMode = b.dataset.mode;
+  document.querySelectorAll('#bd-daily-mode button')
+    .forEach(x=>x.classList.toggle('active', x.dataset.mode===dailyTgtMode));
+  if (BUDGET) bdRenderDaily(bdContext());
+});
 
 /* Without a budget payload this whole view is two empty boxes — a blank chart card
    and a header over an empty table. Say what is missing where the content would be,
@@ -3032,18 +3467,24 @@ function bdUnavailable(reason){
   document.getElementById('bd-sub').textContent = reason;
   document.getElementById('bd-chart-wrap').classList.add('is-empty');
   document.getElementById('bd-chart-empty').textContent =
-    'No plan to chart yet — actual vs plan fills in once the budget refresh has run.';
+    'No targets to chart yet — actual vs target fills in once the budget refresh has run.';
+  document.getElementById('bd-daily-wrap').classList.add('is-empty');
+  document.getElementById('bd-daily-empty').textContent =
+    'No targets to chart yet — the daily curve needs the monthly targets.';
+  document.getElementById('bd-mtd').innerHTML = '';
+  document.getElementById('bd-ytd').innerHTML = '';
+  document.getElementById('bd-model-note').innerHTML = '';
   document.getElementById('bd-metric-chips').innerHTML = '';
   document.getElementById('pl-body').innerHTML =
-    `<tr><td class="pl-empty" colspan="15">The full-year P&amp;L plan loads from the budget snapshot, which has not been refreshed yet.</td></tr>`;
+    `<tr><td class="pl-empty" colspan="15">The full-year P&amp;L targets load from the budget snapshot, which has not been refreshed yet.</td></tr>`;
 }
 
 function ensureBudget(){
-  if (BUDGET){ renderBudget(); return; }
+  if (BUDGET){ renderBudget(); ensureDailyTargets(bdContext()); return; }
   if (budgetLoading) return;
   budgetLoading = fetch('/api/budget',{cache:'no-store'})
     .then(r=>r.ok?r.json():Promise.reject(r.status))
-    .then(j=>{ if(j&&j.lines){ BUDGET=j; renderBudget(); }
+    .then(j=>{ if(j&&j.lines){ BUDGET=j; renderBudget(); ensureDailyTargets(bdContext()); }
                else bdUnavailable('Budget data unavailable.'); })
     .catch(()=>{ bdUnavailable('Budget data unavailable — refresh not yet run.'); });
 }

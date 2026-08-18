@@ -209,8 +209,11 @@ def chart_js(_: str = Depends(verify)):
 
 
 # ── Health (no auth — for Cloud Run probes) ──────────────────────────────────
-@app.get("/healthz", include_in_schema=False)
-def healthz():
+# NOT `/healthz`: Google Frontend reserves `/health*`-with-suffix paths
+# (`/healthz`, `/livez`, `/readyz`) and answers them itself with a Google-branded
+# 404 — the request never reaches this container. `/health` passes through.
+@app.get("/health", include_in_schema=False)
+def health():
     return {"status": "ok"}
 
 
@@ -418,6 +421,36 @@ def api_budget(_: str = Depends(verify)):
         return budget_source.load_budget_json()
     except Exception as e:
         return JSONResponse({"error": f"no budget snapshot yet: {e}"}, status_code=503)
+
+
+@app.get("/api/daily-targets")
+def api_daily_targets(month: str = "", _: str = Depends(verify)):
+    """Daily target curve for one month, plus that month's daily actuals.
+
+    The budget is monthly; "are we on track today" needs a per-day target. The
+    model (daily_targets.py) spreads the monthly target with a day-of-week /
+    day-of-month / calendar-event index learned from the export's daily history,
+    normalised so the daily targets sum exactly to the monthly target.
+
+    `month` is YYYY-MM and defaults to the current one. The targets are GLOBAL —
+    budget_2026.json carries no market/shop/channel split, so this endpoint
+    takes no filter arguments (see the Budget view's own note).
+    """
+    import datetime as _dt
+    try:
+        if month:
+            y, m = (int(x) for x in month.split("-", 1))
+            _dt.date(y, m, 1)                       # validates the month
+        else:
+            t = _dt.date.today()
+            y, m = t.year, t.month
+    except Exception as e:
+        return JSONResponse({"error": f"bad month (expected YYYY-MM): {e}"}, status_code=400)
+    try:
+        import daily_targets
+        return daily_targets.build_payload(y, m)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.get("/api/breakdown")

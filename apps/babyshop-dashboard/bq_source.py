@@ -32,15 +32,34 @@ def I(v): return int(round(float(v or 0)))
 FIRESTORE_PROJECT = os.environ.get("FIRESTORE_PROJECT", "project-a7ade44e-e7e3-4871-a83")
 
 def _credentials():
-    """ADC in production (Cloud Run SA); gcloud user token as a local fallback."""
+    """ADC in production (Cloud Run SA); gcloud user token as a local fallback.
+
+    The fallback refreshes by shelling back out to gcloud — a bare token lasts
+    about an hour and carries no refresh material, so a long local run dies with
+    a RefreshError partway through. See voyado_sync._credentials for the full
+    write-up; this copy exists because every module in this app wires its own
+    client rather than sharing one.
+    """
     try:
         import google.auth
         creds, _ = google.auth.default()
         return creds
     except Exception:
         import subprocess, google.oauth2.credentials
+
+        class _GcloudToken(google.oauth2.credentials.Credentials):
+            def refresh(self, request):  # noqa: ARG002 - signature fixed by google-auth
+                self.token = subprocess.check_output(
+                    ["gcloud", "auth", "print-access-token"]).decode().strip()
+                # google-auth compares expiry against a NAIVE utcnow().
+                self.expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=45)
+
         tok = subprocess.check_output(["gcloud", "auth", "print-access-token"]).decode().strip()
-        return google.oauth2.credentials.Credentials(tok)
+        c = _GcloudToken(tok)
+        # Must be set here too: expiry=None reads as "never expires", so
+        # google-auth would never call refresh() at all.
+        c.expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=45)
+        return c
 
 _client = None
 def bq():
@@ -66,6 +85,45 @@ def _p(cs, ce, ps, pe):
 # The constants are imported so the rule has exactly one definition.
 from refresh_customer_insights import COST_GRAIN, COST_BLANK, COST_SPLIT, COST_FIXED
 
+# ── Market attribution of ad cost ────────────────────────────────────────────
+# `market_level_1_kv` is the KV market dimension, but the ad-platform COST rows
+# for every market outside the core five (SE/NO/DK/FI/KR + UK) do NOT carry the
+# country there — they are bucketed into the literal catch-all 'ROW' (and,
+# historically, 'ROW USD'). Revenue for those same countries IS keyed per
+# country ('DE', 'EE', 'NL', …), so grouping by the raw column produced market
+# rows with real revenue and zero cost, while the ROW bucket itself — pure cost,
+# zero revenue — was dropped by the `HAVING rev > 0` filter. Measured over
+# 19 Jul–17 Aug 2026: 16,924 SEK of de-duplicated spend went missing from the
+# market table that way (DE 3,195 · EE 3,028 · CH 1,486 · LV 1,301 · LT 1,159 · …).
+#
+# The country IS present on those rows, in `market_level_1` (verified: the
+# campaign names agree — market_level_1='DE' ⇔ campaign 'shopping-de'). So the
+# market label is resolved from `market_level_1` for the ROW buckets only.
+#
+# It is resolved AFTER the de-duplication grain, never inside it:
+#   • `market_level_1` is NOT added to COST_GRAIN. Splitting the grain by it
+#     moves money (measured: +319 SEK over 30 d, −108,594 SEK over 2025→2026)
+#     because the blank-kv_brand campaign-total row and its brand-split rows do
+#     not always share a `market_level_1`, so they stop pairing and COST_FIXED
+#     picks the wrong branch.
+#   • Within a ROW cost-grain slice `market_level_1` has at most one non-NULL
+#     value (0 of 8,631 slices have more, 2025→2026), so ANY_VALUE — which
+#     ignores NULLs — is deterministic there. Totals are provably unchanged:
+#     grand-total de-duplicated cost is identical to the öre before and after
+#     (2,335,497.29 over 30 d; 50,675,179.36 over 2025→2026).
+# Cost that still has no country (all-NULL `market_level_1`, ~786k SEK since
+# 2025, none in the last 30 days) is surfaced as an explicit ROW_UNATTRIBUTED
+# row rather than dropped or spread across markets.
+#
+# 'ROW EUR' is deliberately NOT resolved: unlike 'ROW'/'ROW USD' it carries real
+# revenue (83 M SEK, 2025 → May 2026), so it is a genuine KV market bucket.
+# Re-keying only its cost would split one bucket's revenue and cost apart.
+COST_ONLY_MARKETS = ("ROW", "ROW USD")
+ROW_UNATTRIBUTED  = "ROW (unattributed)"
+KV_MARKET = (
+    "IF(market_level_1_kv IN ('" + "','".join(COST_ONLY_MARKETS) + "'), "
+    f"COALESCE(NULLIF(m1, ''), '{ROW_UNATTRIBUTED}'), market_level_1_kv)")
+
 
 def _kv_cte(where: str) -> str:
     """CTE `kv_rows`: KV metrics per COST_GRAIN slice with `cost` de-duplicated.
@@ -73,17 +131,23 @@ def _kv_cte(where: str) -> str:
     Every query that sums Cost (or GP3, which subtracts it) must select from
     `kv_rows` with the KVD aggregate instead of `BQ_TABLE` with a raw SUM(Cost).
     Revenue/GP/transactions are NOT duplicated in the export, so summing them at
-    the grain first and re-summing changes nothing for them."""
+    the grain first and re-summing changes nothing for them.
+
+    `market_level_1_kv` on `kv_rows` is the RESOLVED market (see KV_MARKET
+    above), so market breakdowns and market filters both see ad cost that the
+    export bucketed under 'ROW'. `where` must therefore only constrain the date
+    range and other pre-grain predicates — market/shop/channel filters belong on
+    `kv_rows` (see `_kv_conds`), not in `where`."""
     return f"""
     kv_grain AS (
-      SELECT {COST_GRAIN},
+      SELECT {COST_GRAIN}, ANY_VALUE(market_level_1) m1,
              SUM(kv_revenue) rev, SUM(kv_gp1) gp1, SUM(kv_gp2) gp2,
              SUM(kv_transactions) txns, {COST_BLANK} blank, {COST_SPLIT} split
       FROM `{BQ_TABLE}` WHERE {where}
       GROUP BY {COST_GRAIN}),
     kv_rows AS (
       SELECT Date, Channel_Type_Level_1, Channel_Type_Level_2,
-             market_level_1_kv, shop_new, rev, gp1, gp2, txns,
+             {KV_MARKET} AS market_level_1_kv, shop_new, rev, gp1, gp2, txns,
              {COST_FIXED} AS cost
       FROM kv_grain)
     """
@@ -119,7 +183,13 @@ def _kv_conds(filters):
     """WHERE fragments + query params for an AND-combination of market/shop/channel.
 
     `filters` is a dict like {"market": "SE", "channel": "Google"} — only the keys
-    present are constrained. Fully parameterised: no user value reaches the SQL."""
+    present are constrained. Fully parameterised: no user value reaches the SQL.
+
+    The fragments are applied to `kv_rows` (POST de-duplication), not to the raw
+    table, so `market` matches the RESOLVED market (KV_MARKET) — filtering on
+    'DE' therefore returns the same cost the market breakdown shows for DE.
+    Safe to apply after the grain: all three columns are COST_GRAIN keys, so a
+    grain slice is entirely in or entirely out either way."""
     conds, params = [], []
     if not filters:
         return conds, params
@@ -133,10 +203,15 @@ def _kv_dim(col, cs, ce, ps, pe, rev_prev_key="revenue_prev", filters=None):
     """Per-value totals for one dimension, optionally scoped to an active filter
     combination so every breakdown table describes the same slice the KPI cards do."""
     fconds, fparams = _kv_conds(filters)
-    where = " AND ".join(["Date BETWEEN @cs AND @ce", f"{col} IS NOT NULL"] + fconds)
+    # Filters live on kv_rows so `market` matches the resolved market (KV_MARKET).
+    post = " AND ".join([f"{col} IS NOT NULL"] + fconds)
     def q(s, e):
-        sql = (f"WITH {_kv_cte(where)} SELECT {col} name, {KVD} FROM kv_rows "
-               f"GROUP BY name HAVING rev > 0 ORDER BY rev DESC")
+        # `cost <> 0` keeps rows that are pure ad spend with no attributed
+        # revenue — the ROW-unattributed market, and any cost-only channel.
+        # Dropping them silently hid spend that the KPI-card totals DO include.
+        sql = (f"WITH {_kv_cte('Date BETWEEN @cs AND @ce')} SELECT {col} name, {KVD} "
+               f"FROM kv_rows WHERE {post} "
+               f"GROUP BY name HAVING rev > 0 OR cost <> 0 ORDER BY rev DESC")
         return _rows(sql, _p(s, e, s, e) + fparams)
     return _merge_kv(q(cs, ce), q(ps, pe), rev_prev_key)
 
@@ -148,12 +223,13 @@ def _kv_filtered(filters, cs, ce, ps, pe):
     Returns {"cur": {...}, "prev": {...}} with the same metric shape the
     dashboard's KPI cards consume (revenue/gp2/gp3/txns/cost)."""
     fconds, params = _kv_conds(filters)
-    conds = ["Date BETWEEN @cs AND @ce"] + fconds
+    post = (" WHERE " + " AND ".join(fconds)) if fconds else ""
 
     def q(s, e):
         p = [bigquery.ScalarQueryParameter("cs", "DATE", s),
              bigquery.ScalarQueryParameter("ce", "DATE", e)] + params
-        rows = _rows(f"WITH {_kv_cte(' AND '.join(conds))} SELECT {KVD} FROM kv_rows", p)
+        rows = _rows(f"WITH {_kv_cte('Date BETWEEN @cs AND @ce')} "
+                     f"SELECT {KVD} FROM kv_rows{post}", p)
         r = rows[0] if rows else None
         return {"revenue": I(r["rev"]) if r else 0, "gp1": I(r["gp1"]) if r else 0,
                 "gp2": I(r["gp2"]) if r else 0,
@@ -174,11 +250,12 @@ def filtered_daily(filters, start: datetime.date, end: datetime.date):
     date (the caller buckets it) instead of the dd/m display label. Fully
     parameterised — no user-supplied value is interpolated into the SQL."""
     fconds, fparams = _kv_conds(filters)
-    conds = ["Date BETWEEN @start AND @end"] + fconds
+    post = (" WHERE " + " AND ".join(fconds)) if fconds else ""
     params = [bigquery.ScalarQueryParameter("start", "DATE", start),
               bigquery.ScalarQueryParameter("end", "DATE", end)] + fparams
-    rows = _rows(f"WITH {_kv_cte(' AND '.join(conds))} "
-                 f"SELECT CAST(Date AS STRING) d, {KVD} FROM kv_rows GROUP BY d ORDER BY d",
+    rows = _rows(f"WITH {_kv_cte('Date BETWEEN @start AND @end')} "
+                 f"SELECT CAST(Date AS STRING) d, {KVD} FROM kv_rows{post} "
+                 f"GROUP BY d ORDER BY d",
                  params)
     return [{"d": r["d"], "rev": I(r["rev"]), "gp1": I(r["gp1"]), "gp2": I(r["gp2"]),
              "gp3": I(r["gp3"]), "cost": I(r["cost"])} for r in rows]
