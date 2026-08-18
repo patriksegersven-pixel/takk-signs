@@ -1187,10 +1187,8 @@ function renderKPIs() {
     },
   ];
 
-  const grid = document.getElementById('kpi-grid');
-  grid.innerHTML = '';
-  cards.forEach(c => {
-    grid.innerHTML += `
+  document.getElementById('kpi-grid').innerHTML = cards.map(c => {
+    return `
       <div class="kpi-card${c.hero?' hero':''}">
         <div class="kpi-label" title="${c.field || ''}">
           ${c.label}
@@ -1204,7 +1202,7 @@ function renderKPIs() {
         <div class="kpi-note">${c.note}</div>
         ${c.pills ? `<div class="step-pills">${c.pills.map(p=>`<span class="step-pill">${p}</span>`).join('')}</div>` : ''}
       </div>`;
-  });
+  }).join('');
 }
 
 renderKPIs();
@@ -1837,13 +1835,17 @@ showDim('markets', document.querySelector('.dim-tab.active'));
 const tbody = document.getElementById('cat-tbody');
 const maxRev = Math.max(...CATEGORIES.map(c => c.revenue));
 
-CATEGORIES.forEach(c => {
+/* One string, one assignment — never `tbody.innerHTML +=` inside the loop. That
+   form re-serializes and re-parses every row already present, so filling N rows
+   costs O(N²); with the row caps lifted it froze the Inventory tab for a minute
+   on ~2 650 rows. The brand table here runs to 1 000. */
+tbody.innerHTML = CATEGORIES.map(c => {
   const gm1 = c.gp1 / c.revenue;
   const gm2 = c.gp2 / c.revenue;
   const gm3 = c.gp3 / c.revenue;
   const barW = Math.round((c.gp3 / c.revenue) * 60);
   const gm3cls = gm3 < 0.12 ? 'cell-neg' : gm3 > 0.28 ? 'cell-pos' : '';
-  tbody.innerHTML += `<tr>
+  return `<tr>
     <td>${c.name}</td>
     ${seasonCell(c, 'categories')}
     <td>${fmtSEK(c.revenue)}</td>
@@ -1855,7 +1857,7 @@ CATEGORIES.forEach(c => {
     <td class="${gm3cls}"><div class="gm-bar-cell"><div class="gm-bar" style="width:${barW}px"></div>${fmtPct(gm3)}</div></td>
     <td class="${gm3cls}">${fmtSEK(c.gp3)}</td>
   </tr>`;
-});
+}).join('');
 
 // Totals — prefer the top-level PREV when present, fall back to summing per-row
 const tRev  = CATEGORIES.reduce((s,c)=>s+c.revenue,0);
@@ -1891,9 +1893,8 @@ document.getElementById('cat-tfoot').innerHTML = `<tr class="tfoot-row">
 /* ─── Brand Table (all brands, sortable + filterable) ─ */
 function renderBrandTable(){
   const tbody = document.getElementById('brand-tbody');
-  tbody.innerHTML = '';
   const sorted = [...BRANDS].sort((a,b)=>b.revenue-a.revenue);
-  sorted.forEach(b => {
+  tbody.innerHTML = sorted.map(b => {
     const gm1 = b.gp1 / Math.max(b.revenue, 1);
     const gm2 = b.gp2 / Math.max(b.revenue, 1);
     const gm3 = b.gp3 / Math.max(b.revenue, 1);
@@ -1905,7 +1906,7 @@ function renderBrandTable(){
     const gm1p = (b.gp1_prev != null && b.revenue_prev) ? b.gp1_prev / b.revenue_prev : null;
     const gm2p = (b.gp2_prev != null && b.revenue_prev) ? b.gp2_prev / b.revenue_prev : null;
     const gm3p = (b.gp3_prev != null && b.revenue_prev) ? b.gp3_prev / b.revenue_prev : null;
-    tbody.innerHTML += `<tr>
+    return `<tr>
       <td>${b.name}</td>
       ${seasonCell(b, 'brands')}
       <td data-val="${b.revenue}">${fmtSEK(b.revenue)}${cellDelta(b.revenue, b.revenue_prev)}</td>
@@ -1917,7 +1918,7 @@ function renderBrandTable(){
       <td data-val="${gm3}" class="${gm3cls}">${fmtPct(gm3)}${cellDelta(gm3, gm3p, false, true)}</td>
       <td data-val="${b.gp3}" class="${gm3cls}">${fmtSEK(b.gp3)}${cellDelta(b.gp3, b.gp3_prev)}</td>
     </tr>`;
-  });
+  }).join('');
 
   const bRev = BRANDS.reduce((s,b)=>s+b.revenue,0);
   const bGp1 = BRANDS.reduce((s,b)=>s+b.gp1,0);
@@ -1955,8 +1956,7 @@ renderBrandTable();
 /* ─── Category table (re-callable; tbody + totals) ──── */
 function renderCategoryTable(){
   const tbody = document.getElementById('cat-tbody');
-  tbody.innerHTML = '';
-  CATEGORIES.forEach(c => {
+  tbody.innerHTML = CATEGORIES.map(c => {
     const gm1 = c.gp1 / c.revenue;
     const gm2 = c.gp2 / c.revenue;
     const gm3 = c.gp3 / c.revenue;
@@ -1965,7 +1965,7 @@ function renderCategoryTable(){
     const gm1p = (c.gp1_prev != null && c.revenue_prev) ? c.gp1_prev / c.revenue_prev : null;
     const gm2p = (c.gp2_prev != null && c.revenue_prev) ? c.gp2_prev / c.revenue_prev : null;
     const gm3p = (c.gp3_prev != null && c.revenue_prev) ? c.gp3_prev / c.revenue_prev : null;
-    tbody.innerHTML += `<tr>
+    return `<tr>
       <td>${c.name}</td>
       ${seasonCell(c, 'categories')}
       <td data-val="${c.revenue}">${fmtSEK(c.revenue)}${cellDelta(c.revenue, c.revenue_prev)}</td>
@@ -1977,7 +1977,7 @@ function renderCategoryTable(){
       <td data-val="${gm3}" class="${gm3cls}"><div class="gm-bar-cell"><div class="gm-bar" style="width:${barW}px"></div>${fmtPct(gm3)}</div>${cellDelta(gm3, gm3p, false, true)}</td>
       <td data-val="${c.gp3}" class="${gm3cls}">${fmtSEK(c.gp3)}${cellDelta(c.gp3, c.gp3_prev)}</td>
     </tr>`;
-  });
+  }).join('');
   // totals row
   const tRev=CATEGORIES.reduce((s,c)=>s+c.revenue,0), tGp1=CATEGORIES.reduce((s,c)=>s+c.gp1,0);
   const tGp2=CATEGORIES.reduce((s,c)=>s+c.gp2,0), tGp3c=CATEGORIES.reduce((s,c)=>s+c.gp3,0);

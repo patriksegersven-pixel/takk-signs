@@ -2482,10 +2482,13 @@ function renderMarketTable(){
 const totalRev = MARKETS.reduce((s,m)=>s+(m.revenue||0),0) || 1;
 const totalGp3 = MARKETS.reduce((s,m)=>s+(m.gp3||0),0);
 const tbody = document.getElementById('market-tbody');
-tbody.innerHTML = '';
 const maxRev = Math.max(...MARKETS.map(m=>m.revenue));
 
-MARKETS.forEach(m => {
+/* Build the rows as one string and assign once. `tbody.innerHTML +=` per row
+   re-serializes and re-parses everything already in the table, so filling N rows
+   costs O(N²) — invisible at 25 rows, a minute-long freeze at a few thousand
+   (see the Inventory tab). Keep the assignment outside the loop. */
+tbody.innerHTML = MARKETS.map(m => {
   // A market row can now be pure ad spend with no attributed revenue (the
   // ROW-unattributed bucket) — guard the revenue denominators so those cells
   // read '—' rather than '∞%'. Same guard the channel table already uses.
@@ -2507,7 +2510,7 @@ MARKETS.forEach(m => {
   const gm1      = gm1Of(m.gp1, m.revenue);
   const gm1_prev = gm1Of(m.gp1_prev, m.revenue_prev);
 
-  tbody.innerHTML += `<tr>
+  return `<tr>
     <td>${m.name}</td>
     <td><div class="bar-cell"><div class="mini-bar" style="width:${barW}px"></div>${fmtSEK(m.revenue)}${cellDelta(m.revenue, m.revenue_prev)}</div></td>
     <td><span class="share-pct">${(share*100).toFixed(0)}%</span></td>
@@ -2522,7 +2525,7 @@ MARKETS.forEach(m => {
     <td class="${copClass}">${ratioCell(cop, cop_prev, true)}</td>
     <td>${pctDeltaPill(m.gp3, m.gp3_prev)}</td>
   </tr>`;
-});
+}).join('');
 
 /* totals row — prefer PREV totals when present (more accurate than summing per-row) */
 const tRev  = MARKETS.reduce((s,m)=>s+m.revenue,0);
@@ -2564,8 +2567,7 @@ renderMarketTable();
 /* ── Shop Cards (re-callable) ────────────────────── */
 function renderShopCards(){
 const shopStack = document.getElementById('shop-stack');
-shopStack.innerHTML = '';
-SHOPS.forEach(s => {
+shopStack.innerHTML = SHOPS.map(s => {
   const gm3  = s.gp3 / s.revenue;
   const cos  = s.cost / s.revenue;
   const cop  = s.gp2 > 0 ? s.cost / s.gp2 : null;
@@ -2573,7 +2575,7 @@ SHOPS.forEach(s => {
   const gm1  = gm1Of(s.gp1, s.revenue);
   const gp3Delta = ((s.gp3 - s.gp3_prev) / Math.abs(s.gp3_prev) * 100).toFixed(1);
   const gp3Good  = s.gp3 > s.gp3_prev;
-  shopStack.innerHTML += `
+  return `
     <div class="shop-card">
       <div class="shop-name">${s.name}</div>
       <div class="shop-metrics">
@@ -2624,7 +2626,7 @@ SHOPS.forEach(s => {
         </div>
       </div>
     </div>`;
-});
+}).join('');
 }
 renderShopCards();
 
@@ -2911,12 +2913,11 @@ renderLongterm();
 /* ── Channel Table (re-callable) ─────────────────── */
 function renderChannelTable(){
 const chTbody = document.getElementById('channel-tbody');
-chTbody.innerHTML = '';
 const chByRev = [...CHANNELS].sort((a,b)=>b.revenue-a.revenue);
 const totalRev = chByRev.reduce((s,c)=>s+(c.revenue||0),0) || 1;
 const totalGp3 = chByRev.reduce((s,c)=>s+(c.gp3||0),0);
 const maxRev = Math.max(...chByRev.map(c=>c.revenue), 1);
-chByRev.forEach(c => {
+chTbody.innerHTML = chByRev.map(c => {
   const gm3 = c.revenue > 0 ? c.gp3 / c.revenue : null;
   const cos = c.cost > 0 && c.revenue > 0 ? c.cost / c.revenue : null;
   const cop = c.cost > 0 && c.gp2 > 0 ? c.cost / c.gp2 : null;
@@ -2931,7 +2932,7 @@ chByRev.forEach(c => {
   const cop_prev = (c.cost_prev != null && c.gp2_prev > 0) ? c.cost_prev / c.gp2_prev : null;
   const gm1      = gm1Of(c.gp1, c.revenue);
   const gm1_prev = gm1Of(c.gp1_prev, c.revenue_prev);
-  chTbody.innerHTML += `<tr>
+  return `<tr>
     <td>${c.name}</td>
     <td><div class="bar-cell"><div class="mini-bar" style="width:${barW}px"></div>${fmtSEK(c.revenue)}${cellDelta(c.revenue, c.revenue_prev)}</div></td>
     <td><span class="share-pct">${(share*100).toFixed(0)}%</span></td>
@@ -2946,7 +2947,7 @@ chByRev.forEach(c => {
     <td class="${copHigh?'cell-neg':''}">${ratioCell(cop, cop_prev, true)}</td>
     <td>${pctDeltaPill(c.gp3, c.gp3_prev)}</td>
   </tr>`;
-});
+}).join('');
 
 /* totals row — summed from the visible rows */
 const tRev  = chByRev.reduce((s,c)=>s+c.revenue,0);

@@ -394,24 +394,31 @@ function renderKPIs() {
     { label:'Archive Value',         value: fmtSEK(K.dead_value_sek),      note: fmtNum(K.dead_skus) + ' SKUs · units × COGS', cls:'warn' },
     { label:'OOS Lost Revenue / mo', value: fmtSEK(K.oos_lost_revenue_sek),note: fmtNum(K.oos_count) + ' SKUs out · ' + fmtNum(K.low_stock_count) + ' low-stock', cls:'critical' },
   ];
-  const grid = document.getElementById('kpi-grid');
-  grid.innerHTML = '';
-  cards.forEach(k => grid.innerHTML += `
+  document.getElementById('kpi-grid').innerHTML = cards.map(k => `
     <div class="kpi-card${k.cls?' '+k.cls:''}">
       <div class="kpi-label">${k.label}</div>
       <div class="kpi-value">${k.value}</div>
       <div class="kpi-note">${k.note}</div>
-    </div>`);
+    </div>`).join('');
 }
 
+/* ── Why every table below builds one string and assigns it once ──────────────
+   `tbody.innerHTML += row` re-serializes every row already in the table and then
+   re-parses the whole thing, so filling N rows costs O(N²) — and it throws away
+   and rebuilds the DOM N times, which table-tools' MutationObserver has to hold
+   on to until its callback runs. That was invisible while the snapshot capped
+   each list at ~30 rows. Since the caps were lifted the discounts table renders
+   ~2 650 rows, and the loop measured 35 s on its own (58 s with the observer
+   attached) — the "page unresponsive" freeze. Building the markup in an array
+   and assigning once is the same output in ~35 ms. Keep it that way: never
+   assign innerHTML inside a per-row loop. */
+
 function renderRisk() {
-  const tbody = document.getElementById('risk-tbody');
-  tbody.innerHTML = '';
-  DATA.stockout_risk.forEach(r => {
+  document.getElementById('risk-tbody').innerHTML = DATA.stockout_risk.map(r => {
     const margin = r.sale_price - r.cogs;
     const marginPct = r.sale_price > 0 ? (margin / r.sale_price) : 0;
     const mcls = margin < 0 ? 'cell-neg' : marginPct > 0.4 ? 'cell-pos' : '';
-    tbody.innerHTML += `<tr>
+    return `<tr>
       <td><a href="${r.url}" target="_blank">${r.title}</a></td>
       <td>${r.brand}</td>
       <td>${r.cat2 || r.cat1}</td>
@@ -420,7 +427,7 @@ function renderRisk() {
       <td data-val="${r.cogs}">${fmtSEK(r.cogs)}</td>
       <td data-val="${margin}" class="${mcls}">${fmtSEK(margin)} (${(marginPct*100).toFixed(0)}%)</td>
     </tr>`;
-  });
+  }).join('');
   document.getElementById('risk-badge').textContent = DATA.stockout_risk.length + ' SKUs';
 }
 
@@ -458,43 +465,35 @@ function renderDeadCharts() {
 }
 
 function renderOos() {
-  const tbody = document.getElementById('oos-tbody');
-  tbody.innerHTML = '';
-  DATA.oos_items.forEach(r => {
+  document.getElementById('oos-tbody').innerHTML = DATA.oos_items.map(r => {
     const pred = (r.predicted_units != null) ? r.predicted_units : 5;
     const lostMo = (r.lost_mo != null) ? r.lost_mo : r.sale_price * pred;
-    tbody.innerHTML += `<tr>
+    return `<tr>
       <td><a href="${r.url}" target="_blank">${r.title}</a></td>
       <td>${r.brand}</td>
       <td data-val="${r.sale_price}">${fmtSEK(r.sale_price)}</td>
       <td data-val="${pred}">${pred.toFixed(1)}</td>
       <td data-val="${lostMo}" class="cell-neg">${fmtSEK(lostMo)}</td>
     </tr>`;
-  });
+  }).join('');
   document.getElementById('oos-badge').textContent = DATA.oos_items.length + ' shown';
 }
 
 function renderDiscounts() {
-  const tbody = document.getElementById('disc-tbody');
-  tbody.innerHTML = '';
-  DATA.top_discounts.forEach(r => {
-    tbody.innerHTML += `<tr>
+  document.getElementById('disc-tbody').innerHTML = DATA.top_discounts.map(r => `<tr>
       <td><a href="${r.url}" target="_blank">${r.title}</a></td>
       <td>${r.brand}</td>
       <td data-val="${r.price}">${fmtSEK(r.price)}</td>
       <td data-val="${r.sale_price}">${fmtSEK(r.sale_price)}</td>
       <td data-val="${r.discount_pct}" class="cell-neg">−${r.discount_pct.toFixed(0)}%</td>
-    </tr>`;
-  });
+    </tr>`).join('');
   document.getElementById('disc-badge').textContent = DATA.top_discounts.length + ' shown';
 }
 
 function renderHealth() {
-  const tbody = document.getElementById('health-tbody');
-  tbody.innerHTML = '';
-  DATA.brand_health.forEach(b => {
+  document.getElementById('health-tbody').innerHTML = DATA.brand_health.map(b => {
     const deadcls = b.dead_pct > 50 ? 'cell-neg' : b.dead_pct > 30 ? 'cell-warn' : '';
-    tbody.innerHTML += `<tr>
+    return `<tr>
       <td>${b.brand}</td>
       <td data-val="${b.total_skus}">${fmtNum(b.total_skus)}</td>
       <td data-val="${b.active}">${fmtNum(b.active)}</td>
@@ -503,7 +502,7 @@ function renderHealth() {
       <td data-val="${b.dead_pct}" class="${deadcls}">${b.dead_pct.toFixed(1)}%</td>
       <td data-val="${b.stock_value}">${fmtSEK(b.stock_value)}</td>
     </tr>`;
-  });
+  }).join('');
   document.getElementById('brand-health-badge').textContent = DATA.brand_health.length + ' brands';
 }
 
