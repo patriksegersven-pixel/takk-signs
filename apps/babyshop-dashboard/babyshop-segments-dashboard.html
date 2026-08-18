@@ -4,8 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Segments · Babyshop</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/brand.css">
   <script src="/chart.umd.js"></script>
   <!-- Shared column filters + CSV/Sheets export; tables opt in with data-tools.
        The MutationObserver in the module catches re-rendered tbodies, so the
@@ -14,36 +13,12 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg:#F7F8FA; --card:#FFFFFF; --border:#E5E7EB; --border-lt:#F1F3F5;
-      --h:#0F172A; --body:#475569; --muted:#94A3B8;
-      --accent:#1E3A8A; --accent-bg:#EEF2FF;
-      --hero:#047857; --hero-bg:#ECFDF5;
-      --new:#2563EB; --repeat:#047857; --risk:#D97706; --lapsed:#94A3B8;
-      --up:#047857; --down:#B91C1C;
-      --warn:#B45309; --warn-bg:#FEF5E7;
-      --shadow-sm:0 1px 2px rgba(15,23,42,.04); --r:8px; --r-sm:4px;
+      --hero:#1E7A45; --hero-bg:#EAF4EC;
+      --new:#2F6E8F; --repeat:#235837; --risk:#C97B2C; --lapsed:#9AA3A0;
     }
     html { font-size:16px; }
-    body { font-family:'Inter',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--body); min-height:100vh; -webkit-font-smoothing:antialiased; }
+    body { font-family:'Jost',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--body); min-height:100vh; -webkit-font-smoothing:antialiased; }
 
-    header { background:var(--h); color:#fff; padding:0 32px; height:58px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; }
-    .logo { display:flex; align-items:center; gap:12px; }
-    .logo-mark { width:34px; height:34px; background:var(--accent); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; color:#fff; letter-spacing:-.5px; }
-    .logo-wordmark { font-size:14px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
-    .logo-sub { font-size:10px; font-weight:400; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,.45); margin-top:1px; }
-    .header-right { display:flex; align-items:center; gap:20px; }
-    .nav-tabs { display:flex; align-items:center; gap:2px; }
-    .nav-tab { padding:6px 14px; font-size:12px; font-weight:500; letter-spacing:.03em; color:rgba(255,255,255,.5); border-radius:6px; text-decoration:none; transition:all .15s; }
-    .nav-tab:hover { color:rgba(255,255,255,.8); background:rgba(255,255,255,.08); }
-    .nav-tab.active { color:#fff; background:rgba(255,255,255,.12); }
-    .live-dot { display:flex; align-items:center; gap:6px; font-size:11px; color:rgba(255,255,255,.45); letter-spacing:.04em; }
-    .live-dot::before { content:''; width:6px; height:6px; border-radius:50%; background:#4E9B65; box-shadow:0 0 0 2px rgba(78,155,101,.3); animation:blink 2s ease-in-out infinite; }
-    @keyframes blink { 0%,100%{box-shadow:0 0 0 2px rgba(78,155,101,.3);} 50%{box-shadow:0 0 0 5px rgba(78,155,101,.1);} }
-    .refresh-pill { display:none; align-items:center; gap:6px; font-size:11px; padding:4px 10px; border-radius:12px; letter-spacing:.03em; cursor:help; background:rgba(220,80,80,.15); color:#ff8a8a; border:1px solid rgba(220,80,80,.35); }
-    .refresh-pill.show { display:inline-flex; }
-    .refresh-pill.stale { background:rgba(220,170,60,.12); color:#f0c060; border-color:rgba(220,170,60,.35); }
-    .refresh-pill.unknown { background:rgba(120,120,130,.12); color:rgba(255,255,255,.55); border-color:rgba(120,120,130,.3); }
-    .refresh-pill::before { content:''; width:6px; height:6px; border-radius:50%; background:currentColor; }
 
     main { max-width:1380px; margin:0 auto; padding:26px 32px 56px; }
     .filter-bar { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:18px; gap:18px; flex-wrap:wrap; }
@@ -53,7 +28,7 @@
     .change-chip b { color:var(--h); }
     .change-chip .dot { width:8px; height:8px; border-radius:50%; background:var(--accent); }
 
-    .note-bar { background:var(--warn-bg); border:1px solid #F4D7A8; color:#7C4A11; border-radius:var(--r); padding:11px 16px; font-size:12px; line-height:1.5; margin-bottom:20px; display:flex; gap:9px; align-items:flex-start; }
+    .note-bar { background:var(--warn-bg); border:1px solid #EDD7B0; color:#7A4E18; border-radius:var(--r); padding:11px 16px; font-size:12px; line-height:1.5; margin-bottom:20px; display:flex; gap:9px; align-items:flex-start; }
     .note-bar svg { flex-shrink:0; margin-top:1px; }
 
     .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }
@@ -130,30 +105,12 @@
   </style>
 </head>
 <body>
-<header>
-  <div class="logo">
-    <div class="logo-mark">bs</div>
-    <div>
-      <div class="logo-wordmark">Babyshop</div>
-      <div class="logo-sub">Customer Segments</div>
-    </div>
-  </div>
-  <nav class="nav-tabs">
-    <a href="/babyshop-dashboard.html" class="nav-tab">KV Overview</a>
-    <a href="/babyshop-product-dashboard.html" class="nav-tab">Products</a>
-    <a href="/babyshop-customer-dashboard.html" class="nav-tab">Customer Insights</a>
-    <a href="/babyshop-segments-dashboard.html" class="nav-tab active">Segments</a>
-    <a href="/babyshop-inventory-dashboard.html" class="nav-tab">Inventory</a>
-    <a href="/babyshop-stoy-dashboard.html" class="nav-tab">Stoy Test</a>
-    <a href="/babyshop-roas-impact.html" class="nav-tab">ROAS Impact</a>
-    <a href="/babyshop-roas-simulations.html" class="nav-tab">ROAS Simulations</a>
-    <a href="/babyshop-voyado-dashboard.html" class="nav-tab">Email (Voyado)</a>
-  </nav>
-  <div class="header-right">
-    <div class="refresh-pill" id="refreshPill" title=""></div>
-    <div class="live-dot" id="liveDot">Live · Norce orders</div>
-  </div>
-</header>
+<header id="app-header" data-page="segments"></header>
+<template data-header-extra>
+  <div class="refresh-pill" id="refreshPill" title=""></div>
+  <div class="live-dot" id="liveDot">Live · Norce orders</div>
+</template>
+<script src="/nav.js"></script>
 
 <main>
   <div class="filter-bar">
@@ -169,7 +126,7 @@
   </div>
 
   <div class="note-bar">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#A9621A" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
     <div><b>Read these first.</b> History starts <b>2025-06-11</b> (platform cutover) — "lapsed" cannot yet mean more than ~14 months, and customers first seen before 2025-09-11 may be pre-cutover regulars.
       <b>Life stage is inferred from sizes</b> on order lines (EU kids' sizes are the child's height in cm); lines without a parseable size contribute nothing.
       Babyshop and Lekmer are counted as <b>separate customers</b> everywhere except the cross-brand section. Currency: SEK.</div>
@@ -355,10 +312,10 @@ const STAGE_META = {
   teen:     { label:'Teen',     band:'12 y +',  sizes:'158–176 cm'},
 };
 const LC_META = {
-  new:           { label:'New',           color:'#2563EB' },
-  repeat_active: { label:'Repeat active', color:'#047857' },
-  at_risk:       { label:'At-risk',       color:'#D97706' },
-  lapsed:        { label:'Lapsed',        color:'#94A3B8' },
+  new:           { label:'New',           color:'#2F6E8F' },
+  repeat_active: { label:'Repeat active', color:'#1E7A45' },
+  at_risk:       { label:'At-risk',       color:'#C97B2C' },
+  lapsed:        { label:'Lapsed',        color:'#8C9098' },
 };
 
 /* ── Formatters (match the other tabs) ── */
@@ -426,9 +383,9 @@ function draw(id, cfg, emptyId, emptyMsg){
   ctx.hidden = isEmpty;
   if (!isEmpty) charts[id] = new Chart(ctx, cfg);
 }
-const GRID = { color:'#F1F3F5' };
-const TICKS = { color:'#94A3B8', font:{size:10} };
-const LEGEND = { display:true, position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569' } };
+const GRID = { color:'#F2EFEB' };
+const TICKS = { color:'#8C9098', font:{size:10} };
+const LEGEND = { display:true, position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#3F4650' } };
 
 /* ── Life stage distribution ── */
 function renderStageChart(){
@@ -439,8 +396,8 @@ function renderStageChart(){
   draw('stageChart', {
     type:'bar',
     data:{ labels, datasets:[
-      { label:'All customers', data:rows.map(r=>r.customers), backgroundColor:'#93B4E8', borderRadius:3 },
-      { label:'Active (≤180d)', data:rows.map(r=>r.active_customers), backgroundColor:'#1E3A8A', borderRadius:3 },
+      { label:'All customers', data:rows.map(r=>r.customers), backgroundColor:'#A8C7B6', borderRadius:3 },
+      { label:'Active (≤180d)', data:rows.map(r=>r.active_customers), backgroundColor:'#235837', borderRadius:3 },
     ]},
     options:{ responsive:true, maintainAspectRatio:false,
       plugins:{ legend:LEGEND, tooltip:{ callbacks:{ label:c=>` ${c.dataset.label}: ${fmtInt(c.parsed.y)}` } } },
@@ -457,8 +414,8 @@ function renderLtvChart(){
   draw('ltvChart', {
     type:'bar',
     data:{ labels:rows.map(r=>STAGE_META[r.stage].label), datasets:[
-      { label:'1-yr CLV (matured customers)', data:rows.map(r=>r.clv_1y_sek), backgroundColor:'#047857', borderRadius:3 },
-      { label:'Avg lifetime revenue to date', data:rows.map(r=>r.avg_revenue_sek), backgroundColor:'#A7D5C4', borderRadius:3 },
+      { label:'1-yr CLV (matured customers)', data:rows.map(r=>r.clv_1y_sek), backgroundColor:'#1E7A45', borderRadius:3 },
+      { label:'Avg lifetime revenue to date', data:rows.map(r=>r.avg_revenue_sek), backgroundColor:'#B3DCC8', borderRadius:3 },
     ]},
     options:{ responsive:true, maintainAspectRatio:false,
       plugins:{ legend:LEGEND, tooltip:{ callbacks:{
@@ -543,7 +500,7 @@ function heatColor(v, max){
   if (v == null) return null;
   const t = Math.max(0, Math.min(1, max ? v/max : 0));
   const mix = (a,b)=>Math.round(a+(b-a)*t);
-  return { bg:`rgb(${mix(238,30)},${mix(242,58)},${mix(255,138)})`, fg: t>0.55?'#fff':'#334155' };
+  return { bg:`rgb(${mix(238,30)},${mix(242,58)},${mix(255,138)})`, fg: t>0.55?'#fff':'#2E3540' };
 }
 function renderCohorts(){
   const cells = (DATA.cohorts||[]).filter(c=>cohortShop==='all'||c.shop===cohortShop);
@@ -592,13 +549,13 @@ function renderPareto(){
   const hasMargin = rows.some(r=>r.margin_share != null);
   draw('paretoChart', {
     data:{ labels:rows.map(r=>'D'+r.decile), datasets:[
-      { type:'line', label:'Cumulative revenue', data:cum, borderColor:'#B45309', backgroundColor:'#B45309',
+      { type:'line', label:'Cumulative revenue', data:cum, borderColor:'#A9621A', backgroundColor:'#A9621A',
         borderWidth:2, pointRadius:3, tension:.25 },
       { type:'bar', label:'Revenue share', data:rows.map(r=>+((r.revenue_share||0)*100).toFixed(1)),
-        backgroundColor:'#1E3A8A', borderRadius:3 },
+        backgroundColor:'#235837', borderRadius:3 },
       ...(hasMargin ? [
       { type:'bar', label:'Margin share', data:rows.map(r=>r.margin_share != null ? +(r.margin_share*100).toFixed(1) : null),
-        backgroundColor:'#047857', borderRadius:3 }] : []),
+        backgroundColor:'#1E7A45', borderRadius:3 }] : []),
     ]},
     options:{ responsive:true, maintainAspectRatio:false,
       plugins:{ legend:LEGEND, tooltip:{ callbacks:{
@@ -617,12 +574,12 @@ function renderPareto(){
 function renderCrossBrand(){
   const rows = DATA.cross_brand || [];
   if (!rows.length) return draw('xbChart', null, 'xb-empty', 'No cross-brand rows yet.');
-  const meta = { babyshop_only:['Babyshop only','#93B4E8'], lekmer_only:['Lekmer only','#C7D4EA'], both:['Both brands','#1E3A8A'] };
+  const meta = { babyshop_only:['Babyshop only','#A8C7B6'], lekmer_only:['Lekmer only','#C9DCCF'], both:['Both brands','#235837'] };
   draw('xbChart', {
     type:'bar',
     data:{ labels:rows.map(r=>meta[r.group]?.[0]||r.group), datasets:[
       { label:'Customers', data:rows.map(r=>r.customers),
-        backgroundColor:rows.map(r=>meta[r.group]?.[1]||'#94A3B8'), borderRadius:3 } ]},
+        backgroundColor:rows.map(r=>meta[r.group]?.[1]||'#8C9098'), borderRadius:3 } ]},
     options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{display:false}, tooltip:{ callbacks:{
         label:c=>` ${fmtInt(c.parsed.x)} customers`,

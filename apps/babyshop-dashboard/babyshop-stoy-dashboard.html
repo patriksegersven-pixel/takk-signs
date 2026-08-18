@@ -4,8 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Stoy Funnel-Shift Test · Babyshop</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/brand.css">
 <script src="/chart.umd.js"></script>
 <!-- Shared column filters + CSV/Sheets export. Tables opt in with data-tools; auto-init on
      DOMContentLoaded runs after render() has filled the tbodies once, and every later
@@ -18,34 +17,16 @@
      the way Products is teal and Inventory is orange. The legacy aliases below
      (--ink / --line / --pos / --neg / --rev) are kept so the existing markup and
      Chart.js colour constants keep resolving. */
-  :root{
-    --bg:#F7F8FA; --card:#FFFFFF; --border:#E5E7EB; --border-lt:#F1F3F5;
-    --h:#0F172A; --body:#475569; --muted:#94A3B8;
-    --accent:#6D28D9; --accent-bg:#F5F3FF;
-    --up:#047857; --up-bg:#ECFDF5; --down:#B91C1C; --down-bg:#FEF2F2;
-    --warn:#B45309; --warn-bg:#FFFBEB;
-    --shadow-sm:0 1px 2px rgba(15,23,42,.04);
-    --r:8px; --r-sm:4px;
+  :root {
+    --accent:#7E5A8C; --accent-bg:#F4F0F6;
     --ink:var(--h); --line:var(--border); --pos:var(--up); --neg:var(--down);
-    --meta:#6D28D9; --rev:#1E3A8A;
+    --meta:#7E5A8C; --rev:#235837;
   }
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   html{font-size:16px}
-  body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--body);min-height:100vh;-webkit-font-smoothing:antialiased}
+  body{font-family:'Jost',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--body);min-height:100vh;-webkit-font-smoothing:antialiased}
 
   /* ── Header / nav (identical to the other tabs) ── */
-  header{background:var(--h);color:#fff;padding:0 32px;height:58px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
-  .logo{display:flex;align-items:center;gap:12px}
-  .logo-mark{width:34px;height:34px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff;letter-spacing:-.5px}
-  .logo-wordmark{font-size:14px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
-  .logo-sub{font-size:10px;font-weight:400;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.45);margin-top:1px}
-  .nav-tabs{display:flex;align-items:center;gap:2px}
-  .nav-tab{padding:6px 14px;font-size:12px;font-weight:500;letter-spacing:.03em;color:rgba(255,255,255,.5);border-radius:6px;text-decoration:none;transition:all .15s}
-  .nav-tab:hover{color:rgba(255,255,255,.8);background:rgba(255,255,255,.08)}
-  .nav-tab.active{color:#fff;background:rgba(255,255,255,.12)}
-  .live-dot{display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(255,255,255,.45);letter-spacing:.04em}
-  .live-dot::before{content:'';width:6px;height:6px;border-radius:50%;background:#4E9B65;box-shadow:0 0 0 2px rgba(78,155,101,.3);animation:blink 2s ease-in-out infinite}
-  @keyframes blink{0%,100%{box-shadow:0 0 0 2px rgba(78,155,101,.3)}50%{box-shadow:0 0 0 5px rgba(78,155,101,.1)}}
 
   /* ── Layout ── */
   .wrap{max-width:1380px;margin:0 auto;padding:26px 32px 56px}
@@ -95,7 +76,7 @@
   /* Totals inside tbody still read as a summary line. */
   tbody tr.tot td{font-weight:700;color:var(--h);border-top:1px solid var(--border)}
   .two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-  .note{background:var(--warn-bg);border:1px solid #F4D7A8;border-radius:var(--r);padding:12px 16px;font-size:11.5px;color:#7C4A11;margin-top:20px;line-height:1.55}
+  .note{background:var(--warn-bg);border:1px solid #EDD7B0;border-radius:var(--r);padding:12px 16px;font-size:11.5px;color:#7A4E18;margin-top:20px;line-height:1.55}
   .pill{display:inline-block;background:var(--accent-bg);color:var(--accent);border-radius:3px;padding:2px 7px;font-size:10px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;vertical-align:middle}
   /* Chart toggles — same segmented control as the other tabs. */
   #trend-toggle,#yoy-toggle{background:var(--bg);border:1px solid var(--border);border-radius:var(--r-sm);padding:3px;gap:2px!important}
@@ -109,27 +90,11 @@
 </style>
 </head>
 <body>
-<header>
-  <div class="logo">
-    <div class="logo-mark">bs</div>
-    <div>
-      <div class="logo-wordmark">Babyshop</div>
-      <div class="logo-sub">Stoy Funnel-Shift Test</div>
-    </div>
-  </div>
-  <nav class="nav-tabs">
-    <a href="/babyshop-dashboard.html" class="nav-tab">KV Overview</a>
-    <a href="/babyshop-product-dashboard.html" class="nav-tab">Products</a>
-    <a href="/babyshop-customer-dashboard.html" class="nav-tab">Customer Insights</a>
-    <a href="/babyshop-segments-dashboard.html" class="nav-tab">Segments</a>
-    <a href="/babyshop-inventory-dashboard.html" class="nav-tab">Inventory</a>
-    <a href="/babyshop-stoy-dashboard.html" class="nav-tab active">Stoy Test</a>
-    <a href="/babyshop-roas-impact.html" class="nav-tab">ROAS Impact</a>
-    <a href="/babyshop-roas-simulations.html" class="nav-tab">ROAS Simulations</a>
-    <a href="/babyshop-voyado-dashboard.html" class="nav-tab">Email (Voyado)</a>
-  </nav>
+<header id="app-header" data-page="stoy"></header>
+<template data-header-extra>
   <div class="live-dot" id="live-src">Live · BigQuery</div>
-</header>
+</template>
+<script src="/nav.js"></script>
 
 <div class="wrap">
   <h1>Stoy Funnel-Shift Test</h1>
@@ -390,14 +355,14 @@ function renderYoY(){
   const fmtY=v=>isPct? v.toFixed(0)+'%' : fmtSEK(v);
   const fmtT=v=>isPct? v.toFixed(1)+'%' : fmtFull(v);
   const marker={id:'yoyMarker',afterDraw(ch){if(testIdx<0)return;const x=ch.scales.x.getPixelForValue(testIdx),a=ch.chartArea,c=ch.ctx;
-    c.save();c.strokeStyle='#6D28D9';c.setLineDash([5,4]);c.lineWidth=1.5;c.beginPath();c.moveTo(x,a.top);c.lineTo(x,a.bottom);c.stroke();
-    c.setLineDash([]);c.fillStyle='#6D28D9';c.font='700 10px sans-serif';c.fillText('test start',x+4,a.top+11);c.restore();}};
+    c.save();c.strokeStyle='#7E5A8C';c.setLineDash([5,4]);c.lineWidth=1.5;c.beginPath();c.moveTo(x,a.top);c.lineTo(x,a.bottom);c.stroke();
+    c.setLineDash([]);c.fillStyle='#7E5A8C';c.font='700 10px sans-serif';c.fillText('test start',x+4,a.top+11);c.restore();}};
   const yc=document.getElementById('c-yoy'); const ex=Chart.getChart(yc); if(ex) ex.destroy();
   yoyChart=new Chart(yc,{
     type:'line',
     data:{labels,datasets:[
-      {label:lab+' 2026',data:cy,borderColor:'#1E3A8A',backgroundColor:'rgba(30,58,138,.06)',fill:!isPct,tension:.35,pointRadius:0,borderWidth:2.5},
-      {label:lab+' 2025',data:py,borderColor:'#94a3b8',tension:.35,pointRadius:0,borderWidth:2,borderDash:[5,4]},
+      {label:lab+' 2026',data:cy,borderColor:'#235837',backgroundColor:'rgba(30,58,138,.06)',fill:!isPct,tension:.35,pointRadius:0,borderWidth:2.5},
+      {label:lab+' 2025',data:py,borderColor:'#8C9098',tension:.35,pointRadius:0,borderWidth:2,borderDash:[5,4]},
     ]},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
       plugins:{legend:{position:'top',labels:{boxWidth:12,font:{size:11}}},
@@ -419,23 +384,23 @@ function renderTrend(){
   const labels=data.map(x=>x.d);
   const testIdx=data.findIndex(x=>x.iso===d.test_period.start);
   const marker={id:'trendMarker',afterDraw(ch){if(testIdx<0)return;const x=ch.scales.x.getPixelForValue(testIdx),a=ch.chartArea,c=ch.ctx;
-    c.save();c.strokeStyle='#6D28D9';c.setLineDash([5,4]);c.lineWidth=1.5;c.beginPath();c.moveTo(x,a.top);c.lineTo(x,a.bottom);c.stroke();
-    c.setLineDash([]);c.fillStyle='#6D28D9';c.font='700 10px sans-serif';c.fillText('test start',x+4,a.top+11);c.restore();}};
+    c.save();c.strokeStyle='#7E5A8C';c.setLineDash([5,4]);c.lineWidth=1.5;c.beginPath();c.moveTo(x,a.top);c.lineTo(x,a.bottom);c.stroke();
+    c.setLineDash([]);c.fillStyle='#7E5A8C';c.font='700 10px sans-serif';c.fillText('test start',x+4,a.top+11);c.restore();}};
   const tc=document.getElementById('c-trend'); const tex=Chart.getChart(tc); if(tex) tex.destroy();
   trendChart=new Chart(tc,{
     type:'line',
     data:{labels,datasets:[
-      {label:'Revenue',yAxisID:'y',data:data.map(x=>x.rev),borderColor:'#1E3A8A',backgroundColor:'rgba(30,58,138,.08)',fill:true,tension:.3,pointRadius:0,borderWidth:2},
-      {label:'Total ad spend',yAxisID:'y2',data:data.map(x=>x.spend),borderColor:'#0F766E',tension:.3,pointRadius:0,borderWidth:2.5},
-      {label:'Google spend',yAxisID:'y2',data:data.map(x=>x.google),borderColor:'#B45309',tension:.3,pointRadius:0,borderWidth:1.5},
-      {label:'Meta spend',yAxisID:'y2',data:data.map(x=>x.meta),borderColor:'#6D28D9',tension:.3,pointRadius:0,borderWidth:1.5,borderDash:[4,3]},
+      {label:'Revenue',yAxisID:'y',data:data.map(x=>x.rev),borderColor:'#235837',backgroundColor:'rgba(30,58,138,.08)',fill:true,tension:.3,pointRadius:0,borderWidth:2},
+      {label:'Total ad spend',yAxisID:'y2',data:data.map(x=>x.spend),borderColor:'#2E6F5E',tension:.3,pointRadius:0,borderWidth:2.5},
+      {label:'Google spend',yAxisID:'y2',data:data.map(x=>x.google),borderColor:'#A9621A',tension:.3,pointRadius:0,borderWidth:1.5},
+      {label:'Meta spend',yAxisID:'y2',data:data.map(x=>x.meta),borderColor:'#7E5A8C',tension:.3,pointRadius:0,borderWidth:1.5,borderDash:[4,3]},
     ]},
     options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
       plugins:{legend:{position:'top',labels:{boxWidth:12,font:{size:11}}},
         tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+fmtFull(c.parsed.y)}}},
       scales:{
         y:{position:'left',grid:{color:'rgba(0,0,0,.05)'},ticks:{callback:v=>fmtSEK(v),font:{size:10}}},
-        y2:{position:'right',grid:{display:false},ticks:{callback:v=>fmtSEK(v),font:{size:10},color:'#0F766E'}},
+        y2:{position:'right',grid:{display:false},ticks:{callback:v=>fmtSEK(v),font:{size:10},color:'#2E6F5E'}},
         x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:14}}
       }},
     plugins:[marker]

@@ -18,6 +18,15 @@ Simulations page was originally developed is archived and read-only.)
 
 ## Layout
 - `babyshop-dashboard.html` + sibling `babyshop-*.html` pages — the dashboard
+- `brand.css` — the Babyshop design system: tokens, Jost `@font-face`, and all
+  header/nav chrome. Linked from every page before its inline `<style>`, so a
+  page's own `:root` only carries its page-specific accent/series colours
+- `nav.js` — the header. One `PAGES` registry renders the logo, the core tabs,
+  the "More reports" dropdown and the per-page controls slot; **adding a new
+  dashboard page is one line there** plus a route in `app.py`
+- `babyshop-logo.svg`, `fonts/jost-*.woff2`, `chart.umd.js`, `table-tools.js` —
+  vendored front-end assets, all served same-origin behind the same Basic auth
+  (external CDNs are blocked on some of the networks this is viewed from)
 - `app.py` — FastAPI server: page routes, `/api/*`, `/internal/*`, `/healthz`
 - `funnel_client.py`, `bq_source.py`, `inventory_client.py`,
   `budget_source.py`, `refresh_roas_impact.py`, `budget_2026.json` — backend

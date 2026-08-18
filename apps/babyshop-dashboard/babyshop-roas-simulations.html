@@ -4,8 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ROAS Simulations · Babyshop</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/brand.css">
   <script src="/chart.umd.js"></script>
   <!-- Shared column filters + CSV/Sheets export. Tables opt in with data-tools and are
        picked up on DOMContentLoaded. Every table on this page is written whole (thead and
@@ -17,36 +16,10 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    :root {
-      --bg:          #F7F8FA;
-      --card:        #FFFFFF;
-      --border:      #E5E7EB;
-      --border-lt:   #F1F3F5;
-      --h:           #0F172A;
-      --body:        #475569;
-      --muted:       #94A3B8;
-      --accent:      #1E3A8A;   /* deep navy — KV signature */
-      --accent-bg:   #EEF2FF;
-      --accent-dark: #1E40AF;
-      --hero:        #B45309;   /* amber — GP3 hero emphasis */
-      --hero-bg:     #FFFBEB;
-      --blue:        #2563EB;
-      --green:       #047857;
-      --amber:       #B45309;
-      --purple:      #6D28D9;
-      --up:          #047857;
-      --up-bg:       #ECFDF5;
-      --down:        #B91C1C;
-      --down-bg:     #FEF2F2;
-      --shadow-sm:   0 1px 2px rgba(15,23,42,.04);
-      --shadow:      0 1px 3px rgba(15,23,42,.06);
-      --r:           8px;
-      --r-sm:        4px;
-    }
 
     html { font-size: 16px; }
     body {
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-family: 'Jost', system-ui, -apple-system, sans-serif;
       background: var(--bg);
       color: var(--body);
       min-height: 100vh;
@@ -54,68 +27,10 @@
     }
 
     /* ── Header ─────────────────────────────────────── */
-    header {
-      background: var(--h);
-      color: white;
-      padding: 0 32px;
-      height: 58px;
-      display: flex; align-items: center; justify-content: space-between;
-      position: sticky; top: 0; z-index: 100;
-    }
-    .logo { display: flex; align-items: center; gap: 12px; }
-    .logo-mark {
-      width: 34px; height: 34px; background: var(--accent); border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 15px; font-weight: 700; color: white; letter-spacing: -0.5px;
-    }
-    .logo-wordmark { font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-    .logo-sub      { font-size: 10px; font-weight: 400; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,.45); margin-top: 1px; }
-    .header-right  { display: flex; align-items: center; gap: 20px; }
 
     /* ── Nav tabs ───────────────────────────────────── */
-    .nav-tabs { display: flex; align-items: center; gap: 2px; }
-    .nav-tab {
-      padding: 6px 14px; font-size: 12px; font-weight: 500; letter-spacing: .03em;
-      color: rgba(255,255,255,.5); border-radius: 6px;
-      text-decoration: none; transition: all .15s;
-    }
-    .nav-tab:hover { color: rgba(255,255,255,.8); background: rgba(255,255,255,.08); }
-    .nav-tab.active { color: white; background: rgba(255,255,255,.12); }
 
-    .live-dot {
-      display: flex; align-items: center; gap: 6px;
-      font-size: 11px; color: rgba(255,255,255,.45); letter-spacing: .04em;
-    }
-    .live-dot::before {
-      content: ''; width: 6px; height: 6px; border-radius: 50%;
-      background: #4E9B65; box-shadow: 0 0 0 2px rgba(78,155,101,.3);
-      animation: blink 2s ease-in-out infinite;
-    }
-    @keyframes blink {
-      0%,100% { box-shadow: 0 0 0 2px rgba(78,155,101,.3); }
-      50%      { box-shadow: 0 0 0 5px rgba(78,155,101,.1); }
-    }
 
-    .refresh-pill {
-      display: none; align-items: center; gap: 6px;
-      font-size: 11px; padding: 4px 10px; border-radius: 12px;
-      letter-spacing: .03em; cursor: help;
-      background: rgba(220, 80, 80, .15); color: #ff8a8a;
-      border: 1px solid rgba(220, 80, 80, .35);
-    }
-    .refresh-pill.show { display: inline-flex; }
-    .refresh-pill.stale {
-      background: rgba(220, 170, 60, .12); color: #f0c060;
-      border-color: rgba(220, 170, 60, .35);
-    }
-    .refresh-pill.unknown {
-      background: rgba(120, 120, 130, .12); color: rgba(255,255,255,.55);
-      border-color: rgba(120, 120, 130, .3);
-    }
-    .refresh-pill::before {
-      content: ''; width: 6px; height: 6px; border-radius: 50%;
-      background: currentColor;
-    }
 
     /* ── Main ───────────────────────────────────────── */
     main { max-width: 1380px; margin: 0 auto; padding: 26px 32px 56px; }
@@ -196,7 +111,7 @@
       font-size: 11px; font-weight: 600; padding: 3px 8px;
       border-radius: 3px; background: var(--accent-bg); color: var(--accent);
     }
-    .filter-pill.demo { background: #FEF5E7; color: #B45309; }
+    .filter-pill.demo { background: #FBF3E7; color: #A9621A; }
 
     /* ── KPI grid ───────────────────────────────────── */
     .kpi-grid {
@@ -392,8 +307,8 @@
     tbody tr.sec-row:hover td { background: var(--bg); }
     .sec-t { display: block; font-size: 12px; font-weight: 700; color: var(--h); letter-spacing: -.1px; }
     .sec-d { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; max-width: 900px; line-height: 1.5; }
-    tbody tr.sub-row td { font-weight: 700; color: var(--h); background: #FBFCFE; }
-    tbody tr.sub-row:hover td { background: #FBFCFE; }
+    tbody tr.sub-row td { font-weight: 700; color: var(--h); background: #FDFCFA; }
+    tbody tr.sub-row:hover td { background: #FDFCFA; }
     tbody tr.total-row td {
       font-weight: 700; color: var(--h); background: var(--bg);
       border-top: 1px solid var(--border); border-bottom: none;
@@ -416,11 +331,11 @@
     }
     .pill-up      { background: var(--up-bg);   color: var(--up);   }
     .pill-down    { background: var(--down-bg); color: var(--down); }
-    .pill-warn    { background: #FEF5E7; color: #B45309; }
+    .pill-warn    { background: #FBF3E7; color: #A9621A; }
     .pill-neutral { background: var(--bg);  color: var(--muted); border: 1px solid var(--border); }
     .pill-accent  { background: var(--accent-bg); color: var(--accent); }
     /* incrementality factor pill — purple, the colour reserved for "assumption" here */
-    .pill-inc     { background: #F5F3FF; color: var(--purple); font-weight: 600; cursor: help; }
+    .pill-inc     { background: #F4F0F6; color: var(--purple); font-weight: 600; cursor: help; }
 
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .95em; }
     .assumption { font-size: 10.5px; color: var(--muted); font-weight: 400; }
@@ -448,7 +363,7 @@
       flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
       font-size: 11px; font-weight: 700;
-      background: #FEF5E7; color: var(--hero);
+      background: #FBF3E7; color: var(--hero);
     }
     .flag.ok .ic { background: var(--up-bg); color: var(--up); }
     .flag .t { font-size: 12px; font-weight: 600; color: var(--h); }
@@ -517,30 +432,12 @@
 </head>
 <body>
 
-<header>
-  <div class="logo">
-    <div class="logo-mark">bs</div>
-    <div>
-      <div class="logo-wordmark">Babyshop</div>
-      <div class="logo-sub">ROAS Simulations</div>
-    </div>
-  </div>
-  <nav class="nav-tabs">
-    <a href="/babyshop-dashboard.html" class="nav-tab">KV Overview</a>
-    <a href="/babyshop-product-dashboard.html" class="nav-tab">Products</a>
-    <a href="/babyshop-customer-dashboard.html" class="nav-tab">Customer Insights</a>
-    <a href="/babyshop-segments-dashboard.html" class="nav-tab">Segments</a>
-    <a href="/babyshop-inventory-dashboard.html" class="nav-tab">Inventory</a>
-    <a href="/babyshop-stoy-dashboard.html" class="nav-tab">Stoy Test</a>
-    <a href="/babyshop-roas-impact.html" class="nav-tab">ROAS Impact</a>
-    <a href="/babyshop-roas-simulations.html" class="nav-tab active">ROAS Simulations</a>
-    <a href="/babyshop-voyado-dashboard.html" class="nav-tab">Email (Voyado)</a>
-  </nav>
-  <div class="header-right">
-    <div class="refresh-pill" id="refreshPill" title=""></div>
-    <div class="live-dot">Google Ads · Target ROAS bid simulations</div>
-  </div>
-</header>
+<header id="app-header" data-page="sims"></header>
+<template data-header-extra>
+  <div class="refresh-pill" id="refreshPill" title=""></div>
+  <div class="live-dot">Google Ads · Target ROAS bid simulations</div>
+</template>
+<script src="/nav.js"></script>
 
 <main>
 
@@ -2709,24 +2606,24 @@ function renderSummaryTable(){
 }
 
 /* ============================== CHART HELPERS ============================== */
-/* Same conventions as the KV Overview page: Inter at 10–11px, slate tick labels,
+/* Same conventions as the KV Overview page: Jost at 10–11px, slate tick labels,
    rgba(15,23,42,.05) gridlines, no axis border, legend at the bottom. */
 
-const CHART_FONT = { family:'Inter', size:11 };
-const C = { gp2:'#2563EB', gp3:'#047857', gp3obs:'#9CC5B8', cur:'#6D28D9', rec:'#1E3A8A',
-            marg:'#B45309', margObs:'#DDB784', grid:'#CBD5E1', bar:'#CBD5E1' };
+const CHART_FONT = { family:'Jost', size:11 };
+const C = { gp2:'#2F6E8F', gp3:'#1E7A45', gp3obs:'#A7CDBB', cur:'#7E5A8C', rec:'#235837',
+            marg:'#A9621A', margObs:'#DDB784', grid:'#CFCAC3', bar:'#CFCAC3' };
 
 function killChart(k){ if (state.charts[k]){ state.charts[k].destroy(); delete state.charts[k]; } }
 function axis(title, fmt){
   return {
-    title: { display: !!title, text: title, font: CHART_FONT, color:'#94A3B8' },
+    title: { display: !!title, text: title, font: CHART_FONT, color:'#8C9098' },
     grid:  { color: 'rgba(15,23,42,.05)' },
     border:{ display: false },
-    ticks: { font: { family:'Inter', size:10 }, color:'#94A3B8', callback: fmt, maxTicksLimit: 8 }
+    ticks: { font: { family:'Jost', size:10 }, color:'#8C9098', callback: fmt, maxTicksLimit: 8 }
   };
 }
 const LEGEND_BOTTOM = { display:true, position:'bottom',
-  labels:{ boxWidth:10, boxHeight:10, font:{ size:11 }, color:'#475569', padding:12, usePointStyle:true } };
+  labels:{ boxWidth:10, boxHeight:10, font:{ size:11 }, color:'#3F4650', padding:12, usePointStyle:true } };
 
 /* ============================== RENDER: DRILL-DOWN ============================== */
 
@@ -3114,7 +3011,7 @@ function renderPortfolio(){
         tooltip:{ callbacks:{ label: c => ' ' + c.dataset.label + ': ' + money(c.parsed.x, cur) } } },
       scales:{ x:{ ...axis('Cost (' + cur + ')', v => fmtMoney(v, cur)) },
         y:{ grid:{ display:false }, border:{ display:false },
-            ticks:{ font:{ family:'Inter', size:10 }, color:'#475569' } } } }
+            ticks:{ font:{ family:'Jost', size:10 }, color:'#3F4650' } } } }
   });
 
   /* ---- profit vs budget sweep ---- */
@@ -3228,7 +3125,7 @@ function renderHistory(){
           ? c.dataset.label + ': ' + money(c.parsed.y, cur)
           : c.dataset.label + ': ' + c.parsed.y.toFixed(0) + '%') } } },
       scales:{ x:{ grid:{ display:false }, border:{ display:false },
-                   ticks:{ font:{ family:'Inter', size:10 }, color:'#94A3B8' } },
+                   ticks:{ font:{ family:'Jost', size:10 }, color:'#8C9098' } },
         y1:{ position:'left', ...axis('Target ROAS (%)', v => v + '%') },
         y2:{ position:'right', ...axis(G3 + ' (' + cur + ')', v => fmtMoney(v, cur)), grid:{ display:false } } } }
   });

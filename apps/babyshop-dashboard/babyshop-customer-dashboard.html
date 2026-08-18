@@ -4,8 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Customer Insights · Babyshop</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/brand.css">
   <script src="/chart.umd.js"></script>
   <!-- Shared column filters + CSV/Sheets export. The four data tables opt in with
        data-tools and are picked up on DOMContentLoaded — i.e. AFTER this page's inline
@@ -19,42 +18,15 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg:#F7F8FA; --card:#FFFFFF; --border:#E5E7EB; --border-lt:#F1F3F5;
-      --h:#0F172A; --body:#475569; --muted:#94A3B8;
-      --accent:#1E3A8A; --accent-bg:#EEF2FF; --accent-dark:#1E40AF;
-      --hero:#B45309; --hero-bg:#FFFBEB;
-      --new:#1E3A8A;          /* new customers — KV navy */
-      --ret:#93A8D8;          /* returning — muted navy */
-      --share:#B45309;        /* new-share line — amber */
-      --cac:#6D28D9;          /* CAC line — purple */
-      --blue:#2563EB; --green:#047857; --amber:#B45309; --purple:#6D28D9;
-      --up:#047857; --up-bg:#ECFDF5; --down:#B91C1C; --down-bg:#FEF2F2;
-      --warn:#B45309; --warn-bg:#FEF5E7;
-      --shadow-sm:0 1px 2px rgba(15,23,42,.04); --shadow:0 1px 3px rgba(15,23,42,.06);
-      --r:8px; --r-sm:4px;
+      --new:#235837;       /* new customers — deep green */
+      --ret:#9FBFAC;       /* returning — muted sage */
+      --share:#A9621A;     /* new-share line — ochre */
+      --cac:#7E5A8C;       /* CAC line — plum */
     }
     html { font-size:16px; }
-    body { font-family:'Inter',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--body); min-height:100vh; -webkit-font-smoothing:antialiased; }
+    body { font-family:'Jost',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--body); min-height:100vh; -webkit-font-smoothing:antialiased; }
 
     /* ── Header / nav (identical to the other tabs) ── */
-    header { background:var(--h); color:#fff; padding:0 32px; height:58px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; }
-    .logo { display:flex; align-items:center; gap:12px; }
-    .logo-mark { width:34px; height:34px; background:var(--accent); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; color:#fff; letter-spacing:-.5px; }
-    .logo-wordmark { font-size:14px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
-    .logo-sub { font-size:10px; font-weight:400; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,.45); margin-top:1px; }
-    .header-right { display:flex; align-items:center; gap:20px; }
-    .nav-tabs { display:flex; align-items:center; gap:2px; }
-    .nav-tab { padding:6px 14px; font-size:12px; font-weight:500; letter-spacing:.03em; color:rgba(255,255,255,.5); border-radius:6px; text-decoration:none; transition:all .15s; }
-    .nav-tab:hover { color:rgba(255,255,255,.8); background:rgba(255,255,255,.08); }
-    .nav-tab.active { color:#fff; background:rgba(255,255,255,.12); }
-    .live-dot { display:flex; align-items:center; gap:6px; font-size:11px; color:rgba(255,255,255,.45); letter-spacing:.04em; }
-    .live-dot::before { content:''; width:6px; height:6px; border-radius:50%; background:#4E9B65; box-shadow:0 0 0 2px rgba(78,155,101,.3); animation:blink 2s ease-in-out infinite; }
-    @keyframes blink { 0%,100%{box-shadow:0 0 0 2px rgba(78,155,101,.3);} 50%{box-shadow:0 0 0 5px rgba(78,155,101,.1);} }
-    .refresh-pill { display:none; align-items:center; gap:6px; font-size:11px; padding:4px 10px; border-radius:12px; letter-spacing:.03em; cursor:help; background:rgba(220,80,80,.15); color:#ff8a8a; border:1px solid rgba(220,80,80,.35); }
-    .refresh-pill.show { display:inline-flex; }
-    .refresh-pill.stale { background:rgba(220,170,60,.12); color:#f0c060; border-color:rgba(220,170,60,.35); }
-    .refresh-pill.unknown { background:rgba(120,120,130,.12); color:rgba(255,255,255,.55); border-color:rgba(120,120,130,.3); }
-    .refresh-pill::before { content:''; width:6px; height:6px; border-radius:50%; background:currentColor; }
 
     /* ── Layout ── */
     main { max-width:1380px; margin:0 auto; padding:26px 32px 56px; }
@@ -67,7 +39,7 @@
     .source-chip .dot.pending { background:var(--warn); }
 
     /* ── Caveats strip ── */
-    .caveat-strip { background:var(--warn-bg); border:1px solid #F4D7A8; color:#7C4A11; border-radius:var(--r); padding:11px 16px; font-size:11.5px; line-height:1.55; margin-bottom:18px; display:flex; gap:10px; align-items:flex-start; }
+    .caveat-strip { background:var(--warn-bg); border:1px solid #EDD7B0; color:#7A4E18; border-radius:var(--r); padding:11px 16px; font-size:11.5px; line-height:1.55; margin-bottom:18px; display:flex; gap:10px; align-items:flex-start; }
     .caveat-strip svg { flex-shrink:0; margin-top:2px; }
     .caveat-strip ul { list-style:none; display:flex; flex-wrap:wrap; gap:4px 20px; }
     .caveat-strip li { position:relative; padding-left:12px; }
@@ -190,15 +162,15 @@
     /* ── Callouts (actionable outliers) ── */
     .callouts { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:10px; padding:14px 22px 4px; }
     .callout { border:1px solid var(--border); border-left:3px solid var(--muted); border-radius:var(--r-sm); padding:10px 13px; font-size:11.5px; line-height:1.5; background:var(--bg); }
-    .callout.warn { border-left-color:var(--warn); background:var(--warn-bg); color:#7C4A11; }
-    .callout.good { border-left-color:var(--up); background:var(--up-bg); color:#15603F; }
+    .callout.warn { border-left-color:var(--warn); background:var(--warn-bg); color:#7A4E18; }
+    .callout.good { border-left-color:var(--up); background:var(--up-bg); color:#17603A; }
     .callout b { font-weight:700; }
     .callout .co-head { font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; opacity:.8; margin-bottom:3px; }
     .callouts:empty { display:none; }
     .cac-head-right { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
     /* Secondary count columns — present for context, but they must not compete
        with cost / CAC / vs-blended / flag, which are what the tables are read for. */
-    thead th.count-2nd { color:#B6BFCC; font-weight:500; }
+    thead th.count-2nd { color:#BCC3BD; font-weight:500; }
     tbody td.count-2nd { font-size:11.5px; font-weight:500; color:var(--muted); }
     /* In the totals row the same de-emphasis would read as a rendering fault — two
        small grey numbers stranded among bold black ones. Keep the row's size and
@@ -218,7 +190,7 @@
     .period-note { font-size:11px; color:rgba(255,255,255,.55); line-height:1.5; }
     .period-note b { color:rgba(255,255,255,.85); font-weight:600; }
     .fixed-tag { display:inline-flex; align-items:center; font-size:8.5px; font-weight:700; letter-spacing:.04em;
-      text-transform:uppercase; padding:2px 5px; border-radius:3px; color:var(--purple); background:#F5F3FF; border:1px solid #DDD6FE; }
+      text-transform:uppercase; padding:2px 5px; border-radius:3px; color:var(--purple); background:#F4F0F6; border:1px solid #DFD3E4; }
 
     /* ── Table filter + sortable headers ── */
     .table-filter { font-family:inherit; font-size:11.5px; color:var(--h); background:var(--bg);
@@ -235,19 +207,19 @@
       font-size:9px; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
       color:var(--muted); background:var(--bg); border:1px solid var(--border);
       border-radius:3px; padding:1px 5px; }
-    .shop-tag.lekmer { color:var(--purple); background:#F5F3FF; border-color:#DDD6FE; }
+    .shop-tag.lekmer { color:var(--purple); background:#F4F0F6; border-color:#DFD3E4; }
 
     /* ── Awaiting-Norce sample treatment ── */
-    .awaiting { position:relative; border-style:dashed; border-color:#D8DEE8; }
+    .awaiting { position:relative; border-style:dashed; border-color:#DAE3DC; }
     .awaiting::before {
       content:''; position:absolute; inset:0; pointer-events:none; z-index:1; border-radius:var(--r);
       background:repeating-linear-gradient(135deg, rgba(148,163,184,.075) 0 9px, rgba(148,163,184,0) 9px 20px);
     }
-    .awaiting .kpi-value, .awaiting .chart-title, .awaiting tbody td:first-child { color:#64748B; }
+    .awaiting .kpi-value, .awaiting .chart-title, .awaiting tbody td:first-child { color:#6B7078; }
     .awaiting .chart-wrap, .awaiting table { opacity:.72; filter:saturate(.55); }
-    .sample-tag { font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--warn); background:var(--warn-bg); border:1px solid #F4D7A8; border-radius:3px; padding:2px 7px; white-space:nowrap; }
-    .sample-tag.live { color:var(--up); background:var(--up-bg); border-color:#BBE8D0; }
-    .sample-banner { position:relative; z-index:2; font-size:11px; line-height:1.5; padding:9px 13px; border-radius:var(--r-sm); background:var(--warn-bg); border:1px solid #F4D7A8; color:#7C4A11; margin-bottom:14px; display:flex; gap:8px; align-items:flex-start; }
+    .sample-tag { font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--warn); background:var(--warn-bg); border:1px solid #EDD7B0; border-radius:3px; padding:2px 7px; white-space:nowrap; }
+    .sample-tag.live { color:var(--up); background:var(--up-bg); border-color:#C3E3CE; }
+    .sample-banner { position:relative; z-index:2; font-size:11px; line-height:1.5; padding:9px 13px; border-radius:var(--r-sm); background:var(--warn-bg); border:1px solid #EDD7B0; color:#7A4E18; margin-bottom:14px; display:flex; gap:8px; align-items:flex-start; }
     .sample-banner svg { flex-shrink:0; margin-top:1px; }
     .sample-banner b { font-weight:700; }
     .sample-banner.hidden, .sample-tag.hidden { display:none; }
@@ -270,30 +242,12 @@
 </head>
 <body>
 
-<header>
-  <div class="logo">
-    <div class="logo-mark">bs</div>
-    <div>
-      <div class="logo-wordmark">Babyshop</div>
-      <div class="logo-sub">Customer Insights</div>
-    </div>
-  </div>
-  <nav class="nav-tabs">
-    <a href="/babyshop-dashboard.html" class="nav-tab">KV Overview</a>
-    <a href="/babyshop-product-dashboard.html" class="nav-tab">Products</a>
-    <a href="/babyshop-customer-dashboard.html" class="nav-tab active">Customer Insights</a>
-    <a href="/babyshop-segments-dashboard.html" class="nav-tab">Segments</a>
-    <a href="/babyshop-inventory-dashboard.html" class="nav-tab">Inventory</a>
-    <a href="/babyshop-stoy-dashboard.html" class="nav-tab">Stoy Test</a>
-    <a href="/babyshop-roas-impact.html" class="nav-tab">ROAS Impact</a>
-    <a href="/babyshop-roas-simulations.html" class="nav-tab">ROAS Simulations</a>
-    <a href="/babyshop-voyado-dashboard.html" class="nav-tab">Email (Voyado)</a>
-  </nav>
-  <div class="header-right">
-    <div class="refresh-pill" id="refreshPill" title=""></div>
-    <div class="live-dot">Live · Funnel.io · AA/BS/LM/MJ Combo</div>
-  </div>
-</header>
+<header id="app-header" data-page="customers"></header>
+<template data-header-extra>
+  <div class="refresh-pill" id="refreshPill" title=""></div>
+  <div class="live-dot">Live · Funnel.io · AA/BS/LM/MJ Combo</div>
+</template>
+<script src="/nav.js"></script>
 
 <main>
 
@@ -312,7 +266,7 @@
   </div>
 
   <div class="caveat-strip" id="caveat-strip" style="display:none">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#A9621A" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
     <div style="flex:1">
       <b>Read these before acting on the numbers</b>
       <ul id="caveat-list"></ul>
@@ -356,7 +310,7 @@
       <div class="metric-chips" id="trend-chips"></div>
     </div>
     <div class="sample-banner" id="trend-banner">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#A9621A" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
       <div><b>Sample layout — awaiting Norce sync.</b> Customer counts come from Norce order history; the funnel customer feed is no longer
         used. The CAC line stays hidden until real order data is present.</div>
     </div>
@@ -431,7 +385,7 @@
         <span class="chart-badge" id="cohort-badge">SEK / customer</span>
       </div>
       <div class="sample-banner" id="cohort-banner">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#A9621A" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
         <div><b>Sample layout — awaiting Norce sync.</b> Illustrative shape only. Real cohorts start 2025-06-11 (platform cutover), so the first cohort reaches month 12 in mid-2026.</div>
       </div>
       <div class="chart-wrap" id="cohort-wrap">
@@ -456,7 +410,7 @@
         </div>
       </div>
       <div class="sample-banner" id="clv-banner">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#A9621A" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
         <div><b>Sample layout — awaiting Norce sync.</b> CLV column is illustrative. The CAC and ratio columns are marked
           <i>real</i> only when the funnel snapshot has cost for that market.</div>
       </div>
@@ -489,7 +443,7 @@
         <span class="sample-tag" id="repeat-tag">Sample</span>
       </div>
       <div class="sample-banner" id="repeat-banner">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#A9621A" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
         <div><b>Sample layout — awaiting Norce sync.</b> Repeat/churn needs order history keyed on hashed buyer email; Norce has no stable customer id.</div>
       </div>
       <div class="chart-wrap short" id="repeat-wrap">
@@ -550,7 +504,7 @@
       </div>
     </div>
     <div class="sample-banner" id="fp-banner">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#A9621A" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
       <div><b>Sample layout — awaiting Norce sync.</b> Real names come from Norce products/manufacturers/categories joined on part number —
         order lines only carry variant names, so the sync must resolve them.</div>
     </div>
@@ -1091,8 +1045,8 @@ const matchCust = r => matchMarket(r) && matchShop(r);
 
 /* ── New vs returning trend ─────────────────────────────────────────────── */
 const TREND_LINES = {
-  share: { label:'New share %', color:'#B45309' },
-  cac:   { label:'CAC',         color:'#6D28D9' },
+  share: { label:'New share %', color:'#A9621A' },
+  cac:   { label:'CAC',         color:'#7E5A8C' },
 };
 let activeLines = new Set(['share']);
 let trendChart = null;
@@ -1166,8 +1120,8 @@ function renderTrend(){
   const showCac = activeLines.has('cac') && cacs.some(v=>v!=null);
 
   const datasets = [
-    { type:'bar', label:'New customers', data:rows.map(r=>r.new_customers), backgroundColor:'#1E3A8A', stack:'c', order:3, yAxisID:'y', borderRadius:2 },
-    { type:'bar', label:'Returning customers', data:rows.map(r=>r.old_customers), backgroundColor:'#B7C4E2', stack:'c', order:3, yAxisID:'y', borderRadius:2 },
+    { type:'bar', label:'New customers', data:rows.map(r=>r.new_customers), backgroundColor:'#235837', stack:'c', order:3, yAxisID:'y', borderRadius:2 },
+    { type:'bar', label:'Returning customers', data:rows.map(r=>r.old_customers), backgroundColor:'#BBD2C4', stack:'c', order:3, yAxisID:'y', borderRadius:2 },
   ];
   if (activeLines.has('share'))
     datasets.push({ type:'line', label:'New share %', data:shares, borderColor:TREND_LINES.share.color, backgroundColor:TREND_LINES.share.color,
@@ -1181,7 +1135,7 @@ function renderTrend(){
     options:{
       responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
       plugins:{
-        legend:{ position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569', padding:12 } },
+        legend:{ position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#3F4650', padding:12 } },
         tooltip:{ callbacks:{ label:c=>{
           const v = c.parsed.y;
           if (v==null) return c.dataset.label+': —';
@@ -1191,10 +1145,10 @@ function renderTrend(){
         } } },
       },
       scales:{
-        x:{ stacked:true, grid:{display:false}, ticks:{ font:{size:10}, color:'#94A3B8' } },
-        y:{ stacked:true, position:'left', beginAtZero:true, grid:{color:'#F1F3F5'},
-            ticks:{ font:{size:10}, color:'#94A3B8', callback:v=>fmtInt(v) },
-            title:{ display:true, text:'customers', font:{size:10}, color:'#94A3B8' } },
+        x:{ stacked:true, grid:{display:false}, ticks:{ font:{size:10}, color:'#8C9098' } },
+        y:{ stacked:true, position:'left', beginAtZero:true, grid:{color:'#F2EFEB'},
+            ticks:{ font:{size:10}, color:'#8C9098', callback:v=>fmtInt(v) },
+            title:{ display:true, text:'customers', font:{size:10}, color:'#8C9098' } },
         y1:{ display:activeLines.has('share'), position:'right', beginAtZero:true, suggestedMax:100, grid:{display:false},
              ticks:{ font:{size:10}, color:TREND_LINES.share.color, callback:v=>v+'%' } },
         y2:{ display:showCac, position:'right', beginAtZero:true, grid:{display:false},
@@ -1549,7 +1503,7 @@ function setSampleTreatment(isSample){
        Customers are identified by hashed buyer email; gross line values excluding shipping.`;
 }
 
-const COHORT_COLORS = ['#1E3A8A','#2563EB','#6D28D9','#B45309','#047857','#0891B2'];
+const COHORT_COLORS = ['#235837','#1B2839','#ED7558','#A9621A','#3E86A3','#7E5A8C'];
 let cohortChart = null, repeatChart = null;
 
 function renderCohorts(src){
@@ -1589,13 +1543,13 @@ function renderCohorts(src){
     options:{
       responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
       plugins:{
-        legend:{ position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569', padding:12 } },
+        legend:{ position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#3F4650', padding:12 } },
         tooltip:{ callbacks:{ label:c=> c.dataset.label+': '+(c.parsed.y==null?'—':fmtKr(c.parsed.y)) } },
       },
       scales:{
-        x:{ grid:{display:false}, ticks:{ font:{size:10}, color:'#94A3B8' },
-            title:{display:true, text:'months since first order', font:{size:10}, color:'#94A3B8'} },
-        y:{ beginAtZero:true, grid:{color:'#F1F3F5'}, ticks:{ font:{size:10}, color:'#94A3B8', callback:v=>fmtInt(v) } },
+        x:{ grid:{display:false}, ticks:{ font:{size:10}, color:'#8C9098' },
+            title:{display:true, text:'months since first order', font:{size:10}, color:'#8C9098'} },
+        y:{ beginAtZero:true, grid:{color:'#F2EFEB'}, ticks:{ font:{size:10}, color:'#8C9098', callback:v=>fmtInt(v) } },
       },
     },
   });
@@ -1781,32 +1735,32 @@ function renderChurn(src){
       type:'line',
       data:{ labels: months.map(MONTH_LBL), datasets:[
         { label:'Repeat rate', data: months.map(m=>{ const o=byMonth.get(m); return o.rateW ? o.rateSum/o.rateW*100 : null; }),
-          borderColor:'#047857', backgroundColor:'#04785714', fill:true, tension:.3, borderWidth:2, pointRadius:2, pointHoverRadius:5, spanGaps:true },
+          borderColor:'#1E7A45', backgroundColor:'#1E7A4514', fill:true, tension:.3, borderWidth:2, pointRadius:2, pointHoverRadius:5, spanGaps:true },
         { label:'Returning share of orders', data: months.map(m=>{ const o=byMonth.get(m); const t=o.n+o.ret; return t? o.ret/t*100 : null; }),
-          borderColor:'#93A8D8', borderDash:[5,4], fill:false, tension:.3, borderWidth:2, pointRadius:2, pointHoverRadius:5, spanGaps:true },
+          borderColor:'#9FBFAC', borderDash:[5,4], fill:false, tension:.3, borderWidth:2, pointRadius:2, pointHoverRadius:5, spanGaps:true },
       ]},
       options:{
         responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
-        plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569', padding:12 } },
+        plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#3F4650', padding:12 } },
           tooltip:{ callbacks:{ label:c=> c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y.toLocaleString('sv-SE',{maximumFractionDigits:1})+'%') } } },
-        scales:{ x:{ grid:{display:false}, ticks:{font:{size:10}, color:'#94A3B8'} },
-                 y:{ beginAtZero:true, grid:{color:'#F1F3F5'}, ticks:{font:{size:10}, color:'#94A3B8', callback:v=>v+'%'} } },
+        scales:{ x:{ grid:{display:false}, ticks:{font:{size:10}, color:'#8C9098'} },
+                 y:{ beginAtZero:true, grid:{color:'#F2EFEB'}, ticks:{font:{size:10}, color:'#8C9098', callback:v=>v+'%'} } },
       },
     });
   } else {
     repeatChart = new Chart(canvas, {
       type:'bar',
       data:{ labels: sorted.map(r=> r.shop ? `${r.market} · ${SHOP_LBL(r.shop)}` : r.market), datasets:[
-        { label:'Repeat rate', data: sorted.map(r=>(num(r.repeat_rate)||0)*100), backgroundColor:'#047857', borderRadius:2 },
+        { label:'Repeat rate', data: sorted.map(r=>(num(r.repeat_rate)||0)*100), backgroundColor:'#1E7A45', borderRadius:2 },
         { label:'Churn 12m', data: sorted.map(r=>{ const rep=num(r.repeat_rate); const ch=num(r.churn_12m) ?? (rep!=null?1-rep:0); return ch*100; }),
-          backgroundColor:'#E2E8F0', borderRadius:2 },
+          backgroundColor:'#E3DFD8', borderRadius:2 },
       ]},
       options:{
         responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
-        plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569', padding:12 } },
+        plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#3F4650', padding:12 } },
           tooltip:{ callbacks:{ label:c=> c.dataset.label+': '+c.parsed.y.toLocaleString('sv-SE',{maximumFractionDigits:1})+'%' } } },
-        scales:{ x:{ stacked:true, grid:{display:false}, ticks:{font:{size:10}, color:'#94A3B8'} },
-                 y:{ stacked:true, beginAtZero:true, max:100, grid:{color:'#F1F3F5'}, ticks:{font:{size:10}, color:'#94A3B8', callback:v=>v+'%'} } },
+        scales:{ x:{ stacked:true, grid:{display:false}, ticks:{font:{size:10}, color:'#8C9098'} },
+                 y:{ stacked:true, beginAtZero:true, max:100, grid:{color:'#F2EFEB'}, ticks:{font:{size:10}, color:'#8C9098', callback:v=>v+'%'} } },
       },
     });
   }

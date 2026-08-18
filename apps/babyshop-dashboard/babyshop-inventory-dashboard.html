@@ -4,75 +4,21 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Inventory Dashboard · Babyshop</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/brand.css">
   <script src="/chart.umd.js"></script>
   <script src="/table-tools.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg:        #F7F8FA;
-      --card:      #FFFFFF;
-      --border:    #E5E7EB;
-      --border-lt: #F1F3F5;
-      --h:         #0F172A;
-      --body:      #475569;
-      --muted:     #94A3B8;
-      --accent:    #C2410C;
-      --accent-bg: #FFF7ED;
-      --hero:      #B91C1C;
-      --hero-bg:   #FEF2F2;
-      --green:     #047857;
-      --up:        #047857;
-      --up-bg:     #ECFDF5;
-      --down:      #B91C1C;
-      --down-bg:   #FEF2F2;
-      --warn:      #B45309;
-      --warn-bg:   #FFFBEB;
-      --shadow-sm: 0 1px 2px rgba(15,23,42,.04);
-      --shadow:    0 1px 3px rgba(15,23,42,.06);
-      --r:         8px;
-      --r-sm:      4px;
+      --accent:#C4461F;    /* coral-dark — Inventory signature */
+      --accent-bg:#FCF2ED;
+      --hero:#B93A22; --hero-bg:#FBEDE8;
     }
     html { font-size: 16px; }
     body {
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-family: 'Jost', system-ui, -apple-system, sans-serif;
       background: var(--bg); color: var(--body);
       min-height: 100vh; -webkit-font-smoothing: antialiased;
-    }
-    header {
-      background: var(--h); color: white; padding: 0 32px; height: 58px;
-      display: flex; align-items: center; justify-content: space-between;
-      position: sticky; top: 0; z-index: 100;
-    }
-    .logo { display: flex; align-items: center; gap: 12px; }
-    .logo-mark {
-      width: 34px; height: 34px; background: var(--accent); border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 15px; font-weight: 700; color: white;
-    }
-    .logo-wordmark { font-size: 14px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-    .logo-sub      { font-size: 10px; font-weight: 400; letter-spacing: .1em; text-transform: uppercase; color: rgba(255,255,255,.45); margin-top: 1px; }
-    .nav-tabs { display: flex; align-items: center; gap: 2px; }
-    .nav-tab {
-      padding: 6px 14px; font-size: 12px; font-weight: 500; letter-spacing: .03em;
-      color: rgba(255,255,255,.5); border-radius: 6px;
-      text-decoration: none; transition: all .15s;
-    }
-    .nav-tab:hover { color: rgba(255,255,255,.8); background: rgba(255,255,255,.08); }
-    .nav-tab.active { color: white; background: rgba(255,255,255,.12); }
-    .live-dot {
-      display: flex; align-items: center; gap: 6px;
-      font-size: 11px; color: rgba(255,255,255,.45); letter-spacing: .04em;
-    }
-    .live-dot::before {
-      content: ''; width: 6px; height: 6px; border-radius: 50%;
-      background: #4E9B65; box-shadow: 0 0 0 2px rgba(78,155,101,.3);
-      animation: blink 2s ease-in-out infinite;
-    }
-    @keyframes blink {
-      0%,100% { box-shadow: 0 0 0 2px rgba(78,155,101,.3); }
-      50%      { box-shadow: 0 0 0 5px rgba(78,155,101,.1); }
     }
     main { max-width: 1380px; margin: 0 auto; padding: 26px 32px 56px; }
     .filter-bar {
@@ -161,11 +107,11 @@
       padding: 2px 7px; border-radius: 10px;
       font-size: 11px; font-weight: 700;
     }
-    .stock-1 { background: #FEE2E2; color: #B91C1C; }
-    .stock-2 { background: #FFEDD5; color: #C2410C; }
-    .stock-3, .stock-4 { background: #FEF3C7; color: #B45309; }
-    .stock-5, .stock-6, .stock-7 { background: #ECFCCB; color: #65A30D; }
-    .stock-8, .stock-9, .stock-10 { background: #DCFCE7; color: #15803D; }
+    .stock-1 { background: #F7DACF; color: #B93A22; }
+    .stock-2 { background: #F8E7D6; color: #C4461F; }
+    .stock-3, .stock-4 { background: #F8EBD2; color: #A9621A; }
+    .stock-5, .stock-6, .stock-7 { background: #E9F6CE; color: #7A9A2E; }
+    .stock-8, .stock-9, .stock-10 { background: #DFF0E3; color: #1E7A45; }
     table.sortable thead th {
       cursor: pointer; user-select: none;
       position: relative; padding-right: 18px;
@@ -237,9 +183,9 @@
       display: flex; align-items: flex-start; gap: 7px;
       margin-top: 10px; padding: 9px 12px;
       background: var(--accent-bg);
-      border: 1px solid #FFD9B8;
+      border: 1px solid #F6DCC4;
       border-radius: var(--r-sm);
-      font-size: 11px; line-height: 1.55; color: #9A3412;
+      font-size: 11px; line-height: 1.55; color: #96471A;
     }
     .source-note svg { flex-shrink: 0; color: var(--accent); margin-top: 2px; }
     .source-note code { font-size: 10.5px; background: rgba(154,52,18,.08); border-radius: 3px; padding: 1px 4px; }
@@ -257,27 +203,11 @@
 </head>
 <body>
 
-<header>
-  <div class="logo">
-    <div class="logo-mark">bs</div>
-    <div>
-      <div class="logo-wordmark">Babyshop</div>
-      <div class="logo-sub">Inventory &amp; Stockout Insights</div>
-    </div>
-  </div>
-  <nav class="nav-tabs">
-    <a href="/babyshop-dashboard.html" class="nav-tab">KV Overview</a>
-    <a href="/babyshop-product-dashboard.html" class="nav-tab">Products</a>
-    <a href="/babyshop-customer-dashboard.html" class="nav-tab">Customer Insights</a>
-    <a href="/babyshop-segments-dashboard.html" class="nav-tab">Segments</a>
-    <a href="/babyshop-inventory-dashboard.html" class="nav-tab active">Inventory</a>
-    <a href="/babyshop-stoy-dashboard.html" class="nav-tab">Stoy Test</a>
-    <a href="/babyshop-roas-impact.html" class="nav-tab">ROAS Impact</a>
-    <a href="/babyshop-roas-simulations.html" class="nav-tab">ROAS Simulations</a>
-    <a href="/babyshop-voyado-dashboard.html" class="nav-tab">Email (Voyado)</a>
-  </nav>
+<header id="app-header" data-page="inventory"></header>
+<template data-header-extra>
   <div class="live-dot">Live · Channable feed · Babyshop SE</div>
-</header>
+</template>
+<script src="/nav.js"></script>
 
 <main>
 
@@ -502,13 +432,13 @@ function renderDeadCharts() {
       labels: DATA.dead_by_brand.slice(0,12).map(r => r.brand),
       datasets: [{ label:'Archive value',
         data: DATA.dead_by_brand.slice(0,12).map(r => r.value),
-        backgroundColor: '#C2410C', borderRadius: 3 }]
+        backgroundColor: '#C4461F', borderRadius: 3 }]
     },
     options: { indexAxis:'y', responsive:true, maintainAspectRatio:false,
       plugins: { legend:{display:false},
         tooltip:{callbacks:{label:ctx=>' '+fmtSEK(ctx.parsed.x)+' · '+fmtNum(DATA.dead_by_brand[ctx.dataIndex].count)+' SKUs'}}},
-      scales: { x:{grid:{color:'rgba(15,23,42,.05)'},ticks:{callback:v=>fmtSEK(v),font:{size:10},color:'#94A3B8'}},
-                y:{grid:{display:false},ticks:{font:{size:11},color:'#475569'}}}}
+      scales: { x:{grid:{color:'rgba(15,23,42,.05)'},ticks:{callback:v=>fmtSEK(v),font:{size:10},color:'#8C9098'}},
+                y:{grid:{display:false},ticks:{font:{size:11},color:'#3F4650'}}}}
   });
   charts.deadCat = new Chart(document.getElementById('c-dead-cat'), {
     type: 'bar',
@@ -516,13 +446,13 @@ function renderDeadCharts() {
       labels: DATA.dead_by_cat.slice(0,10).map(r => r.cat),
       datasets: [{ label:'Archive value',
         data: DATA.dead_by_cat.slice(0,10).map(r => r.value),
-        backgroundColor: '#B45309', borderRadius: 3 }]
+        backgroundColor: '#A9621A', borderRadius: 3 }]
     },
     options: { indexAxis:'y', responsive:true, maintainAspectRatio:false,
       plugins: { legend:{display:false},
         tooltip:{callbacks:{label:ctx=>' '+fmtSEK(ctx.parsed.x)+' · '+fmtNum(DATA.dead_by_cat[ctx.dataIndex].count)+' SKUs'}}},
-      scales: { x:{grid:{color:'rgba(15,23,42,.05)'},ticks:{callback:v=>fmtSEK(v),font:{size:10},color:'#94A3B8'}},
-                y:{grid:{display:false},ticks:{font:{size:11},color:'#475569'}}}}
+      scales: { x:{grid:{color:'rgba(15,23,42,.05)'},ticks:{callback:v=>fmtSEK(v),font:{size:10},color:'#8C9098'}},
+                y:{grid:{display:false},ticks:{font:{size:11},color:'#3F4650'}}}}
   });
 }
 
@@ -761,14 +691,14 @@ fetchLiveAndRender();
 
 /* ── Inventory Trends (daily snapshots from /api/inventory-trends) ─── */
 const TREND_METRICS = {
-  stock_value_sek:      { label:'Stock value',       color:'#1E3A8A', unit:'sek',   fmt:fmtSEK },
-  dead_value_sek:       { label:'Archive value',  color:'#C2410C', unit:'sek',   fmt:fmtSEK },
-  oos_lost_revenue_sek: { label:'OOS lost / mo',     color:'#B91C1C', unit:'sek',   fmt:fmtSEK },
-  active_skus:          { label:'Active SKUs',       color:'#047857', unit:'count', fmt:fmtNum },
-  dead_skus:            { label:'Dead SKUs',         color:'#B45309', unit:'count', fmt:fmtNum },
-  oos_count:            { label:'OOS SKUs',          color:'#BE185D', unit:'count', fmt:fmtNum },
-  low_stock_count:      { label:'Low stock SKUs',    color:'#0891B2', unit:'count', fmt:fmtNum },
-  avg_discount_pct:     { label:'Avg discount %',    color:'#6D28D9', unit:'pct',   fmt:v=>v.toFixed(1)+'%' },
+  stock_value_sek:      { label:'Stock value',       color:'#235837', unit:'sek',   fmt:fmtSEK },
+  dead_value_sek:       { label:'Archive value',  color:'#C4461F', unit:'sek',   fmt:fmtSEK },
+  oos_lost_revenue_sek: { label:'OOS lost / mo',     color:'#B93A22', unit:'sek',   fmt:fmtSEK },
+  active_skus:          { label:'Active SKUs',       color:'#1E7A45', unit:'count', fmt:fmtNum },
+  dead_skus:            { label:'Dead SKUs',         color:'#A9621A', unit:'count', fmt:fmtNum },
+  oos_count:            { label:'OOS SKUs',          color:'#A63F63', unit:'count', fmt:fmtNum },
+  low_stock_count:      { label:'Low stock SKUs',    color:'#3E86A3', unit:'count', fmt:fmtNum },
+  avg_discount_pct:     { label:'Avg discount %',    color:'#7E5A8C', unit:'pct',   fmt:v=>v.toFixed(1)+'%' },
 };
 let activeTrends = new Set(['stock_value_sek', 'dead_value_sek']);
 let trendChart = null;
@@ -828,22 +758,22 @@ function renderTrendChart() {
   });
 
   const scales = {
-    x: { grid:{display:false}, ticks:{font:{size:10},color:'#94A3B8',maxRotation:0,maxTicksLimit:10} },
+    x: { grid:{display:false}, ticks:{font:{size:10},color:'#8C9098',maxRotation:0,maxTicksLimit:10} },
   };
   if (hasSek) scales.ySek = {
     type:'linear', position:'left',
     grid:{color:'rgba(15,23,42,.05)'},
-    ticks:{callback:v=>fmtSEK(v),font:{size:10},color:'#94A3B8'},
+    ticks:{callback:v=>fmtSEK(v),font:{size:10},color:'#8C9098'},
   };
   if (hasCount) scales.yCount = {
     type:'linear', position: hasSek ? 'right' : 'left',
     grid:{drawOnChartArea: !hasSek, color:'rgba(15,23,42,.05)'},
-    ticks:{callback:v=>fmtNum(v),font:{size:10},color:'#94A3B8'},
+    ticks:{callback:v=>fmtNum(v),font:{size:10},color:'#8C9098'},
   };
   if (hasPct) scales.yPct = {
     type:'linear', position: 'right',
     grid:{drawOnChartArea: false},
-    ticks:{callback:v=>v.toFixed(0)+'%',font:{size:10},color:'#94A3B8'},
+    ticks:{callback:v=>v.toFixed(0)+'%',font:{size:10},color:'#8C9098'},
   };
 
   if (trendChart) trendChart.destroy();
@@ -855,7 +785,7 @@ function renderTrendChart() {
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: true, position: 'bottom',
-                  labels: { boxWidth:10, boxHeight:10, font:{size:11}, color:'#475569', padding:12 } },
+                  labels: { boxWidth:10, boxHeight:10, font:{size:11}, color:'#3F4650', padding:12 } },
         tooltip: { callbacks: { label: ctx => {
           if (ctx.parsed.y == null) return null;
           return ' ' + ctx.dataset.label + ': ' + ctx.dataset._fmt(ctx.parsed.y);

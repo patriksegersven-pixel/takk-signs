@@ -140,6 +140,7 @@ VOYADO_HTML    = STATIC_DIR / "babyshop-voyado-dashboard.html"
 TABLE_TOOLS_JS = STATIC_DIR / "table-tools.js"
 CHART_JS       = STATIC_DIR / "chart.umd.js"
 BRAND_CSS      = STATIC_DIR / "brand.css"
+NAV_JS         = STATIC_DIR / "nav.js"
 LOGO_SVG       = STATIC_DIR / "babyshop-logo.svg"
 FONTS_DIR      = STATIC_DIR / "fonts"
 # Explicit allow-list, not a directory walk: the path segment comes from the
@@ -219,6 +220,13 @@ def chart_js(_: str = Depends(verify)):
 @app.get("/brand.css")
 def brand_css(_: str = Depends(verify)):
     return FileResponse(BRAND_CSS, media_type="text/css")
+
+
+# Config-driven header/nav. Every page renders its header from this file's PAGES
+# registry, so a new dashboard page is one line there plus a route above.
+@app.get("/nav.js")
+def nav_js(_: str = Depends(verify)):
+    return FileResponse(NAV_JS, media_type="application/javascript")
 
 
 @app.get("/babyshop-logo.svg")

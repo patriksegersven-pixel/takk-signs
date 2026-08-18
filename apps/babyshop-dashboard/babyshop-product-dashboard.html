@@ -4,8 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Product Dashboard · Babyshop</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/brand.css">
   <script src="/chart.umd.js"></script>
   <!-- Shared column filters + CSV/Sheets export. Tables opt in with data-tools and
        are re-scanned automatically when a render function rebuilds their rows. -->
@@ -13,92 +12,18 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg:        #F7F8FA;
-      --card:      #FFFFFF;
-      --border:    #E5E7EB;
-      --border-lt: #F1F3F5;
-      --h:         #0F172A;
-      --body:      #475569;
-      --muted:     #94A3B8;
-      --accent:    #0F766E;    /* teal — Product signature */
-      --accent-bg: #F0FDFA;
-      --hero:      #B45309;    /* amber — GP3-Shopping hero */
-      --hero-bg:   #FFFBEB;
-      --green:     #047857;
-      --amber:     #B45309;
-      --purple:    #6D28D9;
-      --up:        #047857;
-      --up-bg:     #ECFDF5;
-      --down:      #B91C1C;
-      --down-bg:   #FEF2F2;
-      --shadow-sm: 0 1px 2px rgba(15,23,42,.04);
-      --shadow:    0 1px 3px rgba(15,23,42,.06);
-      --r:         8px;
-      --r-sm:      4px;
+      --accent:#2E6F5E;    /* teal-green — Product signature */
+      --accent-bg:#EAF2EF;
     }
     html { font-size: 16px; }
     body {
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-family: 'Jost', system-ui, -apple-system, sans-serif;
       background: var(--bg); color: var(--body);
       min-height: 100vh; -webkit-font-smoothing: antialiased;
     }
 
     /* ── Header ─────────────────────────────────────── */
-    header {
-      background: var(--h); color: white; padding: 0 32px; height: 58px;
-      display: flex; align-items: center; justify-content: space-between;
-      position: sticky; top: 0; z-index: 100;
-    }
-    .logo { display: flex; align-items: center; gap: 12px; }
-    .logo-mark {
-      width: 34px; height: 34px; background: var(--accent); border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 15px; font-weight: 700; color: white;
-    }
-    .logo-wordmark { font-size: 14px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-    .logo-sub      { font-size: 10px; font-weight: 400; letter-spacing: .1em; text-transform: uppercase; color: rgba(255,255,255,.45); margin-top: 1px; }
-    .nav-tabs { display: flex; align-items: center; gap: 2px; }
-    .nav-tab {
-      padding: 6px 14px; font-size: 12px; font-weight: 500; letter-spacing: .03em;
-      color: rgba(255,255,255,.5); border-radius: 6px;
-      text-decoration: none; transition: all .15s;
-    }
-    .nav-tab:hover { color: rgba(255,255,255,.8); background: rgba(255,255,255,.08); }
-    .nav-tab.active { color: white; background: rgba(255,255,255,.12); }
-    .live-dot {
-      display: flex; align-items: center; gap: 6px;
-      font-size: 11px; color: rgba(255,255,255,.45); letter-spacing: .04em;
-    }
-    .live-dot::before {
-      content: ''; width: 6px; height: 6px; border-radius: 50%;
-      background: #4E9B65; box-shadow: 0 0 0 2px rgba(78,155,101,.3);
-      animation: blink 2s ease-in-out infinite;
-    }
-    @keyframes blink {
-      0%,100% { box-shadow: 0 0 0 2px rgba(78,155,101,.3); }
-      50%      { box-shadow: 0 0 0 5px rgba(78,155,101,.1); }
-    }
 
-    .refresh-pill {
-      display: none; align-items: center; gap: 6px;
-      font-size: 11px; padding: 4px 10px; border-radius: 12px;
-      letter-spacing: .03em; cursor: help;
-      background: rgba(220, 80, 80, .15); color: #ff8a8a;
-      border: 1px solid rgba(220, 80, 80, .35);
-    }
-    .refresh-pill.show { display: inline-flex; }
-    .refresh-pill.stale {
-      background: rgba(220, 170, 60, .12); color: #f0c060;
-      border-color: rgba(220, 170, 60, .35);
-    }
-    .refresh-pill.unknown {
-      background: rgba(120, 120, 130, .12); color: rgba(255,255,255,.55);
-      border-color: rgba(120, 120, 130, .3);
-    }
-    .refresh-pill::before {
-      content: ''; width: 6px; height: 6px; border-radius: 50%;
-      background: currentColor;
-    }
 
     /* ── Main ───────────────────────────────────────── */
     main { max-width: 1380px; margin: 0 auto; padding: 26px 32px 56px; }
@@ -369,13 +294,13 @@
       display: flex; align-items: center; gap: 6px;
       margin: 10px 0 6px;
       padding: 7px 10px;
-      background: #FEF5E7;
-      border: 1px solid #FCD9A0;
+      background: #FBF3E7;
+      border: 1px solid #F3DAAE;
       border-radius: var(--r-sm);
-      font-size: 11px; color: #92400E;
+      font-size: 11px; color: #8A5416;
       line-height: 1.35;
     }
-    .chart-note svg { flex-shrink: 0; color: #B45309; }
+    .chart-note svg { flex-shrink: 0; color: #A9621A; }
 
     /* ── Dimension tab switcher ─────────────────────── */
     .dim-tabs {
@@ -504,30 +429,12 @@
 </head>
 <body>
 
-<header>
-  <div class="logo">
-    <div class="logo-mark">bs</div>
-    <div>
-      <div class="logo-wordmark">Babyshop</div>
-      <div class="logo-sub">Product Performance Dashboard</div>
-    </div>
-  </div>
-  <nav class="nav-tabs">
-    <a href="/babyshop-dashboard.html" class="nav-tab">KV Overview</a>
-    <a href="/babyshop-product-dashboard.html" class="nav-tab active">Products</a>
-    <a href="/babyshop-customer-dashboard.html" class="nav-tab">Customer Insights</a>
-    <a href="/babyshop-segments-dashboard.html" class="nav-tab">Segments</a>
-    <a href="/babyshop-inventory-dashboard.html" class="nav-tab">Inventory</a>
-    <a href="/babyshop-stoy-dashboard.html" class="nav-tab">Stoy Test</a>
-    <a href="/babyshop-roas-impact.html" class="nav-tab">ROAS Impact</a>
-    <a href="/babyshop-roas-simulations.html" class="nav-tab">ROAS Simulations</a>
-    <a href="/babyshop-voyado-dashboard.html" class="nav-tab">Email (Voyado)</a>
-  </nav>
-  <div style="display:flex;align-items:center;gap:10px;">
-    <div class="refresh-pill" id="refreshPill" title=""></div>
-    <div class="live-dot">Live · Funnel.io · AA/BS/LM/MJ Combo</div>
-  </div>
-</header>
+<header id="app-header" data-page="products"></header>
+<template data-header-extra>
+  <div class="refresh-pill" id="refreshPill" title=""></div>
+  <div class="live-dot">Live · Funnel.io · AA/BS/LM/MJ Combo</div>
+</template>
+<script src="/nav.js"></script>
 
 <main>
 
@@ -605,11 +512,11 @@
         <canvas id="c-bridge"></canvas>
       </div>
       <div class="legend-row" style="margin-top:12px">
-        <div class="legend-item"><div class="legend-dot" style="background:#0F766E"></div>Subtotal</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#CBD5E1"></div>COGS</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#B45309"></div>Ops costs</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#6D28D9"></div>Marketing</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#047857"></div>GP3-Shopping</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#2E6F5E"></div>Subtotal</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#CFCAC3"></div>COGS</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#A9621A"></div>Ops costs</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#7E5A8C"></div>Marketing</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#1E7A45"></div>GP3-Shopping</div>
       </div>
     </div>
 
@@ -636,10 +543,10 @@
         <canvas id="c-gm-struct"></canvas>
       </div>
       <div class="legend-row" style="margin-top:10px">
-        <div class="legend-item"><div class="legend-dot" style="background:#047857"></div>GP3 (kept)</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#6D28D9"></div>Marketing</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#B45309"></div>Ops costs</div>
-        <div class="legend-item"><div class="legend-dot" style="background:#CBD5E1"></div>COGS</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#1E7A45"></div>GP3 (kept)</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#7E5A8C"></div>Marketing</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#A9621A"></div>Ops costs</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#CFCAC3"></div>COGS</div>
       </div>
     </div>
 
@@ -1733,16 +1640,16 @@ const OPS_SPLIT = { returns: 0.35, shipping: 0.30, pickpack: 0.20, payment: 0.15
 
 const bridgeLabels = ['Revenue','COGS','GP1','Returns','Shipping','Pick & Pack','Payment','GP2','Marketing','GP3-Shopping'];
 const bridgeColors = [
-  '#0F766E',  // Revenue (teal)
-  '#CBD5E1',  // COGS (slate)
-  '#5EAAA1',  // GP1 subtotal
-  '#B45309',  // Returns
-  '#B45309',  // Shipping
-  '#B45309',  // Pick & Pack
-  '#B45309',  // Payment
-  '#5EAAA1',  // GP2 subtotal
-  '#6D28D9',  // Marketing
-  '#047857',  // GP3-Shopping ← hero
+  '#2E6F5E',  // Revenue (teal)
+  '#CFCAC3',  // COGS (slate)
+  '#5E9E8B',  // GP1 subtotal
+  '#A9621A',  // Returns
+  '#A9621A',  // Shipping
+  '#A9621A',  // Pick & Pack
+  '#A9621A',  // Payment
+  '#5E9E8B',  // GP2 subtotal
+  '#7E5A8C',  // Marketing
+  '#1E7A45',  // GP3-Shopping ← hero
 ];
 
 // Plugin: draw the % share of revenue on top of each bar
@@ -1761,8 +1668,8 @@ const bridgePctLabels = {
       // y-position just above the visually-higher edge of the bar
       const yTop = chart.scales.y.getPixelForValue(Math.max(lo, hi));
       ctx.save();
-      ctx.fillStyle = '#0F172A';
-      ctx.font = '600 10px Inter, system-ui, sans-serif';
+      ctx.fillStyle = '#1B2839';
+      ctx.font = '600 10px Jost, system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(`${pct.toFixed(1)}%`, bar.x, yTop - 5);
       ctx.restore();
@@ -1828,11 +1735,11 @@ function renderBridge() {
       scales: {
         x: {
           grid: { display: false },
-          ticks: { font: { size: 10 }, color: '#475569', maxRotation: 45, minRotation: 30 },
+          ticks: { font: { size: 10 }, color: '#3F4650', maxRotation: 45, minRotation: 30 },
         },
         y: {
           grid: { color: 'rgba(0,0,0,.05)' },
-          ticks: { callback: v => fmtSEK(v), font: { size: 10 }, color: '#94A3B8' },
+          ticks: { callback: v => fmtSEK(v), font: { size: 10 }, color: '#8C9098' },
         }
       }
     }
@@ -1871,25 +1778,25 @@ function showDim(dim, btn) {
         {
           label: 'GP3 (kept)',
           data: rows.map(r => r.gp3pct),
-          backgroundColor: '#047857',
+          backgroundColor: '#1E7A45',
           stack: 's',
         },
         {
           label: 'Marketing',
           data: rows.map(r => r.mkt),
-          backgroundColor: '#6D28D9',
+          backgroundColor: '#7E5A8C',
           stack: 's',
         },
         {
           label: 'Ops costs',
           data: rows.map(r => r.ops),
-          backgroundColor: '#B45309',
+          backgroundColor: '#A9621A',
           stack: 's',
         },
         {
           label: 'COGS',
           data: rows.map(r => r.cogs),
-          backgroundColor: '#CBD5E1',
+          backgroundColor: '#CFCAC3',
           stack: 's',
         },
       ]
@@ -2199,7 +2106,7 @@ const BUBBLE_DIMS = {
   categories: { label:'Categories', data: () => CATEGORIES },
   shops:      { label:'Shops',      data: () => SHOPS_PRODUCT },
 };
-const BUBBLE_COLORS = ['#0F766E','#1E3A8A','#B45309','#6D28D9','#B91C1C','#047857','#BE185D','#0891B2','#7C3AED','#16A34A','#CA8A04','#DB2777'];
+const BUBBLE_COLORS = ['#235837','#1B2839','#ED7558','#A9621A','#3E86A3','#7E5A8C','#8FB77A','#A63F63','#35935A','#B8871F','#C0537F','#6B7078'];
 
 let bubbleChart = null;
 let bubbleState = { dim:'brands', x:'revenue', y:'gm3', size:'gp3' };
@@ -2269,7 +2176,7 @@ function renderBubble() {
       responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { display: entries.length <= 15, position: 'right',
-                  labels: { boxWidth: 8, boxHeight: 8, font: { size: 10 }, color: '#475569', padding: 8 } },
+                  labels: { boxWidth: 8, boxHeight: 8, font: { size: 10 }, color: '#3F4650', padding: 8 } },
         tooltip: {
           callbacks: {
             title: items => items[0].dataset.label,
@@ -2286,19 +2193,19 @@ function renderBubble() {
       },
       scales: {
         x: {
-          title: { display: true, text: xM.label, font: { size: 11, weight: '600' }, color: '#475569' },
+          title: { display: true, text: xM.label, font: { size: 11, weight: '600' }, color: '#3F4650' },
           grid: { color: 'rgba(15,23,42,.05)' },
           ticks: {
             callback: v => xM.unit === 'pct' ? (v*100).toFixed(0)+'%' : fmtSEK(v),
-            font: { size: 10 }, color: '#94A3B8',
+            font: { size: 10 }, color: '#8C9098',
           },
         },
         y: {
-          title: { display: true, text: yM.label, font: { size: 11, weight: '600' }, color: '#475569' },
+          title: { display: true, text: yM.label, font: { size: 11, weight: '600' }, color: '#3F4650' },
           grid: { color: 'rgba(15,23,42,.05)' },
           ticks: {
             callback: v => yM.unit === 'pct' ? (v*100).toFixed(0)+'%' : fmtSEK(v),
-            font: { size: 10 }, color: '#94A3B8',
+            font: { size: 10 }, color: '#8C9098',
           },
         },
       },
@@ -2408,7 +2315,7 @@ function refreshLTFromDaily() {
 }
 refreshLTFromDaily();
 
-const LT_COLORS = ['#0F766E','#1E3A8A','#B45309','#6D28D9','#B91C1C','#047857','#BE185D','#0891B2'];
+const LT_COLORS = ['#235837','#1B2839','#ED7558','#A9621A','#3E86A3','#7E5A8C','#8FB77A','#A63F63'];
 const METRIC_IS_PCT = m => m === 'gm3';
 
 let ltMetric = 'revenue';
@@ -2504,7 +2411,7 @@ function renderLongterm() {
         legend: {
           display: true,
           position: 'bottom',
-          labels: { boxWidth:14, boxHeight:2, font:{size:11}, color:'#475569', padding:12 },
+          labels: { boxWidth:14, boxHeight:2, font:{size:11}, color:'#3F4650', padding:12 },
         },
         tooltip: {
           callbacks: {
@@ -2514,13 +2421,13 @@ function renderLongterm() {
         },
       },
       scales: {
-        x: { grid:{display:false}, ticks:{font:{size:11}, color:'#475569', maxRotation:0} },
+        x: { grid:{display:false}, ticks:{font:{size:11}, color:'#3F4650', maxRotation:0} },
         y: {
           grid: { color: 'rgba(15,23,42,.05)' },
           ticks: {
             maxTicksLimit: 8,
             callback: v => isPct ? v.toFixed(1)+'%' : fmtSEK(v),
-            font:{size:10}, color:'#94A3B8',
+            font:{size:10}, color:'#8C9098',
           },
         },
       },
