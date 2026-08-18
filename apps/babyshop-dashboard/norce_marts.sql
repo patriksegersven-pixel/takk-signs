@@ -32,6 +32,10 @@
 --     customer id (BuyerCustomerId is null on 100% of orders).
 --   • Identity is scoped PER SHOP (babyshop vs lekmer): the two are separate
 --     businesses and the same address shopping in both is two customers.
+--   • SEASON = Norce "Product Collection", a product FLAG in flag group 4 —
+--     not a field and not a parametric. One season per product: newest
+--     date-coded collection wins, else the alphabetically first lifecycle
+--     label. See product_collections below for the full rule.
 --   • History starts 2025-06-11 (platform cutover). A customer whose first
 --     Norce order falls in the first three months may well be an existing
 --     customer from the old platform — customer_facts.migration_window_flag
@@ -241,6 +245,129 @@ FROM grid g
 LEFT JOIN activity a
   ON  a.cohort_month = g.cohort_month AND a.market = g.market AND a.shop = g.shop
   AND a.months_since_first = g.months_since_first;
+
+-- @@
+-- product_collections — one row per product, resolving its "season".
+--
+-- Norce calls it PRODUCT COLLECTION and stores it as a product FLAG in flag
+-- group 4 ('Product Collection' / code productCollection). norce_sync.py lands
+-- only that group into `product_flags`, so no group filter is strictly needed
+-- here — it is applied anyway so the view stays correct if the extract ever
+-- widens.
+--
+-- ONE season per product, because the products tab shows one cell. Group 4 is
+-- IsMultipleChoice = false in Norce, yet ~6% of products carry 2-3 flags from
+-- it (measured on a 6,000-product sample: 5,653 x 1, 322 x 2, 25 x 3). The
+-- tie-break, in order:
+--   1. the NEWEST date-coded collection      — 'AW25' beats 'AW24' beats 'SS24'
+--   2. failing that, the alphabetically first non-dated one — 'CORE', 'Exited',
+--      'NOS', 'DISCONTINUED', 'Sparepart', 'Paused', 'Vendor Exited' …
+-- A date-coded collection always wins over a lifecycle label: a product that is
+-- both 'AW24' and 'Exited' belongs to AW24 and is additionally exited, and the
+-- season column is the one being asked for. `collections` carries the full list
+-- so nothing is hidden by the choice.
+--
+-- Date-coded grammar, from the live flag list:
+--   [Pre-](SS|HS|AW|HW|FW|LSS|LAW)YY   e.g. SS21, AW22, HS24, Pre-SS25, LAW15
+--   SS = spring/summer, HS = high summer, AW/HW/FW = autumn/winter, L* = the
+--   old Lekmer-prefixed variants. Rank = year*10 + phase*2, minus 1 for 'Pre-'
+--   so a pre-season sorts immediately before the season it precedes.
+--   'YY' is read as 20YY: the oldest flag in the tenant is SS10 (2010) and
+--   there is no 19xx collection, so the century is unambiguous.
+CREATE OR REPLACE VIEW `${DATASET}.product_collections` AS
+WITH flagged AS (
+  SELECT
+    pf.ProductId,
+    f.DefaultName                                                    AS collection,
+    UPPER(REGEXP_EXTRACT(f.DefaultName, r'^(?i)(?:Pre-)?(SS|HS|AW|HW|FW|LSS|LAW)\d{2}$')) AS phase,
+    CAST(REGEXP_EXTRACT(f.DefaultName, r'^(?i)(?:Pre-)?(?:SS|HS|AW|HW|FW|LSS|LAW)(\d{2})$') AS INT64) AS yy,
+    REGEXP_CONTAINS(f.DefaultName, r'^(?i)Pre-')                     AS is_pre
+  FROM `${DATASET}.product_flags` pf
+  JOIN `${DATASET}.dim_product_flags` f ON f.Id = pf.FlagId
+  WHERE f.GroupId = 4
+    AND f.DefaultName IS NOT NULL AND TRIM(f.DefaultName) != ''
+),
+ranked AS (
+  SELECT
+    ProductId, collection,
+    IF(phase IS NULL, NULL,
+       (2000 + yy) * 10
+       + CASE WHEN phase IN ('SS', 'LSS') THEN 2
+              WHEN phase = 'HS'           THEN 4
+              ELSE 6 END                                   -- AW / HW / FW / LAW
+       - IF(is_pre, 1, 0))                                             AS season_rank
+  FROM flagged
+)
+SELECT
+  ProductId,
+  -- Rule 1 then rule 2. season_rank DESC with NULLs last needs the explicit
+  -- IS NULL key first: BigQuery sorts NULLs FIRST on DESC.
+  ARRAY_AGG(collection ORDER BY season_rank IS NULL, season_rank DESC,
+                                collection LIMIT 1)[OFFSET(0)]        AS season,
+  MAX(season_rank)                                                    AS season_rank,
+  COUNT(DISTINCT collection)                                          AS collection_count,
+  STRING_AGG(DISTINCT collection, ', ' ORDER BY collection)           AS collections
+FROM ranked
+GROUP BY ProductId;
+
+-- @@
+-- sku_collections — the same season, keyed by the thing an ORDER LINE carries.
+--
+-- order_items.PartNo is the only product identifier on a Norce order line, so
+-- every revenue-weighted season number goes through here. product_skus is
+-- PartNo-unique (it is MERGEd on PartNo), so this cannot fan out.
+CREATE OR REPLACE VIEW `${DATASET}.sku_collections` AS
+SELECT
+  s.PartNo,
+  s.ProductId,
+  c.season,
+  c.season_rank,
+  c.collection_count,
+  c.collections
+FROM `${DATASET}.product_skus` s
+JOIN `${DATASET}.product_collections` c ON c.ProductId = s.ProductId;
+
+-- @@
+-- season_sales — revenue by season x brand x category, from the Norce order
+-- lines. The aggregate the products tab's Season column is derived from.
+--
+-- WHY NORCE AND NOT FUNNEL: the Funnel export has no SKU column. Its finest
+-- product identifier is Product_title__File_Import, which is an English feed
+-- title and matches Norce's variant+size name on only ~68% of product revenue
+-- (measured 2026-08-18) — too lossy to hang a column off. Norce order lines
+-- carry PartNo, which joins to the collection flag exactly, so the season MIX
+-- is computed here and only the brand/category NAME is used to attach it to a
+-- Funnel row (brand names match on 99.99% of Funnel product revenue).
+--
+-- Consequence, and it must be stated wherever these numbers surface: `revenue`
+-- here is NORCE merchandise revenue (SEK at today's rate, ex-VAT, gross, no
+-- status filtering — the marts header rules), NOT the Funnel kv_revenue_product
+-- the tab's money columns show. It is used only to RANK seasons within a
+-- brand/category, never displayed as an amount next to a Funnel figure.
+CREATE OR REPLACE VIEW `${DATASET}.season_sales` AS
+SELECT
+  o.order_date,
+  o.market,
+  o.shop,
+  COALESCE(sc.season, '(unknown)')                        AS season,
+  LOWER(TRIM(COALESCE(m.Name, '(unknown brand)')))        AS brand,
+  LOWER(TRIM(COALESCE(
+    SPLIT(cat.DefaultFullName, ' - ')[SAFE_OFFSET(2)],
+    SPLIT(cat.DefaultFullName, ' - ')[SAFE_OFFSET(1)],
+    cat.DefaultName, '(uncategorised)')))                 AS category,
+  SUM(ROUND(li.LineAmount * fx.to_sek, 2))                AS revenue,
+  SUM(li.QtyOrdered)                                      AS units
+FROM `${DATASET}.customer_orders` o
+JOIN `${DATASET}.order_items` li ON li.OrderId = o.order_id
+LEFT JOIN `${DATASET}.currency_rates` fx ON fx.currency_id = o.currency_id
+LEFT JOIN `${DATASET}.sku_collections` sc ON sc.PartNo = li.PartNo
+LEFT JOIN `${DATASET}.product_skus` s ON s.PartNo = li.PartNo
+LEFT JOIN `${DATASET}.products` p ON p.Id = s.ProductId
+LEFT JOIN `${DATASET}.dim_manufacturers` m ON m.ManufacturerId = p.ManufacturerId
+LEFT JOIN `${DATASET}.product_categories` pc ON pc.ProductId = p.Id AND pc.IsPrimary
+LEFT JOIN `${DATASET}.dim_categories` cat ON cat.Id = pc.CategoryId
+WHERE li.PartNo != '1000014'
+GROUP BY 1, 2, 3, 4, 5, 6;
 
 -- @@
 -- first_purchase_products — what NEW customers buy on their very first order.

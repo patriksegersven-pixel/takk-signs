@@ -477,6 +477,27 @@
     .gm-bar {
       height: 5px; border-radius: 3px; background: var(--green); opacity: .6; flex-shrink: 0;
     }
+
+    /* Season (Norce Product Collection). A label, not a number, so it opts out of
+       the right-aligned tabular-nums default every other body cell inherits. */
+    thead th.col-season, tbody td.col-season, tfoot td.col-season {
+      text-align: left; font-variant-numeric: normal; white-space: nowrap;
+    }
+    .season-pill {
+      display: inline-block; padding: 2px 7px; border-radius: 10px;
+      background: var(--bg); border: 1px solid var(--border);
+      font-size: 11px; font-weight: 600; color: var(--h); letter-spacing: .01em;
+    }
+    /* Share of the row's seasoned revenue that the shown collection accounts
+       for. Same visual weight as .cell-delta so the tables stay one system. */
+    .season-share {
+      margin-left: 6px; font-size: 10px; font-weight: 600; color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    /* Below this the label describes a minority of the row and is more likely to
+       flip between refreshes — dimmed so it reads as weak evidence, not wrong. */
+    .season-pill.weak { opacity: .55; }
+    .season-empty { color: var(--muted); opacity: .55; }
   </style>
 </head>
 <body>
@@ -679,6 +700,7 @@
       <thead>
         <tr>
           <th title="cf1j4pcmic8ucum_Product_type_2">Category</th>
+          <th class="col-season" title="Norce Product Collection — the dominant season for this category over the snapshot window. A category spans many collections; hover a cell for the mix.">Season</th>
           <th title="cf1j2rvf6cstma8_kv_revenue_new">Revenue</th>
           <th title="cf1j4pbh7847jbs_kv_gm1_product">GM1%</th>
           <th title="cf1j4pb7q0974md_kv_gp1_product">GP1</th>
@@ -749,6 +771,7 @@
       <thead>
         <tr>
           <th title="dim-1j4p9puragt0f_kv_brand">Brand</th>
+          <th class="col-season" title="Norce Product Collection — the dominant season for this brand over the snapshot window. A brand spans many collections; hover a cell for the mix.">Season</th>
           <th title="cf1j2rvf6cstma8_kv_revenue_new">Revenue</th>
           <th title="cf1j4pbh7847jbs_kv_gm1_product">GM1%</th>
           <th title="cf1j4pb7q0974md_kv_gp1_product">GP1</th>
@@ -1076,6 +1099,37 @@ const CATEGORIES = [
   { name:'Pants',                    revenue:271947,  gp1:155356,  gp2:68740,   gp3:42170   },
 ];
 
+/* Season snapshot metadata (window, provenance, coverage), filled in by
+ * fetchLiveAndOverlay from live.seasons. Stays null on the embedded demo data,
+ * which carries no seasons — seasonCell() renders "—" for every row then. */
+let SEASON_META = null;
+
+/* By-NAME season lookups, same source. These exist because the brand and
+ * category arrays get REPLACED wholesale by loadBreakdown() every time the
+ * period or comparison window changes, from /api/breakdown — rows straight out
+ * of BigQuery, with no season on them. Looking the label up by row name on
+ * every render keeps the column filled through those swaps instead of blanking
+ * it the first time somebody picks 90D. Keys are lowercased+trimmed on both
+ * sides so casing drift on either side cannot silently empty the column. */
+const SEASON_BY = { brands: {}, categories: {} };
+function _seasonIndex(src) {
+  const out = {};
+  if (src && typeof src === 'object') {
+    for (const k of Object.keys(src)) {
+      if (src[k] && typeof src[k] === 'object') out[String(k).trim().toLowerCase()] = src[k];
+    }
+  }
+  return out;
+}
+/* The season record for one table row, preferring what the API already merged
+ * onto it and falling back to the by-name lookup. `dim` is 'brands' | 'categories'. */
+function seasonFor(row, dim) {
+  if (row && row.season) return row;
+  const m = SEASON_BY[dim] && SEASON_BY[dim][String((row && row.name) || '').trim().toLowerCase()];
+  return m ? { season: m.season, season_share: m.share,
+               season_coverage: m.coverage, season_mix: m.mix } : null;
+}
+
 /* ─── Formatters ──────────────────────────────────── */
 const fmtSEK = v => {
   const n = Math.round(v);
@@ -1106,6 +1160,56 @@ function cellDelta(cur, prev, lowerIsBetter=false, isPP=false) {
     label = `${d>=0?'+':''}${(d*100).toFixed(1)}%`;
   }
   return ` <span class="cell-delta ${good?'up':'down'}">${arrow} ${label}</span>`;
+}
+
+/* ─── Season cell (Norce "Product Collection") ─────────────────────────────
+ * One <td> for the Season column of the Category and Brand tables.
+ *
+ * The row is an AGGREGATE — every product of that brand, or of that category —
+ * so it spans many collections. The cell shows the DOMINANT one plus its share
+ * of the row's attributable revenue; the title carries the top-3 mix and how
+ * much of the row could be attributed at all. See refresh_product_seasons.py.
+ *
+ * data-tt-value is what table-tools uses for the column filter and for the
+ * CSV/XLSX export, so both get the bare season ("AW25") while the cell renders
+ * the pill and the share. Without it the filter would list "AW25 62%" as a
+ * distinct value from "AW25 61%" and be useless.
+ * data-val is what this page's own column sort reads. */
+const SEASON_NONE = '—';
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g,
+    ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+}
+function seasonCell(rawRow, dim) {
+  const row = seasonFor(rawRow, dim);
+  const s = row && row.season;
+  if (!s) {
+    // No season is a real answer: the name did not match a Norce manufacturer /
+    // category, or nothing this row sold carried a collection.
+    return `<td class="col-season" data-val="" data-tt-value="${SEASON_NONE}"
+      title="No Norce Product Collection could be attributed to this row."
+      ><span class="season-empty">${SEASON_NONE}</span></td>`;
+  }
+  const share = (typeof row.season_share === 'number') ? row.season_share : null;
+  const cov   = (typeof row.season_coverage === 'number') ? row.season_coverage : null;
+  const mix   = Array.isArray(row.season_mix) ? row.season_mix : [];
+  const tip = [
+    // {s, v} objects, not [name, share] pairs — Firestore refuses to store an
+    // array of arrays, so the snapshot carries records. See refresh_product_seasons.
+    mix.length
+      ? 'Mix: ' + mix.map(m => `${m.s} ${fmtPct(m.v, 0)}`).join(' · ')
+      : `Dominant collection: ${s}`,
+    cov != null ? `${fmtPct(cov, 0)} of this row's Norce revenue carried a collection.` : null,
+    (typeof SEASON_META !== 'undefined' && SEASON_META && SEASON_META.window)
+      ? `Window: ${SEASON_META.window.start} → ${SEASON_META.window.end} (fixed — does not follow the period selector).`
+      : null,
+  ].filter(Boolean).join('\n');
+  // Under half the row is a minority label: still the best answer, but shown as
+  // weak evidence rather than as a fact about the whole row.
+  const weak = (share != null && share < 0.5) ? ' weak' : '';
+  return `<td class="col-season" data-val="${escHtml(s)}" data-tt-value="${escHtml(s)}"
+    title="${escHtml(tip)}"><span class="season-pill${weak}">${escHtml(s)}</span>${
+    share != null ? `<span class="season-share">${fmtPct(share, 0)}</span>` : ''}</td>`;
 }
 
 function deltaBadge(cur, prev) {
@@ -1245,7 +1349,15 @@ async function fetchLiveAndOverlay() {
     if (live.period)      PERIODS['30D'].label              = live.period.label;
     if (live.prev_period) PERIODS['30D'].compares.pop.label = live.prev_period.label;
 
-    // 2) Replace embedded arrays in-place
+    // 2) Replace embedded arrays in-place.
+    //    Season metadata FIRST: the rows carry `season` per row (merged server-side
+    //    by funnel_client), but seasonCell() reads the window off SEASON_META for
+    //    its tooltip, and the table re-render happens further down this function.
+    if (live.seasons && typeof live.seasons === 'object') {
+      SEASON_META = live.seasons;
+      SEASON_BY.brands     = _seasonIndex(live.seasons.brands);
+      SEASON_BY.categories = _seasonIndex(live.seasons.categories);
+    }
     if (Array.isArray(live.categories)) CATEGORIES.splice(0, CATEGORIES.length, ...live.categories);
     if (Array.isArray(live.brands))     BRANDS.splice    (0, BRANDS.length,     ...live.brands);
     if (Array.isArray(live.daily_long)) DAILY_LONG = live.daily_long;   // real long daily series
@@ -1809,6 +1921,7 @@ CATEGORIES.forEach(c => {
   const gm3cls = gm3 < 0.12 ? 'cell-neg' : gm3 > 0.28 ? 'cell-pos' : '';
   tbody.innerHTML += `<tr>
     <td>${c.name}</td>
+    ${seasonCell(c, 'categories')}
     <td>${fmtSEK(c.revenue)}</td>
     <td>${fmtPct(gm1)}</td>
     <td>${fmtSEK(c.gp1)}</td>
@@ -1840,6 +1953,7 @@ const _gm2P = (tRevP && tGp2P  != null) ? tGp2P  / tRevP : null;
 const _gm3P = (tRevP && tGp3cP != null) ? tGp3cP / tRevP : null;
 document.getElementById('cat-tfoot').innerHTML = `<tr class="tfoot-row">
   <td>Total</td>
+  <td class="col-season" data-tt-value=""></td>
   <td>${fmtSEK(tRev)}${cellDelta(tRev, tRevP)}</td>
   <td>${fmtPct(tGp1/tRev)}${cellDelta(tGp1/tRev, _gm1P, false, true)}</td>
   <td>${fmtSEK(tGp1)}${cellDelta(tGp1, tGp1P)}</td>
@@ -1869,6 +1983,7 @@ function renderBrandTable(){
     const gm3p = (b.gp3_prev != null && b.revenue_prev) ? b.gp3_prev / b.revenue_prev : null;
     tbody.innerHTML += `<tr>
       <td>${b.name}</td>
+      ${seasonCell(b, 'brands')}
       <td data-val="${b.revenue}">${fmtSEK(b.revenue)}${cellDelta(b.revenue, b.revenue_prev)}</td>
       <td data-val="${gm1}">${fmtPct(gm1)}${cellDelta(gm1, gm1p, false, true)}</td>
       <td data-val="${b.gp1}">${fmtSEK(b.gp1)}${cellDelta(b.gp1, b.gp1_prev)}</td>
@@ -1899,6 +2014,7 @@ function renderBrandTable(){
   const _bGm3P = (bRevP && bGp3P != null) ? bGp3P / bRevP : null;
   document.getElementById('brand-tfoot').innerHTML = `<tr class="tfoot-row">
     <td>Total (${BRANDS.length} brands)</td>
+    <td class="col-season" data-tt-value=""></td>
     <td>${fmtSEK(bRev)}${cellDelta(bRev, bRevP)}</td>
     <td>${fmtPct(bGp1/bRev)}${cellDelta(bGp1/bRev, _bGm1P, false, true)}</td>
     <td>${fmtSEK(bGp1)}${cellDelta(bGp1, bGp1P)}</td>
@@ -1927,6 +2043,7 @@ function renderCategoryTable(){
     const gm3p = (c.gp3_prev != null && c.revenue_prev) ? c.gp3_prev / c.revenue_prev : null;
     tbody.innerHTML += `<tr>
       <td>${c.name}</td>
+      ${seasonCell(c, 'categories')}
       <td data-val="${c.revenue}">${fmtSEK(c.revenue)}${cellDelta(c.revenue, c.revenue_prev)}</td>
       <td data-val="${gm1}">${fmtPct(gm1)}${cellDelta(gm1, gm1p, false, true)}</td>
       <td data-val="${c.gp1}">${fmtSEK(c.gp1)}${cellDelta(c.gp1, c.gp1_prev)}</td>
@@ -1947,6 +2064,7 @@ function renderCategoryTable(){
   const _g1=(tRevP&&tGp1P!=null)?tGp1P/tRevP:null, _g2=(tRevP&&tGp2P!=null)?tGp2P/tRevP:null, _g3=(tRevP&&tGp3cP!=null)?tGp3cP/tRevP:null;
   document.getElementById('cat-tfoot').innerHTML = `<tr class="tfoot-row">
     <td>Total</td>
+    <td class="col-season" data-tt-value=""></td>
     <td>${fmtSEK(tRev)}${cellDelta(tRev, tRevP)}</td>
     <td>${fmtPct(tGp1/tRev)}${cellDelta(tGp1/tRev, _g1, false, true)}</td>
     <td>${fmtSEK(tGp1)}${cellDelta(tGp1, tGp1P)}</td>
@@ -1962,8 +2080,13 @@ renderCategoryTable();
 /* ─── Sortable + Filterable table helpers ──────────────── */
 function tableCellValue(td) {
   if (td.hasAttribute('data-val')) {
-    const n = parseFloat(td.getAttribute('data-val'));
-    return isNaN(n) ? td.textContent.trim().toLowerCase() : n;
+    const raw = td.getAttribute('data-val');
+    const n = parseFloat(raw);
+    // A non-numeric data-val is still an explicit sort key — the Season cell
+    // sets it so the column sorts on "AW25" rather than on the rendered
+    // "AW25 62%", which would order AW25 rows by their share instead of
+    // grouping them. Only fall through to the text when data-val is absent.
+    return isNaN(n) ? raw.trim().toLowerCase() : n;
   }
   return td.textContent.trim().toLowerCase();
 }

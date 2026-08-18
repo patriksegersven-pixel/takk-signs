@@ -4,8 +4,9 @@ Norce Commerce (OData v4 Query API) → BigQuery extraction for Customer Insight
 
 Lands the raw order history in `project-a7ade44e-e7e3-4871-a83.norce` (EU, so it
 can be joined against the Funnel export, which is EU too) and then applies the
-mart SQL in `norce_marts.sql`. `refresh_customer_insights.py` reads the
-marts; nothing else in the app touches this dataset.
+mart SQL in `norce_marts.sql`. `refresh_customer_insights.py`,
+`refresh_segments.py` and `refresh_product_seasons.py` read the marts; nothing
+else in the app touches this dataset.
 
 Mirrors refresh_roas_sims.py: module-level config, a collect step, an explicit
 MissingCredentials error naming the env vars that are still unset, and a
@@ -49,6 +50,11 @@ DATA-MODEL FACTS (audited against the live prod tenant, 2026-08-16)
     ignored and all values are gross.
   • Application/* and Core/* lookups have no ApplicationId property; they are
     tenant-wide and must NOT be filtered per application.
+  • "Product collection" — the SEASON the products tab shows (SS25, AW24,
+    Pre-SS25, Exited, CORE …) — is a PRODUCT FLAG in flag group 4, named
+    'Product Collection' (Code 'productCollection'). Not a field, not a
+    parametric. 113 flags in the group; every sampled product carries at least
+    one, ~94% carry exactly one. See COLLECTION_FLAG_GROUP_ID.
 
 CREDENTIALS (env vars, wired from Secret Manager — see pipeline/CUSTOMER-INSIGHTS.md)
   NORCE_CLIENT_ID       Norce Admin → Settings → Users → OAUTH
@@ -65,6 +71,15 @@ Run locally:
     python3 norce_sync.py --backfill --from 2026-01-01
     python3 norce_sync.py --marts-only       # re-apply norce_marts.sql
     python3 norce_sync.py --apps babyshop-se,babyshop-no
+
+    # After ANY change to the product extract shape (a new $expand, a new
+    # column), the incremental pass is not enough — it only re-reads products
+    # Norce happened to touch. Re-read the whole catalogue once:
+    python3 norce_sync.py --products-only
+
+    # The Season snapshot the products tab reads. main() already runs this at
+    # the end of every sync; this is the standalone path for re-pushing it.
+    python3 refresh_product_seasons.py
 """
 from __future__ import annotations
 import argparse, datetime, hashlib, os, sys, time
@@ -115,6 +130,22 @@ HISTORY_START = os.environ.get("NORCE_HISTORY_START", "2025-06-11")
 # The exclusion itself lives in norce_marts.sql (the literal is hard-coded
 # there too) — this constant exists so a grep for the PartNo finds both halves.
 SHIPPING_PART_NO = "1000014"
+
+# PRODUCT COLLECTION = what the business calls the "season" (SS25, AW24,
+# Pre-SS25, Exited, CORE, NOS …). Norce models it as a PRODUCT FLAG, not as a
+# field, a parametric or an entity of its own. Confirmed against the live prod
+# tenant 2026-08-18:
+#     Application/ProductFlags?$filter=GroupId eq 4&$expand=Group
+#       -> Group.DefaultName 'Product Collection', Code 'productCollection',
+#          IsMultipleChoice false, 113 flags in the group.
+# The values match the ones the client quoted exactly (AW22, AW23, Exited,
+# Pre-SS25, SS21, SS22). Products carry a flag per group-4 membership via
+# Products/Products?$expand=Flags — there is no standalone flag-link set.
+#
+# ONLY group 4 is landed per product. The other groups are campaign/pricelist
+# flags: a product carries ~14 flags in total but ~1 collection, so filtering at
+# extract time turns a ~1.9M-row table into a ~140k-row one for no loss.
+COLLECTION_FLAG_GROUP_ID = int(os.environ.get("NORCE_COLLECTION_FLAG_GROUP", "4"))
 
 # ── BigQuery ─────────────────────────────────────────────────────────────────
 BQ_PROJECT  = os.environ.get("NORCE_BQ_PROJECT", "project-a7ade44e-e7e3-4871-a83")
@@ -302,15 +333,36 @@ def _item_rows(o: dict) -> list[dict]:
 #  BigQuery
 # ════════════════════════════════════════════════════════════════════════════
 def _credentials():
-    """ADC in production (Cloud Run SA); gcloud user token as a local fallback."""
+    """ADC in production (Cloud Run SA); gcloud user token as a local fallback.
+
+    The fallback refreshes by shelling back out to gcloud — a bare token lasts
+    about an hour and carries no refresh material, so a long local run dies with
+    a RefreshError partway through. This module is the most exposed of any: the
+    orders phase of a backfill runs ~30 minutes on its own (see module docstring),
+    so a full backfill routinely outlives its first token. See
+    voyado_sync._credentials for the full write-up; this copy exists because every
+    module in this app wires its own client rather than sharing one.
+    """
     try:
         import google.auth
         creds, _ = google.auth.default()
         return creds
     except Exception:
         import subprocess, google.oauth2.credentials
+
+        class _GcloudToken(google.oauth2.credentials.Credentials):
+            def refresh(self, request):  # noqa: ARG002 - signature fixed by google-auth
+                self.token = subprocess.check_output(
+                    ["gcloud", "auth", "print-access-token"]).decode().strip()
+                # google-auth compares expiry against a NAIVE utcnow().
+                self.expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=45)
+
         tok = subprocess.check_output(["gcloud", "auth", "print-access-token"]).decode().strip()
-        return google.oauth2.credentials.Credentials(tok)
+        c = _GcloudToken(tok)
+        # Must be set here too: expiry=None reads as "never expires", so
+        # google-auth would never call refresh() at all.
+        c.expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=45)
+        return c
 
 
 _client = None
@@ -353,6 +405,16 @@ SCHEMAS: dict[str, list[bigquery.SchemaField]] = {
     # dimension readable. 133,970 products carry a VariantId on all but 14 of them.
     "variants":           [S("Id", "INT64"), S("DefaultName", "STRING")],
     "product_categories": [S("ProductId", "INT64"), S("CategoryId", "INT64"), S("IsPrimary", "BOOL")],
+    # Product -> "Product Collection" flag (the season). Group-4 flags ONLY —
+    # see COLLECTION_FLAG_GROUP_ID. Written by replace_scoped(), not merge(), so
+    # a product that moves AW24 -> AW25 does not keep both rows.
+    "product_flags":      [S("ProductId", "INT64"), S("FlagId", "INT64"), S("IsActive", "BOOL")],
+    # Every product flag in the tenant, all groups, with its group's name — the
+    # lookup that turns FlagId 29 into 'AW22' in group 'Product Collection'.
+    # Small (a few hundred rows) so it is a full reload like the other dims.
+    "dim_product_flags":  [S("Id", "INT64"), S("GroupId", "INT64"), S("GroupName", "STRING"),
+                           S("DefaultName", "STRING"), S("IsActive", "BOOL"),
+                           S("SortOrder", "INT64")],
     "dim_manufacturers":  [S("ManufacturerId", "INT64"), S("Name", "STRING"), S("IsActive", "BOOL")],
     "dim_categories":     [S("Id", "INT64"), S("Code", "STRING"), S("DefaultName", "STRING"),
                            S("DefaultFullName", "STRING"), S("IsActive", "BOOL")],
@@ -447,6 +509,81 @@ def merge(rows: list[dict], table: str, keys: list[str]) -> int:
     bq().query(sql).result()
     bq().delete_table(stg, not_found_ok=True)
     return len(rows)
+
+
+def replace_scoped(rows: list[dict], table: str, keys: list[str],
+                   scope_col: str, scope_ids: list[int]) -> int:
+    """Upsert `rows` AND delete rows of `table` whose `scope_col` was re-read but
+    is no longer present in the source.
+
+    merge() is upsert-only, which is right for facts that only ever accumulate
+    (orders, SKUs) but wrong for a MEMBERSHIP link. A product that moves from
+    AW24 to AW25 would keep both flag rows forever under merge(), and every
+    consumer would then see two collections where Norce has one.
+
+    Scope, not "everything": on an incremental pass only the products this run
+    actually read may have rows deleted, so untouched history is never disturbed.
+    A product that legitimately ends up with ZERO group-4 flags still gets its
+    stale rows removed, which is why the scope list is passed explicitly rather
+    than derived from `rows`.
+
+    DELETE + INSERT inside an explicit transaction, NOT a MERGE. The obvious
+    single-statement form —
+
+        MERGE … WHEN NOT MATCHED BY SOURCE
+                AND t.ProductId IN (SELECT id FROM scope) THEN DELETE
+
+    is rejected by BigQuery: "Correlated Subquery is unsupported in WHEN
+    clause" (hit for real on the first full run, 2026-08-18). The scope has to
+    be a subquery — it is 134k ids, far past what a query parameter should
+    carry — so the two-statement script in a transaction is the shape that
+    works, and it keeps the same all-or-nothing guarantee: no reader ever sees
+    the table mid-rewrite.
+    """
+    if not scope_ids:
+        return 0
+    seen: dict[tuple, dict] = {}
+    for r in rows:
+        seen[tuple(r.get(k) for k in keys)] = r
+    rows = list(seen.values())
+    schema = SCHEMAS[table]
+    cols = [f.name for f in schema]
+
+    stg_scope = T(f"_stg_scope_{table}_{int(time.time()*1000)}")
+    scope_schema = [bigquery.SchemaField("id", "INT64")]
+    bq().load_table_from_json(
+        [{"id": i} for i in sorted(set(scope_ids))], stg_scope,
+        job_config=bigquery.LoadJobConfig(schema=scope_schema,
+                                          write_disposition="WRITE_TRUNCATE")).result()
+    st = bq().get_table(stg_scope)
+    st.expires = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=6)
+    bq().update_table(st, ["expires"])
+
+    stg = None
+    try:
+        delete_sql = (f"DELETE FROM `{T(table)}` "
+                      f"WHERE {scope_col} IN (SELECT id FROM `{stg_scope}`);")
+        if not rows:
+            # Every scanned entity lost its links — pure deletion, and a
+            # zero-row JSON load is not worth relying on for the insert half.
+            bq().query(delete_sql).result()
+            return 0
+        stg = _load(rows, table, schema)
+        collist = ", ".join(cols)
+        # The INSERT is scoped to the same ids as the DELETE, so a source row for
+        # an entity outside the scope can never slip in as a duplicate.
+        bq().query(
+            "BEGIN TRANSACTION;\n"
+            f"{delete_sql}\n"
+            f"INSERT INTO `{T(table)}` ({collist}) "
+            f"SELECT {collist} FROM `{stg}` "
+            f"WHERE {scope_col} IN (SELECT id FROM `{stg_scope}`);\n"
+            "COMMIT TRANSACTION;").result()
+        return len(rows)
+    finally:
+        if stg:
+            bq().delete_table(stg, not_found_ok=True)
+        bq().delete_table(stg_scope, not_found_ok=True)
 
 
 def replace(rows: list[dict], table: str) -> int:
@@ -618,22 +755,49 @@ def sync_variants() -> int:
     return replace(rows, "variants")
 
 
-def sync_products(since: datetime.datetime | None) -> tuple[int, int, int]:
-    """Products + their SKUs and category links, in one expanded pass.
+def collection_flag_ids() -> set[int]:
+    """FlagIds that belong to the 'Product Collection' group (the season).
+
+    One cheap tenant-wide request. Called once per product pass so the ~14 flags
+    a product carries can be filtered down to the ~1 that is a collection before
+    anything is buffered or written.
+    """
+    return {r["Id"] for r in query("Application/ProductFlags", CONTEXT_APP_ID,
+                                   select="Id,GroupId",
+                                   filter=f"GroupId eq {COLLECTION_FLAG_GROUP_ID}")}
+
+
+def sync_products(since: datetime.datetime | None) -> tuple[int, int, int, int]:
+    """Products + their SKUs, category links and collection flags, in one pass.
 
     ProductCategories has no standalone set (404s), so the only way to get the
-    links is $expand from Products — same for the SKU list. VariantId is what
-    joins each product row to its real parent name in `variants`.
+    links is $expand from Products — same for the SKU list and the flag list.
+    VariantId is what joins each product row to its real parent name in
+    `variants`.
+
+    The third $expand (Flags) was validated live at page=100: the tenant serves
+    it fine. Do NOT raise the page size to compensate — the 500s that keyset()
+    documents get worse with every extra expand, not better.
     """
     clause = None
     if since is not None:
         ts = _odata_ts(since)
         clause = f"(Updated ge {ts} or (Updated eq null and Created ge {ts}))"
-    prods, skus, cats = [], [], []
+    # An EMPTY set here would make replace_scoped() delete every collection row
+    # it was handed a scope for — i.e. one renamed flag group upstream silently
+    # blanks the Season column for the whole catalogue. Treat it as a broken
+    # lookup and leave `product_flags` exactly as it was.
+    wanted = collection_flag_ids()
+    if not wanted:
+        print(f"   !! no flags found in group {COLLECTION_FLAG_GROUP_ID} "
+              "('Product Collection') — leaving product_flags untouched. "
+              "Check Application/ProductFlags upstream.", flush=True)
+    prods, skus, cats, flags = [], [], [], []
     for p in keyset(
             "Products/Products", "Id,ManufacturerId,DefaultName,IsActive,VariantId",
             expand="Skus($select=PartNo,ProductId,EanCode),"
-                   "Categories($select=ProductId,CategoryId,IsPrimary)",
+                   "Categories($select=ProductId,CategoryId,IsPrimary),"
+                   "Flags($select=ProductId,FlagId,IsActive)",
             filter_clause=clause, page=100, label="products"):
         prods.append({"Id": p["Id"], "ManufacturerId": p.get("ManufacturerId"),
                       "DefaultName": p.get("DefaultName"), "IsActive": bool(p.get("IsActive")),
@@ -642,9 +806,15 @@ def sync_products(since: datetime.datetime | None) -> tuple[int, int, int]:
                     for s in (p.get("Skus") or []))
         cats.extend({"ProductId": p["Id"], "CategoryId": c.get("CategoryId"),
                      "IsPrimary": bool(c.get("IsPrimary"))} for c in (p.get("Categories") or []))
+        flags.extend({"ProductId": p["Id"], "FlagId": f.get("FlagId"),
+                      "IsActive": bool(f.get("IsActive"))}
+                     for f in (p.get("Flags") or []) if f.get("FlagId") in wanted)
     return (merge(prods, "products", ["Id"]),
             merge(skus, "product_skus", ["PartNo"]),
-            merge(cats, "product_categories", ["ProductId", "CategoryId"]))
+            merge(cats, "product_categories", ["ProductId", "CategoryId"]),
+            # Scoped delete-and-insert, not merge: see replace_scoped().
+            replace_scoped(flags, "product_flags", ["ProductId", "FlagId"],
+                           "ProductId", [p["Id"] for p in prods]) if wanted else 0)
 
 
 def sync_sku_titles() -> int:
@@ -747,6 +917,18 @@ def sync_dimensions() -> dict[str, int]:
     out["dim_countries"] = replace(
         [{"Id": r.get("Id"), "Code": r.get("Code"), "DefaultName": r.get("DefaultName")}
          for r in query("Core/Countries", CONTEXT_APP_ID, select="Id,Code,DefaultName")], "dim_countries")
+    # Every flag group, not just the collection one: the group NAME is what makes
+    # `product_flags` legible, and landing the whole lookup costs a few hundred
+    # rows while leaving the door open for the campaign/pricelist groups later.
+    # $expand=Group is the only way to get the name — there is no ProductFlagGroups set.
+    out["dim_product_flags"] = replace(
+        [{"Id": r.get("Id"), "GroupId": r.get("GroupId"),
+          "GroupName": (r.get("Group") or {}).get("DefaultName"),
+          "DefaultName": r.get("DefaultName"), "IsActive": bool(r.get("IsActive")),
+          "SortOrder": r.get("SortOrder")}
+         for r in query("Application/ProductFlags", CONTEXT_APP_ID,
+                        select="Id,GroupId,DefaultName,IsActive,SortOrder",
+                        expand="Group($select=Id,DefaultName)")], "dim_product_flags")
     return out
 
 
@@ -855,13 +1037,14 @@ def main() -> int:
     else:
         print("Norce sync · products only (orders phase skipped)")
 
-    prods = skus = cats = titles = variants = 0
+    prods = skus = cats = titles = variants = pflags = 0
     dims: dict[str, int] = {}
     if not args.skip_products:
         # A full re-pull whenever the extract SHAPE changed (VariantId was added
-        # to the select) — an incremental pass would leave every untouched
-        # product with a NULL VariantId and no parent name.
-        prods, skus, cats = sync_products(
+        # to the select; Flags/product_flags after it) — an incremental pass
+        # would leave every untouched product with a NULL VariantId and no
+        # collection, i.e. a blank Season on the products tab.
+        prods, skus, cats, pflags = sync_products(
             None if (args.backfill or args.products_only) else watermark("products"))
         set_watermark("products", run_started, prods)
         variants = sync_variants()
@@ -877,8 +1060,24 @@ def main() -> int:
     n_marts = apply_marts()
     print(f"✓ Norce sync · orders {n_orders:,} · lines {n_items:,} · products {prods:,} "
           f"· variants {variants:,} · skus {skus:,} · category links {cats:,} "
+          f"· collection flags {pflags:,} "
           f"· dims {sum(dims.values()):,} · sku titles {titles:,} "
           f"· forgotten purged {n_forgotten:,} · marts {n_marts} · {time.time()-t0:.1f}s")
+
+    # Season (Product Collection) snapshot for the products tab. Folded in here
+    # rather than given its own Cloud Run job for the same reason bq_source.main()
+    # folds in refresh_roas_impact and budget_source: it reads the marts this run
+    # just rebuilt, it is seconds of work, and one less job is one less thing to
+    # schedule. Wrapped so a Firestore failure can never fail the sync itself —
+    # `refresh_product_seasons.py` is also runnable standalone.
+    try:
+        import refresh_product_seasons as seasons
+        p = seasons.build_payload()
+        seasons.write_firestore(p)
+        print(f"✓ Product seasons snapshot · {len(p['seasons'])} collections · "
+              f"brands {p['coverage']['brands_with_season']}/{p['coverage']['brands_total']}")
+    except Exception as e:
+        print(f"⚠️  Product seasons snapshot failed (non-fatal): {e!r}")
     return 0
 
 
