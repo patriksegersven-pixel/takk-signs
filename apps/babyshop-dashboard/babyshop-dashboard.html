@@ -258,13 +258,13 @@
     }
 
     /* ── KPI grid ───────────────────────────────────────
-     * Two rows: the profit ladder in SEK (revenue → GP1 → GP2 → GP3),
-     * then the ratios those imply (GM1/GM2/GM3 + the two cost ratios).
-     * The ratio row is deliberately smaller so the money row stays the
-     * first thing read. */
+     * Two rows: the profit ladder in SEK (revenue → GP1 → GP2 →
+     * ad spend → GP3), then the ratios those imply (GM1/GM2/GM3 +
+     * the two cost ratios). The ratio row is deliberately smaller so
+     * the money row stays the first thing read. */
     .kpi-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr 1.3fr;
+      grid-template-columns: repeat(4, 1fr) 1.3fr;
       gap: 14px;
       margin-bottom: 14px;
     }
@@ -1042,6 +1042,7 @@ const FIELD_IDS = {
   'kv-gp2':               'cf1ijsmd6ra2jmj_kv_gp2',
   'kv-gp3':               'cf1ijsubsqmhepf_kv_gp3',
   'kv-transactions':      'cf1ijsmm7d814r4_kv_transactions',
+  'kv-ad-spend':          'cost (Funnel, de-duplicated) · kv_gp2 − kv_gp3',
   'kv-cogs':              'cf1ijsm5jefks7q_kv_cogs',
   'common-cost':          'common-cost',
   // ratio metrics
@@ -1512,6 +1513,12 @@ function renderKPIs() {
       value: fmtSEK(CUR.gp2),
       delta: _delta(CUR.gp2, PREV.gp2),
       sub: 'after ops costs · '+ _pctOrDash(gm2_cur) +' GM2',
+    },
+    {
+      label:'kv-Ad Spend', field: FIELD_IDS['kv-ad-spend'],
+      value: _sekOrDash(CUR.adCost),
+      delta: _delta(CUR.adCost, PREV.adCost, true),
+      sub: 'marketing spend · '+ _pctOrDash(cos_cur) +' COS',
     },
     {
       label:'kv-GP3', field: FIELD_IDS['kv-gp3'],

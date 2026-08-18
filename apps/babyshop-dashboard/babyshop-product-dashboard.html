@@ -489,10 +489,12 @@
       font-size: 11px; font-weight: 600; color: var(--h); letter-spacing: .01em;
     }
     /* Share of the row's seasoned revenue that the shown collection accounts
-       for. Same visual weight as .cell-delta so the tables stay one system. */
+       for. Same visual weight as .cell-delta so the tables stay one system.
+       margin-right separates pill+share pairs when a row shows several
+       collections (mix rendering) — harmless on the last pair. */
     .season-share {
-      margin-left: 6px; font-size: 10px; font-weight: 600; color: var(--muted);
-      font-variant-numeric: tabular-nums;
+      margin-left: 4px; margin-right: 8px; font-size: 10px; font-weight: 600;
+      color: var(--muted); font-variant-numeric: tabular-nums;
     }
     /* Below this the label describes a minority of the row and is more likely to
        flip between refreshes — dimmed so it reads as weak evidence, not wrong. */
@@ -648,7 +650,7 @@
     <div class="chart-header">
       <div>
         <div class="chart-title">Long-term Trend — monthly, 2026 vs 2025</div>
-        <div class="chart-sub">monthly · pick metric and breakdown to compare</div>
+        <div class="chart-sub">monthly · latest month is month-to-date · pick metric and breakdown to compare</div>
       </div>
       <span class="chart-badge" id="lt-badge">SEK</span>
     </div>
@@ -700,7 +702,7 @@
       <thead>
         <tr>
           <th title="cf1j4pcmic8ucum_Product_type_2">Category</th>
-          <th class="col-season" title="Norce Product Collection — the dominant season for this category over the snapshot window. A category spans many collections; hover a cell for the mix.">Season</th>
+          <th class="col-season" title="Norce Product Collection — collections worth ≥10% of this category’s attributable revenue over the snapshot window, dominant first. Hover a cell for the full mix.">Season</th>
           <th title="cf1j2rvf6cstma8_kv_revenue_new">Revenue</th>
           <th title="cf1j4pbh7847jbs_kv_gm1_product">GM1%</th>
           <th title="cf1j4pb7q0974md_kv_gp1_product">GP1</th>
@@ -771,7 +773,7 @@
       <thead>
         <tr>
           <th title="dim-1j4p9puragt0f_kv_brand">Brand</th>
-          <th class="col-season" title="Norce Product Collection — the dominant season for this brand over the snapshot window. A brand spans many collections; hover a cell for the mix.">Season</th>
+          <th class="col-season" title="Norce Product Collection — collections worth ≥10% of this brand’s attributable revenue over the snapshot window, dominant first. Hover a cell for the full mix.">Season</th>
           <th title="cf1j2rvf6cstma8_kv_revenue_new">Revenue</th>
           <th title="cf1j4pbh7847jbs_kv_gm1_product">GM1%</th>
           <th title="cf1j4pb7q0974md_kv_gp1_product">GP1</th>
@@ -1204,12 +1206,22 @@ function seasonCell(rawRow, dim) {
       ? `Window: ${SEASON_META.window.start} → ${SEASON_META.window.end} (fixed — does not follow the period selector).`
       : null,
   ].filter(Boolean).join('\n');
-  // Under half the row is a minority label: still the best answer, but shown as
-  // weak evidence rather than as a fact about the whole row.
-  const weak = (share != null && share < 0.5) ? ' weak' : '';
+  // A row can genuinely straddle collections (Kuling sells SS26 and AW25 stock
+  // at once), so render every collection worth ≥10% of the row's attributable
+  // revenue — up to 3, dominant first — not just the top one. The filter/sort/
+  // export value stays the single dominant season: table-tools treats
+  // data-tt-value as one atomic value, and a per-row mix string would make the
+  // column filter useless.
+  const pills = mix.filter(m => m && typeof m.v === 'number' && m.v >= 0.10)
+                   .sort((a, b) => b.v - a.v).slice(0, 3);
+  if (!pills.length) pills.push({ s, v: share });
+  // Under half the row is a minority label: still the best answer, but shown
+  // as weak evidence rather than as a fact about the whole row.
+  const pillHTML = pills.map(m =>
+    `<span class="season-pill${(m.v != null && m.v < 0.5) ? ' weak' : ''}">${escHtml(m.s)}</span>${
+      m.v != null ? `<span class="season-share">${fmtPct(m.v, 0)}</span>` : ''}`).join('');
   return `<td class="col-season" data-val="${escHtml(s)}" data-tt-value="${escHtml(s)}"
-    title="${escHtml(tip)}"><span class="season-pill${weak}">${escHtml(s)}</span>${
-    share != null ? `<span class="season-share">${fmtPct(share, 0)}</span>` : ''}</td>`;
+    title="${escHtml(tip)}">${pillHTML}</td>`;
 }
 
 function deltaBadge(cur, prev) {
@@ -1361,6 +1373,10 @@ async function fetchLiveAndOverlay() {
     if (Array.isArray(live.categories)) CATEGORIES.splice(0, CATEGORIES.length, ...live.categories);
     if (Array.isArray(live.brands))     BRANDS.splice    (0, BRANDS.length,     ...live.brands);
     if (Array.isArray(live.daily_long)) DAILY_LONG = live.daily_long;   // real long daily series
+
+    // Long-term chart follows the daily series — rebuild its monthly totals
+    // so 2026 reaches the live data_end instead of the embedded snapshot's.
+    if (typeof refreshLTFromDaily === 'function') refreshLTFromDaily();
 
     // 3) Re-render — applyFilter() recomputes TOTALS from the real series for the current period
     if (typeof applyFilter    === 'function') applyFilter();
@@ -2318,74 +2334,79 @@ function scaleLT(base, w, gp1Mult=1, gp2Mult=1, gp3Mult=1) {
   };
 }
 
-const LT_DATA = {
-  '2025': {
-    total: { Total: TOTAL_2025 },
-    market: {
-      'SE':      scaleLT(TOTAL_2025, 0.54, 1.00, 1.05, 1.10),
-      'NO':      scaleLT(TOTAL_2025, 0.19, 1.00, 0.95, 1.05),
-      'ROW EUR': scaleLT(TOTAL_2025, 0.09, 1.10, 1.20, 0.20),
-      'DK':      scaleLT(TOTAL_2025, 0.07, 1.00, 1.05, 1.00),
-      'FI':      scaleLT(TOTAL_2025, 0.05, 0.95, 0.85, 0.90),
-      'Other':   scaleLT(TOTAL_2025, 0.06, 1.00, 1.00, 0.80),
-    },
-    category: {
-      'Bicycles':       scaleLT(TOTAL_2025, 0.22, 1.05, 1.15, 1.40),
-      'Tops & sweaters':scaleLT(TOTAL_2025, 0.06, 0.85, 0.65, 0.75),
-      'Sandals':        scaleLT(TOTAL_2025, 0.08, 1.20, 0.65, 0.45),
-      'Swimwear':       scaleLT(TOTAL_2025, 0.05, 1.20, 0.95, 0.95),
-      'Sets':           scaleLT(TOTAL_2025, 0.05, 1.30, 1.30, 1.30),
-      'Trainers':       scaleLT(TOTAL_2025, 0.05, 1.15, 0.70, 0.35),
-      'Other':          scaleLT(TOTAL_2025, 0.49, 0.95, 0.95, 0.95),
-    },
-    brand: {
-      'Kuling':        scaleLT(TOTAL_2025, 0.24, 1.40, 1.25, 1.15),
-      'Stoy':          scaleLT(TOTAL_2025, 0.21, 1.00, 1.45, 1.55),
-      'Konges Sløjd':  scaleLT(TOTAL_2025, 0.09, 0.80, 0.60, 0.75),
-      'Bugaboo':       scaleLT(TOTAL_2025, 0.06, 0.60, 0.55, 0.50),
-      'Bobo Choses':   scaleLT(TOTAL_2025, 0.04, 0.90, 0.65, 0.90),
-      'Reima':         scaleLT(TOTAL_2025, 0.03, 0.95, 0.30, 0.05),
-      'Other':         scaleLT(TOTAL_2025, 0.33, 0.95, 0.95, 0.85),
-    },
-    shop: {
-      'Babyshop':      scaleLT(TOTAL_2025, 0.93, 1.02, 1.05, 1.05),
-      'Lekmer':        scaleLT(TOTAL_2025, 0.07, 0.85, 0.50, 0.30),
-    },
+/* Per-dim revenue share + GP1/GP2/GP3 multipliers used to synthesize the
+ * breakdown series off each year's total (no real monthly breakdown exists
+ * yet — only the Total series is real). One table, applied to both years. */
+const LT_SCALES = {
+  market: {
+    'SE':      [0.54, 1.00, 1.05, 1.10],
+    'NO':      [0.19, 1.00, 0.95, 1.05],
+    'ROW EUR': [0.09, 1.10, 1.20, 0.20],
+    'DK':      [0.07, 1.00, 1.05, 1.00],
+    'FI':      [0.05, 0.95, 0.85, 0.90],
+    'Other':   [0.06, 1.00, 1.00, 0.80],
   },
-  '2026': {
-    total: { Total: TOTAL_2026 },
-    market: {
-      'SE':      scaleLT(TOTAL_2026, 0.54, 1.00, 1.05, 1.10),
-      'NO':      scaleLT(TOTAL_2026, 0.19, 1.00, 0.95, 1.05),
-      'ROW EUR': scaleLT(TOTAL_2026, 0.09, 1.10, 1.20, 0.20),
-      'DK':      scaleLT(TOTAL_2026, 0.07, 1.00, 1.05, 1.00),
-      'FI':      scaleLT(TOTAL_2026, 0.05, 0.95, 0.85, 0.90),
-      'Other':   scaleLT(TOTAL_2026, 0.06, 1.00, 1.00, 0.80),
-    },
-    category: {
-      'Bicycles':       scaleLT(TOTAL_2026, 0.22, 1.05, 1.15, 1.40),
-      'Tops & sweaters':scaleLT(TOTAL_2026, 0.06, 0.85, 0.65, 0.75),
-      'Sandals':        scaleLT(TOTAL_2026, 0.08, 1.20, 0.65, 0.45),
-      'Swimwear':       scaleLT(TOTAL_2026, 0.05, 1.20, 0.95, 0.95),
-      'Sets':           scaleLT(TOTAL_2026, 0.05, 1.30, 1.30, 1.30),
-      'Trainers':       scaleLT(TOTAL_2026, 0.05, 1.15, 0.70, 0.35),
-      'Other':          scaleLT(TOTAL_2026, 0.49, 0.95, 0.95, 0.95),
-    },
-    brand: {
-      'Kuling':        scaleLT(TOTAL_2026, 0.24, 1.40, 1.25, 1.15),
-      'Stoy':          scaleLT(TOTAL_2026, 0.21, 1.00, 1.45, 1.55),
-      'Konges Sløjd':  scaleLT(TOTAL_2026, 0.09, 0.80, 0.60, 0.75),
-      'Bugaboo':       scaleLT(TOTAL_2026, 0.06, 0.60, 0.55, 0.50),
-      'Bobo Choses':   scaleLT(TOTAL_2026, 0.04, 0.90, 0.65, 0.90),
-      'Reima':         scaleLT(TOTAL_2026, 0.03, 0.95, 0.30, 0.05),
-      'Other':         scaleLT(TOTAL_2026, 0.33, 0.95, 0.95, 0.85),
-    },
-    shop: {
-      'Babyshop':      scaleLT(TOTAL_2026, 0.93, 1.02, 1.05, 1.05),
-      'Lekmer':        scaleLT(TOTAL_2026, 0.07, 0.85, 0.50, 0.30),
-    },
+  category: {
+    'Bicycles':        [0.22, 1.05, 1.15, 1.40],
+    'Tops & sweaters': [0.06, 0.85, 0.65, 0.75],
+    'Sandals':         [0.08, 1.20, 0.65, 0.45],
+    'Swimwear':        [0.05, 1.20, 0.95, 0.95],
+    'Sets':            [0.05, 1.30, 1.30, 1.30],
+    'Trainers':        [0.05, 1.15, 0.70, 0.35],
+    'Other':           [0.49, 0.95, 0.95, 0.95],
+  },
+  brand: {
+    'Kuling':        [0.24, 1.40, 1.25, 1.15],
+    'Stoy':          [0.21, 1.00, 1.45, 1.55],
+    'Konges Sløjd':  [0.09, 0.80, 0.60, 0.75],
+    'Bugaboo':       [0.06, 0.60, 0.55, 0.50],
+    'Bobo Choses':   [0.04, 0.90, 0.65, 0.90],
+    'Reima':         [0.03, 0.95, 0.30, 0.05],
+    'Other':         [0.33, 0.95, 0.95, 0.85],
+  },
+  shop: {
+    'Babyshop': [0.93, 1.02, 1.05, 1.05],
+    'Lekmer':   [0.07, 0.85, 0.50, 0.30],
   },
 };
+
+function buildLTYear(base) {
+  const year = { total: { Total: base } };
+  for (const dim in LT_SCALES) {
+    year[dim] = {};
+    for (const name in LT_SCALES[dim]) {
+      const [w, g1, g2, g3] = LT_SCALES[dim][name];
+      year[dim][name] = scaleLT(base, w, g1, g2, g3);
+    }
+  }
+  return year;
+}
+
+const LT_DATA = { '2025': buildLTYear(TOTAL_2025), '2026': buildLTYear(TOTAL_2026) };
+
+/* Rebuild both years' monthly series from DAILY_LONG (daily history,
+ * 2025-01-01 → data_end). The TOTAL_* seeds above stop at whatever month they
+ * were pasted in, so without this the chart falls months behind YTD even
+ * though the daily series next to it is current. Runs once on the embedded
+ * seed and again after fetchLiveAndOverlay swaps in the live series, so the
+ * chart always reaches the freshest month (latest month = month-to-date). */
+function refreshLTFromDaily() {
+  if (!Array.isArray(DAILY_LONG) || !DAILY_LONG.length) return;
+  for (const y of ['2025', '2026']) {
+    const m = { revenue: Array(12).fill(null), gp1: Array(12).fill(null),
+                gp2: Array(12).fill(null), gp3: Array(12).fill(null) };
+    let any = false;
+    for (const d of DAILY_LONG) {
+      if (!d.iso || !d.iso.startsWith(y)) continue;
+      const mi = +d.iso.slice(5, 7) - 1;
+      if (!(mi >= 0 && mi < 12)) continue;
+      for (const k in m) m[k][mi] = (m[k][mi] || 0) + (d[k] || 0);
+      any = true;
+    }
+    if (any) LT_DATA[y] = buildLTYear(m);
+  }
+}
+refreshLTFromDaily();
 
 const LT_COLORS = ['#0F766E','#1E3A8A','#B45309','#6D28D9','#B91C1C','#047857','#BE185D','#0891B2'];
 const METRIC_IS_PCT = m => m === 'gm3';
