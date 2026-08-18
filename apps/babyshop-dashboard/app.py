@@ -139,6 +139,12 @@ SIM_HTML       = STATIC_DIR / "babyshop-roas-simulations.html"
 VOYADO_HTML    = STATIC_DIR / "babyshop-voyado-dashboard.html"
 TABLE_TOOLS_JS = STATIC_DIR / "table-tools.js"
 CHART_JS       = STATIC_DIR / "chart.umd.js"
+BRAND_CSS      = STATIC_DIR / "brand.css"
+LOGO_SVG       = STATIC_DIR / "babyshop-logo.svg"
+FONTS_DIR      = STATIC_DIR / "fonts"
+# Explicit allow-list, not a directory walk: the path segment comes from the
+# request, and a whitelist is the only traversal-proof way to use it.
+FONT_FILES     = {"jost-latin.woff2", "jost-latin-ext.woff2"}
 
 
 @app.get("/")
@@ -206,6 +212,27 @@ def table_tools_js(_: str = Depends(verify)):
 @app.get("/chart.umd.js")
 def chart_js(_: str = Depends(verify)):
     return FileResponse(CHART_JS, media_type="application/javascript")
+
+
+# Shared design system: tokens, @font-face, header/nav chrome. Linked from every
+# page's <head>. Same `verify` dependency as every other sub-resource.
+@app.get("/brand.css")
+def brand_css(_: str = Depends(verify)):
+    return FileResponse(BRAND_CSS, media_type="text/css")
+
+
+@app.get("/babyshop-logo.svg")
+def logo_svg(_: str = Depends(verify)):
+    return FileResponse(LOGO_SVG, media_type="image/svg+xml")
+
+
+# Jost, vendored for the same reason Chart.js is: fonts.gstatic.com is not
+# reachable from every network this dashboard is opened on.
+@app.get("/fonts/{name}")
+def font_file(name: str, _: str = Depends(verify)):
+    if name not in FONT_FILES:
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(FONTS_DIR / name, media_type="font/woff2")
 
 
 # ── Health (no auth — for Cloud Run probes) ──────────────────────────────────
