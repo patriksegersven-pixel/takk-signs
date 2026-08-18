@@ -3085,26 +3085,36 @@ renderChannelTable();
  * All other P&L lines are shown as plan for context.
  * Reuses the already-loaded TOTAL_2026 (monthly actuals) + DAILY_LONG (MTD). */
 const BD_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-// For each tracked metric: closed Excel-Actual months (Jan–Feb) use the recorded
-// value from the plan itself; all later months use the raw dashboard series
-// (uncalibrated). GP2/GP3 carry margin:true so the card shows GM% vs plan.
-function _bdActual(dashArr, planKey){
-  // Guard: if the live payload predates a new metric (e.g. gp1), fall back to nulls
-  // so closed months still show the recorded plan value and nothing throws.
+/* The ACTUAL series is always the dashboard's own monthly KV figures.
+ *
+ * It used to substitute the budget's own column for any month the forecast
+ * workbook flags as "Actual" (Jan–Feb 2026): in a rolling P&L those columns
+ * hold Finance's booked actual rather than a forecast, so the substitution
+ * looked defensible. It was not — it plotted the target against itself, so
+ * Jan/Feb drew two identical bars (both negative for GP3) and carried zero
+ * information, and the same substituted values fed YTD actual and the P&L
+ * table's variance badges, understating YTD revenue by 4.1 MSEK and YTD GP3
+ * by 4.0 MSEK. Real actuals exist for those months — BigQuery has daily data
+ * from 2025-01-01.
+ *
+ * A month with no dashboard data stays null, which Chart.js renders as no bar
+ * at all rather than as a mirror of the target. */
+function _bdActual(dashArr){
+  // Guard: a live payload predating a metric (e.g. gp1) has no array at all.
   const src = Array.isArray(dashArr) ? dashArr : new Array(12).fill(null);
-  return src.map((v,i)=> BUDGET.month_status[i]==='Actual' ? BUDGET.lines[planKey].monthly[i] : v);
+  return src.map(v => typeof v === 'number' && isFinite(v) ? v : null);
 }
 const BD_METRICS = {
   revenue:   { label:'Revenue', planKey:'gross_sales', dailyField:'revenue', color:'#1E3A8A', higherIsGood:true,
-               actual:()=> _bdActual(TOTAL_2026.revenue, 'gross_sales') },
+               actual:()=> _bdActual(TOTAL_2026.revenue) },
   gp1:       { label:'GP1', planKey:'gp1', dailyField:'gp1', color:'#7C3AED', higherIsGood:true, margin:true,
-               actual:()=> _bdActual(TOTAL_2026.gp1, 'gp1') },
+               actual:()=> _bdActual(TOTAL_2026.gp1) },
   gp2:       { label:'GP2', planKey:'gp2', dailyField:'gp2', color:'#0891B2', higherIsGood:true, margin:true,
-               actual:()=> _bdActual(TOTAL_2026.gp2, 'gp2') },
+               actual:()=> _bdActual(TOTAL_2026.gp2) },
   gp3:       { label:'GP3', planKey:'gp3', dailyField:'gp3', color:'#047857', higherIsGood:true, margin:true, holy:true,
-               actual:()=> _bdActual(TOTAL_2026.gp3, 'gp3') },
+               actual:()=> _bdActual(TOTAL_2026.gp3) },
   marketing: { label:'Marketing spend', planKey:'marketing', dailyField:'cost', color:'#B45309', higherIsGood:false,
-               actual:()=> TOTAL_2026.cost.slice() },
+               actual:()=> _bdActual(TOTAL_2026.cost) },
 };
 let BUDGET = null, budgetChart = null, budgetMetric = 'revenue', budgetLoading = null;
 /* Daily target curve for the CURRENT month (/api/daily-targets). Monthly budget
@@ -3134,7 +3144,10 @@ function bdContext(){
   const curM = inYear ? asOf.getMonth() : 11;
   const dom  = inYear ? asOf.getDate() : _bdDim(y,curM);
   const dim  = _bdDim(y,curM);
-  return { asOf, y, curM, dom, dim, lastIso };
+  // `partial` = the month at curM is still running. False once the year has
+  // rolled over (curM is then clamped to a completed December), which is what
+  // keeps the chart from labelling a closed month "month to date".
+  return { asOf, y, curM, dom, dim, lastIso, inYear, partial: inYear && dom < dim };
 }
 
 function bdMtd(ctx, field){
@@ -3345,28 +3358,44 @@ function bdRenderDaily(ctx){
 
 function bdRenderChart(ctx){
   const m = BD_METRICS[budgetMetric], d = bdMetricData(budgetMetric, ctx);
+  // The current month's actual is only month-to-date, so it is drawn faded:
+  // at full strength a 17-of-31-days bar next to a whole-month target reads as
+  // a miss. Completed months are solid. (The MTD section above is where the
+  // current month is judged properly, against the modelled target-to-date.)
+  const barColors = d.actual.map((v,i)=> (ctx.partial && i===ctx.curM) ? m.color+'59' : m.color);
   if (budgetChart) budgetChart.destroy();
   budgetChart = new Chart(document.getElementById('c-budget'), {
     type:'bar',
     data:{ labels: BD_MONTHS, datasets:[
       { label:'Target', data:d.plan,   backgroundColor:'#CBD5E1', borderRadius:3, categoryPercentage:0.72, barPercentage:0.9 },
-      { label:'Actual', data:d.actual, backgroundColor:m.color,   borderRadius:3, categoryPercentage:0.72, barPercentage:0.9 },
+      { label:'Actual', data:d.actual, backgroundColor:barColors, borderRadius:3, categoryPercentage:0.72, barPercentage:0.9 },
     ]},
     options:{ responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{display:false},
-        tooltip:{ callbacks:{ label:c=>`${c.dataset.label}: ${c.parsed.y==null?'—':fmtSEK(c.parsed.y)}` } } },
+        tooltip:{ callbacks:{ label:c=>{
+          if (c.parsed.y==null) return `${c.dataset.label}: —`;
+          const mtd = ctx.partial && c.dataset.label==='Actual' && c.dataIndex===ctx.curM;
+          return `${c.dataset.label}: ${fmtSEK(c.parsed.y)}${mtd?'  (month to date)':''}`;
+        } } } },
       scales:{ x:{ grid:{display:false}, ticks:{font:{size:10}} },
                y:{ grid:{color:'#F1F3F5'}, ticks:{ font:{size:10}, callback:v=>fmtSEK(v) } } } }
   });
   const notes = {
-    revenue:   ` · actual = recorded gross sales (Jan–Feb) then live KV-revenue, uncalibrated`,
+    revenue:   ` · actual = live KV-revenue every month, uncalibrated`,
     gp1:       ` · actual = live kv-GP1 (after COGS); vs P&amp;L GP1 — directional`,
     gp2:       ` · actual = live kv-GP2; P&amp;L GP2 nets direct variable costs — directional`,
     gp3:       ` · actual = live kv-GP3 (kv-GP2 − ad spend); P&amp;L GP3 also nets shipping/fulfillment — directional`,
   };
+  // Months the forecast workbook has already closed carry Finance's BOOKED
+  // actual in the target column, not an original budget — say so, otherwise
+  // "actual vs target" for those months reads as a plan comparison when it is
+  // really dashboard-actual vs booked-actual.
+  const closed = (BUDGET.month_status||[]).map((st,i)=> st==='Actual' ? BD_MONTHS[i] : null).filter(Boolean);
   document.getElementById('bd-chart-sub').innerHTML =
     `${m.label} · <span style="color:${m.color}">■</span> actual · <span style="color:#CBD5E1">■</span> target`+
-    (notes[budgetMetric]||``);
+    (notes[budgetMetric]||``)+
+    (closed.length ? ` · ${closed.join('/')} target = Finance's booked actual (the workbook has closed those months)` : ``)+
+    (ctx.partial ? ` · ${BD_MONTHS[ctx.curM]} actual is month-to-date` : ``);
 }
 
 function bdRenderTable(ctx){
@@ -3433,8 +3462,8 @@ function renderBudget(){
   bdRenderTable(ctx);
   document.getElementById('bd-sub').innerHTML =
     `How <b>${monthLbl}</b> is tracking against the 2026 rolling P&amp;L targets, through <b>${ctx.lastIso||'—'}</b>. `+
-    `Tracked live: revenue, <b>GP3 ★</b>, GP1, GP2 and marketing — closed months (Jan–Feb) use `+
-    `the recorded target value, later months the live dashboard figure, <b>uncalibrated</b>. `+
+    `Tracked live: revenue, <b>GP3 ★</b>, GP1, GP2 and marketing — actuals are the dashboard's `+
+    `own monthly KV figures for <b>every</b> month, <b>uncalibrated</b>; a month with no data shows no bar. `+
     `GP1–GP3 are the dashboard's KV profit (kv-GP3 = kv-GP2 − ad spend), a lighter cost stack `+
     `than the P&amp;L's — so treat the gap as directional. Other lines are target-only context.`;
 }
