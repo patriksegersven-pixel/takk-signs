@@ -214,14 +214,15 @@
     <div class="card-header">
       <div>
         <div class="card-title">Value &amp; behavior by entry life stage</div>
-        <div class="card-sub" id="entry-sub">The stage implied by each customer's FIRST sized purchase. 1-yr CLV averages only customers whose own 365 days have elapsed (n shown).</div>
+        <div class="card-sub" id="entry-sub">The stage implied by each customer's FIRST sized purchase. 1-yr CLV averages only customers whose own 365 days have elapsed (n shown). Margin = today's unit cost, costed lines only (see caveats).</div>
       </div>
       <div class="tools-slot"></div>
     </div>
     <table id="entry-table" data-tools data-tools-name="segments-entry-stage">
       <thead><tr>
         <th>Entry stage</th><th>Age band</th><th>Customers</th><th>Avg revenue</th>
-        <th>Avg orders</th><th>AOV</th><th>Repeat rate</th><th>1-yr CLV</th><th>Matured n</th>
+        <th>Margin</th><th>Avg orders</th><th>AOV</th><th>Repeat rate</th>
+        <th>1-yr CLV</th><th>Matured n</th>
       </tr></thead>
       <tbody id="entry-body"></tbody>
     </table>
@@ -262,8 +263,8 @@
     <div class="chart-card">
       <div class="chart-header">
         <div>
-          <div class="chart-title">Revenue concentration</div>
-          <div class="chart-sub">Customers ranked by lifetime revenue, in deciles. Bars: decile share. Line: cumulative.</div>
+          <div class="chart-title">Revenue &amp; margin concentration</div>
+          <div class="chart-sub">Customers ranked by lifetime revenue, in deciles. Bars: each decile's share of revenue — and of gross margin, when cost data is present. Line: cumulative revenue.</div>
         </div>
       </div>
       <div class="chart-wrap short">
@@ -464,6 +465,7 @@ function renderLtvChart(){
         label:c=>` ${c.dataset.label}: ${fmtKr(c.parsed.y)}`,
         afterBody:items=>{ const r=rows[items[0].dataIndex];
           return [`repeat rate ${fmtPct(r.repeat_rate)} · ${r.avg_orders} orders`,
+                  ...(r.margin_rate != null ? [`margin ${fmtPct(r.margin_rate)} (costed lines)`] : []),
                   `matured n=${fmtInt(r.mature_customers)} of ${fmtInt(r.customers)}`]; } } } },
       scales:{ x:{ grid:{display:false}, ticks:TICKS },
                y:{ beginAtZero:true, grid:GRID, ticks:{...TICKS, callback:v=>fmtSEKAxis(v)} } } }
@@ -474,13 +476,16 @@ function renderEntryTable(){
   const rows = (DATA.lifestage && DATA.lifestage.ltv_by_entry) || [];
   if (!rows.length || !rows.some(r=>r.customers))
     return document.getElementById('entry-body').innerHTML =
-      `<tr><td colspan="9"><div class="empty">No entry-stage rows yet.</div></td></tr>`;
+      `<tr><td colspan="10"><div class="empty">No entry-stage rows yet.</div></td></tr>`;
   document.getElementById('entry-body').innerHTML = rows.map(r=>`
     <tr>
       <td>${STAGE_META[r.stage].label}<span class="sub-cell">${STAGE_META[r.stage].sizes}</span></td>
       <td class="cell-muted">${STAGE_META[r.stage].band}</td>
       <td>${fmtInt(r.customers)}</td>
       <td>${fmtKr(r.avg_revenue_sek)}</td>
+      <td>${r.margin_rate != null
+            ? `${fmtPct(r.margin_rate)}<span class="sub-cell">avg ${fmtSEK(r.avg_margin_sek)}</span>`
+            : '<span class="pill pill-soft" title="run the sku_costs sync">no cost data</span>'}</td>
       <td>${r.avg_orders ?? '—'}</td>
       <td>${fmtKr(r.aov_sek)}</td>
       <td>${fmtPct(r.repeat_rate)}</td>
@@ -583,18 +588,26 @@ function renderPareto(){
   if (!rows.length) return draw('paretoChart', null, 'pareto-empty', 'No decile rows yet.');
   let acc = 0;
   const cum = rows.map(r=>+(acc += (r.revenue_share||0)*100).toFixed(1));
+  // Older snapshots have no margin fields — the chart degrades to revenue-only.
+  const hasMargin = rows.some(r=>r.margin_share != null);
   draw('paretoChart', {
     data:{ labels:rows.map(r=>'D'+r.decile), datasets:[
-      { type:'line', label:'Cumulative', data:cum, borderColor:'#B45309', backgroundColor:'#B45309',
+      { type:'line', label:'Cumulative revenue', data:cum, borderColor:'#B45309', backgroundColor:'#B45309',
         borderWidth:2, pointRadius:3, tension:.25 },
-      { type:'bar', label:'Decile share', data:rows.map(r=>+((r.revenue_share||0)*100).toFixed(1)),
+      { type:'bar', label:'Revenue share', data:rows.map(r=>+((r.revenue_share||0)*100).toFixed(1)),
         backgroundColor:'#1E3A8A', borderRadius:3 },
+      ...(hasMargin ? [
+      { type:'bar', label:'Margin share', data:rows.map(r=>r.margin_share != null ? +(r.margin_share*100).toFixed(1) : null),
+        backgroundColor:'#047857', borderRadius:3 }] : []),
     ]},
     options:{ responsive:true, maintainAspectRatio:false,
       plugins:{ legend:LEGEND, tooltip:{ callbacks:{
         label:c=>` ${c.dataset.label}: ${c.parsed.y.toLocaleString('sv-SE')}%`,
         afterBody:items=>{ const r=rows[items[0].dataIndex];
-          return [`${fmtInt(r.customers)} customers · avg ${fmtKr(r.avg_revenue_sek)} · ${r.avg_orders} orders`]; } } } },
+          return [`${fmtInt(r.customers)} customers · avg ${fmtKr(r.avg_revenue_sek)} · ${r.avg_orders} orders`,
+                  ...(r.margin_rate != null
+                    ? [`margin ${fmtPct(r.margin_rate)} · ${fmtSEK(r.margin_sek)} · ${fmtPct(r.cost_coverage,0)} of revenue costed`]
+                    : [])]; } } } },
       scales:{ x:{ grid:{display:false}, ticks:TICKS },
                y:{ beginAtZero:true, max:100, grid:GRID, ticks:{...TICKS, callback:v=>v+'%'} } } }
   }, 'pareto-empty');
@@ -681,6 +694,8 @@ function renderCaveats(){
   if (cov.customers) bits.push(`<span><b>customers</b> ${fmtInt(cov.customers)}</span>`);
   if (cov.lines) bits.push(`<span><b>order lines</b> ${fmtInt(cov.lines)} · ${fmtInt(cov.sized_lines)} sized (${fmtPct(cov.size_coverage)})</span>`);
   if (DATA.lifestage && DATA.lifestage.sized_customers) bits.push(`<span><b>sized customers</b> ${fmtInt(DATA.lifestage.sized_customers)}</span>`);
+  if (DATA.kpis && DATA.kpis.margin_rate != null)
+    bits.push(`<span><b>gross margin</b> ${fmtPct(DATA.kpis.margin_rate)} · on ${fmtPct(DATA.kpis.cost_coverage,0)} of revenue (costed lines)</span>`);
   document.getElementById('coverage').innerHTML = bits.join('');
 }
 

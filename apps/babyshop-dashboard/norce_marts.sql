@@ -36,6 +36,18 @@
 --     not a field and not a parametric. One season per product: newest
 --     date-coded collection wins, else the alphabetically first lifecycle
 --     label. See product_collections below for the full rule.
+--   • COST/MARGIN: the source is `sku_costs` — the CURRENT CostUnit from each
+--     application's PRIMARY price list (OrderItem.CostUnit is dead on this
+--     tenant: 15 orders ever, see norce_sync.py). Margin is therefore restated
+--     at TODAY's cost for all history, the exact constant-currency doctrine
+--     applied to cost. A populated line-level CostUnit still wins (dropship).
+--     COVERAGE DECAYS WITH ORDER AGE — costs exist for the current catalogue:
+--     85% of the current month's revenue is costed, ~53% of all history
+--     (measured 2026-08-18). Margin is computed on COSTED lines only —
+--     order_cost must always be read next to costed_value, never next to
+--     order_value, or uncosted lines read as 100% margin. Costs convert to
+--     SEK by the COST row's own currency (the primary list's), not the
+--     order's, so a mismatch can never mix currencies.
 --   • History starts 2025-06-11 (platform cutover). A customer whose first
 --     Norce order falls in the first three months may well be an existing
 --     customer from the old platform — customer_facts.migration_window_flag
@@ -97,20 +109,65 @@ SELECT
   ROUND(COALESCE(i.shipping_value, 0) * fx.to_sek, 2) AS shipping_value,
   COALESCE(i.order_value, 0)                        AS order_value_local,
   COALESCE(i.items_count, 0)                        AS items_count,
-  COALESCE(i.units, 0)                              AS units
+  COALESCE(i.units, 0)                              AS units,
+  -- Cost of goods, ALREADY in SEK (converted inside the subquery, where the
+  -- cost row's own currency is at hand — header rules). costed_value is the
+  -- SEK revenue of exactly the lines the cost covers: margin = costed_value −
+  -- order_cost, and NEVER order_value − order_cost (uncosted ≠ free goods).
+  ROUND(COALESCE(i.order_cost_sek, 0), 2)           AS order_cost,
+  ROUND(COALESCE(i.costed_value_sek, 0), 2)         AS costed_value
 FROM `${DATASET}.orders` o
 -- LEFT, not INNER: an unknown currency must not silently delete the order (and
 -- with it a customer). It surfaces as a NULL currency_code / NULL value instead.
 LEFT JOIN `${DATASET}.currency_rates` fx ON fx.currency_id = o.CurrencyId
 LEFT JOIN (
+  -- Joined back to `orders` for ApplicationId -> primary price list -> cost.
+  -- Cost resolution per line, best source first:
+  --   1. the line's own CostUnit (order currency)     — populated on ~15 orders
+  --   2. the ordering application's primary-list cost — the exact market cost
+  --   3. ANY costed list for the PartNo, SEK-preferred — a consistency guard
+  --      for SKUs costed on the SE list but missing from a market's own list.
+  --      Measured effect is small (52.9% -> 53.1% of revenue costed: a SKU
+  --      uncosted for its market is usually uncosted everywhere), but it keeps
+  --      cross-market SKUs comparable and costs agree across lists to a few %.
+  -- NULLIF folds Norce's "0 = never costed" into the same fallback chain, and
+  -- every branch converts by ITS OWN currency so nothing ever mixes.
   SELECT
-    OrderId,
-    SUM(IF(PartNo != '1000014', LineAmount, 0))     AS order_value,
-    COUNTIF(PartNo != '1000014')                    AS items_count,
-    SUM(IF(PartNo != '1000014', QtyOrdered, 0))     AS units,
-    SUM(IF(PartNo  = '1000014', LineAmount, 0))     AS shipping_value
-  FROM `${DATASET}.order_items`
-  GROUP BY OrderId
+    li.OrderId,
+    SUM(IF(li.PartNo != '1000014', li.LineAmount, 0))     AS order_value,
+    COUNTIF(li.PartNo != '1000014')                       AS items_count,
+    SUM(IF(li.PartNo != '1000014', li.QtyOrdered, 0))     AS units,
+    SUM(IF(li.PartNo  = '1000014', li.LineAmount, 0))     AS shipping_value,
+    SUM(IF(li.PartNo != '1000014',
+           COALESCE(NULLIF(li.CostUnit, 0) * ofx.to_sek,
+                    sc.CostUnit * cfx.to_sek,
+                    scf.fb.cost_unit * ffx.to_sek) * li.QtyOrdered,
+           NULL))                                         AS order_cost_sek,
+    SUM(IF(li.PartNo != '1000014'
+           AND COALESCE(NULLIF(li.CostUnit, 0) * ofx.to_sek,
+                        sc.CostUnit * cfx.to_sek,
+                        scf.fb.cost_unit * ffx.to_sek) IS NOT NULL,
+           li.LineAmount * ofx.to_sek, NULL))             AS costed_value_sek
+  FROM `${DATASET}.order_items` li
+  JOIN `${DATASET}.orders` o2 ON o2.Id = li.OrderId
+  LEFT JOIN `${DATASET}.currency_rates` ofx ON ofx.currency_id = o2.CurrencyId
+  LEFT JOIN `${DATASET}.dim_price_lists` pl ON pl.ApplicationId = o2.ApplicationId
+  LEFT JOIN `${DATASET}.sku_costs` sc
+         ON sc.PartNo = li.PartNo AND sc.PriceListId = pl.PriceListId
+  LEFT JOIN `${DATASET}.currency_rates` cfx ON cfx.currency_id = sc.CurrencyId
+  -- Fallback: one deterministic cost row per PartNo. SEK first (the babyshop-se
+  -- list is the one that is ~always costed), then lowest PriceListId.
+  LEFT JOIN (
+    SELECT sc2.PartNo,
+           ARRAY_AGG(STRUCT(sc2.CostUnit AS cost_unit, sc2.CurrencyId AS currency_id)
+                     ORDER BY IF(cur.Code = 'SEK', 0, 1), sc2.PriceListId
+                     LIMIT 1)[OFFSET(0)] AS fb
+    FROM `${DATASET}.sku_costs` sc2
+    LEFT JOIN `${DATASET}.dim_currencies` cur ON cur.Id = sc2.CurrencyId
+    GROUP BY sc2.PartNo
+  ) scf ON scf.PartNo = li.PartNo
+  LEFT JOIN `${DATASET}.currency_rates` ffx ON ffx.currency_id = scf.fb.currency_id
+  GROUP BY li.OrderId
 ) i ON i.OrderId = o.Id
 -- IsForgotten rows are DELETEd by norce_sync.purge_forgotten(); this is a
 -- second belt in case a run is interrupted between the pull and the purge.
@@ -132,6 +189,10 @@ WITH base AS (
     MAX(order_date)                                             AS last_order_date,
     COUNT(*)                                                    AS orders_cnt,
     SUM(order_value)                                            AS revenue_total,
+    -- Margin inputs (SEK, current cost — header rules). costed_revenue_total
+    -- is the denominator margin_rate is honest against.
+    SUM(order_cost)                                             AS cost_total,
+    SUM(costed_value)                                           AS costed_revenue_total,
     ARRAY_AGG(app_key ORDER BY order_date, order_id LIMIT 1)[OFFSET(0)] AS first_app_key,
     ARRAY_AGG(market  ORDER BY order_date, order_id LIMIT 1)[OFFSET(0)] AS first_market
   FROM `${DATASET}.customer_orders`
@@ -150,6 +211,14 @@ SELECT
   b.first_order_date, b.first_app_key, b.first_market,
   DATE_TRUNC(b.first_order_date, MONTH)                          AS cohort_month,
   b.last_order_date, b.orders_cnt, b.revenue_total,
+  b.cost_total, b.costed_revenue_total,
+  b.costed_revenue_total - b.cost_total                          AS margin_total,
+  -- Margin over the revenue the cost actually covers; NULL when nothing the
+  -- customer bought carries a cost (SAFE_DIVIDE(x, 0)), never a fake 100%.
+  SAFE_DIVIDE(b.costed_revenue_total - b.cost_total,
+              b.costed_revenue_total)                            AS margin_rate,
+  -- How much of this customer's revenue the margin numbers actually see.
+  SAFE_DIVIDE(b.costed_revenue_total, b.revenue_total)           AS cost_coverage,
   SAFE_DIVIDE(b.revenue_total, b.orders_cnt)                     AS aov,
   -- Only counts once the customer has had a full year to spend it.
   IF(DATE_ADD(b.first_order_date, INTERVAL 365 DAY) <= CURRENT_DATE(),

@@ -77,6 +77,12 @@ CAVEATS = [
     "single-basket-defined, and read AOV/revenue rather than repeat rate",
     "1-year CLV averages only customers whose own 365 days have fully elapsed — "
     "younger customers are excluded from that column, not averaged in low",
+    "margin uses the CURRENT unit cost from Norce's primary price lists (order "
+    "lines carry no historical cost), restated for all history like the FX "
+    "rate; costs cover the current catalogue — ~85% of the latest month's "
+    "revenue but only ~half of all-history revenue joins to a cost, decaying "
+    "with order age — and margin rate is computed on those costed lines only: "
+    "uncosted lines are excluded, never counted as 100% margin",
 ]
 
 DEFINITIONS = {
@@ -92,6 +98,10 @@ DEFINITIONS = {
                    "runway a customer was acquired with",
     "aging_out": "latest sized purchase implies age ≥11y (~size 152+): "
                  "predictable churn as the child outgrows the assortment",
+    "margin_rate": "(costed revenue − cost of goods) / costed revenue, SEK at "
+                   "today's cost and FX; lines without a cost are excluded",
+    "cost_coverage": "share of revenue (SEK) whose lines carry a unit cost — "
+                     "the part of the money the margin numbers can see",
 }
 
 
@@ -247,7 +257,10 @@ def kpis() -> dict:
       SELECT
         COUNT(*)                                   AS customers,
         COUNTIF(is_repeat)                         AS repeaters,
-        AVG(orders_cnt)                            AS orders_per_customer
+        AVG(orders_cnt)                            AS orders_per_customer,
+        SUM(revenue_total)                         AS revenue,
+        SUM(cost_total)                            AS cost,
+        SUM(costed_revenue_total)                  AS costed_revenue
       FROM {D('customer_facts')}
     """)[0]
     xb = _rows(f"""
@@ -255,11 +268,16 @@ def kpis() -> dict:
       FROM (SELECT customer_hash, COUNT(DISTINCT shop) AS shops
             FROM {D('customer_facts')} GROUP BY 1)
     """)[0]
+    costed = float(r["costed_revenue"] or 0)
     return {
         "customers": I(r["customers"]),
         "repeat_rate": F(r["repeaters"] / r["customers"] if r["customers"] else None),
         "orders_per_customer": F(r["orders_per_customer"], 2),
         "cross_brand_share": F(xb["both"] / xb["hashes"] if xb["hashes"] else None),
+        # None (not 0) before the first sku_costs sync, so the tab can tell
+        # "no margin data yet" apart from "0% margin".
+        "margin_rate": F((costed - float(r["cost"] or 0)) / costed if costed else None),
+        "cost_coverage": F(costed / float(r["revenue"]) if (costed and r["revenue"]) else None),
     }
 
 
@@ -318,22 +336,39 @@ def cohorts() -> list[dict]:
 
 
 def value_deciles() -> list[dict]:
+    """Deciles are still RANKED by revenue — margin is reported per tier, not
+    re-ranked, so the question answered is "how profitable are my most
+    valuable customers", not "who are my most profitable customers"."""
     rows = _rows(f"""
       WITH t AS (
-        SELECT revenue_total, orders_cnt,
+        SELECT revenue_total, orders_cnt, cost_total, costed_revenue_total,
                NTILE(10) OVER (ORDER BY revenue_total DESC) AS decile
         FROM {D('customer_facts')}
       )
       SELECT decile, COUNT(*) AS customers, SUM(revenue_total) AS revenue,
-             AVG(revenue_total) AS avg_revenue, AVG(orders_cnt) AS avg_orders
+             AVG(revenue_total) AS avg_revenue, AVG(orders_cnt) AS avg_orders,
+             SUM(cost_total) AS cost, SUM(costed_revenue_total) AS costed_revenue
       FROM t GROUP BY 1 ORDER BY 1
     """)
     total = sum(float(r["revenue"] or 0) for r in rows) or None
-    return [{"decile": I(r["decile"]), "customers": I(r["customers"]),
-             "revenue_sek": I(r["revenue"]),
-             "revenue_share": F(float(r["revenue"] or 0) / total if total else None),
-             "avg_revenue_sek": I(r["avg_revenue"]), "avg_orders": F(r["avg_orders"], 2)}
-            for r in rows]
+    total_margin = sum(float(r["costed_revenue"] or 0) - float(r["cost"] or 0)
+                       for r in rows) or None
+    out = []
+    for r in rows:
+        costed = float(r["costed_revenue"] or 0)
+        margin = costed - float(r["cost"] or 0)
+        out.append({
+            "decile": I(r["decile"]), "customers": I(r["customers"]),
+            "revenue_sek": I(r["revenue"]),
+            "revenue_share": F(float(r["revenue"] or 0) / total if total else None),
+            "avg_revenue_sek": I(r["avg_revenue"]), "avg_orders": F(r["avg_orders"], 2),
+            "margin_sek": I(margin) if costed else None,
+            "margin_share": F(margin / total_margin if (costed and total_margin) else None),
+            "margin_rate": F(margin / costed if costed else None),
+            "cost_coverage": F(costed / float(r["revenue"])
+                               if (costed and r["revenue"]) else None),
+        })
+    return out
 
 
 def lifestage_distribution() -> list[dict]:
@@ -367,7 +402,9 @@ def ltv_by_entry_stage() -> list[dict]:
         SAFE_DIVIDE(SUM(f.revenue_total), SUM(f.orders_cnt)) AS aov,
         AVG(IF(f.is_repeat, 1, 0))                     AS repeat_rate,
         AVG(f.revenue_365d_from_first)                 AS clv_1y,
-        COUNTIF(f.revenue_365d_from_first IS NOT NULL) AS mature_customers
+        COUNTIF(f.revenue_365d_from_first IS NOT NULL) AS mature_customers,
+        SUM(f.cost_total)                              AS cost,
+        SUM(f.costed_revenue_total)                    AS costed_revenue
       FROM customer_stage cs
       JOIN {D('customer_facts')} f
         ON f.customer_hash = cs.customer_hash AND f.shop = cs.shop
@@ -377,6 +414,8 @@ def ltv_by_entry_stage() -> list[dict]:
     out = []
     for s in STAGES:
         r = by.get(s)
+        costed = float(r["costed_revenue"] or 0) if r else 0
+        margin = costed - float(r["cost"] or 0) if r else 0
         out.append({"stage": s,
                     "customers": I(r["customers"]) if r else 0,
                     "avg_revenue_sek": I(r["avg_revenue"]) if r else None,
@@ -384,7 +423,12 @@ def ltv_by_entry_stage() -> list[dict]:
                     "aov_sek": I(r["aov"]) if r else None,
                     "repeat_rate": F(r["repeat_rate"]) if r else None,
                     "clv_1y_sek": I(r["clv_1y"]) if (r and r["clv_1y"] is not None) else None,
-                    "mature_customers": I(r["mature_customers"]) if r else 0})
+                    "mature_customers": I(r["mature_customers"]) if r else 0,
+                    # Margin of the stage's costed revenue (not of clv_1y —
+                    # there is no per-window cost split), None pre-sku_costs.
+                    "margin_rate": F(margin / costed if costed else None),
+                    "avg_margin_sek": I(margin / I(r["customers"]))
+                                      if (r and costed and I(r["customers"])) else None})
     return out
 
 

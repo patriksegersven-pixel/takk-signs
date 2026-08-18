@@ -50,6 +50,17 @@ DATA-MODEL FACTS (audited against the live prod tenant, 2026-08-16)
     ignored and all values are gross.
   • Application/* and Core/* lookups have no ApplicationId property; they are
     tenant-wide and must NOT be filtered per application.
+  • COST: OrderItem.CostUnit exists in the schema but is ~never populated —
+    15 orders in the whole history carry one (audited live 2026-08-18), all
+    dropship lines. The real cost source is ProductSkuPriceLists.CostUnit,
+    populated on each application's PRIMARY price list. sync_sku_costs()
+    lands it in `sku_costs`; the line-level field is still extracted so a
+    populated value wins in the marts. Costs are CURRENT (no history kept by
+    Norce) — margin is restated at today's cost exactly like revenue is
+    restated at today's FX rate — and cover the CURRENT catalogue: 85% of the
+    current month's revenue joins to a cost, ~53% of all-history revenue,
+    decaying with order age as old SKUs leave the costed price lists
+    (measured against the marts 2026-08-18).
   • "Product collection" — the SEASON the products tab shows (SS25, AW24,
     Pre-SS25, Exited, CORE …) — is a PRODUCT FLAG in flag group 4, named
     'Product Collection' (Code 'productCollection'). Not a field, not a
@@ -70,6 +81,7 @@ Run locally:
     python3 norce_sync.py --backfill         # full history from 2025-06-11
     python3 norce_sync.py --backfill --from 2026-01-01
     python3 norce_sync.py --marts-only       # re-apply norce_marts.sql
+    python3 norce_sync.py --costs-only       # reload sku_costs + marts (margin refresh)
     python3 norce_sync.py --apps babyshop-se,babyshop-no
 
     # After ANY change to the product extract shape (a new $expand, a new
@@ -292,7 +304,7 @@ ORDER_SELECT = ("Id,ApplicationId,OrderNo,OrderDate,Created,Updated,StatusId,Cur
                 "FreightCost,OrderFee,CashDiscount,LineDiscount,PaymentMethodId,"
                 "DeliveryCountryId,DeliveryZipCode,IsForgotten")
 ORDER_EXPAND = ("Items($select=Id,OrderId,PartNo,ProductName,QtyOrdered,PriceSale,"
-                "DiscountAmount,LineAmount,VatRate,StatusId),"
+                "DiscountAmount,LineAmount,VatRate,StatusId,CostUnit),"
                 "Buyer($select=EmailAddress,CountryId,ZipCode)")
 
 
@@ -325,7 +337,12 @@ def _item_rows(o: dict) -> list[dict]:
              "ProductName": it.get("ProductName"), "QtyOrdered": _f(it.get("QtyOrdered")),
              "PriceSale": _f(it.get("PriceSale")), "DiscountAmount": _f(it.get("DiscountAmount")),
              "LineAmount": _f(it.get("LineAmount")), "VatRate": _f(it.get("VatRate")),
-             "StatusId": it.get("StatusId")}
+             "StatusId": it.get("StatusId"),
+             # NOT _f(): 0 means "free goods" to a margin query, absent means
+             # "unknown". Norce writes 0 for the ~100% of lines it never costs
+             # (module docstring), and the marts treat 0 and NULL alike via
+             # NULLIF — but keep the distinction at the landing table anyway.
+             "CostUnit": float(it["CostUnit"]) if it.get("CostUnit") is not None else None}
             for it in (o.get("Items") or [])]
 
 
@@ -395,6 +412,11 @@ SCHEMAS: dict[str, list[bigquery.SchemaField]] = {
         S("PartNo", "STRING"), S("ProductName", "STRING"), S("QtyOrdered", "FLOAT64"),
         S("PriceSale", "FLOAT64"), S("DiscountAmount", "FLOAT64"), S("LineAmount", "FLOAT64"),
         S("VatRate", "FLOAT64"), S("StatusId", "INT64"),
+        # Per-unit cost in the ORDER's currency. ~Never populated (see module
+        # docstring) — rows synced before 2026-08-18 are NULL and stay NULL, and
+        # that is fine: the marts fall back to `sku_costs` by PartNo, which is
+        # why there is deliberately NO order-items backfill for this column.
+        S("CostUnit", "FLOAT64"),
     ],
     "product_skus":       [S("PartNo", "STRING"), S("ProductId", "INT64"), S("EanCode", "STRING")],
     "products":           [S("Id", "INT64"), S("ManufacturerId", "INT64"),
@@ -428,6 +450,19 @@ SCHEMAS: dict[str, list[bigquery.SchemaField]] = {
     "dim_currencies":      [S("Id", "INT64"), S("Code", "STRING"), S("DefaultName", "STRING"),
                             S("ExchangeRate", "FLOAT64")],
     "dim_countries":       [S("Id", "INT64"), S("Code", "STRING"), S("DefaultName", "STRING")],
+    # CURRENT per-unit cost per SKU, from ProductSkuPriceLists.CostUnit on the
+    # PRIMARY price list of each application (dim_price_lists maps which one
+    # that is). Costed rows only (CostUnit > 0) — Norce writes 0 for "no cost",
+    # and a 0 landed here would read as a 100%-margin item downstream. The cost
+    # is in the PRICE LIST's currency (CurrencyId), which by construction is the
+    # currency its application orders in; the marts still convert by THIS row's
+    # currency so a mismatch can never mix currencies. Full reload every run
+    # (replace, not merge) so a retracted cost disappears instead of going stale.
+    "sku_costs":           [S("PartNo", "STRING"), S("PriceListId", "INT64"),
+                            S("CurrencyId", "INT64"), S("CostUnit", "FLOAT64"),
+                            S("CostUnitLastUpdated", "TIMESTAMP")],
+    # ApplicationId -> its PRIMARY price list (IsPrimary in Norce). 13 rows.
+    "dim_price_lists":     [S("ApplicationId", "INT64"), S("PriceListId", "INT64")],
     # One row per sync step; the incremental watermark is MAX(watermark) here.
     "sync_state":          [S("step", "STRING"), S("watermark", "TIMESTAMP"),
                             S("run_at", "TIMESTAMP"), S("rows", "INT64")],
@@ -817,6 +852,75 @@ def sync_products(since: datetime.datetime | None) -> tuple[int, int, int, int]:
                            "ProductId", [p["Id"] for p in prods]) if wanted else 0)
 
 
+def sync_sku_costs() -> tuple[int, int]:
+    """CURRENT unit costs per SKU from ProductSkuPriceLists → `sku_costs`.
+
+    WHY THIS ENTITY: OrderItem.CostUnit is dead on this tenant (15 orders in the
+    whole history carry one — module docstring), so margin has to come from the
+    price-list side. Only each application's PRIMARY list is read: the tenant has
+    ~15.2M pricelist rows but the 13 primary lists hold ~326k costed ones, and a
+    probe against real order lines showed the SE primary list already decides
+    coverage — a SKU costed anywhere is costed there too. Coverage over the
+    order HISTORY is bounded by catalogue churn, not by list choice: 85% of the
+    current month's revenue is costed but only ~53% of all-history revenue,
+    because exited SKUs fall off the costed lists (audited 2026-08-18).
+
+    PAGING: this set has NO Id key, so keyset() cannot be reused — pages walk
+    `PartNo gt last` instead. A PartNo's rows (one per price list, ≤13 here) can
+    straddle a page boundary, so the last PartNo of every multi-PartNo page is
+    dropped and re-read by the next page; a page holding a single PartNo is the
+    final short page and is consumed whole. Termination is the empty page, NEVER
+    a short one — the server clamps $top silently (see keyset()).
+
+    Returns (cost rows, price-list rows). Failure upstream leaves the previous
+    `sku_costs` intact — replace() only runs once the walk has finished.
+    """
+    pls = [{"ApplicationId": r.get("ApplicationId"), "PriceListId": r.get("PriceListId")}
+           for r in query("Application/ApplicationPriceLists", CONTEXT_APP_ID,
+                          select="ApplicationId,PriceListId",
+                          filter="IsPrimary eq true")]
+    ids = sorted({r["PriceListId"] for r in pls})
+    if not ids:
+        # Same defence as the flag group: an empty lookup means something broke
+        # upstream, and acting on it would blank every margin on the dashboard.
+        print("   !! no primary price lists in Application/ApplicationPriceLists "
+              "— leaving sku_costs and dim_price_lists untouched.", flush=True)
+        return 0, 0
+    n_pl = replace(pls, "dim_price_lists")
+
+    flt_base = f"CostUnit gt 0 and PriceListId in ({','.join(map(str, ids))})"
+    rows: dict[tuple, dict] = {}
+    last = ""
+    while True:
+        flt = flt_base
+        if last:
+            flt += f" and PartNo gt '{last.replace(chr(39), chr(39)*2)}'"
+        page = _get(f"{NORCE_QUERY_URL}/Products/ProductSkuPriceLists",
+                    {"$select": "PartNo,PriceListId,CurrencyId,CostUnit,CostUnitLastUpdated",
+                     "$filter": flt, "$orderby": "PartNo", "$top": PAGE_SIZE},
+                    CONTEXT_APP_ID).get("value") or []
+        if not page:
+            break
+        last_pn = page[-1]["PartNo"]
+        kept = page if page[0]["PartNo"] == last_pn else \
+            [r for r in page if r["PartNo"] != last_pn]
+        for r in kept:
+            rows[(r["PartNo"], r["PriceListId"])] = {
+                "PartNo": r["PartNo"], "PriceListId": r["PriceListId"],
+                "CurrencyId": r.get("CurrencyId"), "CostUnit": _f(r.get("CostUnit")),
+                "CostUnitLastUpdated": r.get("CostUnitLastUpdated")}
+        prev_last, last = last, kept[-1]["PartNo"]
+        if last == prev_last:
+            # Can only happen if one PartNo fills an entire page on its own,
+            # which the ≤13-lists-per-PartNo invariant rules out — treat it as
+            # data weirdness rather than looping forever on the same filter.
+            raise RuntimeError(f"sku_costs paging stalled on PartNo {last!r}")
+        if len(rows) // 50_000 != (len(rows) - len(kept)) // 50_000:
+            print(f"   sku costs… {len(rows):,} (PartNo {last})", flush=True)
+        time.sleep(0.05)              # same politeness as keyset()
+    return replace(list(rows.values()), "sku_costs"), n_pl
+
+
 def sync_sku_titles() -> int:
     """Load real product titles by SKU from the Channable Google Shopping feed.
 
@@ -969,6 +1073,8 @@ def main() -> int:
                     help="products/variants/dimensions/titles + marts, skipping the orders phase")
     ap.add_argument("--dims-only", action="store_true",
                     help="only reload the lookup dimensions, then re-apply the marts")
+    ap.add_argument("--costs-only", action="store_true",
+                    help="only reload norce.sku_costs + dim_price_lists, then re-apply the marts")
     ap.add_argument("--skip-products", action="store_true", help="skip the product/dimension pass")
     args = ap.parse_args()
 
@@ -1008,6 +1114,14 @@ def main() -> int:
         print(f"✓ Norce marts applied · {apply_marts()} statements · {time.time()-t0:.1f}s")
         return 0
 
+    # The margin source on its own — ~650 pages of ProductSkuPriceLists, a few
+    # minutes. The path for "costs changed upstream, refresh margins now".
+    if args.costs_only:
+        costs, n_pl = sync_sku_costs()
+        print(f"✓ sku costs reloaded · {costs:,} costed rows · {n_pl} primary price lists")
+        print(f"✓ Norce marts applied · {apply_marts()} statements · {time.time()-t0:.1f}s")
+        return 0
+
     app_keys = [k.strip() for k in args.apps.split(",")] if args.apps else list(APPLICATIONS)
     unknown = [k for k in app_keys if k not in APPLICATIONS]
     if unknown:
@@ -1037,7 +1151,7 @@ def main() -> int:
     else:
         print("Norce sync · products only (orders phase skipped)")
 
-    prods = skus = cats = titles = variants = pflags = 0
+    prods = skus = cats = titles = variants = pflags = costs = 0
     dims: dict[str, int] = {}
     if not args.skip_products:
         # A full re-pull whenever the extract SHAPE changed (VariantId was added
@@ -1049,6 +1163,12 @@ def main() -> int:
         set_watermark("products", run_started, prods)
         variants = sync_variants()
         dims = sync_dimensions()
+        # Non-fatal: on failure the previous night's sku_costs keeps serving —
+        # costs move slowly, and a stale margin beats a sync that never finishes.
+        try:
+            costs, _ = sync_sku_costs()
+        except Exception as e:
+            print(f"   !! sku_costs refresh failed (non-fatal): {e!r}")
         # Non-fatal: the Channable feed is a nice-to-have that makes the product
         # dimension readable. If it is down or unconfigured the marts COALESCE
         # back through variants, which is now the primary name source anyway.
@@ -1060,7 +1180,7 @@ def main() -> int:
     n_marts = apply_marts()
     print(f"✓ Norce sync · orders {n_orders:,} · lines {n_items:,} · products {prods:,} "
           f"· variants {variants:,} · skus {skus:,} · category links {cats:,} "
-          f"· collection flags {pflags:,} "
+          f"· collection flags {pflags:,} · sku costs {costs:,} "
           f"· dims {sum(dims.values()):,} · sku titles {titles:,} "
           f"· forgotten purged {n_forgotten:,} · marts {n_marts} · {time.time()-t0:.1f}s")
 
