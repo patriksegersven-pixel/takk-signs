@@ -410,6 +410,17 @@ def collect_market(client, market: str, mcfg: dict, keywords: list[dict]) -> dic
         client.enums.KeywordPlanNetworkEnum.GOOGLE_SEARCH)
     request.historical_metrics_options.include_average_cpc = True
 
+    # Without an explicit range the API returns only the last 12 months; the point
+    # of this collector is the full window, so ask for ~4 years (47 months, one
+    # inside the documented 4-year boundary) up to the last complete month.
+    # MonthOfYear is enum-offset: calendar month + 1.
+    today = _dt.date.today()
+    end = today.replace(day=1) - _dt.timedelta(days=1)            # last complete month
+    start_idx = end.year * 12 + (end.month - 1) - 46              # 47 months inclusive
+    rng = request.historical_metrics_options.year_month_range
+    rng.start.year, rng.start.month = start_idx // 12, (start_idx % 12 + 1) + 1
+    rng.end.year, rng.end.month = end.year, end.month + 1
+
     response = service.generate_keyword_historical_metrics(request=request)
 
     # The API canonicalises keyword text (lowercase, collapsed whitespace — and for
