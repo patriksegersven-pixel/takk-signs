@@ -241,15 +241,25 @@ const MARKETS = ['SE','NO','DK','FI'];
 const MKT_COLOR = { SE:'#2E8B57', NO:'#4C7FD6', DK:'#B07816', FI:'#A63F63' };
 /* Competitor lines in the race chart: recessive so Babyshop's own line carries. */
 const RACE_COLORS = ['#9BA1A8','#B8A88F','#7E93A8','#C9A66B','#A8B8A0','#B99AA6','#8FA6B8','#CFC9C0'];
+/* Registry order = chip order and legend order: apparel first, gear, wheels, swim.
+   The hero categories (rainwear, winter coveralls, shell, balance/kids bikes)
+   carry their own buckets — the reason the set is this granular. */
 const BUCKET_META = {
-  kidswear:  { label:'Kidswear',   color:'#2E8B57' },
-  outerwear: { label:'Outerwear',  color:'#3E86A3' },
-  footwear:  { label:'Footwear',   color:'#7E5A8C' },
-  strollers: { label:'Strollers',  color:'#B07816' },
-  car_seats: { label:'Car seats',  color:'#C4461F' },
-  nursery:   { label:'Nursery',    color:'#A63F63' },
-  wheels:    { label:'Wheels',     color:'#4C7FD6' },
-  uv_swim:   { label:'UV / swim',  color:'#6B8F5E' },
+  kidswear:         { label:'Kidswear',         color:'#2E8B57' },
+  rainwear:         { label:'Rainwear',         color:'#3E86A3' },
+  winter_coveralls: { label:'Winter coveralls', color:'#2C5F8A' },
+  shell:            { label:'Shell',            color:'#7E5A8C' },
+  footwear:         { label:'Footwear',         color:'#A67C52' },
+  strollers:        { label:'Strollers',        color:'#B07816' },
+  car_seats:        { label:'Car seats',        color:'#C4461F' },
+  nursery:          { label:'Nursery',          color:'#A63F63' },
+  balance_bikes:    { label:'Balance bikes',    color:'#4C7FD6' },
+  kids_bikes:       { label:"Kids' bikes",      color:'#22406B' },
+  scooters:         { label:'Scooters',         color:'#8FB77A' },
+  uv_swim:          { label:'UV / swim',        color:'#5E9E8F' },
+  /* Pre-granular keys — history rendered correctly if config is ever rolled back. */
+  outerwear:        { label:'Outerwear',        color:'#3E86A3' },
+  wheels:           { label:'Wheels',           color:'#4C7FD6' },
 };
 const bucketLabel = b => (BUCKET_META[b] || { label:(b||'—').replace('_',' ') }).label;
 let currentMarket = 'SE';
