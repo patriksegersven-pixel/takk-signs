@@ -369,8 +369,10 @@ def build_payload() -> dict:
             # every pp of single→multi shift, valued at the observed AOV step
             "pp_value_msek": F(orders / 100.0 * (aov_step or 0) / 1e6)
                              if (orders and aov_step) else None,
-            "uplift_msek": {p: F((gap_value_m or 0) * p / 100.0, 1) for p in (5, 10, 15)},
-            "uplift_gp_msek": {p: F((gap_value_m or 0) * p / 100.0 * GROSS_MARGIN, 1)
+            # string keys: Firestore rejects non-string map keys (json.dump
+            # would silently stringify them, Firestore raises instead)
+            "uplift_msek": {str(p): F((gap_value_m or 0) * p / 100.0, 1) for p in (5, 10, 15)},
+            "uplift_gp_msek": {str(p): F((gap_value_m or 0) * p / 100.0 * GROSS_MARGIN, 1)
                                for p in (5, 10, 15)},
         }
 
