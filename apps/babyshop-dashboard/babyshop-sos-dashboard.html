@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Share of Search · Babyshop</title>
+  <link rel="icon" type="image/svg+xml" href="/babyshop-favicon.svg">
+  <link rel="stylesheet" href="/brand.css">
+  <script src="/chart.umd.js"></script>
+  <!-- Shared column filters + CSV/Sheets export; tables opt in with data-tools. -->
+  <script src="/table-tools.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --hero:#235837; --hero-bg:#EAF2EC;
+      /* Market series (validated for CVD separation on the light surface) */
+      --se:#2E8B57; --no:#4C7FD6; --dk:#B07816; --fi:#A63F63;
+    }
+    html { font-size:16px; }
+    body { font-family:'Jost',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--body); min-height:100vh; -webkit-font-smoothing:antialiased; }
+
+    main { max-width:1380px; margin:0 auto; padding:26px 32px 56px; }
+    .filter-bar { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:18px; gap:18px; flex-wrap:wrap; }
+    .page-title { font-size:20px; font-weight:700; color:var(--h); letter-spacing:-.3px; }
+    .page-sub { font-size:12px; color:var(--muted); margin-top:3px; max-width:760px; line-height:1.5; }
+    .controls { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .mkt-pills { display:flex; gap:4px; background:var(--card); border:1px solid var(--border); border-radius:999px; padding:3px; }
+    .mkt-pill { border:0; background:transparent; font-family:inherit; font-size:12px; font-weight:600; color:var(--muted); padding:5px 14px; border-radius:999px; cursor:pointer; transition:all .15s; }
+    .mkt-pill:hover { color:var(--h); }
+    .mkt-pill.on { background:var(--hero); color:#fff; }
+    .adj-toggle { display:inline-flex; align-items:center; gap:7px; background:var(--card); border:1px solid var(--border); border-radius:999px; padding:6px 13px; font-size:11.5px; font-weight:500; color:var(--muted); cursor:pointer; font-family:inherit; transition:all .15s; }
+    .adj-toggle:hover { color:var(--h); border-color:var(--muted); }
+    .adj-toggle .knob { width:24px; height:14px; border-radius:999px; background:var(--border); position:relative; transition:background .15s; flex-shrink:0; }
+    .adj-toggle .knob::after { content:''; position:absolute; top:2px; left:2px; width:10px; height:10px; border-radius:50%; background:#fff; transition:left .15s; box-shadow:0 1px 2px rgba(27,40,57,.25); }
+    .adj-toggle.on { color:var(--h); border-color:var(--hero); }
+    .adj-toggle.on .knob { background:var(--hero); }
+    .adj-toggle.on .knob::after { left:12px; }
+
+    .note-bar { background:var(--hero-bg); border:1px solid #C9DCCE; color:#254A32; border-radius:var(--r); padding:11px 16px; font-size:12px; line-height:1.55; margin-bottom:20px; display:flex; gap:9px; align-items:flex-start; }
+    .note-bar svg { flex-shrink:0; margin-top:1px; }
+
+    .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }
+    .kpi-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:18px 20px; box-shadow:var(--shadow-sm); position:relative; overflow:hidden; }
+    .kpi-card.hero { border:1px solid var(--hero); }
+    .kpi-card.hero::after { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--hero); }
+    .kpi-label { font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+    .kpi-value { font-size:27px; font-weight:700; color:var(--h); letter-spacing:-.5px; line-height:1.1; margin-bottom:9px; font-variant-numeric:tabular-nums; }
+    .kpi-card.hero .kpi-value { color:var(--hero); }
+    .kpi-sub { display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:600; padding:3px 7px; border-radius:var(--r-sm); color:var(--muted); background:var(--bg); font-variant-numeric:tabular-nums; }
+    .kpi-sub.up { color:var(--up); background:var(--up-bg); }
+    .kpi-sub.down { color:var(--down); background:var(--down-bg); }
+    .kpi-note { font-size:10.5px; color:var(--muted); margin-top:7px; line-height:1.45; }
+
+    .chart-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:20px 22px; box-shadow:var(--shadow-sm); margin-bottom:20px; }
+    .chart-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:14px; gap:12px; flex-wrap:wrap; }
+    .chart-title { font-size:14px; font-weight:600; color:var(--h); }
+    .chart-sub { font-size:11px; color:var(--muted); margin-top:2px; max-width:820px; line-height:1.5; }
+    .chart-wrap { position:relative; height:310px; }
+    .chart-wrap.short { height:260px; }
+    .chart-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; font-size:12.5px; color:var(--muted); line-height:1.6; padding:0 24px; }
+    .chart-empty[hidden] { display:none; }
+    .two-col { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    @media(max-width:1080px){ .kpi-grid{grid-template-columns:1fr 1fr;} .two-col{grid-template-columns:1fr;} }
+
+    .section-head { margin:26px 0 12px; }
+    .section-title { font-size:15px; font-weight:700; color:var(--h); }
+    .section-sub { font-size:11.5px; color:var(--muted); margin-top:2px; max-width:860px; line-height:1.5; }
+
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    th { text-align:left; font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); padding:8px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
+    th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
+    td { padding:7px 10px; border-bottom:1px solid var(--border-lt); color:var(--body); }
+    td.kw { color:var(--h); font-weight:500; white-space:nowrap; }
+    tr:hover td { background:var(--bg); }
+    .tier { display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; padding:1px 7px; border-radius:999px; }
+    .tier.hyper { background:var(--hero-bg); color:var(--accent-dark); }
+    .tier.core { background:#D6E5DB; color:#33523E; }
+    .tier.adjacent { background:transparent; color:var(--muted); border:1px dashed var(--border); }
+    .tier.legacy { background:var(--border-lt); color:var(--muted); }
+    .delta.up { color:var(--up); } .delta.down { color:var(--down); }
+
+    .caveats { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:18px 22px; margin-top:8px; }
+    .caveats h3 { font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin-bottom:9px; }
+    .caveats ul { list-style:none; display:grid; gap:6px; }
+    .caveats li { font-size:11.5px; line-height:1.55; padding-left:15px; position:relative; }
+    .caveats li::before { content:''; position:absolute; left:0; top:7px; width:5px; height:5px; border-radius:50%; background:var(--muted); }
+  </style>
+</head>
+<body>
+<header id="app-header" data-page="sos"></header>
+<template data-header-extra>
+  <div class="refresh-pill" id="refreshPill" title=""></div>
+  <div class="live-dot" id="liveDot">Keyword Planner · monthly</div>
+</template>
+<script src="/nav.js"></script>
+
+<main>
+  <div class="filter-bar">
+    <div>
+      <div class="page-title">Share of Search</div>
+      <div class="page-sub" id="page-sub">—</div>
+    </div>
+    <div class="controls">
+      <div class="mkt-pills" id="mktPills"></div>
+      <button class="adj-toggle" id="adjToggle" type="button" title="Include kid-scoped fast-fashion terms (hm barn, boozt børnetøj …) in the share denominator">
+        <span class="knob"></span><span>Include adjacent</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="note-bar">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#235837" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+    <div><b>How to read this tab.</b> The headline share is <b>babyshop ÷ (babyshop + competitor retailer brand searches)</b> —
+      navigational terms only, tiered <b>hyper</b> (broad baby/kids specialists) + <b>core</b> (premium/functional kidswear);
+      the toggle adds kid-scoped fast-fashion terms. Category demand is a separate curated basket and is <b>never</b> in the
+      share denominator — adding generic keywords would move the "share" without anything real changing.
+      Volumes are Google Keyword Planner monthly averages per market, refreshed monthly on the 15th.</div>
+  </div>
+
+  <div class="kpi-grid" id="kpi-grid"></div>
+
+  <div class="chart-card">
+    <div class="chart-header">
+      <div>
+        <div class="chart-title">Share of search by market</div>
+        <div class="chart-sub" id="sos-chart-sub">3-month rolling share of tracked retailer brand searches. Sweden's history is seeded from the old manual sheet (back to Sep 2020); other markets start with the API window (~4 years).</div>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="sosChart"></canvas>
+      <div class="chart-empty" id="sos-empty" hidden></div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title" id="race-title">Retailer race</div>
+          <div class="chart-sub">Each retailer's share of the tracked navigational searches, 3-month rolling.</div>
+        </div>
+      </div>
+      <div class="chart-wrap short">
+        <canvas id="raceChart"></canvas>
+        <div class="chart-empty" id="race-empty" hidden></div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title" id="cat-title">Category demand vs own brands</div>
+          <div class="chart-sub">Monthly search volume: the curated category basket (market potential + seasonality) and the private-label brands (Kuling, Stoy, Buddy &amp; Hope, NG Baby, Carena, Little Jalo).</div>
+        </div>
+      </div>
+      <div class="chart-wrap short">
+        <canvas id="catChart"></canvas>
+        <div class="chart-empty" id="cat-empty" hidden></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-head">
+    <div class="section-title" id="detail-title">Keyword detail</div>
+    <div class="section-sub">Every tracked keyword in the selected market. "Last month" is the latest complete Keyword Planner month; YoY compares the last 12 months to the 12 before. Filter any column or export via the toolbar.</div>
+  </div>
+  <div class="chart-card" style="padding-top:14px">
+    <table id="kw-table" data-tools data-export-name="share-of-search">
+      <thead>
+        <tr>
+          <th>Keyword</th><th>Group</th><th>Tier / bucket</th>
+          <th class="num">Last month</th><th class="num">12-mo total</th><th class="num">YoY</th>
+          <th>Competition</th><th class="num">Top-of-page bid</th>
+        </tr>
+      </thead>
+      <tbody id="kw-tbody"></tbody>
+    </table>
+  </div>
+
+  <div class="caveats">
+    <h3>Method &amp; caveats</h3>
+    <ul id="caveat-list"></ul>
+  </div>
+</main>
+
+<script>
+/* ── Embedded skeleton: the page ships before the first collection has run.
+   `generated_at: null` is the signal that no history exists yet. ── */
+const SNAP = {"generated_at":null,"config":{"markets":{},"keywords":{}},"markets":{}};
+let DATA = SNAP;
+
+const MARKETS = ['SE','NO','DK','FI'];
+const MKT_COLOR = { SE:'#2E8B57', NO:'#4C7FD6', DK:'#B07816', FI:'#A63F63' };
+/* Competitor lines in the race chart: recessive so Babyshop's own line carries. */
+const RACE_COLORS = ['#9BA1A8','#B8A88F','#7E93A8','#C9A66B','#A8B8A0','#B99AA6','#8FA6B8','#CFC9C0'];
+let currentMarket = 'SE';
+let includeAdjacent = false;
+
+/* ── Formatters (match the other tabs) ── */
+const fmtInt = v => v == null ? '—' : Math.round(v).toLocaleString('sv-SE');
+const fmtPct1 = v => v == null ? '—' : v.toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';
+const fmtPP = v => v == null ? '—' : (v>=0?'+':'−')+Math.abs(v).toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})+' pp';
+const fmtPctD = v => v == null ? '—' : (v>=0?'+':'−')+Math.abs(Math.round(v))+'%';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hasData = () => !!(DATA && DATA.generated_at !== null && Object.keys(DATA.markets||{}).length);
+
+const fmtYM = ym => {
+  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return M[+ym.slice(5,7)-1] + ' ' + ym.slice(2,4);
+};
+
+/* ── Series access ─────────────────────────────────────────────────────────
+   All share math happens here so the adjacent toggle only flips one flag. */
+function kwEntries(mk){ return (DATA.config.keywords||{})[mk] || []; }
+function series(mk){ return ((DATA.markets||{})[mk] || {}).series || {}; }
+function metaOf(mk){ return ((DATA.markets||{})[mk] || {}).meta || {}; }
+
+function shareTiers(){ return includeAdjacent ? ['hyper','core','adjacent'] : ['hyper','core']; }
+
+function competitorKws(mk){
+  const tiers = shareTiers();
+  return kwEntries(mk).filter(k => k.group==='competitor' && tiers.includes(k.tier)).map(k => k.kw);
+}
+
+/* Months where the babyshop series has a value — the anchor axis per market. */
+function monthsOf(mk){
+  return Object.keys(series(mk)['babyshop'] || {}).sort();
+}
+
+function volAt(mk, kw, ym){
+  const v = (series(mk)[kw] || {})[ym];
+  return typeof v === 'number' ? v : null;
+}
+
+function groupSum(mk, kws, ym){
+  let s = 0;
+  for (const kw of kws) s += volAt(mk, kw, ym) || 0;
+  return s;
+}
+
+/* Share per month: babyshop / (babyshop + tracked competitors). */
+function shareSeries(mk){
+  const comp = competitorKws(mk);
+  return monthsOf(mk).map(ym => {
+    const bs = volAt(mk, 'babyshop', ym);
+    if (bs == null) return { ym, v:null };
+    const denom = bs + groupSum(mk, comp, ym);
+    return { ym, v: denom > 0 ? bs/denom*100 : null };
+  });
+}
+
+function rolling3(points){
+  return points.map((p,i) => {
+    const win = points.slice(Math.max(0,i-2), i+1).map(q=>q.v).filter(v=>v!=null);
+    return { ym:p.ym, v: win.length ? win.reduce((a,b)=>a+b,0)/win.length : null };
+  });
+}
+
+function sumWindow(mk, kws, months){
+  let s = 0, n = 0;
+  for (const ym of months){ const v = groupSum(mk, kws, ym); s += v; if (v) n++; }
+  return { sum:s, filled:n };
+}
+
+/* ── Header meta ── */
+function renderMeta(){
+  const last = monthsOf(currentMarket).slice(-1)[0];
+  document.getElementById('page-sub').textContent = hasData()
+    ? `Google Keyword Planner monthly search volumes per market · latest complete month ${last ? fmtYM(last) : '—'} · refreshed monthly on the 15th via the Google Ads API.`
+    : 'Awaiting the first collection — refresh_share_of_search.py has not run yet. The keyword set below is the configured one.';
+}
+
+/* ── KPI cards ── */
+function renderKPIs(){
+  const mk = currentMarket, months = monthsOf(mk), comp = competitorKws(mk);
+  const empty = !hasData() || !months.length;
+  const last12 = months.slice(-12), prev12 = months.slice(-24,-12);
+  const sh = shareSeries(mk).filter(p=>p.v!=null);
+
+  const avg = pts => pts.length ? pts.reduce((a,p)=>a+p.v,0)/pts.length : null;
+  const cur3 = avg(sh.slice(-3));
+  const lastYM = sh.length ? sh[sh.length-1].ym : null;
+  let yoyPP = null;
+  if (lastYM && sh.length >= 15){
+    const lyEnd = `${+lastYM.slice(0,4)-1}-${lastYM.slice(5,7)}`;
+    const idx = sh.findIndex(p=>p.ym===lyEnd);
+    if (idx >= 2) yoyPP = cur3 - avg(sh.slice(idx-2, idx+1));
+  }
+
+  const bs12 = sumWindow(mk, ['babyshop'], last12), bsP = sumWindow(mk, ['babyshop'], prev12);
+  const mkt12 = sumWindow(mk, ['babyshop', ...comp], last12), mktP = sumWindow(mk, ['babyshop', ...comp], prev12);
+  const catKws = kwEntries(mk).filter(k=>k.group==='category').map(k=>k.kw);
+  const cat12 = sumWindow(mk, catKws, last12), catP = sumWindow(mk, catKws, prev12);
+  const yoy = (a,b) => (b.filled >= 10 && b.sum > 0) ? (a.sum-b.sum)/b.sum*100 : null;
+
+  const dash = v => empty ? '—' : v;
+  const dcls = v => v == null ? '' : v >= 0 ? 'up' : 'down';
+  const cards = [
+    { label:`Share of search · ${mk}`, hero:true, value:dash(fmtPct1(cur3)),
+      delta:empty?null:yoyPP, deltaTxt:empty?'':fmtPP(yoyPP)+' YoY',
+      note:`3-month average vs the same months last year. Tiers in the denominator: ${shareTiers().join(' + ')}.` },
+    { label:'Babyshop brand searches · 12 mo', value:dash(fmtInt(bs12.sum||null)),
+      delta:empty?null:yoy(bs12,bsP), deltaTxt:empty?'':fmtPctD(yoy(bs12,bsP))+' YoY',
+      note:'Navigational demand for the babyshop term itself.' },
+    { label:'Tracked retailer searches · 12 mo', value:dash(fmtInt(mkt12.sum||null)),
+      delta:empty?null:yoy(mkt12,mktP), deltaTxt:empty?'':fmtPctD(yoy(mkt12,mktP))+' YoY',
+      note:'Babyshop + tracked competitors — the pond the share is measured in.' },
+    { label:'Category demand · 12 mo', value:dash(fmtInt(cat12.sum||null)),
+      delta:empty?null:yoy(cat12,catP), deltaTxt:empty?'':fmtPctD(yoy(cat12,catP))+' YoY',
+      note:'Curated category basket — market potential, kept out of the share.' },
+  ];
+  document.getElementById('kpi-grid').innerHTML = cards.map(c=>`
+    <div class="kpi-card${c.hero?' hero':''}">
+      <div class="kpi-label">${c.label}</div>
+      <div class="kpi-value">${c.value}</div>
+      ${c.deltaTxt?`<span class="kpi-sub ${dcls(c.delta)}">${c.deltaTxt}</span>`:''}
+      <div class="kpi-note">${c.note}</div>
+    </div>`).join('');
+}
+
+/* ── Chart helpers ── */
+const charts = {};
+function draw(id, cfg, emptyId, emptyMsg){
+  const ctx = document.getElementById(id);
+  const blank = emptyId ? document.getElementById(emptyId) : null;
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+  const isEmpty = !cfg;
+  if (blank){ blank.hidden = !isEmpty; if (isEmpty) blank.textContent = emptyMsg || 'No data yet.'; }
+  ctx.hidden = isEmpty;
+  if (!isEmpty) charts[id] = new Chart(ctx, cfg);
+}
+const GRID = { color:'#F2EFEB' };
+const TICKS = { color:'#8C9098', font:{size:10} };
+const LEGEND = { display:true, position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11}, color:'#3F4650' } };
+const pctTip = ctx => `${ctx.dataset.label}: ${ctx.parsed.y==null?'—':ctx.parsed.y.toLocaleString('sv-SE',{maximumFractionDigits:1})}%`;
+const volTip = ctx => `${ctx.dataset.label}: ${ctx.parsed.y==null?'—':Math.round(ctx.parsed.y).toLocaleString('sv-SE')}`;
+
+/* Shared month axis across every market, so the lines align. */
+function unionMonths(){
+  const s = new Set();
+  for (const mk of MARKETS) monthsOf(mk).forEach(ym=>s.add(ym));
+  return [...s].sort();
+}
+
+/* ── Share of search by market ── */
+function renderSosChart(){
+  if (!hasData()) return draw('sosChart', null, 'sos-empty', 'No history yet — the first monthly collection has not run.');
+  const labels = unionMonths();
+  if (!labels.length) return draw('sosChart', null, 'sos-empty', 'No months collected yet.');
+  const datasets = MARKETS.filter(mk=>monthsOf(mk).length).map(mk=>{
+    const byYM = Object.fromEntries(rolling3(shareSeries(mk)).map(p=>[p.ym,p.v]));
+    const on = mk === currentMarket;
+    return { label:mk, data:labels.map(ym=>byYM[ym] ?? null), borderColor:MKT_COLOR[mk],
+             backgroundColor:MKT_COLOR[mk], borderWidth:on?2.5:1.5, pointRadius:0,
+             pointHoverRadius:4, tension:.25, spanGaps:false, order:on?0:1 };
+  });
+  draw('sosChart', {
+    type:'line',
+    data:{ labels: labels.map(fmtYM), datasets },
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      plugins:{ legend:LEGEND, tooltip:{ callbacks:{ label:pctTip } } },
+      scales:{ x:{ grid:{display:false}, ticks:{...TICKS, maxTicksLimit:16} },
+               y:{ grid:GRID, ticks:{...TICKS, callback:v=>v+'%'}, beginAtZero:true } } }
+  }, 'sos-empty');
+}
+
+/* ── Retailer race (selected market) ── */
+function renderRaceChart(){
+  const mk = currentMarket;
+  document.getElementById('race-title').textContent = `Retailer race — ${mk}`;
+  if (!hasData() || !monthsOf(mk).length)
+    return draw('raceChart', null, 'race-empty', `No ${mk} history yet.`);
+  const months = monthsOf(mk).slice(-48);
+  const comp = competitorKws(mk);
+  const all = ['babyshop', ...comp];
+  const mkShare = (kw) => rolling3(months.map(ym=>{
+    const denom = groupSum(mk, all, ym);
+    return { ym, v: denom > 0 ? (volAt(mk, kw, ym)||0)/denom*100 : null };
+  }));
+  const datasets = all.map((kw,i)=>{
+    const own = kw === 'babyshop';
+    return { label:kw, data:mkShare(kw).map(p=>p.v), borderColor: own ? MKT_COLOR[mk] : RACE_COLORS[(i-1)%RACE_COLORS.length],
+             borderWidth: own?2.5:1.3, pointRadius:0, pointHoverRadius:4, tension:.25, spanGaps:false, order:own?0:1 };
+  });
+  draw('raceChart', {
+    type:'line',
+    data:{ labels: months.map(fmtYM), datasets },
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      plugins:{ legend:LEGEND, tooltip:{ callbacks:{ label:pctTip } } },
+      scales:{ x:{ grid:{display:false}, ticks:{...TICKS, maxTicksLimit:10} },
+               y:{ grid:GRID, ticks:{...TICKS, callback:v=>v+'%'}, beginAtZero:true } } }
+  }, 'race-empty');
+}
+
+/* ── Category demand vs own brands (selected market) ── */
+function renderCatChart(){
+  const mk = currentMarket;
+  document.getElementById('cat-title').textContent = `Category demand vs own brands — ${mk}`;
+  const catKws = kwEntries(mk).filter(k=>k.group==='category').map(k=>k.kw);
+  const pbKws  = kwEntries(mk).filter(k=>k.group==='private_label').map(k=>k.kw);
+  /* Category months come from the union of the basket, not the babyshop anchor —
+     the SE seed only reaches the retailer terms. */
+  const mset = new Set();
+  for (const kw of catKws) Object.keys(series(mk)[kw]||{}).forEach(ym=>mset.add(ym));
+  const months = [...mset].sort().slice(-48);
+  if (!hasData() || !months.length)
+    return draw('catChart', null, 'cat-empty', `No ${mk} category volumes yet.`);
+  draw('catChart', {
+    type:'line',
+    data:{ labels: months.map(fmtYM), datasets:[
+      { label:'Category basket', data:months.map(ym=>groupSum(mk,catKws,ym)||null),
+        borderColor:MKT_COLOR[mk], backgroundColor:MKT_COLOR[mk]+'1A', fill:true,
+        borderWidth:2, pointRadius:0, pointHoverRadius:4, tension:.25 },
+      { label:'Private labels', data:months.map(ym=>groupSum(mk,pbKws,ym)||null),
+        borderColor:'#A9621A', borderWidth:2, pointRadius:0, pointHoverRadius:4, tension:.25 },
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      plugins:{ legend:LEGEND, tooltip:{ callbacks:{ label:volTip } } },
+      scales:{ x:{ grid:{display:false}, ticks:{...TICKS, maxTicksLimit:10} },
+               y:{ grid:GRID, ticks:{...TICKS, callback:v=>v>=1000?(v/1000)+'k':v}, beginAtZero:true } } }
+  }, 'cat-empty');
+}
+
+/* ── Keyword detail table ── */
+const GROUP_LABEL = { brand:'Group brand', private_label:'Private label', competitor:'Competitor',
+                      retail_brand:'Retail brand', category:'Category' };
+function renderTable(){
+  const mk = currentMarket;
+  document.getElementById('detail-title').textContent = `Keyword detail — ${mk}`;
+  const months = unionMonthsFor(mk), last12 = months.slice(-12), prev12 = months.slice(-24,-12);
+  const lastYM = months.slice(-1)[0];
+  const meta = metaOf(mk);
+  const rows = kwEntries(mk).map(k=>{
+    const cur = sumWindow(mk, [k.kw], last12), prev = sumWindow(mk, [k.kw], prev12);
+    const yoy = (prev.filled >= 10 && prev.sum > 0) ? (cur.sum-prev.sum)/prev.sum*100 : null;
+    const m = meta[k.kw] || {};
+    const tier = k.tier ? `<span class="tier ${esc(k.tier)}">${esc(k.tier)}</span>`
+               : k.bucket ? esc(k.bucket.replace('_',' ')) : '—';
+    const bid = (m.bid_low || m.bid_high)
+      ? `${(m.bid_low||0).toLocaleString('sv-SE',{maximumFractionDigits:1})}–${(m.bid_high||0).toLocaleString('sv-SE',{maximumFractionDigits:1})} kr` : '—';
+    return `<tr>
+      <td class="kw">${esc(k.kw)}</td>
+      <td>${GROUP_LABEL[k.group]||esc(k.group)}</td>
+      <td>${tier}</td>
+      <td class="num">${lastYM ? fmtInt(volAt(mk,k.kw,lastYM)) : '—'}</td>
+      <td class="num">${cur.sum ? fmtInt(cur.sum) : '—'}</td>
+      <td class="num delta ${yoy==null?'':yoy>=0?'up':'down'}">${fmtPctD(yoy)}</td>
+      <td>${esc((m.competition||'—').toLowerCase())}</td>
+      <td class="num">${bid}</td>
+    </tr>`;
+  });
+  document.getElementById('kw-tbody').innerHTML = rows.join('');
+  if (window.TableTools) TableTools.refresh(document.getElementById('kw-table'));
+}
+/* Full month axis for the table windows — any keyword's months, not just babyshop's. */
+function unionMonthsFor(mk){
+  const s = new Set();
+  const ser = series(mk);
+  for (const kw of Object.keys(ser)) Object.keys(ser[kw]).forEach(ym=>s.add(ym));
+  return [...s].sort();
+}
+
+/* ── Caveats ── */
+function renderCaveats(){
+  const items = [
+    'Keyword Planner volumes are rounded monthly averages (…, 12100, 14800, 18100, …) — read trends and shares, not single-month absolutes.',
+    'One canonical term per concept: Keyword Planner folds plurals, misspellings and spacing variants into the same volume, so variants are deliberately not tracked.',
+    'The share denominator is competitors tiered hyper + core; the "Include adjacent" toggle adds kid-scoped fast-fashion terms (hm barn, boozt børnetøj, h&m lastenvaatteet). Legacy-tier terms (stor & liten, babymarkt) are kept only for continuity with the old sheet and are never in the share.',
+    'Sweden history before Sep 2022 is a one-time import of the old manual sheet; the API window slides (~4 years) and every collected month is merged, never overwritten, so history only grows.',
+    '"babycare" (NO) is semantically generic — read its trend, not its level. "konges sløjd" (DK) is a monobrand D2C, more a brand signal than a retailer signal. Reima (FI) is a household name that dwarfs the other brand lines.',
+    'The keyword set lives in Firestore (sos_config/config) and is editable without a deploy; group/tier/bucket labels drive every chart on this page.',
+  ];
+  document.getElementById('caveat-list').innerHTML = items.map(c=>`<li>${c}</li>`).join('');
+}
+
+/* ── Controls ── */
+function renderPills(){
+  const el = document.getElementById('mktPills');
+  el.innerHTML = MARKETS.map(mk=>
+    `<button type="button" class="mkt-pill${mk===currentMarket?' on':''}" data-mk="${mk}">${mk}</button>`).join('');
+}
+document.getElementById('mktPills').addEventListener('click', e=>{
+  const b = e.target.closest('.mkt-pill'); if (!b) return;
+  currentMarket = b.dataset.mk;
+  renderAll();
+});
+document.getElementById('adjToggle').addEventListener('click', ()=>{
+  includeAdjacent = !includeAdjacent;
+  document.getElementById('adjToggle').classList.toggle('on', includeAdjacent);
+  renderAll();
+});
+
+function renderAll(){
+  renderPills(); renderMeta(); renderKPIs();
+  renderSosChart(); renderRaceChart(); renderCatChart();
+  renderTable(); renderCaveats();
+}
+renderAll();
+
+/* ── Live overlay ── */
+async function fetchLiveAndOverlay(){
+  try {
+    const r = await fetch('/api/share-of-search', { cache:'no-store' });
+    if (!r.ok) return;
+    const live = await r.json();
+    if (!live || !live.config) return;
+    DATA = live;
+    renderAll();
+    const dot = document.getElementById('liveDot');
+    if (dot && live.generated_at !== null){
+      dot.title = `Keyword Planner via Google Ads API · last collected ${live.generated_at}`;
+      dot.style.color = 'rgba(255,255,255,.75)';
+    }
+  } catch(e){ /* keep the embedded skeleton */ }
+}
+fetchLiveAndOverlay();
+
+/* ── Shared refresh-status pill (same contract as the other tabs) ── */
+async function checkRefreshStatus(){
+  const pill=document.getElementById('refreshPill'); if(!pill) return;
+  try {
+    const r=await fetch('/api/refresh-status',{cache:'no-store'}); if(!r.ok) return;
+    const s=await r.json();
+    const fmtAgo=(e)=>{ if(!e) return 'never'; const m=Math.max(0,Math.round((Date.now()/1000-e)/60));
+      return m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago'; };
+    if (s.ok===null || s.ok===undefined){ pill.classList.add('show','unknown'); pill.textContent='refresh status unknown'; pill.title=s.reason||''; return; }
+    const ageH = s.last_run ? (Date.now()/1000 - s.last_run)/3600 : 999;
+    const errs = s.errors||[];
+    if (!s.ok || errs.length){
+      pill.classList.remove('stale','unknown'); pill.classList.add('show');
+      pill.textContent = errs.length ? `${errs.length} refresh error${errs.length>1?'s':''} (24 h)` : 'refresh failed';
+      pill.title = [`Last run: ${fmtAgo(s.last_run)} · stage: ${s.last_stage||'—'}`, s.last_message||'',
+        ...errs.slice(0,5).map(e=>`• [${e.stage}] ${(e.error||'').slice(0,120)}`)].filter(Boolean).join('\n');
+    } else if (ageH>30){
+      pill.classList.remove('unknown'); pill.classList.add('show','stale');
+      pill.textContent=`refresh stale · ${fmtAgo(s.last_run)}`; pill.title=`Last successful run ${fmtAgo(s.last_run)} — expected daily (this tab's own data refreshes monthly).`;
+    } else pill.classList.remove('show','stale','unknown');
+  } catch(e){ /* ignore */ }
+}
+checkRefreshStatus();
+</script>
+</body>
+</html>

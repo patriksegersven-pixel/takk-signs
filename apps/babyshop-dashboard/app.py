@@ -138,6 +138,7 @@ ROAS_HTML      = STATIC_DIR / "babyshop-roas-impact.html"
 SIM_HTML       = STATIC_DIR / "babyshop-roas-simulations.html"
 VOYADO_HTML    = STATIC_DIR / "babyshop-voyado-dashboard.html"
 BUNDLES_HTML   = STATIC_DIR / "babyshop-bundles-dashboard.html"
+SOS_HTML       = STATIC_DIR / "babyshop-sos-dashboard.html"
 TABLE_TOOLS_JS = STATIC_DIR / "table-tools.js"
 CHART_JS       = STATIC_DIR / "chart.umd.js"
 BRAND_CSS      = STATIC_DIR / "brand.css"
@@ -203,6 +204,11 @@ def voyado_dashboard(_: str = Depends(verify)):
 @app.get("/babyshop-bundles-dashboard.html")
 def bundles_dashboard(_: str = Depends(verify)):
     return FileResponse(BUNDLES_HTML, media_type="text/html")
+
+
+@app.get("/babyshop-sos-dashboard.html")
+def sos_dashboard(_: str = Depends(verify)):
+    return FileResponse(SOS_HTML, media_type="text/html")
 
 
 # Shared table filtering + export module, used by <script src="/table-tools.js">
@@ -363,6 +369,29 @@ def api_segments(_: str = Depends(verify)):
         "discount": [], "cross_brand": [], "markets": [],
         "caveats": ["no Segments snapshot yet — refresh_segments.py has not run"],
     }
+
+
+@app.get("/api/share-of-search")
+def api_share_of_search(_: str = Depends(verify)):
+    """Share of Search payload (merged Keyword Planner history per market, written by
+    refresh_share_of_search.py — monthly via /internal/refresh-sos).
+
+    Same 200-with-a-skeleton contract as /api/segments: `generated_at: null` tells
+    the page to render its pending state, and config always rides along so the tab
+    can show the keyword set before the first collection has run."""
+    import refresh_share_of_search as sos
+
+    try:
+        return sos.read_payload()
+    except Exception as e:
+        # A Firestore hiccup must not blank the tab — log and serve the skeleton.
+        print(f"ERROR /api/share-of-search: {type(e).__name__}: {e}", flush=True)
+        return {
+            "generated_at": None,
+            "config": {"markets": sos.DEFAULT_CONFIG["markets"],
+                       "keywords": sos.DEFAULT_CONFIG["keywords"]},
+            "markets": {},
+        }
 
 
 @app.get("/api/voyado-email")
@@ -798,6 +827,43 @@ def internal_refresh_roas_sims(request: Request, run_date: str = ""):
         return JSONResponse({"status": "bad-request", "error": str(e)}, status_code=400)
     except Exception as e:
         print(f"ERROR /internal/refresh-roas-sims: {type(e).__name__}: {e}", flush=True)
+        return JSONResponse({"status": "error", "error": f"{type(e).__name__}: {e}"},
+                            status_code=500)
+    return JSONResponse(out, status_code=200 if out["status"] == "ok" else 502)
+
+
+@app.post("/internal/refresh-sos")
+def internal_refresh_sos(request: Request, run_date: str = ""):
+    """Pull Keyword Planner monthly search volumes for the curated Share of Search
+    keyword set (one call per market) and merge them into sos_history.
+
+    Cloud Scheduler target — monthly on the 15th, when Google has finalised the
+    previous month's volumes. Same X-Internal-Token gate and POST-only reasoning as
+    /internal/refresh-roas-sims (metered quota + --allow-unauthenticated service).
+
+    Degrades loudly, never silently:
+      400 when run_date is not a valid YYYY-MM-DD
+      409 when another collection already holds the run lock (Scheduler retry overlap)
+      503 + the exact env vars still unset when the credentials are missing
+      502 when every market failed (the body names each one)
+      200 when at least one market was collected and merged"""
+    _verify_internal(request)
+
+    import refresh_share_of_search as sos
+
+    if run_date and not sos.RUN_DATE_RE.match(run_date):
+        return JSONResponse({"status": "bad-request",
+                             "error": "run_date must be YYYY-MM-DD"}, status_code=400)
+    try:
+        out = sos.refresh(run_date=run_date or None)
+    except sos.MissingCredentials as e:
+        return JSONResponse({"status": "not-configured", "error": str(e)}, status_code=503)
+    except sos.RefreshInProgress as e:
+        return JSONResponse({"status": "already-running", "error": str(e)}, status_code=409)
+    except ValueError as e:
+        return JSONResponse({"status": "bad-request", "error": str(e)}, status_code=400)
+    except Exception as e:
+        print(f"ERROR /internal/refresh-sos: {type(e).__name__}: {e}", flush=True)
         return JSONResponse({"status": "error", "error": f"{type(e).__name__}: {e}"},
                             status_code=500)
     return JSONResponse(out, status_code=200 if out["status"] == "ok" else 502)

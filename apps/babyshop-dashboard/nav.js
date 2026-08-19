@@ -45,6 +45,7 @@
     { id:'products',  title:'Products',          href:'/babyshop-product-dashboard.html',   group:'core',     subtitle:'Product Performance Dashboard' },
     { id:'customers', title:'Customer Insights', href:'/babyshop-customer-dashboard.html',  group:'core',     subtitle:'Customer Insights' },
     { id:'segments',  title:'Segments',          href:'/babyshop-segments-dashboard.html',  group:'core',     subtitle:'Customer Segments' },
+    { id:'sos',       title:'Share of Search',   href:'/babyshop-sos-dashboard.html',       group:'core',     subtitle:'Share of Search' },
     { id:'inventory', title:'Inventory',         href:'/babyshop-inventory-dashboard.html', group:'core',     subtitle:'Inventory & Stockout Insights' },
     { id:'bundles',   title:'Bundles',           href:'/babyshop-bundles-dashboard.html',   group:'core',     subtitle:'Product Bundles' },
     { id:'voyado',    title:'Email (Voyado)',    href:'/babyshop-voyado-dashboard.html',    group:'channels', subtitle:'Email · Voyado Engage' },
