@@ -36,8 +36,20 @@
     .adj-toggle.on .knob { background:var(--hero); }
     .adj-toggle.on .knob::after { left:12px; }
 
-    .note-bar { background:var(--hero-bg); border:1px solid #C9DCCE; color:#254A32; border-radius:var(--r); padding:11px 16px; font-size:12px; line-height:1.55; margin-bottom:20px; display:flex; gap:9px; align-items:flex-start; }
+    .note-bar { background:var(--hero-bg); border:1px solid #C9DCCE; color:#254A32; border-radius:var(--r); padding:11px 16px; font-size:12px; line-height:1.55; margin-bottom:14px; display:flex; gap:9px; align-items:flex-start; }
     .note-bar svg { flex-shrink:0; margin-top:1px; }
+
+    /* Report-level bucket filter: every category-scoped panel follows it. */
+    .bucket-bar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:20px; }
+    .bucket-lab { font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-right:4px; }
+    .bucket-chip { display:inline-flex; align-items:center; gap:6px; padding:4px 11px; font-size:11.5px; font-weight:500; border:1px solid var(--border); border-radius:999px; cursor:pointer; color:var(--muted); background:var(--card); font-family:inherit; transition:all .15s; white-space:nowrap; }
+    .bucket-chip:hover { color:var(--h); border-color:var(--muted); }
+    .bucket-chip .dot { width:8px; height:8px; border-radius:50%; background:var(--border); flex-shrink:0; transition:background .15s; }
+    .bucket-chip.on { color:var(--h); border-color:currentColor; }
+    .bucket-chip.on .dot { background:var(--chip-c, var(--hero)); }
+    .mode-chips { display:flex; gap:5px; }
+    .mode-chip { padding:3px 11px; font-size:11px; font-weight:500; border:1px solid var(--border); border-radius:999px; cursor:pointer; color:var(--muted); background:var(--card); font-family:inherit; transition:all .15s; }
+    .mode-chip.on { background:var(--hero); border-color:var(--hero); color:#fff; }
 
     .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }
     .kpi-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:18px 20px; box-shadow:var(--shadow-sm); position:relative; overflow:hidden; }
@@ -117,6 +129,8 @@
       Volumes are Google Keyword Planner monthly averages per market, refreshed monthly on the 15th.</div>
   </div>
 
+  <div class="bucket-bar" id="bucketBar"></div>
+
   <div class="kpi-grid" id="kpi-grid"></div>
 
   <div class="chart-card">
@@ -160,6 +174,41 @@
   </div>
 
   <div class="section-head">
+    <div class="section-title" id="bucket-sec-title">Category buckets</div>
+    <div class="section-sub">Each bucket aggregates its 2–3 canonical terms. Indexed mode rebases every bucket's 12-month rolling volume to 100 at its first complete year, so trajectories compare across buckets of very different size; volume mode shows raw monthly searches (3-month rolling). The chips above filter these panels, the category KPI and chart, and the keyword table.</div>
+  </div>
+  <div class="two-col">
+    <div class="chart-card">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title" id="btrend-title">Bucket trends</div>
+          <div class="chart-sub" id="btrend-sub">12-month rolling volume, first complete year = 100.</div>
+        </div>
+        <div class="mode-chips" id="modeChips">
+          <button type="button" class="mode-chip on" data-mode="indexed">Indexed</button>
+          <button type="button" class="mode-chip" data-mode="volume">Volume</button>
+        </div>
+      </div>
+      <div class="chart-wrap short">
+        <canvas id="bucketChart"></canvas>
+        <div class="chart-empty" id="bucket-empty" hidden></div>
+      </div>
+    </div>
+    <div class="chart-card" style="padding-top:14px">
+      <table id="bucket-table" data-tools data-export-name="sos-buckets">
+        <thead>
+          <tr>
+            <th>Bucket</th><th class="num">Terms</th>
+            <th class="num">Last month</th><th class="num">12-mo total</th><th class="num">YoY</th>
+            <th class="num">Share of basket</th><th>Peak months</th>
+          </tr>
+        </thead>
+        <tbody id="bucket-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="section-head">
     <div class="section-title" id="detail-title">Keyword detail</div>
     <div class="section-sub">Every tracked keyword in the selected market. "Last month" is the latest complete Keyword Planner month; YoY compares the last 12 months to the 12 before. Filter any column or export via the toolbar.</div>
   </div>
@@ -192,8 +241,33 @@ const MARKETS = ['SE','NO','DK','FI'];
 const MKT_COLOR = { SE:'#2E8B57', NO:'#4C7FD6', DK:'#B07816', FI:'#A63F63' };
 /* Competitor lines in the race chart: recessive so Babyshop's own line carries. */
 const RACE_COLORS = ['#9BA1A8','#B8A88F','#7E93A8','#C9A66B','#A8B8A0','#B99AA6','#8FA6B8','#CFC9C0'];
+const BUCKET_META = {
+  kidswear:  { label:'Kidswear',   color:'#2E8B57' },
+  outerwear: { label:'Outerwear',  color:'#3E86A3' },
+  footwear:  { label:'Footwear',   color:'#7E5A8C' },
+  strollers: { label:'Strollers',  color:'#B07816' },
+  car_seats: { label:'Car seats',  color:'#C4461F' },
+  nursery:   { label:'Nursery',    color:'#A63F63' },
+  wheels:    { label:'Wheels',     color:'#4C7FD6' },
+  uv_swim:   { label:'UV / swim',  color:'#6B8F5E' },
+};
+const bucketLabel = b => (BUCKET_META[b] || { label:(b||'—').replace('_',' ') }).label;
 let currentMarket = 'SE';
 let includeAdjacent = false;
+/* Report-level bucket filter: empty set = all buckets. Applies to the category
+   KPI + chart, the bucket panels, and the keyword table's category rows. */
+let selectedBuckets = new Set();
+let trendMode = 'indexed';
+
+function allBuckets(mk){
+  const seen = new Set();
+  for (const k of kwEntries(mk)) if (k.group==='category' && k.bucket) seen.add(k.bucket);
+  return [...seen];
+}
+function bucketActive(b){ return !selectedBuckets.size || selectedBuckets.has(b); }
+function activeCatKws(mk){
+  return kwEntries(mk).filter(k=>k.group==='category' && bucketActive(k.bucket)).map(k=>k.kw);
+}
 
 /* ── Formatters (match the other tabs) ── */
 const fmtInt = v => v == null ? '—' : Math.round(v).toLocaleString('sv-SE');
@@ -288,8 +362,10 @@ function renderKPIs(){
 
   const bs12 = sumWindow(mk, ['babyshop'], last12), bsP = sumWindow(mk, ['babyshop'], prev12);
   const mkt12 = sumWindow(mk, ['babyshop', ...comp], last12), mktP = sumWindow(mk, ['babyshop', ...comp], prev12);
-  const catKws = kwEntries(mk).filter(k=>k.group==='category').map(k=>k.kw);
+  const catKws = activeCatKws(mk);
   const cat12 = sumWindow(mk, catKws, last12), catP = sumWindow(mk, catKws, prev12);
+  const nBuckets = allBuckets(mk).length;
+  const nActive = selectedBuckets.size || nBuckets;
   const yoy = (a,b) => (b.filled >= 10 && b.sum > 0) ? (a.sum-b.sum)/b.sum*100 : null;
 
   const dash = v => empty ? '—' : v;
@@ -306,7 +382,7 @@ function renderKPIs(){
       note:'Babyshop + tracked competitors — the pond the share is measured in.' },
     { label:'Category demand · 12 mo', value:dash(fmtInt(cat12.sum||null)),
       delta:empty?null:yoy(cat12,catP), deltaTxt:empty?'':fmtPctD(yoy(cat12,catP))+' YoY',
-      note:'Curated category basket — market potential, kept out of the share.' },
+      note:`Curated category basket (${nActive} of ${nBuckets} buckets) — market potential, kept out of the share.` },
   ];
   document.getElementById('kpi-grid').innerHTML = cards.map(c=>`
     <div class="kpi-card${c.hero?' hero':''}">
@@ -394,8 +470,9 @@ function renderRaceChart(){
 /* ── Category demand vs own brands (selected market) ── */
 function renderCatChart(){
   const mk = currentMarket;
-  document.getElementById('cat-title').textContent = `Category demand vs own brands — ${mk}`;
-  const catKws = kwEntries(mk).filter(k=>k.group==='category').map(k=>k.kw);
+  const filt = selectedBuckets.size ? ` · ${selectedBuckets.size} bucket${selectedBuckets.size>1?'s':''}` : '';
+  document.getElementById('cat-title').textContent = `Category demand vs own brands — ${mk}${filt}`;
+  const catKws = activeCatKws(mk);
   const pbKws  = kwEntries(mk).filter(k=>k.group==='private_label').map(k=>k.kw);
   /* Category months come from the union of the basket, not the babyshop anchor —
      the SE seed only reaches the retailer terms. */
@@ -420,6 +497,126 @@ function renderCatChart(){
   }, 'cat-empty');
 }
 
+/* ── Report-level bucket filter bar ── */
+function renderBucketBar(){
+  const el = document.getElementById('bucketBar');
+  const buckets = allBuckets(currentMarket);
+  if (!buckets.length){ el.innerHTML=''; return; }
+  const chips = buckets.map(b=>{
+    const on = bucketActive(b), c = (BUCKET_META[b]||{}).color || '#8C9098';
+    return `<button type="button" class="bucket-chip${on?' on':''}" data-bucket="${esc(b)}" style="--chip-c:${c}">
+      <span class="dot"></span>${esc(bucketLabel(b))}</button>`;
+  });
+  el.innerHTML = `<span class="bucket-lab">Buckets</span>
+    <button type="button" class="bucket-chip${selectedBuckets.size?'':' on'}" data-bucket="__all">All</button>` + chips.join('');
+}
+document.getElementById('bucketBar').addEventListener('click', e=>{
+  const b = e.target.closest('.bucket-chip'); if (!b) return;
+  const key = b.dataset.bucket;
+  if (key === '__all') selectedBuckets.clear();
+  else if (selectedBuckets.has(key)) selectedBuckets.delete(key);
+  else selectedBuckets.add(key);
+  if (selectedBuckets.size === allBuckets(currentMarket).length) selectedBuckets.clear();
+  renderAll();
+});
+
+/* ── Bucket trends + summary ── */
+function bucketMonthly(mk, b){
+  const kws = kwEntries(mk).filter(k=>k.group==='category' && k.bucket===b).map(k=>k.kw);
+  const mset = new Set();
+  for (const kw of kws) Object.keys(series(mk)[kw]||{}).forEach(ym=>mset.add(ym));
+  const months = [...mset].sort();
+  return { kws, months, at: ym => groupSum(mk, kws, ym) };
+}
+
+function renderBucketChart(){
+  const mk = currentMarket;
+  const buckets = allBuckets(mk).filter(bucketActive);
+  document.getElementById('btrend-title').textContent =
+    `Bucket trends — ${mk}` + (trendMode==='indexed' ? ' · indexed' : ' · volume');
+  document.getElementById('btrend-sub').textContent = trendMode==='indexed'
+    ? '12-month rolling volume, each bucket rebased to 100 at its first complete year — trajectories compare across bucket sizes.'
+    : 'Monthly search volume per bucket, 3-month rolling — absolute levels and seasonality.';
+  if (!hasData() || !buckets.length)
+    return draw('bucketChart', null, 'bucket-empty', hasData() ? 'No buckets selected.' : 'No history yet.');
+
+  /* Shared axis: union of all selected buckets' months. */
+  const mset = new Set();
+  for (const b of buckets) bucketMonthly(mk,b).months.forEach(ym=>mset.add(ym));
+  const months = [...mset].sort().slice(-48);
+  if (!months.length)
+    return draw('bucketChart', null, 'bucket-empty', 'No category volumes yet.');
+
+  const datasets = buckets.map(b=>{
+    const bm = bucketMonthly(mk,b);
+    let data;
+    if (trendMode === 'indexed'){
+      const own = bm.months;                       // rolling 12 needs the bucket's own axis
+      const r12 = own.map((ym,i)=> i>=11 ? own.slice(i-11,i+1).reduce((a,m)=>a+bm.at(m),0) : null);
+      const base = r12.find(v=>v>0);
+      const byYM = Object.fromEntries(own.map((ym,i)=>[ym, (r12[i]!=null && base) ? r12[i]/base*100 : null]));
+      data = months.map(ym=>byYM[ym] ?? null);
+    } else {
+      const byYM = Object.fromEntries(rolling3(bm.months.map(ym=>({ym, v:bm.at(ym)||null}))).map(p=>[p.ym,p.v]));
+      data = months.map(ym=>byYM[ym] ?? null);
+    }
+    const c = (BUCKET_META[b]||{}).color || '#8C9098';
+    return { label:bucketLabel(b), data, borderColor:c, backgroundColor:c, borderWidth:1.8,
+             pointRadius:0, pointHoverRadius:4, tension:.25, spanGaps:false };
+  });
+  const isIdx = trendMode==='indexed';
+  draw('bucketChart', {
+    type:'line',
+    data:{ labels: months.map(fmtYM), datasets },
+    options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      plugins:{ legend:LEGEND, tooltip:{ callbacks:{ label: isIdx
+        ? (ctx => `${ctx.dataset.label}: ${ctx.parsed.y==null?'—':Math.round(ctx.parsed.y)}`)
+        : volTip } } },
+      scales:{ x:{ grid:{display:false}, ticks:{...TICKS, maxTicksLimit:10} },
+               y:{ grid:GRID, ticks:{...TICKS, callback:v=>isIdx?v:(v>=1000?(v/1000)+'k':v)},
+                   beginAtZero:!isIdx } } }
+  }, 'bucket-empty');
+}
+
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function renderBucketTable(){
+  const mk = currentMarket;
+  document.getElementById('bucket-sec-title').textContent = `Category buckets — ${mk}`;
+  const buckets = allBuckets(mk).filter(bucketActive);
+  const months = unionMonthsFor(mk), last12 = months.slice(-12), prev12 = months.slice(-24,-12);
+  const lastYM = months.slice(-1)[0];
+  const total12 = buckets.reduce((a,b)=>{ const bm=bucketMonthly(mk,b); return a + last12.reduce((s,ym)=>s+bm.at(ym),0); }, 0);
+  const rows = buckets.map(b=>{
+    const bm = bucketMonthly(mk,b);
+    const cur = last12.reduce((s,ym)=>s+bm.at(ym),0), prev = prev12.reduce((s,ym)=>s+bm.at(ym),0);
+    const yoy = prev > 0 ? (cur-prev)/prev*100 : null;
+    /* Peak months: average volume per calendar month across all available history. */
+    const byCal = Array.from({length:12}, ()=>({s:0,n:0}));
+    for (const ym of bm.months){ const v=bm.at(ym); const m=+ym.slice(5,7)-1; byCal[m].s+=v; byCal[m].n++; }
+    const avgs = byCal.map((o,i)=>({i, v:o.n?o.s/o.n:0}));
+    const peaks = avgs.slice().sort((a,x)=>x.v-a.v).slice(0,2).sort((a,x)=>a.i-x.i).map(p=>MONTH_NAMES[p.i]).join(' · ');
+    const dot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${(BUCKET_META[b]||{}).color||'#8C9098'};margin-right:7px;vertical-align:baseline"></span>`;
+    return `<tr>
+      <td class="kw">${dot}${esc(bucketLabel(b))}</td>
+      <td class="num">${bm.kws.length}</td>
+      <td class="num">${lastYM ? fmtInt(bm.at(lastYM)||null) : '—'}</td>
+      <td class="num">${cur ? fmtInt(cur) : '—'}</td>
+      <td class="num delta ${yoy==null?'':yoy>=0?'up':'down'}">${fmtPctD(yoy)}</td>
+      <td class="num">${total12 ? fmtPct1(cur/total12*100) : '—'}</td>
+      <td>${peaks || '—'}</td>
+    </tr>`;
+  });
+  document.getElementById('bucket-tbody').innerHTML = rows.join('');
+  if (window.TableTools) TableTools.refresh(document.getElementById('bucket-table'));
+}
+
+document.getElementById('modeChips').addEventListener('click', e=>{
+  const b = e.target.closest('.mode-chip'); if (!b) return;
+  trendMode = b.dataset.mode;
+  document.querySelectorAll('.mode-chip').forEach(c=>c.classList.toggle('on', c===b));
+  renderBucketChart();
+});
+
 /* ── Keyword detail table ── */
 const GROUP_LABEL = { brand:'Group brand', private_label:'Private label', competitor:'Competitor',
                       retail_brand:'Retail brand', category:'Category' };
@@ -429,12 +626,14 @@ function renderTable(){
   const months = unionMonthsFor(mk), last12 = months.slice(-12), prev12 = months.slice(-24,-12);
   const lastYM = months.slice(-1)[0];
   const meta = metaOf(mk);
-  const rows = kwEntries(mk).map(k=>{
+  const rows = kwEntries(mk)
+    .filter(k => k.group !== 'category' || bucketActive(k.bucket))
+    .map(k=>{
     const cur = sumWindow(mk, [k.kw], last12), prev = sumWindow(mk, [k.kw], prev12);
     const yoy = (prev.filled >= 10 && prev.sum > 0) ? (cur.sum-prev.sum)/prev.sum*100 : null;
     const m = meta[k.kw] || {};
     const tier = k.tier ? `<span class="tier ${esc(k.tier)}">${esc(k.tier)}</span>`
-               : k.bucket ? esc(k.bucket.replace('_',' ')) : '—';
+               : k.bucket ? esc(bucketLabel(k.bucket)) : '—';
     const bid = (m.bid_low || m.bid_high)
       ? `${(m.bid_low||0).toLocaleString('sv-SE',{maximumFractionDigits:1})}–${(m.bid_high||0).toLocaleString('sv-SE',{maximumFractionDigits:1})} kr` : '—';
     return `<tr>
@@ -490,8 +689,9 @@ document.getElementById('adjToggle').addEventListener('click', ()=>{
 });
 
 function renderAll(){
-  renderPills(); renderMeta(); renderKPIs();
+  renderPills(); renderBucketBar(); renderMeta(); renderKPIs();
   renderSosChart(); renderRaceChart(); renderCatChart();
+  renderBucketChart(); renderBucketTable();
   renderTable(); renderCaveats();
 }
 renderAll();
