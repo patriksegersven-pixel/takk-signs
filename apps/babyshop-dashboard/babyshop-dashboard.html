@@ -174,13 +174,13 @@
     }
 
     /* ── KPI grid ───────────────────────────────────────
-     * Two rows: the profit ladder in SEK (revenue → GP1 → GP2 →
-     * ad spend → GP3), then the ratios those imply (GM1/GM2/GM3 +
-     * the two cost ratios). The ratio row is deliberately smaller so
-     * the money row stays the first thing read. */
+     * Two rows: the profit ladder in SEK (revenue → net revenue →
+     * GP1 → GP2 → ad spend → GP3), then the ratios those imply
+     * (GM1/GM2/GM3 + the two cost ratios). The ratio row is
+     * deliberately smaller so the money row stays the first thing read. */
     .kpi-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr) 1.3fr;
+      grid-template-columns: repeat(5, 1fr) 1.3fr;
       gap: 14px;
       margin-bottom: 14px;
     }
@@ -685,7 +685,7 @@
       <div class="chart-header">
         <div>
           <div class="chart-title">Weekly P&amp;L Waterfall</div>
-          <div class="chart-sub" id="wf-sub">kv-revenue stacked → COGS (rev−gp1) · ops costs (gp1−gp2) · ad spend · kv-gp3</div>
+          <div class="chart-sub" id="wf-sub">kv-revenue stacked → returns (rev−net rev) · COGS (net rev−gp1) · ops costs (gp1−gp2) · ad spend · kv-gp3</div>
         </div>
         <span class="chart-badge">SEK</span>
       </div>
@@ -741,7 +741,7 @@
     <div class="card-header">
       <div>
         <div class="chart-title">Performance by Market</div>
-        <div class="chart-sub">kv-revenue · kv-gp1 · kv-gp2 · kv-gp3 · kv-gm1% · kv-cos% · kv-cop%</div>
+        <div class="chart-sub">kv-revenue · kv-net-revenue · kv-gp1 · kv-gp2 · kv-gp3 · kv-gm1% · kv-cos% · kv-cop%</div>
       </div>
       <div id="market-tools"></div>
     </div>
@@ -756,13 +756,14 @@
         <tr>
           <th title="cf1j1qh36fictd7_market_level_1_kv">Market</th>
           <th title="cf1ijsm2qp2r9v3_kv_revenue">Revenue</th>
+          <th title="kv_net_revenue = kv_revenue − kv_returns · Kuvio (Funnel→BQ export)">kv-NetRev</th>
           <th title="kv-revenue share of total">Rev share</th>
-          <th title="kv_gp1 · Kuvio (Funnel→BQ export)">kv-GP1</th>
+          <th title="kv_gp1 − kv_returns = net revenue − COGS · Kuvio (derived)">kv-GP1</th>
           <th title="cf1ijsmd6ra2jmj_kv_gp2">kv-GP2</th>
           <th title="cf1ijsubsqmhepf_kv_gp3">kv-GP3</th>
           <th title="kv-gp3 share of total">GP3 share</th>
           <th title="Cost · total ad spend">Total cost</th>
-          <th title="kv_gp1 / kv_revenue · Kuvio (derived)">kv-GM1%</th>
+          <th title="net kv_gp1 / kv_net_revenue · Kuvio (derived)">kv-GM1%</th>
           <th title="cf1jfduntq34ns6_kv_gm3">kv-GM3%</th>
           <th title="cf1ik1q18tt61mj_kv_cos">kv-COS%</th>
           <th title="cf1ijsu9g9io330_kv_cop">kv-COP%</th>
@@ -805,7 +806,7 @@
     <div class="card-header">
       <div>
         <div class="chart-title">Channel Type Level 2 — Full Breakdown</div>
-        <div class="chart-sub">kv-revenue · kv-gp1 · kv-gp2 · kv-gp3 · kv-gm1% · kv-cos% · kv-cop%</div>
+        <div class="chart-sub">kv-revenue · kv-net-revenue · kv-gp1 · kv-gp2 · kv-gp3 · kv-gm1% · kv-cos% · kv-cop%</div>
       </div>
       <div id="channel-tools"></div>
     </div>
@@ -817,13 +818,14 @@
         <tr>
           <th title="cf1i7dnbhv3imth_Google__Bing_New">Channel</th>
           <th title="cf1ijsm2qp2r9v3_kv_revenue">Revenue</th>
+          <th title="kv_net_revenue = kv_revenue − kv_returns · Kuvio (Funnel→BQ export)">kv-NetRev</th>
           <th title="kv-revenue share of total">Rev share</th>
-          <th title="kv_gp1 · Kuvio (Funnel→BQ export)">kv-GP1</th>
+          <th title="kv_gp1 − kv_returns = net revenue − COGS · Kuvio (derived)">kv-GP1</th>
           <th title="cf1ijsmd6ra2jmj_kv_gp2">kv-GP2</th>
           <th title="cf1ijsubsqmhepf_kv_gp3">kv-GP3</th>
           <th title="kv-gp3 share of total">GP3 share</th>
           <th title="Cost · total ad spend">Total cost</th>
-          <th title="kv_gp1 / kv_revenue · Kuvio (derived)">kv-GM1%</th>
+          <th title="net kv_gp1 / kv_net_revenue · Kuvio (derived)">kv-GM1%</th>
           <th title="cf1jfduntq34ns6_kv_gm3">kv-GM3%</th>
           <th title="cf1ik1q18tt61mj_kv_cos">kv-COS%</th>
           <th title="cf1ijsu9g9io330_kv_cop">kv-COP%</th>
@@ -935,10 +937,15 @@
 const FIELD_IDS = {
   // measures
   'kv-revenue':           'cf1ijsm2qp2r9v3_kv_revenue',
+  // Net revenue = kv_revenue − kv_returns (the export's kv_net_revenue equals
+  // this to the öre). kv_revenue is GROSS of returns while kv_cogs is net of
+  // them, which is why the raw kv_gp1/kv_revenue GM1 ran high vs other sources.
+  'kv-net-revenue':       'kv_net_revenue = kv_revenue − kv_returns · Kuvio (Funnel→BQ export)',
   // kv_gp1 has no cross-platform Funnel custom-field id of its own — it comes
   // straight off the Kuvio column in the Funnel→BigQuery export, same as the
-  // rest of the kv_* family.
-  'kv-gp1':               'kv_gp1 · Kuvio (Funnel→BQ export)',
+  // rest of the kv_* family. bq_source nets returns out of it (gp1 − returns
+  // = net revenue − COGS), matching how gp2/gp3 already treat returns.
+  'kv-gp1':               'kv_gp1 − kv_returns = net revenue − COGS · Kuvio (derived)',
   'kv-gp2':               'cf1ijsmd6ra2jmj_kv_gp2',
   'kv-gp3':               'cf1ijsubsqmhepf_kv_gp3',
   'kv-transactions':      'cf1ijsmm7d814r4_kv_transactions',
@@ -948,7 +955,7 @@ const FIELD_IDS = {
   // ratio metrics
   'kv-cos':               'cf1ik1q18tt61mj_kv_cos',
   'kv-cop':               'cf1ijsu9g9io330_kv_cop',
-  'kv-gm1':               'kv_gp1 / kv_revenue · Kuvio (derived)',
+  'kv-gm1':               'net kv_gp1 / kv_net_revenue · Kuvio (derived)',
   'kv-gm2':               'cf1ijsu4oqlutpf_kv_gm2',
   'kv-gm3':               'cf1jfduntq34ns6_kv_gm3',
   'kv-aov':               'cf1ijsu6m667r31_kv_aov',
@@ -1128,16 +1135,19 @@ function _cmpRange(r){
 }
 function _sumRange(start, end){
   const a = _isoLocal(start), b = _isoLocal(end);
-  const acc = { revenue:0, gp1:0, gp2:0, gp3:0, txns:0, adCost:0 }; let n = 0, gp1n = 0;
+  const acc = { revenue:0, net_revenue:0, gp1:0, gp2:0, gp3:0, txns:0, adCost:0 };
+  let n = 0, gp1n = 0, netn = 0;
   for (const r of DAILY_LONG) {
     if (r.iso >= a && r.iso <= b) {
       acc.revenue+=r.revenue; acc.gp2+=r.gp2; acc.gp3+=r.gp3; acc.txns+=r.txns; acc.adCost+=r.cost; n++;
       if (typeof r.gp1 === 'number') { acc.gp1 += r.gp1; gp1n++; }
+      if (typeof r.net_revenue === 'number') { acc.net_revenue += r.net_revenue; netn++; }
     }
   }
-  // A payload written before gp1 was carried has no gp1 at all — report it as
-  // missing (null) rather than as a real zero, so the cards show "—".
+  // A payload written before gp1/net_revenue were carried has neither — report
+  // them as missing (null) rather than as a real zero, so the cards show "—".
   if (!gp1n) acc.gp1 = null;
+  if (!netn) acc.net_revenue = null;
   return n ? acc : null;
 }
 /* Overwrite PERIODS[currentPeriod] cur + active comparison with real summed values. */
@@ -1212,12 +1222,14 @@ function _captureAllSeries() {
  * don't line up and the week is left alone. */
 function _backfillWeekGp1() {
   WEEKS.forEach((w, i) => {
-    if (typeof w.gp1 === 'number') return;
     const chunk = DAILY.slice(i * 7, i * 7 + 7);
-    if (!chunk.length || !chunk.every(d => typeof d.gp1 === 'number')) return;
+    if (!chunk.length) return;
     const rev = chunk.reduce((s, d) => s + d.rev, 0);
     if (Math.abs(rev - w.revenue) > chunk.length) return;   // ±1 SEK/day rounding
-    w.gp1 = chunk.reduce((s, d) => s + d.gp1, 0);
+    if (typeof w.gp1 !== 'number' && chunk.every(d => typeof d.gp1 === 'number'))
+      w.gp1 = chunk.reduce((s, d) => s + d.gp1, 0);
+    if (typeof w.net_revenue !== 'number' && chunk.every(d => typeof d.net_rev === 'number'))
+      w.net_revenue = chunk.reduce((s, d) => s + d.net_rev, 0);
   });
 }
 _captureAllSeries();
@@ -1355,11 +1367,14 @@ function pctDeltaPill(cur, prev) {
 }
 
 /* ── KPI Cards ─────────────────────────────────────
- * Row 1 — the profit ladder in SEK: revenue → GP1 (after COGS) →
- *         GP2 (after ops costs) → GP3 (after ad spend, the hero).
+ * Row 1 — the profit ladder in SEK: revenue → net revenue (after returns) →
+ *         GP1 (after COGS) → GP2 (after ops costs) → GP3 (after ad spend,
+ *         the hero).
  * Row 2 — the margins those imply (GM1/GM2/GM3) plus the two cost ratios.
- * Every figure is a Kuvio (kv_*) measure off the Funnel→BigQuery export;
- * the GM% are derived as the matching GP ÷ kv-revenue. */
+ * Every figure is a Kuvio (kv_*) measure off the Funnel→BigQuery export.
+ * GM1 divides by NET revenue (returns removed from both sides — kv_cogs is
+ * already net of returns, which is why gross GM1 ran high vs other sources);
+ * GM2/GM3/COS keep the gross-revenue denominator they always had. */
 const _num = v => typeof v === 'number' && isFinite(v);
 // GP1 only exists in payloads written after it was added — render "—" instead
 // of a fabricated 0 when an older snapshot is still being served.
@@ -1380,6 +1395,14 @@ const _delta     = (cur, prev, lowerIsBetter=false, isPP=false) =>
 const gm1Of   = _ratio;
 const gp1Cell = (e, prevKey='gp1_prev') =>
   _num(e.gp1) ? `${fmtSEK(e.gp1)}${cellDelta(e.gp1, e[prevKey])}` : '—';
+/* GM1's denominator is NET revenue (returns removed, matching the netted gp1).
+ * A row from an old snapshot carries neither net_revenue nor a netted gp1, so
+ * falling back to gross revenue keeps the ratio internally consistent. */
+const nrevOf     = e => _num(e.net_revenue) ? e.net_revenue : e.revenue;
+const nrevPrevOf = (e, revPrevKey='revenue_prev') =>
+  _num(e.net_revenue_prev) ? e.net_revenue_prev : e[revPrevKey];
+const netRevCell = (e) =>
+  _num(e.net_revenue) ? `${fmtSEK(e.net_revenue)}${cellDelta(e.net_revenue, e.net_revenue_prev)}` : '—';
 /* One % cell of a breakdown table (GM1/GM3/COS/COP). A null ratio — no revenue
  * to divide by, or no spend — prints '—' with NO delta badge: "— ▼ -3.0pp"
  * reads as a real move when nothing was measured. */
@@ -1391,7 +1414,10 @@ function renderKPIs() {
   const cos_prev = _ratio(PREV.adCost, PREV.revenue);
   const cop_cur  = _ratio(CUR.adCost, CUR.gp2);
   const cop_prev = _ratio(PREV.adCost, PREV.gp2);
-  const gm1_cur  = _ratio(CUR.gp1, CUR.revenue),  gm1_prev = _ratio(PREV.gp1, PREV.revenue);
+  // GM1 on net revenue; a payload predating net_revenue also carries the old
+  // gross gp1, so falling back to gross revenue keeps the ratio consistent.
+  const _nrev = o => _num(o.net_revenue) ? o.net_revenue : o.revenue;
+  const gm1_cur  = _ratio(CUR.gp1, _nrev(CUR)),   gm1_prev = _ratio(PREV.gp1, _nrev(PREV));
   const gm2_cur  = _ratio(CUR.gp2, CUR.revenue),  gm2_prev = _ratio(PREV.gp2, PREV.revenue);
   const gm3_cur  = _ratio(CUR.gp3, CUR.revenue),  gm3_prev = _ratio(PREV.gp3, PREV.revenue);
 
@@ -1403,10 +1429,16 @@ function renderKPIs() {
       sub: 'kv-revenue',
     },
     {
+      label:'kv-Net Revenue', field: FIELD_IDS['kv-net-revenue'],
+      value: _sekOrDash(CUR.net_revenue),
+      delta: _delta(CUR.net_revenue, PREV.net_revenue),
+      sub: 'after returns',
+    },
+    {
       label:'kv-GP1', field: FIELD_IDS['kv-gp1'],
       value: _sekOrDash(CUR.gp1),
       delta: _delta(CUR.gp1, PREV.gp1),
-      sub: 'after COGS · '+ _pctOrDash(gm1_cur) +' GM1',
+      sub: 'after returns & COGS · '+ _pctOrDash(gm1_cur) +' GM1',
     },
     {
       label:'kv-GP2', field: FIELD_IDS['kv-gp2'],
@@ -1434,7 +1466,7 @@ function renderKPIs() {
       label:'kv-GM1%', field: FIELD_IDS['kv-gm1'],
       value: _pctOrDash(gm1_cur),
       delta: _delta(gm1_cur, gm1_prev, false, true),
-      sub: 'gp1 / revenue · ↑ bättre',
+      sub: 'gp1 / net revenue · ↑ bättre',
       note: 'Prev: '+_pctOrDash(gm1_prev),
     },
     {
@@ -1918,9 +1950,11 @@ function _normDay(iso, r) {
   return {
     d: `${+iso.slice(8, 10)}/${+iso.slice(5, 7)}`, iso,
     rev:  n(r && r.rev, r && r.revenue),
-    // A day with no gp1 stays null so the GP1/GM1 lines show a gap instead of
-    // claiming a real zero margin.
+    // A day with no gp1/net_rev stays null so the GP1/GM1/NetRev lines show a
+    // gap instead of claiming a real zero.
     gp1:  (r && typeof r.gp1 === 'number') ? r.gp1 : (r ? null : 0),
+    net_rev: (r && typeof r.net_rev === 'number') ? r.net_rev
+           : (r && typeof r.net_revenue === 'number') ? r.net_revenue : (r ? null : 0),
     gp2:  n(r && r.gp2), gp3: n(r && r.gp3), cost: n(r && r.cost),
   };
 }
@@ -1990,12 +2024,13 @@ function _buildFilteredWeeks(days) {
   const n = (r, k) => (r && typeof r[k] === 'number' ? r[k] : 0);
   const weeks = WEEKS_ALL.map((w, i) => {
     const chunk = DAILY_ALL.slice(i * 7, i * 7 + 7);   // same 7-day bucketing the snapshot uses
-    const acc = { label: w.label, revenue: 0, gp1: 0, gp2: 0, gp3: 0, cost: 0 };
+    const acc = { label: w.label, revenue: 0, net_revenue: 0, gp1: 0, gp2: 0, gp3: 0, cost: 0 };
     if (!chunk.length) return acc;
     const from = _dailyISO(chunk[0].d), to = _dailyISO(chunk[chunk.length - 1].d);
     for (const r of days) {
       if (r.d < from || r.d > to) continue;
-      acc.revenue += n(r, 'rev'); acc.gp1 += n(r, 'gp1'); acc.gp2 += n(r, 'gp2');
+      acc.revenue += n(r, 'rev'); acc.net_revenue += n(r, 'net_rev');
+      acc.gp1 += n(r, 'gp1'); acc.gp2 += n(r, 'gp2');
       acc.gp3 += n(r, 'gp3');     acc.cost += n(r, 'cost');
     }
     return acc;
@@ -2043,8 +2078,9 @@ async function _fetchCombined(af, applyTotals = true) {
     if (d.error) throw new Error(d.error);
     if (applyTotals) {
       const _gp1 = o => (typeof o.gp1 === 'number' ? o.gp1 : null);   // older API response → "—"
-      CUR  = { revenue: d.cur.revenue, gp1: _gp1(d.cur), gp2: d.cur.gp2, gp3: d.cur.gp3, adCost: d.cur.cost, txns: d.cur.txns };
-      PREV = { revenue: d.prev.revenue, gp1: _gp1(d.prev), gp2: d.prev.gp2, gp3: d.prev.gp3, adCost: d.prev.cost, txns: d.prev.txns };
+      const _net = o => (typeof o.net_revenue === 'number' ? o.net_revenue : null);
+      CUR  = { revenue: d.cur.revenue, net_revenue: _net(d.cur), gp1: _gp1(d.cur), gp2: d.cur.gp2, gp3: d.cur.gp3, adCost: d.cur.cost, txns: d.cur.txns };
+      PREV = { revenue: d.prev.revenue, net_revenue: _net(d.prev), gp1: _gp1(d.prev), gp2: d.prev.gp2, gp3: d.prev.gp3, adCost: d.prev.cost, txns: d.prev.txns };
     }
     if (span && Array.isArray(d.days)) {
       _seriesRows = d.days;
@@ -2106,6 +2142,7 @@ function applyFilter() {
     }
     CUR = {
       revenue: entry.revenue,
+      net_revenue: typeof entry.net_revenue === 'number' ? entry.net_revenue : null,
       gp1:     typeof entry.gp1 === 'number' ? entry.gp1 : null,
       gp2:     entry.gp2,
       gp3:     entry.gp3,
@@ -2123,7 +2160,8 @@ function applyFilter() {
     const entryRevPrev = entry.revenue_prev != null ? entry.revenue_prev : entry.rev_prev;
     PREV = {
       revenue: real(entryRevPrev,   cmpBase.revenue * shareOfTotal),
-      // gp1's fallback is only meaningful when the period base actually carries it
+      // gp1/net_revenue fallbacks are only meaningful when the period base actually carries them
+      net_revenue: real(entry.net_revenue_prev, _num(cmpBase.net_revenue) ? cmpBase.net_revenue * shareOfTotal : null),
       gp1:     real(entry.gp1_prev,  _num(cmpBase.gp1) ? cmpBase.gp1 * shareOfTotal : null),
       gp2:     real(entry.gp2_prev,  cmpBase.gp2    * shareOfTotal),
       gp3:     real(entry.gp3_prev,  cmpBase.gp3    * shareOfTotal),
@@ -2162,17 +2200,20 @@ document.getElementById('filter-reset').addEventListener('click', () => {
 populateFilters();
 
 /* ── Chart: Weekly Waterfall (full cost breakdown) ──
- * "rev − gp2" is split into COGS + 4 ops cost categories. With kv_gp1 carried
- * end-to-end (BigQuery kv_gp1 → bq_source → the week series' `gp1`) the first
- * cut is exact — no heuristic:
- *   COGS      = rev − gp1
+ * "rev − gp2" is split into returns + COGS + ops cost categories. With
+ * kv_gp1 (netted: net revenue − COGS) and net_revenue carried end-to-end
+ * (BigQuery → bq_source → the week series) the first cuts are exact:
+ *   Returns   = rev − net_revenue        (real kv_returns)
+ *   COGS      = net_revenue − gp1
  *   ops total = gp1 − gp2
  * Only the split *within* ops is still an estimate (the product dashboard's
- * observed shares): Returns 35% · Shipping 30% · P&P 20% · Payment 15%.
+ * observed shares, renormalised now that returns are real, not a share):
+ * Shipping 30 · P&P 20 · Payment 15 of the old 65-part remainder.
  *
- * Weeks without a gp1 (the embedded placeholder series, or a payload from
- * before kv_gp1 shipped) fall back to the old ratio split of (rev − gp2):
- * COGS ≈ 64.6%, ops ≈ 35.4%. Either way the bars sum to kv-revenue.
+ * Weeks without net_revenue but with a (then-gross) gp1 keep the previous
+ * behaviour — COGS = rev − gp1 and returns estimated as 35% of ops. Weeks
+ * with neither fall back to the old ratio split of (rev − gp2): COGS ≈ 64.6%,
+ * ops ≈ 35.4%. Every path sums the bars to kv-revenue.
  * ───────────────────────────────────────────────────── */
 const COGS_OF_OTHER = 0.646;              // fallback only — see _wfCogs/_wfOps
 const OPS_OF_OTHER  = 1 - COGS_OF_OTHER;  // fallback only
@@ -2181,13 +2222,20 @@ const OPS_SHIPPING  = 0.30;
 const OPS_PICKPACK  = 0.20;
 const OPS_PAYMENT   = 0.15;
 
-// A week counts as carrying gp1 only when it's a real positive number — the
-// filtered-series builder zero-fills missing fields, and gp1 = 0 next to a
-// non-zero revenue would make "rev − gp1" claim the whole week as COGS.
+// A week counts as carrying gp1/net_revenue only when they're real positive
+// numbers — the filtered-series builder zero-fills missing fields, and gp1 = 0
+// next to a non-zero revenue would claim the whole week as COGS.
 const _hasGp1 = w => typeof w.gp1 === 'number' && w.gp1 > 0;
-const _wfCogs = w => _hasGp1(w) ? w.revenue - w.gp1 : (w.revenue - w.gp2) * COGS_OF_OTHER;
-const _wfOps  = (w, share) =>
+const _hasNet = w => _hasGp1(w) && typeof w.net_revenue === 'number' && w.net_revenue > 0;
+const _wfReturns = w => _hasNet(w) ? w.revenue - w.net_revenue : _wfOpsShare(w, OPS_RETURNS);
+const _wfCogs = w => _hasGp1(w) ? (_hasNet(w) ? w.net_revenue : w.revenue) - w.gp1
+                                : (w.revenue - w.gp2) * COGS_OF_OTHER;
+// One non-returns ops slice. With real returns the three remaining shares are
+// renormalised over the ops total (share / 0.65) so they still sum to gp1 − gp2.
+const _wfOpsShare = (w, share) =>
   (_hasGp1(w) ? w.gp1 - w.gp2 : (w.revenue - w.gp2) * OPS_OF_OTHER) * share;
+const _wfOps  = (w, share) =>
+  _hasNet(w) ? _wfOpsShare(w, share / (1 - OPS_RETURNS)) : _wfOpsShare(w, share);
 
 let waterfallChart = new Chart(document.getElementById('c-waterfall'), {
   type:'bar',
@@ -2199,7 +2247,7 @@ let waterfallChart = new Chart(document.getElementById('c-waterfall'), {
       { label:'Payment',    data: WEEKS.map(w=>_wfOps(w, OPS_PAYMENT)),  backgroundColor:'#A9621A', stack:'s' },
       { label:'Pick & Pack',data: WEEKS.map(w=>_wfOps(w, OPS_PICKPACK)), backgroundColor:'#BF7A2C', stack:'s' },
       { label:'Shipping',   data: WEEKS.map(w=>_wfOps(w, OPS_SHIPPING)), backgroundColor:'#CE8F45', stack:'s' },
-      { label:'Returns',    data: WEEKS.map(w=>_wfOps(w, OPS_RETURNS)),  backgroundColor:'#D6A86A', stack:'s' },
+      { label:'Returns',    data: WEEKS.map(_wfReturns),                 backgroundColor:'#D6A86A', stack:'s' },
       { label:'COGS',       data: WEEKS.map(_wfCogs),                    backgroundColor:'#CFCAC3', stack:'s' },
     ]
   },
@@ -2230,7 +2278,7 @@ let waterfallChart = new Chart(document.getElementById('c-waterfall'), {
 
 // Rebuild the waterfall datasets from the active week series — the live-overlaid
 // all-markets WEEKS, or the filtered equivalent when a filter is on.
-const WF_SUB_BASE = 'kv-revenue stacked → COGS (rev−gp1) · ops costs (gp1−gp2) · ad spend · kv-gp3';
+const WF_SUB_BASE = 'kv-revenue stacked → returns (rev−net rev) · COGS (net rev−gp1) · ops costs (gp1−gp2) · ad spend · kv-gp3';
 function refreshWaterfall() {
   if (!waterfallChart) return;
   const W = (window._trendSeries && _trendSeries.weeks) || WEEKS;
@@ -2243,7 +2291,7 @@ function refreshWaterfall() {
   ds[2].data = W.map(w=>_wfOps(w, OPS_PAYMENT));
   ds[3].data = W.map(w=>_wfOps(w, OPS_PICKPACK));
   ds[4].data = W.map(w=>_wfOps(w, OPS_SHIPPING));
-  ds[5].data = W.map(w=>_wfOps(w, OPS_RETURNS));
+  ds[5].data = W.map(_wfReturns);
   ds[6].data = W.map(_wfCogs);
   waterfallChart.update();
 }
@@ -2252,7 +2300,9 @@ function refreshWaterfall() {
 const TREND_METRICS = {
   revenue: { label:'Revenue',    color:'#235837', unit:'sek', tip:'cf1ijsm2qp2r9v3_kv_revenue',
              compute: d => d.rev },
-  gp1:     { label:'GP1',        color:'#1F5C4E', unit:'sek', tip:'kv_gp1 · Kuvio (Funnel→BQ export)',
+  net_rev: { label:'Net Revenue', color:'#4C6E91', unit:'sek', tip:'kv_net_revenue = kv_revenue − kv_returns · Kuvio (Funnel→BQ export)',
+             compute: d => (typeof d.net_rev === 'number' ? d.net_rev : null) },
+  gp1:     { label:'GP1',        color:'#1F5C4E', unit:'sek', tip:'kv_gp1 − kv_returns = net revenue − COGS · Kuvio (derived)',
              compute: d => (typeof d.gp1 === 'number' ? d.gp1 : null) },
   gp2:     { label:'GP2',        color:'#2E6F5E', unit:'sek', tip:'cf1ijsmd6ra2jmj_kv_gp2',
              compute: d => d.gp2 },
@@ -2260,16 +2310,19 @@ const TREND_METRICS = {
              compute: d => d.gp3 },
   cost:    { label:'Ad Spend',   color:'#A9621A', unit:'sek', tip:'common-cost',
              compute: d => d.cost },
-  // revenue − gp1 is COGS exactly. Days without a gp1 (embedded placeholder /
-  // pre-kv_gp1 payloads) fall back to revenue − gp2, which also carries ops costs.
-  cogs:    { label:'COGS',       color:'#8C9098', unit:'sek', tip:'cf1ijsm5jefks7q_kv_cogs (derived: revenue − kv_gp1)',
-             compute: d => d.rev - ((typeof d.gp1 === 'number' && d.gp1 > 0) ? d.gp1 : d.gp2) },
+  // net revenue − netted gp1 is COGS exactly (falls back to gross rev − gp1 for
+  // pre-net payloads, which was also exact then; days with neither use rev − gp2,
+  // which also carries ops costs).
+  cogs:    { label:'COGS',       color:'#8C9098', unit:'sek', tip:'cf1ijsm5jefks7q_kv_cogs (derived: net revenue − kv_gp1)',
+             compute: d => ((typeof d.net_rev === 'number' && d.net_rev > 0) ? d.net_rev : d.rev)
+                           - ((typeof d.gp1 === 'number' && d.gp1 > 0) ? d.gp1 : d.gp2) },
   cos:     { label:'COS%',       color:'#7E5A8C', unit:'pct', tip:'cf1ik1q18tt61mj_kv_cos',
              compute: d => d.rev > 0 ? (d.cost / d.rev) * 100 : null },
   cop:     { label:'COP%',       color:'#A63F63', unit:'pct', tip:'cf1ijsu9g9io330_kv_cop',
              compute: d => d.gp2 > 0 ? (d.cost / d.gp2) * 100 : null },
-  gm1:     { label:'GM1%',       color:'#2F6E8F', unit:'pct', tip:'kv_gp1 / kv_revenue · Kuvio (derived)',
-             compute: d => (d.rev > 0 && typeof d.gp1 === 'number') ? (d.gp1 / d.rev) * 100 : null },
+  gm1:     { label:'GM1%',       color:'#2F6E8F', unit:'pct', tip:'net kv_gp1 / kv_net_revenue · Kuvio (derived)',
+             compute: d => { const nr = (typeof d.net_rev === 'number' && d.net_rev > 0) ? d.net_rev : d.rev;
+                             return (nr > 0 && typeof d.gp1 === 'number') ? (d.gp1 / nr) * 100 : null; } },
   gm2:     { label:'GM2%',       color:'#3E86A3', unit:'pct', tip:'cf1ijsu4oqlutpf_kv_gm2',
              compute: d => d.rev > 0 ? (d.gp2 / d.rev) * 100 : null },
   gm3:     { label:'GM3%',       color:'#35935A', unit:'pct', tip:'cf1jfduntq34ns6_kv_gm3',
@@ -2507,12 +2560,13 @@ tbody.innerHTML = MARKETS.map(m => {
   const gm3_prev = (m.gp3_prev != null && m.revenue_prev) ? m.gp3_prev / m.revenue_prev : null;
   const cos_prev = (m.cost_prev != null && m.revenue_prev) ? m.cost_prev / m.revenue_prev : null;
   const cop_prev = (m.cost_prev != null && m.gp2_prev > 0) ? m.cost_prev / m.gp2_prev : null;
-  const gm1      = gm1Of(m.gp1, m.revenue);
-  const gm1_prev = gm1Of(m.gp1_prev, m.revenue_prev);
+  const gm1      = gm1Of(m.gp1, nrevOf(m));
+  const gm1_prev = gm1Of(m.gp1_prev, nrevPrevOf(m));
 
   return `<tr>
     <td>${m.name}</td>
     <td><div class="bar-cell"><div class="mini-bar" style="width:${barW}px"></div>${fmtSEK(m.revenue)}${cellDelta(m.revenue, m.revenue_prev)}</div></td>
+    <td>${netRevCell(m)}</td>
     <td><span class="share-pct">${(share*100).toFixed(0)}%</span></td>
     <td>${gp1Cell(m)}</td>
     <td>${fmtSEK(m.gp2)}${cellDelta(m.gp2, m.gp2_prev)}</td>
@@ -2532,23 +2586,26 @@ const tRev  = MARKETS.reduce((s,m)=>s+m.revenue,0);
 const tGp2  = MARKETS.reduce((s,m)=>s+m.gp2,0);
 const tGp3  = MARKETS.reduce((s,m)=>s+m.gp3,0);
 const tCost = MARKETS.reduce((s,m)=>s+m.cost,0);
-// gp1 only totals if EVERY row carries it — a partial sum would understate it.
+// gp1/net_revenue only total if EVERY row carries them — a partial sum would understate them.
 const tGp1  = MARKETS.every(m=>_num(m.gp1)) ? MARKETS.reduce((s,m)=>s+m.gp1,0) : null;
+const tNet  = MARKETS.every(m=>_num(m.net_revenue)) ? MARKETS.reduce((s,m)=>s+m.net_revenue,0) : null;
 const _sumPrev = (k) => MARKETS.reduce((s,m)=> s + (m[k] != null ? m[k] : 0), 0)
                   || null;
 const tRevP  = (PREV && PREV.revenue) || _sumPrev('revenue_prev');
+const tNetP  = (PREV && _num(PREV.net_revenue) && PREV.net_revenue) || _sumPrev('net_revenue_prev');
 const tGp1P  = (PREV && _num(PREV.gp1) && PREV.gp1) || _sumPrev('gp1_prev');
 const tGp2P  = (PREV && PREV.gp2)     || _sumPrev('gp2_prev');
 const tGp3P  = (PREV && PREV.gp3)     || _sumPrev('gp3_prev');
 const tCostP = (PREV && PREV.adCost)  || _sumPrev('cost_prev');
-const tGm1   = gm1Of(tGp1, tRev);
-const tGm1P  = gm1Of(tGp1P, tRevP);
+const tGm1   = gm1Of(tGp1, tNet !== null ? tNet : tRev);
+const tGm1P  = gm1Of(tGp1P, tNetP !== null ? tNetP : tRevP);
 const tGm3P  = (tRevP && tGp3P != null) ? tGp3P / tRevP : null;
 const tCosP  = (tRevP && tCostP != null) ? tCostP / tRevP : null;
 const tCopP  = (tGp2P > 0 && tCostP != null) ? tCostP / tGp2P : null;
 document.getElementById('market-tfoot').innerHTML = `<tr class="tfoot-row">
   <td>Total</td>
   <td>${fmtSEK(tRev)}${cellDelta(tRev, tRevP)}</td>
+  <td>${tNet!==null?`${fmtSEK(tNet)}${cellDelta(tNet, tNetP)}`:'—'}</td>
   <td>100%</td>
   <td>${tGp1!==null?`${fmtSEK(tGp1)}${cellDelta(tGp1, tGp1P)}`:'—'}</td>
   <td>${fmtSEK(tGp2)}${cellDelta(tGp2, tGp2P)}</td>
@@ -2572,7 +2629,7 @@ shopStack.innerHTML = SHOPS.map(s => {
   const cos  = s.cost / s.revenue;
   const cop  = s.gp2 > 0 ? s.cost / s.gp2 : null;
   // Shops use `rev_prev` (not `revenue_prev`) — see _kv_dim's rev_prev_key.
-  const gm1  = gm1Of(s.gp1, s.revenue);
+  const gm1  = gm1Of(s.gp1, nrevOf(s));
   const gp3Delta = ((s.gp3 - s.gp3_prev) / Math.abs(s.gp3_prev) * 100).toFixed(1);
   const gp3Good  = s.gp3 > s.gp3_prev;
   return `
@@ -2602,7 +2659,7 @@ shopStack.innerHTML = SHOPS.map(s => {
         <div class="shop-metric">
           <div class="shop-metric-label">kv-GM1%</div>
           <div class="shop-metric-value" style="font-size:14px">${gm1!==null?fmtPct(gm1):'—'}</div>
-          <div class="shop-metric-sub">gp1/revenue</div>
+          <div class="shop-metric-sub">gp1/net revenue</div>
         </div>
         <div class="shop-metric">
           <div class="shop-metric-label">kv-GM3%</div>
@@ -2930,11 +2987,12 @@ chTbody.innerHTML = chByRev.map(c => {
   const gm3_prev = (c.gp3_prev != null && c.revenue_prev) ? c.gp3_prev / c.revenue_prev : null;
   const cos_prev = (c.cost_prev != null && c.revenue_prev) ? c.cost_prev / c.revenue_prev : null;
   const cop_prev = (c.cost_prev != null && c.gp2_prev > 0) ? c.cost_prev / c.gp2_prev : null;
-  const gm1      = gm1Of(c.gp1, c.revenue);
-  const gm1_prev = gm1Of(c.gp1_prev, c.revenue_prev);
+  const gm1      = gm1Of(c.gp1, nrevOf(c));
+  const gm1_prev = gm1Of(c.gp1_prev, nrevPrevOf(c));
   return `<tr>
     <td>${c.name}</td>
     <td><div class="bar-cell"><div class="mini-bar" style="width:${barW}px"></div>${fmtSEK(c.revenue)}${cellDelta(c.revenue, c.revenue_prev)}</div></td>
+    <td>${netRevCell(c)}</td>
     <td><span class="share-pct">${(share*100).toFixed(0)}%</span></td>
     <td>${gp1Cell(c)}</td>
     <td>${fmtSEK(c.gp2)}${cellDelta(c.gp2, c.gp2_prev)}</td>
@@ -2954,22 +3012,25 @@ const tRev  = chByRev.reduce((s,c)=>s+c.revenue,0);
 const tGp2  = chByRev.reduce((s,c)=>s+c.gp2,0);
 const tGp3  = chByRev.reduce((s,c)=>s+c.gp3,0);
 const tCost = chByRev.reduce((s,c)=>s+c.cost,0);
-// gp1 only totals if EVERY row carries it — a partial sum would understate it.
+// gp1/net_revenue only total if EVERY row carries them — a partial sum would understate them.
 const tGp1  = chByRev.every(c=>_num(c.gp1)) ? chByRev.reduce((s,c)=>s+c.gp1,0) : null;
+const tNet  = chByRev.every(c=>_num(c.net_revenue)) ? chByRev.reduce((s,c)=>s+c.net_revenue,0) : null;
 const _sumPrev = (k) => chByRev.reduce((s,c)=> s + (c[k] != null ? c[k] : 0), 0) || null;
 const tRevP  = _sumPrev('revenue_prev');
+const tNetP  = _sumPrev('net_revenue_prev');
 const tGp1P  = _sumPrev('gp1_prev');
 const tGp2P  = _sumPrev('gp2_prev');
 const tGp3P  = _sumPrev('gp3_prev');
 const tCostP = _sumPrev('cost_prev');
-const tGm1   = gm1Of(tGp1, tRev);
-const tGm1P  = gm1Of(tGp1P, tRevP);
+const tGm1   = gm1Of(tGp1, tNet !== null ? tNet : tRev);
+const tGm1P  = gm1Of(tGp1P, tNetP !== null ? tNetP : tRevP);
 const tGm3P  = (tRevP && tGp3P != null) ? tGp3P / tRevP : null;
 const tCosP  = (tRevP && tCostP != null) ? tCostP / tRevP : null;
 const tCopP  = (tGp2P > 0 && tCostP != null) ? tCostP / tGp2P : null;
 document.getElementById('channel-tfoot').innerHTML = `<tr class="tfoot-row">
   <td>Total</td>
   <td>${fmtSEK(tRev)}${cellDelta(tRev, tRevP)}</td>
+  <td>${tNet!==null?`${fmtSEK(tNet)}${cellDelta(tNet, tNetP)}`:'—'}</td>
   <td>100%</td>
   <td>${tGp1!==null?`${fmtSEK(tGp1)}${cellDelta(tGp1, tGp1P)}`:'—'}</td>
   <td>${fmtSEK(tGp2)}${cellDelta(tGp2, tGp2P)}</td>
@@ -3290,7 +3351,7 @@ function bdRenderChart(ctx){
   });
   const notes = {
     revenue:   ` · actual = live KV-revenue every month, uncalibrated`,
-    gp1:       ` · actual = live kv-GP1 (after COGS); vs P&amp;L GP1 — directional`,
+    gp1:       ` · actual = live kv-GP1 (after returns &amp; COGS); vs P&amp;L GP1 — directional`,
     gp2:       ` · actual = live kv-GP2; P&amp;L GP2 nets direct variable costs — directional`,
     gp3:       ` · actual = live kv-GP3 (kv-GP2 − ad spend); P&amp;L GP3 also nets shipping/fulfillment — directional`,
   };

@@ -141,20 +141,31 @@ def _kv_cte(where: str) -> str:
     return f"""
     kv_grain AS (
       SELECT {COST_GRAIN}, ANY_VALUE(market_level_1) m1,
-             SUM(kv_revenue) rev, SUM(kv_gp1) gp1, SUM(kv_gp2) gp2,
+             SUM(kv_revenue) rev, SUM(kv_returns) ret, SUM(kv_gp1) gp1, SUM(kv_gp2) gp2,
              SUM(kv_transactions) txns, {COST_BLANK} blank, {COST_SPLIT} split
       FROM `{BQ_TABLE}` WHERE {where}
       GROUP BY {COST_GRAIN}),
     kv_rows AS (
       SELECT Date, Channel_Type_Level_1, Channel_Type_Level_2,
-             {KV_MARKET} AS market_level_1_kv, shop_new, rev, gp1, gp2, txns,
+             {KV_MARKET} AS market_level_1_kv, shop_new, rev, ret, gp1, gp2, txns,
              {COST_FIXED} AS cost
       FROM kv_grain)
     """
 
 # Aggregate over kv_rows (post-dedup) — same output aliases the old raw-table
 # KV fragment produced, so every consumer of the row dicts is unchanged.
-KVD = ("SUM(rev) rev, SUM(gp1) gp1, SUM(gp2) gp2, SUM(gp2)-COALESCE(SUM(cost),0) gp3, "
+#
+# Returns netting: the export's kv_gp1 is kv_revenue − kv_cogs with revenue
+# GROSS of returns while kv_cogs is already net of them — which inflated GM1
+# vs every other source (Finance books revenue net). kv_gp2/kv_gp3 already
+# account for returns upstream, so only rev/gp1 need the correction here:
+#   net_rev = rev − returns   (verified: kv_net_revenue = kv_revenue − kv_returns
+#                              to the öre, 2026 YTD 170.03 − 19.05 = 150.98M)
+#   gp1     = net_rev − cogs  = export gp1 − returns
+# Caveat: kv_returns only populates from ~Sep 2025 (0 before), so months before
+# that show net_rev = rev and a still-gross GP1/GM1.
+KVD = ("SUM(rev) rev, SUM(rev)-COALESCE(SUM(ret),0) net_rev, "
+       "SUM(gp1)-COALESCE(SUM(ret),0) gp1, SUM(gp2) gp2, SUM(gp2)-COALESCE(SUM(cost),0) gp3, "
        "CAST(SUM(txns) AS INT64) txns, SUM(cost) cost")
 PR = ("SUM(kv_revenue_product) rev, SUM(kv_product_cogs) cogs, SUM(kv_gp1_product) gp1, "
       "SUM(kv_gp2_product) gp2, SUM(kv_gp2_product)-COALESCE(SUM(shopping_cost),0) gp3")
@@ -164,9 +175,11 @@ def _merge_kv(cur, prev, rev_prev_key="revenue_prev"):
     out = []
     for r in cur:
         p = pm.get(r["name"])
-        out.append({"name": r["name"], "revenue": I(r["rev"]), "gp1": I(r["gp1"]),
+        out.append({"name": r["name"], "revenue": I(r["rev"]), "net_revenue": I(r["net_rev"]),
+                    "gp1": I(r["gp1"]),
                     "gp2": I(r["gp2"]), "gp3": I(r["gp3"]), "cost": I(r["cost"]),
                     rev_prev_key: I(p["rev"]) if p else None,
+                    "net_revenue_prev": I(p["net_rev"]) if p else None,
                     "gp1_prev": I(p["gp1"]) if p else None,
                     "gp2_prev": I(p["gp2"]) if p else None,
                     "gp3_prev": I(p["gp3"]) if p else None,
@@ -231,7 +244,9 @@ def _kv_filtered(filters, cs, ce, ps, pe):
         rows = _rows(f"WITH {_kv_cte('Date BETWEEN @cs AND @ce')} "
                      f"SELECT {KVD} FROM kv_rows{post}", p)
         r = rows[0] if rows else None
-        return {"revenue": I(r["rev"]) if r else 0, "gp1": I(r["gp1"]) if r else 0,
+        return {"revenue": I(r["rev"]) if r else 0,
+                "net_revenue": I(r["net_rev"]) if r else 0,
+                "gp1": I(r["gp1"]) if r else 0,
                 "gp2": I(r["gp2"]) if r else 0,
                 "gp3": I(r["gp3"]) if r else 0, "txns": I(r["txns"]) if r else 0,
                 "cost": I(r["cost"]) if r else 0}
@@ -257,7 +272,8 @@ def filtered_daily(filters, start: datetime.date, end: datetime.date):
                  f"SELECT CAST(Date AS STRING) d, {KVD} FROM kv_rows{post} "
                  f"GROUP BY d ORDER BY d",
                  params)
-    return [{"d": r["d"], "rev": I(r["rev"]), "gp1": I(r["gp1"]), "gp2": I(r["gp2"]),
+    return [{"d": r["d"], "rev": I(r["rev"]), "net_rev": I(r["net_rev"]),
+             "gp1": I(r["gp1"]), "gp2": I(r["gp2"]),
              "gp3": I(r["gp3"]), "cost": I(r["cost"])} for r in rows]
 
 def _merge_prod(cur, prev):
@@ -304,18 +320,21 @@ def build_payloads(cur_end: datetime.date | None = None):
     dcur = [r for r in drows if in_range(r["d"], cs, ce)]
     dprev = [r for r in drows if in_range(r["d"], ps, pe)]
     kv_tot = lambda rs: {"revenue": I(sum(r["rev"] or 0 for r in rs)),
+                         "net_revenue": I(sum(r["net_rev"] or 0 for r in rs)),
                          "gp1": I(sum(r["gp1"] or 0 for r in rs)),
                          "gp2": I(sum(r["gp2"] or 0 for r in rs)),
                          "gp3": I(sum(r["gp3"] or 0 for r in rs)),
                          "txns": I(sum(r["txns"] or 0 for r in rs)),
                          "adCost": I(sum(r["cost"] or 0 for r in rs))}
-    daily = [{"d": _dm(r["d"]), "rev": I(r["rev"]), "gp1": I(r["gp1"]), "gp2": I(r["gp2"]),
+    daily = [{"d": _dm(r["d"]), "rev": I(r["rev"]), "net_rev": I(r["net_rev"]),
+              "gp1": I(r["gp1"]), "gp2": I(r["gp2"]),
               "gp3": I(r["gp3"]), "cost": I(r["cost"])} for r in dcur]
     weeks = []
     for wi in range(0, len(dcur), 7):
         c = dcur[wi:wi+7]
         weeks.append({"label": f"V{wi//7+1} · {_dm(c[0]['d'])}",
                       "revenue": I(sum(r["rev"] or 0 for r in c)),
+                      "net_revenue": I(sum(r["net_rev"] or 0 for r in c)),
                       "gp1": I(sum(r["gp1"] or 0 for r in c)),
                       "gp2": I(sum(r["gp2"] or 0 for r in c)),
                       "gp3": I(sum(r["gp3"] or 0 for r in c)),
@@ -331,13 +350,15 @@ def build_payloads(cur_end: datetime.date | None = None):
             f"WITH {_kv_cte(long_where)} "
             f"SELECT FORMAT_DATE('%Y-%m', Date) ym, {KVD} FROM kv_rows GROUP BY ym ORDER BY ym", []):
         y, m = r["ym"].split("-"); yi, mi = int(y), int(m)
-        yd = monthly.setdefault(y, {k: [None] * 12 for k in ("revenue", "gp1", "gp2", "gp3", "cost")})
-        yd["revenue"][mi-1] = I(r["rev"]); yd["gp1"][mi-1] = I(r["gp1"]); yd["gp2"][mi-1] = I(r["gp2"])
+        yd = monthly.setdefault(y, {k: [None] * 12 for k in ("revenue", "net_revenue", "gp1", "gp2", "gp3", "cost")})
+        yd["revenue"][mi-1] = I(r["rev"]); yd["net_revenue"][mi-1] = I(r["net_rev"])
+        yd["gp1"][mi-1] = I(r["gp1"]); yd["gp2"][mi-1] = I(r["gp2"])
         yd["gp3"][mi-1] = I(r["gp3"]); yd["cost"][mi-1] = I(r["cost"])
 
     # ── KV daily totals, long history (2025 → current) — drives real per-period
     #    comparisons on the KV Overview (any period + pop/yoy window). ──
-    kv_daily_long = [{"iso": r["d"], "revenue": I(r["rev"]), "gp1": I(r["gp1"]), "gp2": I(r["gp2"]),
+    kv_daily_long = [{"iso": r["d"], "revenue": I(r["rev"]), "net_revenue": I(r["net_rev"]),
+                      "gp1": I(r["gp1"]), "gp2": I(r["gp2"]),
                       "gp3": I(r["gp3"]), "txns": I(r["txns"]), "cost": I(r["cost"])}
                      for r in _rows(
             f"WITH {_kv_cte(long_where)} "
