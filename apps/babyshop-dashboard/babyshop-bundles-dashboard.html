@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bundles · Babyshop</title>
+  <link rel="icon" type="image/svg+xml" href="/babyshop-favicon.svg">
+  <link rel="stylesheet" href="/brand.css">
+  <!-- Shared column filters + CSV/Sheets export; the anchor table opts in with data-tools. -->
+  <script src="/table-tools.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+    html { font-size:16px; }
+    body { font-family:var(--font); background:var(--bg); color:var(--body); min-height:100vh; -webkit-font-smoothing:antialiased; font-variant-numeric:tabular-nums; }
+
+    main { max-width:1380px; margin:0 auto; padding:26px 32px 56px; }
+    .filter-bar { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:18px; gap:18px; flex-wrap:wrap; }
+    .page-title { font-size:20px; font-weight:700; color:var(--h); letter-spacing:-.3px; }
+    .page-sub { font-size:12px; color:var(--muted); margin-top:3px; max-width:760px; line-height:1.5; }
+    .controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .ctl { display:flex; align-items:center; gap:7px; background:var(--card); border:1px solid var(--border); border-radius:var(--r-sm); padding:6px 10px; font-size:12px; color:var(--h); }
+    .ctl label { color:var(--muted); font-weight:500; }
+    .ctl select { font-family:var(--font); font-size:12px; color:var(--h); border:none; background:none; outline:none; font-weight:600; max-width:180px; }
+
+    .note-bar { background:var(--warn-bg); border:1px solid #EBD8B6; color:#8A5416; border-radius:var(--r); padding:11px 16px; font-size:12px; line-height:1.55; margin-bottom:18px; display:flex; gap:9px; align-items:flex-start; }
+    .note-bar svg { flex-shrink:0; margin-top:1px; }
+    .note-bar b { color:#8A5416; }
+
+    .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:14px; }
+    .kpi-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:16px 18px; box-shadow:var(--shadow-sm); position:relative; overflow:hidden; }
+    .kpi-card.hero { border-color:var(--hero); }
+    .kpi-card.hero::after { content:''; position:absolute; inset:0 0 auto 0; height:2px; background:var(--hero); }
+    .kpi-label { font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+    .kpi-value { font-size:25px; font-weight:700; color:var(--h); letter-spacing:-.4px; line-height:1.1; }
+    .kpi-card.hero .kpi-value { color:var(--hero); }
+    .kpi-note { font-size:10.5px; color:var(--muted); margin-top:7px; line-height:1.45; }
+
+    .uplift { background:var(--accent-bg); border:1px solid #CBDDD0; border-radius:var(--r); padding:12px 17px; font-size:12.5px; line-height:1.6; color:var(--brand-green-d); margin-bottom:20px; display:flex; gap:11px; align-items:flex-start; }
+    .uplift b { color:var(--brand-green-d); }
+    .uplift .ulabel { flex-shrink:0; font-size:10px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; background:var(--brand-lime); color:var(--brand-ink); padding:3px 9px; border-radius:3px; margin-top:2px; white-space:nowrap; }
+
+    .section-head { display:flex; justify-content:space-between; align-items:baseline; gap:12px; margin:6px 0 12px; flex-wrap:wrap; }
+    .section-title { font-size:14.5px; font-weight:600; color:var(--h); }
+    .section-sub { font-size:11px; color:var(--muted); }
+
+    .bundle-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:22px; }
+    .bundle-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:14px; display:flex; flex-direction:column; }
+    .bc-imgs { display:flex; align-items:center; gap:6px; margin-bottom:11px; }
+    .bc-img { flex:1; aspect-ratio:1/1.15; background:#fff; border:1px solid var(--border-lt); border-radius:5px; overflow:hidden; display:flex; align-items:center; justify-content:center; font-size:26px; font-weight:600; color:var(--brand-sage); }
+    .bc-img img { width:100%; height:100%; object-fit:cover; }
+    .bc-plus { font-size:16px; font-weight:600; color:var(--muted); flex-shrink:0; }
+    .bc-name { font-size:12.5px; font-weight:600; color:var(--h); line-height:1.35; }
+    .bc-name.comp { color:var(--body); font-weight:500; }
+    .bc-meta { display:flex; justify-content:space-between; align-items:center; margin:9px 0 10px; gap:8px; }
+    .brand-chip { font-size:9.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; background:var(--brand-sage); color:var(--brand-green-d); padding:2px 9px; border-radius:3px; white-space:nowrap; }
+    .bc-price { font-size:12px; font-weight:600; color:var(--h); }
+    .bc-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:9px; }
+    .bc-stat { background:var(--bg); border-radius:var(--r-sm); padding:6px 4px; text-align:center; }
+    .bc-stat b { display:block; font-size:13.5px; font-weight:600; color:var(--h); }
+    .bc-stat.hot b { color:var(--accent); }
+    .bc-stat span { font-size:8.5px; letter-spacing:.03em; text-transform:uppercase; color:var(--muted); }
+    .attach-meter { height:5px; border-radius:3px; background:var(--border-lt); overflow:hidden; margin-bottom:8px; }
+    .am-fill { height:100%; background:var(--accent); border-radius:3px; }
+    .bc-gap { font-size:11px; color:var(--muted); margin-top:auto; }
+    .bc-gap b { color:var(--warn); }
+    .grid-empty { grid-column:1/-1; text-align:center; color:var(--muted); font-size:12.5px; padding:34px 0; }
+
+    .two-col { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:22px; }
+    .chart-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:17px 19px; box-shadow:var(--shadow-sm); }
+    .chart-title { font-size:13px; font-weight:600; color:var(--h); margin-bottom:3px; }
+    .chart-sub { font-size:10.5px; color:var(--muted); margin-bottom:14px; }
+    .hb-row { display:grid; grid-template-columns:92px 1fr 66px 92px; gap:10px; align-items:center; margin-bottom:7px; font-size:12px; }
+    .hb-row.wide3 { grid-template-columns:minmax(150px,220px) 1fr 56px; }
+    .hb-label { color:var(--body); font-weight:500; text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .hb-track { background:var(--border-lt); border-radius:3px; height:16px; overflow:hidden; }
+    .hb-fill { height:100%; background:var(--dv-1); border-radius:0 3px 3px 0; min-width:3px; }
+    .hb-fill.ink { background:var(--dv-2); }
+    .hb-val { font-weight:600; color:var(--h); text-align:right; }
+    .hb-sub { color:var(--muted); }
+
+    .table-card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:4px 0 0; }
+    .table-wrap { overflow-x:auto; }
+    table.pairs { width:100%; border-collapse:collapse; font-size:12.5px; }
+    table.pairs th { text-align:left; font-size:9.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:600; padding:10px 12px; border-bottom:1px solid var(--border); white-space:nowrap; }
+    table.pairs th.num { text-align:right; }
+    table.pairs td { padding:8px 12px; border-bottom:1px solid var(--border-lt); vertical-align:middle; }
+    table.pairs td.num { text-align:right; }
+    table.pairs td.strong { font-weight:600; color:var(--h); }
+    table.pairs tbody tr:hover td { background:var(--bg); }
+    .tprod { display:flex; align-items:center; gap:9px; min-width:170px; }
+    .tprod .nm { line-height:1.3; }
+    .tprod .nm small { display:block; color:var(--muted); font-size:10px; }
+    .tthumb { width:30px; height:34px; border-radius:4px; object-fit:cover; border:1px solid var(--border-lt); flex-shrink:0; }
+    span.tthumb { display:inline-flex; align-items:center; justify-content:center; background:var(--brand-sage); color:var(--brand-green-d); font-weight:600; font-size:12px; }
+
+    .method { background:var(--warn-bg); border:1px solid #EBD8B6; color:#8A5416; border-radius:var(--r); padding:11px 16px; font-size:11.5px; line-height:1.55; margin-top:18px; }
+    .method b { color:#8A5416; }
+    .pending { text-align:center; color:var(--muted); font-size:13px; padding:60px 0 30px; }
+
+    @media (max-width:1080px) { .kpi-grid { grid-template-columns:1fr 1fr; } .two-col { grid-template-columns:1fr; } .bundle-grid { grid-template-columns:repeat(2,1fr); } }
+    @media (max-width:640px)  { .bundle-grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<header id="app-header" data-page="bundles"></header>
+<template data-header-extra>
+  <div class="refresh-pill" id="refreshPill" title=""></div>
+  <div class="live-dot" id="liveDot">Live · Norce orders</div>
+</template>
+<script src="/nav.js"></script>
+
+<main>
+  <div class="filter-bar">
+    <div>
+      <div class="page-title">Bundles</div>
+      <div class="page-sub" id="page-sub">Products frequently purchased together · attach gap = anchor orders missing their best companion</div>
+    </div>
+    <div class="controls">
+      <div class="ctl"><label for="shopSel">Shop</label>
+        <select id="shopSel"><option value="babyshop">Babyshop</option><option value="lekmer">Lekmer</option></select></div>
+      <div class="ctl"><label for="catSel">Category</label>
+        <select id="catSel"><option value="">All</option></select></div>
+      <div class="ctl"><label for="liftSel">Min lift</label>
+        <select id="liftSel"><option value="5">5×</option><option value="15" selected>15×</option><option value="50">50×</option><option value="100">100×</option></select></div>
+      <div class="ctl"><label for="sortSel">Rank cards by</label>
+        <select id="sortSel"><option value="lift">lift</option><option value="together" selected>bought together</option><option value="gap_ksek">open value</option></select></div>
+    </div>
+  </div>
+
+  <div class="note-bar">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#A9621A" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+    <div><b>Read this first.</b> Co-purchase is <b>correlation, not causation</b> — the gap is the addressable pool, a live A/B is the causal read.
+      Pairs are <b>seasonal</b> (a 12-month window mixes AW and SS sets). Products are at <b>color grain</b>: sizes of one product+print count as one product.
+      Lift under ~15 is mostly sibling/size-duplicate buying and is hidden by default. Money: SEK at today's rate, ex-VAT, gross.</div>
+  </div>
+
+  <div class="kpi-grid" id="kpi-grid"></div>
+  <div class="uplift" id="uplift" hidden>
+    <span class="ulabel">Expected uplift</span><span id="uplift-text"></span>
+  </div>
+
+  <div class="section-head">
+    <div class="section-title">Top bundle candidates</div>
+    <div class="section-sub">images from the product feed · attach meter = share of anchor buyers who add the companion</div>
+  </div>
+  <div class="bundle-grid" id="bundle-grid"><div class="grid-empty">Loading…</div></div>
+
+  <div class="two-col">
+    <div class="chart-card">
+      <div class="chart-title">Basket composition</div>
+      <div class="chart-sub">Orders by number of distinct products · last 12 months</div>
+      <div id="basket-bars"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Category pairs bought together</div>
+      <div class="chart-sub">Orders containing both categories · last 12 months</div>
+      <div id="cat-bars"></div>
+    </div>
+  </div>
+
+  <div class="section-head">
+    <div class="section-title">Anchor explorer</div>
+    <div class="section-sub" id="table-sub">every mined pair passing the filters · use the column funnels + CSV export to pull worklists</div>
+  </div>
+  <div class="table-card">
+    <div class="table-wrap">
+      <table class="pairs" id="pairsTable" data-tools data-export-name="bundles">
+        <thead><tr>
+          <th>Anchor product</th><th>Best companion</th><th class="num">Together</th>
+          <th class="num">Attach %</th><th class="num">Lift</th><th class="num">Gap orders</th>
+          <th class="num">Open value (kSEK)</th><th class="num">Bundle price (kr)</th>
+        </tr></thead>
+        <tbody id="pairsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="method" id="method">
+    <b>Methodology.</b> Pairs at product-color grain (Norce variant parent), same-order co-purchase over the last 12 months,
+    statistical floor 30 co-purchases. Attach = orders with both ÷ orders with the anchor (the higher-volume product).
+    Lift = observed co-purchase ÷ expected if independent. Open value = gap orders × companion median unit price.
+    Images: Channable feed (current catalogue only — older products show initials). Snapshot refreshes nightly after norce-sync.
+  </div>
+  <div class="pending" id="pending" hidden>No Bundles snapshot yet — the refresh job has not run. The page will populate after the first <code>bundles-refresh</code> execution.</div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const fmt = n => (n == null ? '—' : Math.round(n).toLocaleString('sv-SE'));
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  let SNAP = null;
+  let tools = null;
+
+  // The feed stores full-size CDN URLs (?w=1080&q=90); thumbnails re-request
+  // a small rendition so 400 rows do not pull 400 MB of product photography.
+  const thumb = (url, w) => url ? url.replace(/w=\d+/, 'w=' + w).replace(/q=\d+/, 'q=75') : null;
+
+  function imgOrInitial(prod, w, cls) {
+    const t = thumb(prod.img, w);
+    if (t) return '<img class="' + cls + '" src="' + esc(t) + '" alt="" loading="lazy" ' +
+                  'onerror="this.outerHTML=\'<span class=&quot;' + cls + '&quot;>' +
+                  esc((prod.name || '?')[0]) + '</span>\'">';
+    return '<span class="' + cls + '">' + esc((prod.name || '?')[0]) + '</span>';
+  }
+
+  function filteredPairs() {
+    const shop = $('shopSel').value, cat = $('catSel').value,
+          lift = parseFloat($('liftSel').value);
+    return (SNAP.pairs || []).filter(p =>
+      p.shop === shop && (p.lift || 0) >= lift &&
+      (!cat || p.anchor.cat === cat || p.comp.cat === cat));
+  }
+
+  function renderKpis() {
+    const s = SNAP.shops[$('shopSel').value] || {};
+    const multi = s.single_share == null ? null : (100 - s.single_share);
+    $('kpi-grid').innerHTML =
+      kpi('Multi-product orders', multi == null ? '—' : multi.toFixed(1) + '%',
+          fmt(s.orders) + ' orders in the last 12 months') +
+      kpi('AOV step, +1 product', s.aov_step == null ? '—' : '+' + fmt(s.aov_step) + ' kr',
+          'single- vs two-product average order value') +
+      kpi('Avg best-companion attach', s.avg_attach == null ? '—' : s.avg_attach.toFixed(1) + '%',
+          fmt(s.anchors) + ' products with a proven companion (lift ≥ ' + SNAP.sources.min_lift_strong + ')') +
+      kpi('Open companion value', s.gap_value_msek == null ? '—' : s.gap_value_msek.toFixed(1) + ' M SEK',
+          fmt(s.gap_orders) + ' anchor orders without their best companion', true);
+
+    const u = s.uplift_msek, g = s.uplift_gp_msek;
+    if (u && u['10'] != null) {
+      const revShare = s.revenue_msek ? ' (+' + (100 * u['10'] / s.revenue_msek).toFixed(1) + '% of revenue)' : '';
+      $('uplift-text').innerHTML =
+        'If these bundles go live — on product pages, in cart and in email — capturing <b>10% of the attach gap</b> adds ' +
+        '<b>≈ ' + u['10'].toFixed(1) + ' M SEK revenue per year</b>' + revShare +
+        ' and <b>≈ ' + g['10'].toFixed(1) + ' M SEK gross profit</b> at current margin. ' +
+        'Conservative (5%): ' + u['5'].toFixed(1) + ' M · stretch (15%): ' + u['15'].toFixed(1) + ' M.' +
+        (s.pp_value_msek ? ' Every percentage point of single→multi-product shift is worth ~' +
+          s.pp_value_msek.toFixed(2) + ' M SEK.' : '');
+      $('uplift').hidden = false;
+    } else {
+      $('uplift').hidden = true;
+    }
+  }
+
+  function kpi(label, value, note, hero) {
+    return '<div class="kpi-card' + (hero ? ' hero' : '') + '"><div class="kpi-label">' + label +
+           '</div><div class="kpi-value">' + value + '</div><div class="kpi-note">' + note + '</div></div>';
+  }
+
+  function renderCards() {
+    const key = $('sortSel').value;
+    const pairs = filteredPairs().slice()
+      .sort((a, b) => (b[key] || 0) - (a[key] || 0));
+    // Cards are the visual shortlist: only pairs where both images exist.
+    const top = pairs.filter(p => p.anchor.img && p.comp.img).slice(0, 9);
+    $('bundle-grid').innerHTML = top.length ? top.map(card).join('') :
+      '<div class="grid-empty">No pairs with images match the filters — lower the lift threshold or clear the category.</div>';
+  }
+
+  function card(p) {
+    const price = (p.anchor.price || 0) + (p.comp.price || 0);
+    return '<div class="bundle-card">' +
+      '<div class="bc-imgs"><div class="bc-img">' + imgOrInitial(p.anchor, 400, '') + '</div>' +
+      '<div class="bc-plus">+</div>' +
+      '<div class="bc-img">' + imgOrInitial(p.comp, 400, '') + '</div></div>' +
+      '<div><div class="bc-name">' + esc(p.anchor.name) + '</div>' +
+      '<div class="bc-name comp">' + esc(p.comp.name) + '</div></div>' +
+      '<div class="bc-meta"><span class="brand-chip">' + esc(p.anchor.brand || '—') + '</span>' +
+      '<span class="bc-price">' + fmt(price) + ' kr bundle</span></div>' +
+      '<div class="bc-stats">' +
+      '<div class="bc-stat"><b>' + fmt(p.together) + '</b><span>bought together</span></div>' +
+      '<div class="bc-stat"><b>' + (p.attach == null ? '—' : p.attach.toFixed(0) + '%') + '</b><span>attach today</span></div>' +
+      '<div class="bc-stat' + ((p.lift || 0) >= 100 ? ' hot' : '') + '"><b>' + fmt(p.lift) + '×</b><span>lift</span></div></div>' +
+      '<div class="attach-meter"><div class="am-fill" style="width:' + Math.min(p.attach || 0, 100) + '%"></div></div>' +
+      '<div class="bc-gap">' + fmt(p.gap) + ' orders missed the companion · <b>' + fmt(p.gap_ksek) + ' kSEK</b> open</div>' +
+      '</div>';
+  }
+
+  function renderBars() {
+    const shop = $('shopSel').value;
+    const rows = (SNAP.baskets || []).filter(b => b.shop === shop);
+    const maxO = Math.max(1, ...rows.map(r => r.orders));
+    $('basket-bars').innerHTML = rows.map(r =>
+      '<div class="hb-row"><span class="hb-label">' + esc(r.bucket) + (r.bucket === '1' ? ' product' : ' products') + '</span>' +
+      '<div class="hb-track"><div class="hb-fill" style="width:' + (100 * r.orders / maxO).toFixed(1) + '%"></div></div>' +
+      '<span class="hb-val">' + fmt(r.orders) + '</span><span class="hb-sub">' + fmt(r.aov) + ' kr AOV</span></div>').join('');
+
+    const cats = (SNAP.category_pairs || []).filter(c => c.shop === shop).slice(0, 10);
+    const maxC = Math.max(1, ...cats.map(c => c.orders));
+    $('cat-bars').innerHTML = cats.map(c =>
+      '<div class="hb-row wide3"><span class="hb-label" title="' + esc(c.a + ' + ' + c.b) + '">' + esc(c.a + ' + ' + c.b) + '</span>' +
+      '<div class="hb-track"><div class="hb-fill ink" style="width:' + (100 * c.orders / maxC).toFixed(1) + '%"></div></div>' +
+      '<span class="hb-val">' + fmt(c.orders) + '</span></div>').join('') ||
+      '<div class="grid-empty">no category pairs</div>';
+  }
+
+  function renderTable() {
+    const pairs = filteredPairs();
+    $('pairsBody').innerHTML = pairs.map(p => {
+      const price = (p.anchor.price || 0) + (p.comp.price || 0);
+      return '<tr>' +
+        '<td><div class="tprod">' + imgOrInitial(p.anchor, 120, 'tthumb') +
+        '<span class="nm">' + esc(p.anchor.name) + '<small>' + esc(p.anchor.brand || '') +
+        (p.anchor.cat ? ' · ' + esc(p.anchor.cat) : '') + '</small></span></div></td>' +
+        '<td><div class="tprod">' + imgOrInitial(p.comp, 120, 'tthumb') +
+        '<span class="nm">' + esc(p.comp.name) + '<small>' + esc(p.comp.brand || '') +
+        (p.comp.cat ? ' · ' + esc(p.comp.cat) : '') + '</small></span></div></td>' +
+        '<td class="num">' + fmt(p.together) + '</td>' +
+        '<td class="num">' + (p.attach == null ? '—' : p.attach.toFixed(1)) + '</td>' +
+        '<td class="num">' + (p.lift == null ? '—' : p.lift.toFixed(0)) + '</td>' +
+        '<td class="num">' + fmt(p.gap) + '</td>' +
+        '<td class="num strong">' + fmt(p.gap_ksek) + '</td>' +
+        '<td class="num">' + fmt(price) + '</td></tr>';
+    }).join('');
+    $('table-sub').textContent = pairs.length + ' pairs pass the filters · column funnels + CSV export for worklists';
+    if (tools) tools.refresh();
+  }
+
+  function fillCategories() {
+    const shop = $('shopSel').value;
+    const cats = new Set();
+    (SNAP.pairs || []).forEach(p => {
+      if (p.shop !== shop) return;
+      if (p.anchor.cat) cats.add(p.anchor.cat);
+      if (p.comp.cat) cats.add(p.comp.cat);
+    });
+    const cur = $('catSel').value;
+    $('catSel').innerHTML = '<option value="">All</option>' +
+      [...cats].sort().map(c => '<option' + (c === cur ? ' selected' : '') + '>' + esc(c) + '</option>').join('');
+  }
+
+  function renderAll() {
+    renderKpis(); renderCards(); renderBars(); renderTable();
+  }
+
+  function setPill(generatedAt) {
+    const pill = $('refreshPill');
+    if (!pill) return;
+    if (!generatedAt) {
+      pill.textContent = 'no snapshot yet';
+      pill.title = 'refresh_bundles.py has not written funnel_cache yet';
+      pill.classList.add('show', 'unknown');
+      return;
+    }
+    const ageH = (Date.now() - new Date(generatedAt).getTime()) / 36e5;
+    if (ageH > 40) {
+      pill.textContent = 'snapshot ' + Math.round(ageH) + 'h old';
+      pill.title = 'nightly bundles-refresh may have failed';
+      pill.classList.add('show', 'stale');
+    }
+  }
+
+  fetch('/api/bundles', { credentials: 'same-origin' })
+    .then(r => r.json())
+    .then(data => {
+      SNAP = data;
+      setPill(data.generated_at);
+      if (!data.generated_at) {
+        $('bundle-grid').innerHTML = '';
+        $('pending').hidden = false;
+        return;
+      }
+      // Lekmer volumes are ~1/10 of Babyshop; keep the option only when the
+      // snapshot actually mined pairs for it.
+      if (!(data.shops || {}).lekmer) {
+        const opt = $('shopSel').querySelector('option[value="lekmer"]');
+        if (opt) opt.remove();
+      }
+      fillCategories();
+      renderAll();
+      // Product-name columns can start with digits (sizes) — pin the numeric set.
+      tools = TableTools.enhance($('pairsTable'), { numericColumns: [2, 3, 4, 5, 6, 7] });
+      ['shopSel', 'catSel', 'liftSel', 'sortSel'].forEach(id =>
+        $(id).addEventListener('change', () => {
+          if (id === 'shopSel') fillCategories();
+          renderAll();
+          // filter state is keyed by column index; a data swap must clear it
+          if (tools) tools.clearFilters();
+        }));
+    })
+    .catch(e => {
+      $('bundle-grid').innerHTML = '<div class="grid-empty">Failed to load /api/bundles: ' + esc(e.message) + '</div>';
+    });
+})();
+</script>
+</body>
+</html>

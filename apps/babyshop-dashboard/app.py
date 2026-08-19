@@ -137,6 +137,7 @@ STOY_HTML      = STATIC_DIR / "babyshop-stoy-dashboard.html"
 ROAS_HTML      = STATIC_DIR / "babyshop-roas-impact.html"
 SIM_HTML       = STATIC_DIR / "babyshop-roas-simulations.html"
 VOYADO_HTML    = STATIC_DIR / "babyshop-voyado-dashboard.html"
+BUNDLES_HTML   = STATIC_DIR / "babyshop-bundles-dashboard.html"
 TABLE_TOOLS_JS = STATIC_DIR / "table-tools.js"
 CHART_JS       = STATIC_DIR / "chart.umd.js"
 BRAND_CSS      = STATIC_DIR / "brand.css"
@@ -197,6 +198,11 @@ def roas_simulations_dashboard(_: str = Depends(verify)):
 @app.get("/babyshop-voyado-dashboard.html")
 def voyado_dashboard(_: str = Depends(verify)):
     return FileResponse(VOYADO_HTML, media_type="text/html")
+
+
+@app.get("/babyshop-bundles-dashboard.html")
+def bundles_dashboard(_: str = Depends(verify)):
+    return FileResponse(BUNDLES_HTML, media_type="text/html")
 
 
 # Shared table filtering + export module, used by <script src="/table-tools.js">
@@ -391,6 +397,33 @@ def api_voyado_email(_: str = Depends(verify)):
         "kpis": {}, "trend": [], "markets": [], "campaigns": [],
         "automations": [], "revenue_share": [],
         "caveats": ["no Voyado snapshot yet — refresh_voyado.py has not run"],
+    }
+
+
+@app.get("/api/bundles")
+def api_bundles(_: str = Depends(verify)):
+    """Bundles snapshot (written to Firestore by refresh_bundles.py).
+
+    Same 200-with-a-skeleton contract as /api/segments: the tab ships before
+    its refresher has run, and `generated_at: null` tells the page to render
+    its pending state. Shape mirrors refresh_bundles.build_payload()."""
+    from funnel_client import get_cache
+
+    try:
+        data = get_cache().get("bundles")
+    except Exception as e:
+        # A Firestore hiccup must not blank the tab — log and serve the skeleton.
+        print(f"ERROR /api/bundles: {type(e).__name__}: {e}", flush=True)
+        data = None
+    if data is not None:
+        return data
+    return {
+        "generated_at": None,
+        "sources": {"norce": {"dataset": None}, "window_days": 365,
+                    "min_together": 30, "min_lift_strong": 5,
+                    "gross_margin": 0.44, "images": ""},
+        "shops": {}, "baskets": [], "category_pairs": [], "pairs": [],
+        "caveats": ["no Bundles snapshot yet — refresh_bundles.py has not run"],
     }
 
 

@@ -443,7 +443,8 @@ SCHEMAS: dict[str, list[bigquery.SchemaField]] = {
     # Real product titles by SKU, from the Channable feed. Norce's
     # Product.DefaultName is VARIANT-grain ("2-4 Y", "One Size"), so the product
     # dimension of first_purchase_products is unreadable without this.
-    "sku_titles":         [S("PartNo", "STRING"), S("title", "STRING"), S("brand", "STRING")],
+    "sku_titles":         [S("PartNo", "STRING"), S("title", "STRING"), S("brand", "STRING"),
+                           S("image_link", "STRING")],
     "dim_payment_methods": [S("Id", "INT64"), S("DefaultName", "STRING")],
     # ExchangeRate is quoted against EUR (EUR = 1), NOT against SEK — see the
     # currency_rates view in norce_marts.sql, which does the division.
@@ -979,8 +980,11 @@ def sync_sku_titles() -> int:
             title = t("short_title", ns=True) or t("title")
             if sku and title:
                 # Keyed by SKU so the load is inherently de-duplicated.
+                # image_link feeds the Bundles tab (product images per pair);
+                # the CDN URL takes ?w=&q= resize params, stored as-is here.
                 rows[sku] = {"PartNo": sku, "title": title,
-                             "brand": t("brand", ns=True) or None}
+                             "brand": t("brand", ns=True) or None,
+                             "image_link": t("image_link", ns=True) or None}
             elem.clear()
     finally:
         try:
