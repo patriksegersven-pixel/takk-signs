@@ -165,7 +165,7 @@
     /* ── KPI grid ───────────────────────────────────── */
     .kpi-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr 1.35fr 1fr 1fr;
+      grid-template-columns: 1fr 1fr 1fr 1fr 1.35fr 1fr 1fr;
       gap: 14px; margin-bottom: 20px;
     }
     .kpi-card {
@@ -505,7 +505,7 @@
       <div class="chart-header">
         <div>
           <div class="chart-title">Margin Bridge</div>
-          <div class="chart-sub">Revenue → GP1 → GP2 → GP3-Shopping</div>
+          <div class="chart-sub">Revenue → Net Revenue → GP1 → GP2 → GP3-Shopping</div>
         </div>
         <span class="chart-badge">SEK</span>
       </div>
@@ -612,8 +612,8 @@
           <th title="cf1j4pcmic8ucum_Product_type_2">Category</th>
           <th class="col-season" title="Norce Product Collection — collections worth ≥10% of this category’s attributable revenue over the snapshot window, dominant first. Hover a cell for the full mix.">Season</th>
           <th title="cf1j2rvf6cstma8_kv_revenue_new">Revenue</th>
-          <th title="cf1j4pbh7847jbs_kv_gm1_product">GM1%</th>
-          <th title="cf1j4pb7q0974md_kv_gp1_product">GP1</th>
+          <th title="net kv_gp1_product / net revenue (returns allocated pro-rata per Date × shop — category return-rate differences not reflected)">GM1%</th>
+          <th title="kv_gp1_product − allocated returns (net revenue − COGS)">GP1</th>
           <th title="cf1j4pbl7khku06_kv_gm2_product">GM2%</th>
           <th title="cf1j4pbasj1d5lc_kv_gp2_product">GP2</th>
           <th title="shopping_cost · Google Shopping cost (GP2 − GP3-Shopping)">Shopping cost</th>
@@ -683,8 +683,8 @@
           <th title="dim-1j4p9puragt0f_kv_brand">Brand</th>
           <th class="col-season" title="Norce Product Collection — collections worth ≥10% of this brand’s attributable revenue over the snapshot window, dominant first. Hover a cell for the full mix.">Season</th>
           <th title="cf1j2rvf6cstma8_kv_revenue_new">Revenue</th>
-          <th title="cf1j4pbh7847jbs_kv_gm1_product">GM1%</th>
-          <th title="cf1j4pb7q0974md_kv_gp1_product">GP1</th>
+          <th title="net kv_gp1_product / net revenue (returns allocated pro-rata per Date × shop — category return-rate differences not reflected)">GM1%</th>
+          <th title="kv_gp1_product − allocated returns (net revenue − COGS)">GP1</th>
           <th title="cf1j4pbl7khku06_kv_gm2_product">GM2%</th>
           <th title="cf1j4pbasj1d5lc_kv_gp2_product">GP2</th>
           <th title="shopping_cost · Google Shopping cost (GP2 − GP3-Shopping)">Shopping cost</th>
@@ -705,8 +705,13 @@
 /* ─── Funnel field IDs (shown on hover) ─────────────── */
 const FIELD_IDS = {
   'kv-revenue-product': 'cf1j2rvf6cstma8_kv_revenue_new',
+  // No product-level returns exist in the export (kv_returns is KV-feed-only,
+  // with no brand/type/title) — net revenue here is the real (Date × shop)
+  // kv_returns allocated pro-rata over that slice's product revenue. Exact in
+  // total; per-brand/category it assumes the slice's uniform return rate.
+  'kv-net-revenue-product': 'kv_revenue_product − pro-rata (Date × shop) share of kv_returns · derived',
   'kv-product-cogs':    'cf1j4pbcoib0bom_kv_product_cogs',
-  'kv-gp1-product':     'cf1j4pb7q0974md_kv_gp1_product',
+  'kv-gp1-product':     'cf1j4pb7q0974md_kv_gp1_product − allocated returns (net revenue − COGS) · derived',
   'kv-gp2-product':     'cf1j4pbasj1d5lc_kv_gp2_product',
   'kv-gp3-shopping':    'cf1j4pau1ki6bas_kv_gp3_shopping',
   'kv-gm1-product':     'cf1j4pbh7847jbs_kv_gm1_product',
@@ -837,10 +842,16 @@ function _cmpRange(r){
 }
 function _sumRange(start, end){
   const a = _isoLocal(start), b = _isoLocal(end);
-  const acc = { revenue:0, cogs:0, gp1:0, gp2:0, gp3:0 }; let n = 0;
+  const acc = { revenue:0, net_revenue:0, cogs:0, gp1:0, gp2:0, gp3:0 }; let n = 0, netn = 0;
   for (const r of DAILY_LONG) {
-    if (r.iso >= a && r.iso <= b) { acc.revenue+=r.revenue; acc.cogs+=r.cogs; acc.gp1+=r.gp1; acc.gp2+=r.gp2; acc.gp3+=r.gp3; n++; }
+    if (r.iso >= a && r.iso <= b) {
+      acc.revenue+=r.revenue; acc.cogs+=r.cogs; acc.gp1+=r.gp1; acc.gp2+=r.gp2; acc.gp3+=r.gp3; n++;
+      if (typeof r.net_revenue === 'number') { acc.net_revenue += r.net_revenue; netn++; }
+    }
   }
+  // A payload written before net_revenue was carried has none — report it as
+  // missing (null) rather than a real zero, so GM1 falls back to gross cleanly.
+  if (!netn) acc.net_revenue = null;
   return n ? acc : null;
 }
 /* Overwrite PERIODS[currentPeriod] cur + active comparison with real summed values. */
@@ -1144,6 +1155,10 @@ function renderKPIs() {
   gp1 = T.gp1; gp2 = T.gp2; gp3 = T.gp3;
   const P = TOTALS.prev;
 
+  // GM1 divides by NET revenue (pro-rata allocated returns — see FIELD_IDS
+  // note); a payload predating net_revenue also carries the old gross gp1, so
+  // falling back to gross revenue keeps the ratio internally consistent.
+  const _nrevT = o => (typeof o.net_revenue === 'number' && isFinite(o.net_revenue)) ? o.net_revenue : o.revenue;
   const cards = [
     {
       label:'Revenue', field: FIELD_IDS['kv-revenue-product'],
@@ -1152,10 +1167,18 @@ function renderKPIs() {
       note: 'Top line · kv-revenue-product',
     },
     {
+      label:'Net Revenue', field: FIELD_IDS['kv-net-revenue-product'],
+      value: typeof T.net_revenue === 'number' ? fmtSEK(T.net_revenue) : '—',
+      delta: (typeof T.net_revenue === 'number' && typeof P.net_revenue === 'number')
+               ? deltaBadge(T.net_revenue, P.net_revenue) : '',
+      note: 'after returns (allocated)',
+      pills: ['− Returns'],
+    },
+    {
       label:'GP1', field: FIELD_IDS['kv-gp1-product'],
       value: fmtSEK(gp1),
       delta: deltaBadge(gp1, P.gp1),
-      note: `GM1 ${fmtPct(gp1/T.revenue)} · after COGS`,
+      note: `GM1 ${fmtPct(gp1/_nrevT(T))} · after returns & COGS`,
       pills: ['− COGS'],
     },
     {
@@ -1163,7 +1186,7 @@ function renderKPIs() {
       value: fmtSEK(gp2),
       delta: deltaBadge(gp2, P.gp2),
       note: `GM2 ${fmtPct(gp2/T.revenue)} · after ops costs`,
-      pills: ['− Returns + Shipping + P&P + Payment'],
+      pills: ['− Shipping + P&P + Payment'],
     },
     {
       label:'GP3-Shopping', field: FIELD_IDS['kv-gp3-shopping'],
@@ -1580,9 +1603,13 @@ function applyFilter() {
     const sourceMap = { brand: BRANDS, category: CATEGORIES };
     const entry = sourceMap[activeKey].find(e => e.name === activeVal);
     if (entry) {
+      const _hasNet = typeof entry.net_revenue === 'number';
       const cur = {
         revenue: entry.revenue,
-        cogs:    entry.revenue - entry.gp1,
+        net_revenue: _hasNet ? entry.net_revenue : null,
+        // With netted gp1, net revenue − gp1 is the real COGS; a pre-net row
+        // keeps the old gross identity (revenue − gross gp1).
+        cogs:    (_hasNet ? entry.net_revenue : entry.revenue) - entry.gp1,
         gp1:     entry.gp1,
         gp2:     entry.gp2,
         gp3:     entry.gp3,
@@ -1590,6 +1617,7 @@ function applyFilter() {
       const share = entry.revenue / periodBase.cur.revenue;
       const prev = {
         revenue: cmpBase.revenue * share,
+        net_revenue: (typeof cmpBase.net_revenue === 'number') ? cmpBase.net_revenue * share : null,
         cogs:    cmpBase.cogs    * share,
         gp1:     cmpBase.gp1     * share,
         gp2:     cmpBase.gp2     * share,
@@ -1634,22 +1662,10 @@ populateFilters();
 /* ─── Chart: Margin Bridge Waterfall (split ops + % labels) ── */
 // Ops costs split — Funnel returns the lumped figure, so we use typical
 // retail proportions: Returns 35% · Shipping 30% · Pick&Pack 20% · Payment 15%.
-// When live Funnel data exposes these separately, replace OPS_SPLIT below.
+// With a net_revenue payload the Returns step is REAL (revenue − net revenue,
+// the allocated kv_returns) and gp1 − gp2 no longer contains returns, so the
+// three remaining shares are renormalised over their 65-part remainder.
 const OPS_SPLIT = { returns: 0.35, shipping: 0.30, pickpack: 0.20, payment: 0.15 };
-
-const bridgeLabels = ['Revenue','COGS','GP1','Returns','Shipping','Pick & Pack','Payment','GP2','Marketing','GP3-Shopping'];
-const bridgeColors = [
-  '#2E6F5E',  // Revenue (teal)
-  '#CFCAC3',  // COGS (slate)
-  '#5E9E8B',  // GP1 subtotal
-  '#A9621A',  // Returns
-  '#A9621A',  // Shipping
-  '#A9621A',  // Pick & Pack
-  '#A9621A',  // Payment
-  '#5E9E8B',  // GP2 subtotal
-  '#7E5A8C',  // Marketing
-  '#1E7A45',  // GP3-Shopping ← hero
-];
 
 // Plugin: draw the % share of revenue on top of each bar
 const bridgePctLabels = {
@@ -1680,16 +1696,43 @@ let bridgeChart = null;
 
 function renderBridge() {
   // Read live values (filter / period might have changed them)
+  const hasNet        = typeof T.net_revenue === 'number' && T.net_revenue > 0;
   const opsTotal      = gp1 - gp2;
-  const opsReturns    = opsTotal * OPS_SPLIT.returns;
-  const opsShipping   = opsTotal * OPS_SPLIT.shipping;
-  const opsPickpack   = opsTotal * OPS_SPLIT.pickpack;
+  // With real returns the ops bucket holds only shipping/P&P/payment — keep
+  // their relative 30/20/15 proportions over the whole of it.
+  const shipShare     = hasNet ? OPS_SPLIT.shipping / (1 - OPS_SPLIT.returns) : OPS_SPLIT.shipping;
+  const ppShare       = hasNet ? OPS_SPLIT.pickpack / (1 - OPS_SPLIT.returns) : OPS_SPLIT.pickpack;
+  const opsReturns    = hasNet ? 0 : opsTotal * OPS_SPLIT.returns;
+  const opsShipping   = opsTotal * shipShare;
+  const opsPickpack   = opsTotal * ppShare;
   // opsPayment derived: gp2 = afterPickpack - payment
   const afterReturns  = gp1 - opsReturns;
   const afterShipping = afterReturns - opsShipping;
   const afterPickpack = afterShipping - opsPickpack;
 
-  const bridgeData = [
+  // With net_revenue the ladder gains two real steps up front — Returns
+  // (revenue − net revenue, the allocated kv_returns) and the Net Revenue
+  // subtotal — and net revenue − gp1 is the REAL COGS. Old payloads keep the
+  // previous shape (COGS = revenue − gross gp1, returns estimated inside ops).
+  const bridgeLabels = hasNet
+    ? ['Revenue','Returns','Net Revenue','COGS','GP1','Shipping','Pick & Pack','Payment','GP2','Marketing','GP3-Shopping']
+    : ['Revenue','COGS','GP1','Returns','Shipping','Pick & Pack','Payment','GP2','Marketing','GP3-Shopping'];
+  const bridgeColors = hasNet
+    ? ['#2E6F5E','#A9621A','#5E9E8B','#CFCAC3','#5E9E8B','#A9621A','#A9621A','#A9621A','#5E9E8B','#7E5A8C','#1E7A45']
+    : ['#2E6F5E','#CFCAC3','#5E9E8B','#A9621A','#A9621A','#A9621A','#A9621A','#5E9E8B','#7E5A8C','#1E7A45'];
+  const bridgeData = hasNet ? [
+    [0,             T.revenue],      // Revenue
+    [T.net_revenue, T.revenue],      // Returns (real, allocated)
+    [0,             T.net_revenue],  // Net Revenue subtotal
+    [gp1,           T.net_revenue],  // COGS (real: net revenue − gp1)
+    [0,             gp1],            // GP1 subtotal
+    [afterShipping, gp1],            // Shipping
+    [afterPickpack, afterShipping],  // Pick & Pack
+    [gp2,           afterPickpack],  // Payment
+    [0,             gp2],            // GP2 subtotal
+    [gp3,           gp2],            // Marketing
+    [0,             gp3],            // GP3-Shopping
+  ] : [
     [0,             T.revenue],     // Revenue
     [gp1,           T.revenue],     // COGS
     [0,             gp1],           // GP1 subtotal
@@ -1831,6 +1874,13 @@ function showDim(dim, btn) {
 // Render default tab
 showDim('markets', document.querySelector('.dim-tab.active'));
 
+/* GM1's denominator is NET revenue (pro-rata allocated returns, matching the
+ * netted gp1 — see FIELD_IDS). Rows from an old snapshot carry neither
+ * net_revenue nor a netted gp1, so falling back to gross revenue keeps the
+ * ratio internally consistent either way. */
+const nrevOf     = e => (typeof e.net_revenue === 'number') ? e.net_revenue : e.revenue;
+const nrevPrevOf = e => (typeof e.net_revenue_prev === 'number') ? e.net_revenue_prev : e.revenue_prev;
+
 /* ─── Category Table ──────────────────────────────── */
 const tbody = document.getElementById('cat-tbody');
 const maxRev = Math.max(...CATEGORIES.map(c => c.revenue));
@@ -1840,7 +1890,7 @@ const maxRev = Math.max(...CATEGORIES.map(c => c.revenue));
    costs O(N²); with the row caps lifted it froze the Inventory tab for a minute
    on ~2 650 rows. The brand table here runs to 1 000. */
 tbody.innerHTML = CATEGORIES.map(c => {
-  const gm1 = c.gp1 / c.revenue;
+  const gm1 = c.gp1 / nrevOf(c);
   const gm2 = c.gp2 / c.revenue;
   const gm3 = c.gp3 / c.revenue;
   const barW = Math.round((c.gp3 / c.revenue) * 60);
@@ -1861,6 +1911,8 @@ tbody.innerHTML = CATEGORIES.map(c => {
 
 // Totals — prefer the top-level PREV when present, fall back to summing per-row
 const tRev  = CATEGORIES.reduce((s,c)=>s+c.revenue,0);
+// net_revenue only totals if EVERY row carries it — a partial sum would understate it.
+const tNet  = CATEGORIES.every(c=>typeof c.net_revenue==='number') ? CATEGORIES.reduce((s,c)=>s+c.net_revenue,0) : null;
 const tGp1  = CATEGORIES.reduce((s,c)=>s+c.gp1,0);
 const tGp2  = CATEGORIES.reduce((s,c)=>s+c.gp2,0);
 const tGp3c = CATEGORIES.reduce((s,c)=>s+c.gp3,0);
@@ -1871,17 +1923,18 @@ const _catSumPrev = (k) => {
 };
 const _PREV = (typeof TOTALS !== 'undefined' && TOTALS.prev) ? TOTALS.prev : null;
 const tRevP  = (_PREV && _PREV.revenue) || _catSumPrev('revenue_prev');
+const tNetP  = (_PREV && typeof _PREV.net_revenue === 'number' && _PREV.net_revenue) || _catSumPrev('net_revenue_prev');
 const tGp1P  = (_PREV && _PREV.gp1)     || _catSumPrev('gp1_prev');
 const tGp2P  = (_PREV && _PREV.gp2)     || _catSumPrev('gp2_prev');
 const tGp3cP = (_PREV && _PREV.gp3)     || _catSumPrev('gp3_prev');
-const _gm1P = (tRevP && tGp1P  != null) ? tGp1P  / tRevP : null;
+const _gm1P = ((tNetP || tRevP) && tGp1P != null) ? tGp1P / (tNetP || tRevP) : null;
 const _gm2P = (tRevP && tGp2P  != null) ? tGp2P  / tRevP : null;
 const _gm3P = (tRevP && tGp3cP != null) ? tGp3cP / tRevP : null;
 document.getElementById('cat-tfoot').innerHTML = `<tr class="tfoot-row">
   <td>Total</td>
   <td class="col-season" data-tt-value=""></td>
   <td>${fmtSEK(tRev)}${cellDelta(tRev, tRevP)}</td>
-  <td>${fmtPct(tGp1/tRev)}${cellDelta(tGp1/tRev, _gm1P, false, true)}</td>
+  <td>${fmtPct(tGp1/(tNet!==null?tNet:tRev))}${cellDelta(tGp1/(tNet!==null?tNet:tRev), _gm1P, false, true)}</td>
   <td>${fmtSEK(tGp1)}${cellDelta(tGp1, tGp1P)}</td>
   <td>${fmtPct(tGp2/tRev)}${cellDelta(tGp2/tRev, _gm2P, false, true)}</td>
   <td>${fmtSEK(tGp2)}${cellDelta(tGp2, tGp2P)}</td>
@@ -1895,7 +1948,7 @@ function renderBrandTable(){
   const tbody = document.getElementById('brand-tbody');
   const sorted = [...BRANDS].sort((a,b)=>b.revenue-a.revenue);
   tbody.innerHTML = sorted.map(b => {
-    const gm1 = b.gp1 / Math.max(b.revenue, 1);
+    const gm1 = b.gp1 / Math.max(nrevOf(b), 1);
     const gm2 = b.gp2 / Math.max(b.revenue, 1);
     const gm3 = b.gp3 / Math.max(b.revenue, 1);
     const shopCost = b.gp2 - b.gp3;   // Google Shopping spend (GP2 → GP3-Shopping step)
@@ -1903,7 +1956,7 @@ function renderBrandTable(){
     const gm3cls = b.gp3 < 0 ? 'cell-neg'
                   : gm3 < 0.05 ? 'cell-neg'
                   : gm3 > 0.20 ? 'cell-pos' : '';
-    const gm1p = (b.gp1_prev != null && b.revenue_prev) ? b.gp1_prev / b.revenue_prev : null;
+    const gm1p = (b.gp1_prev != null && nrevPrevOf(b)) ? b.gp1_prev / nrevPrevOf(b) : null;
     const gm2p = (b.gp2_prev != null && b.revenue_prev) ? b.gp2_prev / b.revenue_prev : null;
     const gm3p = (b.gp3_prev != null && b.revenue_prev) ? b.gp3_prev / b.revenue_prev : null;
     return `<tr>
@@ -1921,6 +1974,8 @@ function renderBrandTable(){
   }).join('');
 
   const bRev = BRANDS.reduce((s,b)=>s+b.revenue,0);
+  // net_revenue only totals if EVERY row carries it — a partial sum would understate it.
+  const bNet = BRANDS.every(b=>typeof b.net_revenue==='number') ? BRANDS.reduce((s,b)=>s+b.net_revenue,0) : null;
   const bGp1 = BRANDS.reduce((s,b)=>s+b.gp1,0);
   const bGp2 = BRANDS.reduce((s,b)=>s+b.gp2,0);
   const bGp3 = BRANDS.reduce((s,b)=>s+b.gp3,0);
@@ -1931,17 +1986,18 @@ function renderBrandTable(){
   };
   const _BP = (typeof TOTALS !== 'undefined' && TOTALS.prev) ? TOTALS.prev : null;
   const bRevP = (_BP && _BP.revenue) || _bSumPrev('revenue_prev');
+  const bNetP = (_BP && typeof _BP.net_revenue === 'number' && _BP.net_revenue) || _bSumPrev('net_revenue_prev');
   const bGp1P = (_BP && _BP.gp1)     || _bSumPrev('gp1_prev');
   const bGp2P = (_BP && _BP.gp2)     || _bSumPrev('gp2_prev');
   const bGp3P = (_BP && _BP.gp3)     || _bSumPrev('gp3_prev');
-  const _bGm1P = (bRevP && bGp1P != null) ? bGp1P / bRevP : null;
+  const _bGm1P = ((bNetP || bRevP) && bGp1P != null) ? bGp1P / (bNetP || bRevP) : null;
   const _bGm2P = (bRevP && bGp2P != null) ? bGp2P / bRevP : null;
   const _bGm3P = (bRevP && bGp3P != null) ? bGp3P / bRevP : null;
   document.getElementById('brand-tfoot').innerHTML = `<tr class="tfoot-row">
     <td>Total (${BRANDS.length} brands)</td>
     <td class="col-season" data-tt-value=""></td>
     <td>${fmtSEK(bRev)}${cellDelta(bRev, bRevP)}</td>
-    <td>${fmtPct(bGp1/bRev)}${cellDelta(bGp1/bRev, _bGm1P, false, true)}</td>
+    <td>${fmtPct(bGp1/(bNet!==null?bNet:bRev))}${cellDelta(bGp1/(bNet!==null?bNet:bRev), _bGm1P, false, true)}</td>
     <td>${fmtSEK(bGp1)}${cellDelta(bGp1, bGp1P)}</td>
     <td>${fmtPct(bGp2/bRev)}${cellDelta(bGp2/bRev, _bGm2P, false, true)}</td>
     <td>${fmtSEK(bGp2)}${cellDelta(bGp2, bGp2P)}</td>
@@ -1957,12 +2013,12 @@ renderBrandTable();
 function renderCategoryTable(){
   const tbody = document.getElementById('cat-tbody');
   tbody.innerHTML = CATEGORIES.map(c => {
-    const gm1 = c.gp1 / c.revenue;
+    const gm1 = c.gp1 / nrevOf(c);
     const gm2 = c.gp2 / c.revenue;
     const gm3 = c.gp3 / c.revenue;
     const barW = Math.round((c.gp3 / c.revenue) * 60);
     const gm3cls = gm3 < 0.12 ? 'cell-neg' : gm3 > 0.28 ? 'cell-pos' : '';
-    const gm1p = (c.gp1_prev != null && c.revenue_prev) ? c.gp1_prev / c.revenue_prev : null;
+    const gm1p = (c.gp1_prev != null && nrevPrevOf(c)) ? c.gp1_prev / nrevPrevOf(c) : null;
     const gm2p = (c.gp2_prev != null && c.revenue_prev) ? c.gp2_prev / c.revenue_prev : null;
     const gm3p = (c.gp3_prev != null && c.revenue_prev) ? c.gp3_prev / c.revenue_prev : null;
     return `<tr>
@@ -1980,17 +2036,19 @@ function renderCategoryTable(){
   }).join('');
   // totals row
   const tRev=CATEGORIES.reduce((s,c)=>s+c.revenue,0), tGp1=CATEGORIES.reduce((s,c)=>s+c.gp1,0);
+  const tNet=CATEGORIES.every(c=>typeof c.net_revenue==='number')?CATEGORIES.reduce((s,c)=>s+c.net_revenue,0):null;
   const tGp2=CATEGORIES.reduce((s,c)=>s+c.gp2,0), tGp3c=CATEGORIES.reduce((s,c)=>s+c.gp3,0);
   const _csp=(k)=>{let s=0,a=false;CATEGORIES.forEach(c=>{if(c[k]!=null){s+=c[k];a=true;}});return a?s:null;};
   const _PV=(typeof TOTALS!=='undefined'&&TOTALS.prev)?TOTALS.prev:null;
   const tRevP=(_PV&&_PV.revenue)||_csp('revenue_prev'), tGp1P=(_PV&&_PV.gp1)||_csp('gp1_prev');
+  const tNetP=(_PV&&typeof _PV.net_revenue==='number'&&_PV.net_revenue)||_csp('net_revenue_prev');
   const tGp2P=(_PV&&_PV.gp2)||_csp('gp2_prev'), tGp3cP=(_PV&&_PV.gp3)||_csp('gp3_prev');
-  const _g1=(tRevP&&tGp1P!=null)?tGp1P/tRevP:null, _g2=(tRevP&&tGp2P!=null)?tGp2P/tRevP:null, _g3=(tRevP&&tGp3cP!=null)?tGp3cP/tRevP:null;
+  const _g1=((tNetP||tRevP)&&tGp1P!=null)?tGp1P/(tNetP||tRevP):null, _g2=(tRevP&&tGp2P!=null)?tGp2P/tRevP:null, _g3=(tRevP&&tGp3cP!=null)?tGp3cP/tRevP:null;
   document.getElementById('cat-tfoot').innerHTML = `<tr class="tfoot-row">
     <td>Total</td>
     <td class="col-season" data-tt-value=""></td>
     <td>${fmtSEK(tRev)}${cellDelta(tRev, tRevP)}</td>
-    <td>${fmtPct(tGp1/tRev)}${cellDelta(tGp1/tRev, _g1, false, true)}</td>
+    <td>${fmtPct(tGp1/(tNet!==null?tNet:tRev))}${cellDelta(tGp1/(tNet!==null?tNet:tRev), _g1, false, true)}</td>
     <td>${fmtSEK(tGp1)}${cellDelta(tGp1, tGp1P)}</td>
     <td>${fmtPct(tGp2/tRev)}${cellDelta(tGp2/tRev, _g2, false, true)}</td>
     <td>${fmtSEK(tGp2)}${cellDelta(tGp2, tGp2P)}</td>
@@ -2098,7 +2156,7 @@ const BUBBLE_METRICS = {
   gp1:     { label:'GP1',           get:e => e.gp1,               fmt:fmtSEK,           unit:'sek' },
   gp2:     { label:'GP2',           get:e => e.gp2,               fmt:fmtSEK,           unit:'sek' },
   gp3:     { label:'GP3-Shopping',  get:e => e.gp3,               fmt:fmtSEK,           unit:'sek' },
-  gm1:     { label:'GM1%',          get:e => e.gp1 / e.revenue,   fmt:v=>fmtPct(v),     unit:'pct' },
+  gm1:     { label:'GM1%',          get:e => e.gp1 / nrevOf(e),   fmt:v=>fmtPct(v),     unit:'pct' },
   gm2:     { label:'GM2%',          get:e => e.gp2 / e.revenue,   fmt:v=>fmtPct(v),     unit:'pct' },
   gm3:     { label:'GM3-Shopping%', get:e => e.gp3 / e.revenue,   fmt:v=>fmtPct(v),     unit:'pct' },
 };

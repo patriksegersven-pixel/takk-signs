@@ -167,7 +167,53 @@ def _kv_cte(where: str) -> str:
 KVD = ("SUM(rev) rev, SUM(rev)-COALESCE(SUM(ret),0) net_rev, "
        "SUM(gp1)-COALESCE(SUM(ret),0) gp1, SUM(gp2) gp2, SUM(gp2)-COALESCE(SUM(cost),0) gp3, "
        "CAST(SUM(txns) AS INT64) txns, SUM(cost) cost")
-PR = ("SUM(kv_revenue_product) rev, SUM(kv_product_cogs) cogs, SUM(kv_gp1_product) gp1, "
+# ── Product-feed returns netting (pro-rata) ─────────────────────────────────
+# kv_gp1_product has the same defect the KV feed had: kv_revenue_product is
+# GROSS of returns while kv_product_cogs is net of them (identity verified:
+# gp1 = rev − cogs to the öre; 2026 YTD 181.38 − 95.90 = 85.48M). But
+# kv_returns lives ONLY on the KV feed and carries NO product dimension
+# (brand/type/title all empty on every returns row) — an exact per-product
+# netting is impossible from this export.
+#
+# So returns are allocated PRO-RATA: the real kv_returns per (Date, shop_new)
+# slice is spread across that slice's product revenue, i.e. every product row
+# in a slice gets the slice's return rate. Totals tie out exactly — summed
+# product net revenue = product revenue − the slice's real returns — and
+# net_rev − netted gp1 still equals the real COGS. The caveat is per-row: a
+# brand/category's netted GM1 assumes the shop-day's uniform return rate, so
+# category-level return differences (clothing ≫ toys) are NOT reflected.
+# Grain is (Date, shop_new): both feeds carry shop 100%; market is on 94% of
+# product rows and its rate spread (SE 14% vs ROW EUR 5%) only shifts brand
+# mix marginally in the all-market tables — not worth the join fragility.
+# kv_returns only populates from ~Sep 2025, so earlier slices net to gross.
+def _pr_cte(where: str) -> str:
+    """CTE `pr_rows`: the raw table plus `pr_ret_rate`, the (Date, shop_new)
+    slice's returns ÷ product revenue. Cost-only rows (NULL product revenue)
+    pass through untouched — NULL × rate stays NULL, so gp3's shopping_cost
+    keeps summing over them. `where` must only constrain the date range."""
+    return f"""
+    pr_ret AS (
+      SELECT Date d, shop_new s, SUM(kv_returns) ret
+      FROM `{BQ_TABLE}` WHERE {where} GROUP BY d, s),
+    pr_base AS (
+      SELECT Date d, shop_new s, SUM(kv_revenue_product) rev
+      FROM `{BQ_TABLE}` WHERE {where} GROUP BY d, s
+      HAVING SUM(kv_revenue_product) > 0),
+    pr_rows AS (
+      SELECT t.*, COALESCE(r.ret / b.rev, 0) AS pr_ret_rate
+      FROM `{BQ_TABLE}` t
+      LEFT JOIN pr_base b ON b.d = t.Date AND b.s = t.shop_new
+      LEFT JOIN pr_ret  r ON r.d = t.Date AND r.s = t.shop_new
+      WHERE {where})
+    """
+
+# Product aggregate — SELECT from `pr_rows` (never the raw table), so rev/gp1
+# carry the returns netting above. cogs is untouched: it is already net of
+# returns in the export, which is exactly why gp1 needed the correction.
+PR = ("SUM(kv_revenue_product) rev, "
+      "SUM(kv_revenue_product)-SUM(kv_revenue_product*pr_ret_rate) net_rev, "
+      "SUM(kv_product_cogs) cogs, "
+      "SUM(kv_gp1_product)-SUM(kv_revenue_product*pr_ret_rate) gp1, "
       "SUM(kv_gp2_product) gp2, SUM(kv_gp2_product)-COALESCE(SUM(shopping_cost),0) gp3")
 
 def _merge_kv(cur, prev, rev_prev_key="revenue_prev"):
@@ -281,9 +327,11 @@ def _merge_prod(cur, prev):
     out = []
     for r in cur:
         p = pm.get(r["name"])
-        out.append({"name": r["name"], "revenue": I(r["rev"]), "cogs": I(r["cogs"]),
+        out.append({"name": r["name"], "revenue": I(r["rev"]), "net_revenue": I(r["net_rev"]),
+                    "cogs": I(r["cogs"]),
                     "gp1": I(r["gp1"]), "gp2": I(r["gp2"]), "gp3": I(r["gp3"]),
                     "revenue_prev": I(p["rev"]) if p else None,
+                    "net_revenue_prev": I(p["net_rev"]) if p else None,
                     "gp1_prev": I(p["gp1"]) if p else None,
                     "gp2_prev": I(p["gp2"]) if p else None,
                     "gp3_prev": I(p["gp3"]) if p else None})
@@ -299,8 +347,8 @@ def _prod_dim(col, cs, ce, ps, pe, limit=1000):
     dimension that unexpectedly explodes (a dirty column with 100k values) can't
     produce an unbounded response. Raise it if a real dimension ever hits it."""
     def q(s, e):
-        sql = (f"SELECT COALESCE(NULLIF({col}, ''), 'Uncategorised') name, {PR} FROM `{BQ_TABLE}` "
-               f"WHERE Date BETWEEN @cs AND @ce "
+        sql = (f"WITH {_pr_cte('Date BETWEEN @cs AND @ce')} "
+               f"SELECT COALESCE(NULLIF({col}, ''), 'Uncategorised') name, {PR} FROM pr_rows "
                f"GROUP BY name HAVING SUM(kv_revenue_product) > 0 ORDER BY rev DESC LIMIT {limit}")
         return _rows(sql, _p(s, e, s, e))
     return _merge_prod(q(cs, ce), q(ps, pe))
@@ -377,18 +425,20 @@ def build_payloads(cur_end: datetime.date | None = None):
 
     # ── Product totals (per-day → sum) ──
     def prod_tot(s, e):
-        r = _rows(f"SELECT {PR} FROM `{BQ_TABLE}` WHERE Date BETWEEN @cs AND @ce", _p(s, e, s, e))[0]
-        return {"revenue": I(r["rev"]), "cogs": I(r["cogs"]), "gp1": I(r["gp1"]),
-                "gp2": I(r["gp2"]), "gp3": I(r["gp3"])}
+        r = _rows(f"WITH {_pr_cte('Date BETWEEN @cs AND @ce')} SELECT {PR} FROM pr_rows",
+                  _p(s, e, s, e))[0]
+        return {"revenue": I(r["rev"]), "net_revenue": I(r["net_rev"]), "cogs": I(r["cogs"]),
+                "gp1": I(r["gp1"]), "gp2": I(r["gp2"]), "gp3": I(r["gp3"])}
     # ── Product daily totals, long history (2025 → current) ──
     # The dashboard sums these client-side for ANY period + comparison window
     # (7D/30D/90D/custom · pop/yoy), so deltas reflect the real range — not a
     # linear scale of the 30-day numbers.
-    daily_long = [{"iso": r["d"], "revenue": I(r["rev"]), "cogs": I(r["cogs"]),
+    daily_long = [{"iso": r["d"], "revenue": I(r["rev"]), "net_revenue": I(r["net_rev"]),
+                   "cogs": I(r["cogs"]),
                    "gp1": I(r["gp1"]), "gp2": I(r["gp2"]), "gp3": I(r["gp3"])}
                   for r in _rows(
-            f"SELECT CAST(Date AS STRING) d, {PR} FROM `{BQ_TABLE}` "
-            f"WHERE Date BETWEEN DATE '{LONG_START}' AND DATE '{ce}' GROUP BY d ORDER BY d", [])]
+            f"WITH {_pr_cte(long_where)} "
+            f"SELECT CAST(Date AS STRING) d, {PR} FROM pr_rows GROUP BY d ORDER BY d", [])]
     product_overview = {
         "period": kv_overview["period"], "prev_period": kv_overview["prev_period"],
         "totals": {"cur": prod_tot(cs, ce), "prev": prod_tot(ps, pe)},
