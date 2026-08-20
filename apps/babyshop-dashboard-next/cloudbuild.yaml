@@ -1,0 +1,75 @@
+substitutions:
+  _SERVICE: babyshop-dashboard
+  _APP_DIR: apps/babyshop-dashboard
+  _REGION: europe-north1
+  _REPO: apps
+  _MAX_INSTANCES: "10"
+  _MIN_INSTANCES: "0"   # bump to "1" for ~$5/mo to eliminate cold starts
+
+steps:
+  - id: syntax-check
+    name: python:3.12-slim
+    dir: ${_APP_DIR}
+    entrypoint: bash
+    args:
+      - -c
+      - find . -name "*.py" -not -path "./.venv/*" -print -exec python -m py_compile {} +
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    dir: ${_APP_DIR}
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
+      - --region=${_REGION}
+      - --platform=managed
+      - --allow-unauthenticated
+      - --max-instances=${_MAX_INSTANCES}
+      - --min-instances=${_MIN_INSTANCES}
+      # --update-env-vars (NOT --set-env-vars): --set-env-vars replaces the entire
+      # env, wiping DASH_PASS / FUNNEL_* / INTERNAL_TOKEN wired from Secret Manager.
+      - --update-env-vars=GCP_PROJECT=$PROJECT_ID
+      # NO --update-secrets here, on purpose. `gcloud run deploy --update-secrets=K=s:latest`
+      # FAILS outright when the secret does not exist yet, and a failed deploy silently
+      # leaves the previous revision serving traffic — so referencing the GOOGLE_ADS_*
+      # secrets from this file would break every deploy of this app between merging the
+      # ROAS-simulations collector and creating them. Secrets are wired once, out of band,
+      # by pipeline/setup-roas-sims.sh (`gcloud run services update --update-secrets`),
+      # which is already how DASH_PASS / FUNNEL_* / INTERNAL_TOKEN got here.
+
+  # Promote: route all traffic to the just-deployed revision. Runs ONLY if the
+  # build and deploy steps succeeded, so a broken build can never take traffic.
+  # Rollback remains one click: Cloud Run -> Revisions -> Manage traffic.
+  - id: promote
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - services
+      - update-traffic
+      - ${_SERVICE}
+      - --region=${_REGION}
+      - --to-latest
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA
+
+options:
+  logging: CLOUD_LOGGING_ONLY

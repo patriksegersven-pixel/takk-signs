@@ -1,0 +1,1209 @@
+#!/usr/bin/env python3
+"""
+Norce Commerce (OData v4 Query API) → BigQuery extraction for Customer Insights.
+
+Lands the raw order history in `project-a7ade44e-e7e3-4871-a83.norce` (EU, so it
+can be joined against the Funnel export, which is EU too) and then applies the
+mart SQL in `norce_marts.sql`. `refresh_customer_insights.py`,
+`refresh_segments.py` and `refresh_product_seasons.py` read the marts; nothing
+else in the app touches this dataset.
+
+Mirrors refresh_roas_sims.py: module-level config, a collect step, an explicit
+MissingCredentials error naming the env vars that are still unset, and a
+`__main__` block that runs locally. Auth/BigQuery client wiring follows
+bq_source.py (ADC in production, `gcloud auth print-access-token` locally).
+
+WHY THIS EXISTS
+  The Funnel export knows spend and channel but has no customer identity — its
+  new/old customer columns are a pre-aggregated file import. Norce has the order
+  history, so cohorts, repeat rate and 1-year CLV can only be built here.
+
+IDENTITY AND PII (read this before changing anything)
+  Norce has NO stable customer id on orders: BuyerCustomerId is null on 100% of
+  them. The only identity is `Buyer.EmailAddress` (100% populated), so the
+  customer key is
+
+      customer_hash = SHA256(LOWER(TRIM(email)))   hex, computed AT EXTRACT TIME
+
+  The raw email NEVER reaches BigQuery, a log line or a local file — it exists
+  only inside _order_row() for the length of one hash call. The request itself
+  asks for the minimum: `$expand=Buyer($select=EmailAddress,CountryId,ZipCode)`,
+  so no name, phone or street address is even transferred (validated live —
+  nested $select inside $expand works on this tenant).
+
+  `IsForgotten` is Norce's GDPR erasure flag. Every run re-reads the forgotten
+  orders and DELETEs their rows from `orders`/`order_items`, so an erasure
+  propagates on the next sync rather than lingering in the warehouse.
+
+DATA-MODEL FACTS (audited against the live prod tenant, 2026-08-16)
+  • History starts 2025-06-11 (platform cutover). ~416k orders / ~1.43M lines.
+  • Orders are served PER APPLICATION (market × shop). See APPLICATIONS.
+  • There is NO order-total field. Order value = SUM(Items.LineAmount) ex-VAT,
+    EXCLUDING the shipping line PartNo='1000014'. The header VatRate=0 is an
+    artifact; real VAT sits per line.
+  • OrderItems and ProductCategories are reachable ONLY via $expand from their
+    parent set — the standalone sets 404.
+  • Reporting/OrderSummaryByMonth and Core/KpiOrders both HTTP 500. Everything
+    is built from raw Orders.
+  • Statuses: 4 = completed (the bulk), 2 = in flight, 5 = likely cancel/return.
+    NO status filtering anywhere — user decision: returns/cancellations are
+    ignored and all values are gross.
+  • Application/* and Core/* lookups have no ApplicationId property; they are
+    tenant-wide and must NOT be filtered per application.
+  • COST: OrderItem.CostUnit exists in the schema but is ~never populated —
+    15 orders in the whole history carry one (audited live 2026-08-18), all
+    dropship lines. The real cost source is ProductSkuPriceLists.CostUnit,
+    populated on each application's PRIMARY price list. sync_sku_costs()
+    lands it in `sku_costs`; the line-level field is still extracted so a
+    populated value wins in the marts. Costs are CURRENT (no history kept by
+    Norce) — margin is restated at today's cost exactly like revenue is
+    restated at today's FX rate — and cover the CURRENT catalogue: 85% of the
+    current month's revenue joins to a cost, ~53% of all-history revenue,
+    decaying with order age as old SKUs leave the costed price lists
+    (measured against the marts 2026-08-18).
+  • "Product collection" — the SEASON the products tab shows (SS25, AW24,
+    Pre-SS25, Exited, CORE …) — is a PRODUCT FLAG in flag group 4, named
+    'Product Collection' (Code 'productCollection'). Not a field, not a
+    parametric. 113 flags in the group; every sampled product carries at least
+    one, ~94% carry exactly one. See COLLECTION_FLAG_GROUP_ID.
+
+CREDENTIALS (env vars, wired from Secret Manager — see pipeline/CUSTOMER-INSIGHTS.md)
+  NORCE_CLIENT_ID       Norce Admin → Settings → Users → OAUTH
+  NORCE_CLIENT_SECRET
+
+  Neither secret exists yet. Without them this job prints exactly which env vars
+  are missing and exits 0 WITHOUT creating the dataset — a scheduled run must not
+  page anyone, and refresh_customer_insights.py already serves `"norce": null`
+  when the dataset is absent.
+
+Run locally:
+    python3 norce_sync.py                    # incremental (since the watermark)
+    python3 norce_sync.py --backfill         # full history from 2025-06-11
+    python3 norce_sync.py --backfill --from 2026-01-01
+    python3 norce_sync.py --marts-only       # re-apply norce_marts.sql
+    python3 norce_sync.py --costs-only       # reload sku_costs + marts (margin refresh)
+    python3 norce_sync.py --apps babyshop-se,babyshop-no
+
+    # After ANY change to the product extract shape (a new $expand, a new
+    # column), the incremental pass is not enough — it only re-reads products
+    # Norce happened to touch. Re-read the whole catalogue once:
+    python3 norce_sync.py --products-only
+
+    # The Season snapshot the products tab reads. main() already runs this at
+    # the end of every sync; this is the standalone path for re-pushing it.
+    python3 refresh_product_seasons.py
+"""
+from __future__ import annotations
+import argparse, datetime, hashlib, os, sys, time
+from typing import Any, Iterator
+
+import httpx
+from google.cloud import bigquery
+
+# ── Norce API ────────────────────────────────────────────────────────────────
+# Prod has no environment segment in the host, and `scope` is the environment
+# name (not a per-API permission) — API access comes from the resources enabled
+# on the integration user. Both documented at docs.norce.io.
+NORCE_BASE_URL  = os.environ.get("NORCE_BASE_URL", "https://babyshop.api-se.norce.tech")
+NORCE_TOKEN_URL = os.environ.get("NORCE_TOKEN_URL", f"{NORCE_BASE_URL}/identity/1.0/connect/token")
+NORCE_QUERY_URL = os.environ.get("NORCE_QUERY_URL", f"{NORCE_BASE_URL}/commerce/query/2.0")
+NORCE_SCOPE     = os.environ.get("NORCE_SCOPE", "prod")
+
+NORCE_CLIENT_ID     = os.environ.get("NORCE_CLIENT_ID")
+NORCE_CLIENT_SECRET = os.environ.get("NORCE_CLIENT_SECRET")
+
+# Server-side page cap is 500; asking for more is silently clamped.
+PAGE_SIZE   = int(os.environ.get("NORCE_PAGE_SIZE", "500"))
+HTTP_TIMEOUT = float(os.environ.get("NORCE_HTTP_TIMEOUT", "120"))
+# Token endpoint allows 3 req/min per IP (burst 20) — one token per run is plenty
+# at a 1 h lifetime, but refresh 60 s early so a long backfill never 401s mid-page.
+TOKEN_SKEW_S = 60
+
+# Applications = market × shop. Orders are served per application; the id is both
+# the `applicationId` header and an explicit $filter (belt and braces: the header
+# alone does not restrict Orders).
+APPLICATIONS: dict[str, int] = {
+    "babyshop-se": 1244, "babyshop-no": 1264, "babyshop-fi": 1265, "babyshop-dk": 1266,
+    "babyshop-eu": 1267, "babyshop-na": 1268, "babyshop-uk": 1269, "babyshop-row": 1270,
+    "babyshop-asia": 1271,
+    "lekmer-se": 1272, "lekmer-no": 1273, "lekmer-fi": 1274, "lekmer-dk": 1275,
+}
+
+# Tenant-wide queries (Products/*, Application/*, Core/*) still need an
+# applicationId CONTEXT header on this tenant: without one, Products/Products
+# 500s on every request (three backfills died on this before the pattern was
+# clear — orders always send the header and never failed). The header sets
+# context only; it does not filter these client-wide sets.
+CONTEXT_APP_ID = int(os.environ.get("NORCE_CONTEXT_APP_ID", "1244"))  # babyshop-se
+
+# Platform cutover — nothing exists before this date, so a backfill starts here.
+HISTORY_START = os.environ.get("NORCE_HISTORY_START", "2025-06-11")
+# Shipping is booked as a normal order line; it is NOT merchandise revenue.
+# The exclusion itself lives in norce_marts.sql (the literal is hard-coded
+# there too) — this constant exists so a grep for the PartNo finds both halves.
+SHIPPING_PART_NO = "1000014"
+
+# PRODUCT COLLECTION = what the business calls the "season" (SS25, AW24,
+# Pre-SS25, Exited, CORE, NOS …). Norce models it as a PRODUCT FLAG, not as a
+# field, a parametric or an entity of its own. Confirmed against the live prod
+# tenant 2026-08-18:
+#     Application/ProductFlags?$filter=GroupId eq 4&$expand=Group
+#       -> Group.DefaultName 'Product Collection', Code 'productCollection',
+#          IsMultipleChoice false, 113 flags in the group.
+# The values match the ones the client quoted exactly (AW22, AW23, Exited,
+# Pre-SS25, SS21, SS22). Products carry a flag per group-4 membership via
+# Products/Products?$expand=Flags — there is no standalone flag-link set.
+#
+# ONLY group 4 is landed per product. The other groups are campaign/pricelist
+# flags: a product carries ~14 flags in total but ~1 collection, so filtering at
+# extract time turns a ~1.9M-row table into a ~140k-row one for no loss.
+COLLECTION_FLAG_GROUP_ID = int(os.environ.get("NORCE_COLLECTION_FLAG_GROUP", "4"))
+
+# ── BigQuery ─────────────────────────────────────────────────────────────────
+BQ_PROJECT  = os.environ.get("NORCE_BQ_PROJECT", "project-a7ade44e-e7e3-4871-a83")
+BQ_DATASET  = os.environ.get("NORCE_BQ_DATASET", "norce")
+# EU (multi-region), matching babyshop-funnel-data.bs_funnel_export so the marts
+# can be joined to the Funnel export without a cross-region copy.
+BQ_LOCATION = os.environ.get("NORCE_BQ_LOCATION", "EU")
+
+# Lives at the app root, NOT under pipeline/ — .dockerignore excludes `pipeline/`,
+# so anything in there is missing from the container image at runtime.
+MARTS_SQL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "norce_marts.sql")
+
+# Re-read a safety lap of already-seen updates on every incremental run. Norce
+# writes `Updated` from its own clock and orders land out of order under load, so
+# a watermark taken at exactly max(Updated) would skip the stragglers.
+WATERMARK_LAP = datetime.timedelta(hours=int(os.environ.get("NORCE_WATERMARK_LAP_H", "6")))
+
+
+class MissingCredentials(RuntimeError):
+    """No Norce OAuth credentials in the environment — the sync cannot run."""
+
+
+def missing_credentials() -> list[str]:
+    return [n for n, v in (("NORCE_CLIENT_ID", NORCE_CLIENT_ID),
+                           ("NORCE_CLIENT_SECRET", NORCE_CLIENT_SECRET)) if not v]
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Norce client
+# ════════════════════════════════════════════════════════════════════════════
+_token: tuple[str, float] | None = None
+
+
+def _access_token() -> str:
+    """Client-credentials token, cached for its lifetime (docs: 3600 s)."""
+    global _token
+    if _token and _token[1] > time.time():
+        return _token[0]
+    missing = missing_credentials()
+    if missing:
+        raise MissingCredentials(
+            "Norce OAuth not configured. Missing env var(s): " + ", ".join(missing)
+            + ". Create them in Secret Manager and wire them onto the job — see "
+              "pipeline/CUSTOMER-INSIGHTS.md.")
+    with httpx.Client(timeout=30.0) as c:
+        r = c.post(NORCE_TOKEN_URL,
+                   data={"grant_type": "client_credentials",
+                         "client_id": NORCE_CLIENT_ID,
+                         "client_secret": NORCE_CLIENT_SECRET,
+                         "scope": NORCE_SCOPE},
+                   headers={"Content-Type": "application/x-www-form-urlencoded",
+                            "Accept": "application/json"})
+    if r.status_code != 200:
+        raise RuntimeError(f"Norce token exchange failed: {r.status_code} {r.text[:200]}")
+    body = r.json()
+    _token = (body["access_token"], time.time() + max(int(body.get("expires_in", 3600)) - TOKEN_SKEW_S, 60))
+    return _token[0]
+
+
+def _get(url: str, params: dict[str, Any] | None, app_id: int | None) -> dict:
+    """One GET with auth + the applicationId header, retrying 429/5xx."""
+    headers = {"Authorization": f"Bearer {_access_token()}", "Accept": "application/json"}
+    if app_id is not None:
+        # Documented as `applicationId` (or `application-id`); it sets the
+        # application CONTEXT. It does not filter Orders — the $filter does.
+        headers["applicationId"] = str(app_id)
+    delay = 2.0
+    for attempt in range(6):
+        with httpx.Client(timeout=HTTP_TIMEOUT) as c:
+            r = c.get(url, params=params, headers=headers)
+        if r.status_code == 200:
+            return r.json()
+        if r.status_code in (429, 500, 502, 503, 504) and attempt < 5:
+            # 429 is the documented rate-limit code; the 5xx set covers the
+            # transient gateway errors seen during the audit.
+            time.sleep(delay)
+            delay *= 2
+            headers["Authorization"] = f"Bearer {_access_token()}"
+            continue
+        raise RuntimeError(f"Norce {r.status_code} on {url}: {r.text[:300]}")
+    raise RuntimeError(f"Norce request gave up after retries: {url}")
+
+
+def query(entity_path: str, app_id: int | None = None,
+          page_size: int = PAGE_SIZE, **opts: Any) -> Iterator[dict]:
+    """Page through an OData entity set, yielding rows.
+
+    `entity_path` is Namespace/EntitySet, e.g. "Orders/Orders". `opts` are OData
+    options without the `$` (select/expand/filter/orderby). Paging follows
+    @odata.nextLink when the server sends one and falls back to $skip — the
+    tenant honours both, but only nextLink is guaranteed stable across versions.
+    `page_size` exists because $top=500 with a double $expand makes the tenant
+    500 on Products/Products; heavy-expand callers pass something smaller.
+    """
+    params = {f"${k}": v for k, v in opts.items() if v is not None}
+    params["$top"] = page_size
+    url, seen = f"{NORCE_QUERY_URL}/{entity_path}", 0
+    while True:
+        body = _get(url, params, app_id)
+        rows = body.get("value") or []
+        for row in rows:
+            yield row
+        seen += len(rows)
+        nxt = body.get("@odata.nextLink")
+        if nxt:
+            url, params = nxt, None       # nextLink already carries every option
+            continue
+        if len(rows) < page_size:
+            return
+        # No nextLink but a full page — fall back to $skip. It must be the
+        # CUMULATIVE count, not this page's size: a run that started on
+        # nextLink and lost it mid-stream would otherwise rewind to page two.
+        url = f"{NORCE_QUERY_URL}/{entity_path}"
+        params = {f"${k}": v for k, v in opts.items() if v is not None}
+        params["$top"], params["$skip"] = page_size, seen
+
+
+def _odata_ts(d: datetime.datetime | datetime.date) -> str:
+    """OData v4 datetime literal — unquoted, always UTC."""
+    if isinstance(d, datetime.datetime):
+        return d.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return f"{d.isoformat()}T00:00:00Z"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Row shaping — the only place raw PII is ever touched
+# ════════════════════════════════════════════════════════════════════════════
+def customer_hash(email: str | None) -> str | None:
+    """SHA256 of the lower/trimmed email, hex. Returns None for a blank email.
+
+    Lower+trim before hashing so the same person always lands on one hash; the
+    same normalisation is baked into the marts' documentation so nobody
+    re-derives it differently later.
+    """
+    if not email:
+        return None
+    e = email.strip().lower()
+    return hashlib.sha256(e.encode("utf-8")).hexdigest() if e else None
+
+
+# Only these order fields are transferred. Note what is NOT here: every
+# Delivery* name/address field except the zip, and the whole Payer/ShipTo tree.
+ORDER_SELECT = ("Id,ApplicationId,OrderNo,OrderDate,Created,Updated,StatusId,CurrencyId,"
+                "FreightCost,OrderFee,CashDiscount,LineDiscount,PaymentMethodId,"
+                "DeliveryCountryId,DeliveryZipCode,IsForgotten")
+ORDER_EXPAND = ("Items($select=Id,OrderId,PartNo,ProductName,QtyOrdered,PriceSale,"
+                "DiscountAmount,LineAmount,VatRate,StatusId,CostUnit),"
+                "Buyer($select=EmailAddress,CountryId,ZipCode)")
+
+
+def _f(v: Any) -> float:
+    return float(v) if v is not None else 0.0
+
+
+def _order_row(o: dict, app_key: str) -> dict:
+    """Norce order → the `orders` BigQuery row. Hashes the email and drops the rest."""
+    buyer = o.get("Buyer") or {}
+    return {
+        "Id": o["Id"], "ApplicationId": o.get("ApplicationId"), "app_key": app_key,
+        "OrderNo": o.get("OrderNo"), "OrderDate": o.get("OrderDate"),
+        "Created": o.get("Created"), "Updated": o.get("Updated") or o.get("Created"),
+        "StatusId": o.get("StatusId"), "CurrencyId": o.get("CurrencyId"),
+        "FreightCost": _f(o.get("FreightCost")), "OrderFee": _f(o.get("OrderFee")),
+        "CashDiscount": _f(o.get("CashDiscount")), "LineDiscount": _f(o.get("LineDiscount")),
+        "PaymentMethodId": o.get("PaymentMethodId"),
+        "DeliveryCountryId": o.get("DeliveryCountryId"),
+        "DeliveryZipCode": o.get("DeliveryZipCode"),
+        "IsForgotten": bool(o.get("IsForgotten")),
+        # ── the only derived-from-PII field that is persisted ──
+        "customer_hash": customer_hash(buyer.get("EmailAddress")),
+        "buyer_country_id": buyer.get("CountryId"), "buyer_zip": buyer.get("ZipCode"),
+    }
+
+
+def _item_rows(o: dict) -> list[dict]:
+    return [{"Id": it["Id"], "OrderId": o["Id"], "PartNo": it.get("PartNo"),
+             "ProductName": it.get("ProductName"), "QtyOrdered": _f(it.get("QtyOrdered")),
+             "PriceSale": _f(it.get("PriceSale")), "DiscountAmount": _f(it.get("DiscountAmount")),
+             "LineAmount": _f(it.get("LineAmount")), "VatRate": _f(it.get("VatRate")),
+             "StatusId": it.get("StatusId"),
+             # NOT _f(): 0 means "free goods" to a margin query, absent means
+             # "unknown". Norce writes 0 for the ~100% of lines it never costs
+             # (module docstring), and the marts treat 0 and NULL alike via
+             # NULLIF — but keep the distinction at the landing table anyway.
+             "CostUnit": float(it["CostUnit"]) if it.get("CostUnit") is not None else None}
+            for it in (o.get("Items") or [])]
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  BigQuery
+# ════════════════════════════════════════════════════════════════════════════
+def _credentials():
+    """ADC in production (Cloud Run SA); gcloud user token as a local fallback.
+
+    The fallback refreshes by shelling back out to gcloud — a bare token lasts
+    about an hour and carries no refresh material, so a long local run dies with
+    a RefreshError partway through. This module is the most exposed of any: the
+    orders phase of a backfill runs ~30 minutes on its own (see module docstring),
+    so a full backfill routinely outlives its first token. See
+    voyado_sync._credentials for the full write-up; this copy exists because every
+    module in this app wires its own client rather than sharing one.
+    """
+    try:
+        import google.auth
+        creds, _ = google.auth.default()
+        return creds
+    except Exception:
+        import subprocess, google.oauth2.credentials
+
+        class _GcloudToken(google.oauth2.credentials.Credentials):
+            def refresh(self, request):  # noqa: ARG002 - signature fixed by google-auth
+                self.token = subprocess.check_output(
+                    ["gcloud", "auth", "print-access-token"]).decode().strip()
+                # google-auth compares expiry against a NAIVE utcnow().
+                self.expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=45)
+
+        tok = subprocess.check_output(["gcloud", "auth", "print-access-token"]).decode().strip()
+        c = _GcloudToken(tok)
+        # Must be set here too: expiry=None reads as "never expires", so
+        # google-auth would never call refresh() at all.
+        c.expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=45)
+        return c
+
+
+_client = None
+def bq() -> bigquery.Client:
+    global _client
+    if _client is None:
+        _client = bigquery.Client(project=BQ_PROJECT, credentials=_credentials(),
+                                  location=BQ_LOCATION)
+    return _client
+
+
+def T(name: str) -> str:
+    return f"{BQ_PROJECT}.{BQ_DATASET}.{name}"
+
+
+S = bigquery.SchemaField
+SCHEMAS: dict[str, list[bigquery.SchemaField]] = {
+    "orders": [
+        S("Id", "INT64", mode="REQUIRED"), S("ApplicationId", "INT64"), S("app_key", "STRING"),
+        S("OrderNo", "STRING"), S("OrderDate", "TIMESTAMP"), S("Created", "TIMESTAMP"),
+        S("Updated", "TIMESTAMP"), S("StatusId", "INT64"), S("CurrencyId", "INT64"),
+        S("FreightCost", "FLOAT64"), S("OrderFee", "FLOAT64"), S("CashDiscount", "FLOAT64"),
+        S("LineDiscount", "FLOAT64"), S("PaymentMethodId", "INT64"),
+        S("DeliveryCountryId", "INT64"), S("DeliveryZipCode", "STRING"),
+        S("IsForgotten", "BOOL"), S("customer_hash", "STRING"),
+        S("buyer_country_id", "INT64"), S("buyer_zip", "STRING"),
+    ],
+    "order_items": [
+        S("Id", "INT64", mode="REQUIRED"), S("OrderId", "INT64", mode="REQUIRED"),
+        S("PartNo", "STRING"), S("ProductName", "STRING"), S("QtyOrdered", "FLOAT64"),
+        S("PriceSale", "FLOAT64"), S("DiscountAmount", "FLOAT64"), S("LineAmount", "FLOAT64"),
+        S("VatRate", "FLOAT64"), S("StatusId", "INT64"),
+        # Per-unit cost in the ORDER's currency. ~Never populated (see module
+        # docstring) — rows synced before 2026-08-18 are NULL and stay NULL, and
+        # that is fine: the marts fall back to `sku_costs` by PartNo, which is
+        # why there is deliberately NO order-items backfill for this column.
+        S("CostUnit", "FLOAT64"),
+    ],
+    "product_skus":       [S("PartNo", "STRING"), S("ProductId", "INT64"), S("EanCode", "STRING")],
+    "products":           [S("Id", "INT64"), S("ManufacturerId", "INT64"),
+                           S("DefaultName", "STRING"), S("IsActive", "BOOL"),
+                           S("VariantId", "INT64")],
+    # Variant = the PARENT product ("Lilo Striped Skirt Blue"). Products.DefaultName
+    # is the variant label ("2-4 Y", "One Size"), so this is what makes the product
+    # dimension readable. 133,970 products carry a VariantId on all but 14 of them.
+    "variants":           [S("Id", "INT64"), S("DefaultName", "STRING")],
+    "product_categories": [S("ProductId", "INT64"), S("CategoryId", "INT64"), S("IsPrimary", "BOOL")],
+    # Product -> "Product Collection" flag (the season). Group-4 flags ONLY —
+    # see COLLECTION_FLAG_GROUP_ID. Written by replace_scoped(), not merge(), so
+    # a product that moves AW24 -> AW25 does not keep both rows.
+    "product_flags":      [S("ProductId", "INT64"), S("FlagId", "INT64"), S("IsActive", "BOOL")],
+    # Every product flag in the tenant, all groups, with its group's name — the
+    # lookup that turns FlagId 29 into 'AW22' in group 'Product Collection'.
+    # Small (a few hundred rows) so it is a full reload like the other dims.
+    "dim_product_flags":  [S("Id", "INT64"), S("GroupId", "INT64"), S("GroupName", "STRING"),
+                           S("DefaultName", "STRING"), S("IsActive", "BOOL"),
+                           S("SortOrder", "INT64")],
+    "dim_manufacturers":  [S("ManufacturerId", "INT64"), S("Name", "STRING"), S("IsActive", "BOOL")],
+    "dim_categories":     [S("Id", "INT64"), S("Code", "STRING"), S("DefaultName", "STRING"),
+                           S("DefaultFullName", "STRING"), S("IsActive", "BOOL")],
+    # Real product titles by SKU, from the Channable feed. Norce's
+    # Product.DefaultName is VARIANT-grain ("2-4 Y", "One Size"), so the product
+    # dimension of first_purchase_products is unreadable without this.
+    "sku_titles":         [S("PartNo", "STRING"), S("title", "STRING"), S("brand", "STRING"),
+                           S("image_link", "STRING")],
+    "dim_payment_methods": [S("Id", "INT64"), S("DefaultName", "STRING")],
+    # ExchangeRate is quoted against EUR (EUR = 1), NOT against SEK — see the
+    # currency_rates view in norce_marts.sql, which does the division.
+    "dim_currencies":      [S("Id", "INT64"), S("Code", "STRING"), S("DefaultName", "STRING"),
+                            S("ExchangeRate", "FLOAT64")],
+    "dim_countries":       [S("Id", "INT64"), S("Code", "STRING"), S("DefaultName", "STRING")],
+    # CURRENT per-unit cost per SKU, from ProductSkuPriceLists.CostUnit on the
+    # PRIMARY price list of each application (dim_price_lists maps which one
+    # that is). Costed rows only (CostUnit > 0) — Norce writes 0 for "no cost",
+    # and a 0 landed here would read as a 100%-margin item downstream. The cost
+    # is in the PRICE LIST's currency (CurrencyId), which by construction is the
+    # currency its application orders in; the marts still convert by THIS row's
+    # currency so a mismatch can never mix currencies. Full reload every run
+    # (replace, not merge) so a retracted cost disappears instead of going stale.
+    "sku_costs":           [S("PartNo", "STRING"), S("PriceListId", "INT64"),
+                            S("CurrencyId", "INT64"), S("CostUnit", "FLOAT64"),
+                            S("CostUnitLastUpdated", "TIMESTAMP")],
+    # ApplicationId -> its PRIMARY price list (IsPrimary in Norce). 13 rows.
+    "dim_price_lists":     [S("ApplicationId", "INT64"), S("PriceListId", "INT64")],
+    # One row per sync step; the incremental watermark is MAX(watermark) here.
+    "sync_state":          [S("step", "STRING"), S("watermark", "TIMESTAMP"),
+                            S("run_at", "TIMESTAMP"), S("rows", "INT64")],
+}
+
+# Partition/cluster only where the volume justifies it (~416k orders / 1.43M lines).
+_PARTITION = {"orders": "OrderDate"}
+_CLUSTER   = {"orders": ["app_key", "customer_hash"], "order_items": ["OrderId", "PartNo"]}
+
+
+def ensure_dataset() -> None:
+    """Create the dataset + every table if absent. Idempotent; safe to re-run.
+
+    Deliberately called only AFTER the credential check, so a run with no secrets
+    leaves the project untouched rather than parking an empty dataset.
+    """
+    ds = bigquery.Dataset(f"{BQ_PROJECT}.{BQ_DATASET}")
+    ds.location = BQ_LOCATION
+    ds.description = "Norce Commerce order history for Customer Insights (hashed identity only)."
+    bq().create_dataset(ds, exists_ok=True)
+    for name, schema in SCHEMAS.items():
+        t = bigquery.Table(T(name), schema=schema)
+        if name in _PARTITION:
+            t.time_partitioning = bigquery.TimePartitioning(field=_PARTITION[name])
+        if name in _CLUSTER:
+            t.clustering_fields = _CLUSTER[name]
+        created = bq().create_table(t, exists_ok=True)
+        # create_table(exists_ok=True) is a no-op on an EXISTING table — it does
+        # NOT add columns. So when SCHEMAS grows a field (VariantId on products),
+        # every downstream MERGE and mart would fail on the old table until
+        # somebody noticed. Append the missing NULLABLE columns instead, which
+        # BigQuery allows in place and which is idempotent.
+        have = {f.name for f in created.schema}
+        missing = [f for f in schema if f.name not in have]
+        if missing:
+            created.schema = list(created.schema) + [
+                bigquery.SchemaField(f.name, f.field_type, mode="NULLABLE",
+                                     description=f.description)
+                for f in missing]
+            bq().update_table(created, ["schema"])
+            print(f"   + {name}: added column(s) {', '.join(f.name for f in missing)}")
+
+
+def _load(rows: list[dict], table: str, schema: list[bigquery.SchemaField]) -> str:
+    """Load rows into a fresh staging table and return its full name."""
+    stg = T(f"_stg_{table}_{int(time.time()*1000)}")
+    cfg = bigquery.LoadJobConfig(schema=schema, write_disposition="WRITE_TRUNCATE")
+    bq().load_table_from_json(rows, stg, job_config=cfg).result()
+    # Staging is scratch — expire it so a crashed run cannot leave litter behind.
+    t = bq().get_table(stg)
+    t.expires = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=6)
+    bq().update_table(t, ["expires"])
+    return stg
+
+
+def merge(rows: list[dict], table: str, keys: list[str]) -> int:
+    """Upsert `rows` into `table` on `keys`. Empty input is a no-op.
+
+    Rows are de-duplicated on the key first, last one winning. BigQuery's MERGE
+    aborts the whole statement if one target row matches two source rows, so a
+    single repeated PartNo in an expanded product batch would otherwise fail the
+    entire sync rather than one record.
+    """
+    if not rows:
+        return 0
+    seen: dict[tuple, dict] = {}
+    for r in rows:
+        seen[tuple(r.get(k) for k in keys)] = r
+    rows = list(seen.values())
+    schema = SCHEMAS[table]
+    stg = _load(rows, table, schema)
+    cols = [f.name for f in schema]
+    on = " AND ".join(f"t.{k} = s.{k}" for k in keys)
+    upd = ", ".join(f"{c} = s.{c}" for c in cols if c not in keys)
+    sql = (f"MERGE `{T(table)}` t USING `{stg}` s ON {on} "
+           f"WHEN MATCHED THEN UPDATE SET {upd} "
+           f"WHEN NOT MATCHED THEN INSERT ({', '.join(cols)}) "
+           f"VALUES ({', '.join('s.' + c for c in cols)})")
+    bq().query(sql).result()
+    bq().delete_table(stg, not_found_ok=True)
+    return len(rows)
+
+
+def replace_scoped(rows: list[dict], table: str, keys: list[str],
+                   scope_col: str, scope_ids: list[int]) -> int:
+    """Upsert `rows` AND delete rows of `table` whose `scope_col` was re-read but
+    is no longer present in the source.
+
+    merge() is upsert-only, which is right for facts that only ever accumulate
+    (orders, SKUs) but wrong for a MEMBERSHIP link. A product that moves from
+    AW24 to AW25 would keep both flag rows forever under merge(), and every
+    consumer would then see two collections where Norce has one.
+
+    Scope, not "everything": on an incremental pass only the products this run
+    actually read may have rows deleted, so untouched history is never disturbed.
+    A product that legitimately ends up with ZERO group-4 flags still gets its
+    stale rows removed, which is why the scope list is passed explicitly rather
+    than derived from `rows`.
+
+    DELETE + INSERT inside an explicit transaction, NOT a MERGE. The obvious
+    single-statement form —
+
+        MERGE … WHEN NOT MATCHED BY SOURCE
+                AND t.ProductId IN (SELECT id FROM scope) THEN DELETE
+
+    is rejected by BigQuery: "Correlated Subquery is unsupported in WHEN
+    clause" (hit for real on the first full run, 2026-08-18). The scope has to
+    be a subquery — it is 134k ids, far past what a query parameter should
+    carry — so the two-statement script in a transaction is the shape that
+    works, and it keeps the same all-or-nothing guarantee: no reader ever sees
+    the table mid-rewrite.
+    """
+    if not scope_ids:
+        return 0
+    seen: dict[tuple, dict] = {}
+    for r in rows:
+        seen[tuple(r.get(k) for k in keys)] = r
+    rows = list(seen.values())
+    schema = SCHEMAS[table]
+    cols = [f.name for f in schema]
+
+    stg_scope = T(f"_stg_scope_{table}_{int(time.time()*1000)}")
+    scope_schema = [bigquery.SchemaField("id", "INT64")]
+    bq().load_table_from_json(
+        [{"id": i} for i in sorted(set(scope_ids))], stg_scope,
+        job_config=bigquery.LoadJobConfig(schema=scope_schema,
+                                          write_disposition="WRITE_TRUNCATE")).result()
+    st = bq().get_table(stg_scope)
+    st.expires = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=6)
+    bq().update_table(st, ["expires"])
+
+    stg = None
+    try:
+        delete_sql = (f"DELETE FROM `{T(table)}` "
+                      f"WHERE {scope_col} IN (SELECT id FROM `{stg_scope}`);")
+        if not rows:
+            # Every scanned entity lost its links — pure deletion, and a
+            # zero-row JSON load is not worth relying on for the insert half.
+            bq().query(delete_sql).result()
+            return 0
+        stg = _load(rows, table, schema)
+        collist = ", ".join(cols)
+        # The INSERT is scoped to the same ids as the DELETE, so a source row for
+        # an entity outside the scope can never slip in as a duplicate.
+        bq().query(
+            "BEGIN TRANSACTION;\n"
+            f"{delete_sql}\n"
+            f"INSERT INTO `{T(table)}` ({collist}) "
+            f"SELECT {collist} FROM `{stg}` "
+            f"WHERE {scope_col} IN (SELECT id FROM `{stg_scope}`);\n"
+            "COMMIT TRANSACTION;").result()
+        return len(rows)
+    finally:
+        if stg:
+            bq().delete_table(stg, not_found_ok=True)
+        bq().delete_table(stg_scope, not_found_ok=True)
+
+
+def replace(rows: list[dict], table: str) -> int:
+    """Full reload — used for the small lookup dimensions."""
+    if not rows:
+        return 0
+    cfg = bigquery.LoadJobConfig(schema=SCHEMAS[table], write_disposition="WRITE_TRUNCATE")
+    bq().load_table_from_json(rows, T(table), job_config=cfg).result()
+    return len(rows)
+
+
+def watermark(step: str) -> datetime.datetime | None:
+    """Last successful high-water mark for a step, less the safety lap."""
+    try:
+        rows = list(bq().query(
+            f"SELECT MAX(watermark) w FROM `{T('sync_state')}` WHERE step = @s",
+            job_config=bigquery.QueryJobConfig(query_parameters=[
+                bigquery.ScalarQueryParameter("s", "STRING", step)])).result())
+    except Exception:
+        return None
+    w = rows[0]["w"] if rows else None
+    return (w - WATERMARK_LAP) if w else None
+
+
+def set_watermark(step: str, w: datetime.datetime, n: int) -> None:
+    bq().query(
+        f"INSERT INTO `{T('sync_state')}` (step, watermark, run_at, `rows`) "
+        f"VALUES (@s, @w, CURRENT_TIMESTAMP(), @n)",
+        job_config=bigquery.QueryJobConfig(query_parameters=[
+            bigquery.ScalarQueryParameter("s", "STRING", step),
+            bigquery.ScalarQueryParameter("w", "TIMESTAMP", w),
+            bigquery.ScalarQueryParameter("n", "INT64", n)])).result()
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  Sync steps
+# ════════════════════════════════════════════════════════════════════════════
+def sync_orders(app_keys: list[str], since: datetime.datetime | None,
+                start: datetime.date | None) -> tuple[int, int]:
+    """Pull orders (+ their items) for each application and upsert them.
+
+    Two modes, one code path:
+      • backfill    `start` set  → filter on OrderDate ge start
+      • incremental `since` set  → filter on Updated (Updated is nullable, so
+                                   fall back to Created for never-updated rows)
+    """
+    n_orders = n_items = 0
+    for key in app_keys:
+        app_id = APPLICATIONS[key]
+        if since is not None:
+            ts = _odata_ts(since)
+            clause = f"(Updated ge {ts} or (Updated eq null and Created ge {ts}))"
+        else:
+            clause = f"OrderDate ge {_odata_ts(start or datetime.date.fromisoformat(HISTORY_START))}"
+        flt = f"ApplicationId eq {app_id} and {clause}"
+
+        orders, items, t0, a_ord, a_lin = [], [], time.time(), 0, 0
+        for o in query("Orders/Orders", app_id, select=ORDER_SELECT, expand=ORDER_EXPAND,
+                       filter=flt, orderby="Id"):
+            orders.append(_order_row(o, key))
+            items.extend(_item_rows(o))
+            # Flush in slabs so a long backfill checkpoints instead of holding
+            # ~400k orders in memory and losing everything on one bad page.
+            if len(orders) >= 5000:
+                a_ord += merge(orders, "orders", ["Id"])
+                a_lin += merge(items, "order_items", ["Id"])
+                orders, items = [], []
+        a_ord += merge(orders, "orders", ["Id"])
+        a_lin += merge(items, "order_items", ["Id"])
+        n_orders, n_items = n_orders + a_ord, n_items + a_lin
+        print(f"   {key:<14} orders→{a_ord:>7,}  lines→{a_lin:>8,}  {time.time()-t0:.1f}s")
+    return n_orders, n_items
+
+
+def purge_forgotten() -> int:
+    """Honour Norce's GDPR erasure flag.
+
+    Runs on EVERY sync, not just when a forgotten order happens to be in the
+    delta: an order can be flagged long after its last update, and the flag is
+    the only signal we get. The whole order goes — header and lines — because a
+    header with customer_hash blanked would still leave the basket linkable.
+    """
+    forgotten = [o["Id"] for key in APPLICATIONS
+                 for o in query("Orders/Orders", APPLICATIONS[key], select="Id",
+                                filter=f"ApplicationId eq {APPLICATIONS[key]} and IsForgotten eq true")]
+    if not forgotten:
+        return 0
+    p = [bigquery.ArrayQueryParameter("ids", "INT64", forgotten)]
+    for sql in (f"DELETE FROM `{T('order_items')}` WHERE OrderId IN UNNEST(@ids)",
+                f"DELETE FROM `{T('orders')}` WHERE Id IN UNNEST(@ids)"):
+        bq().query(sql, job_config=bigquery.QueryJobConfig(query_parameters=p)).result()
+    return len(forgotten)
+
+
+def keyset(entity_path: str, select: str, expand: str | None = None,
+           filter_clause: str | None = None, page: int = 100,
+           label: str = "rows") -> Iterator[dict]:
+    """Yield every row of a Products/* set by KEYSET paging (Id gt last).
+
+    NOT $skip/nextLink: the tenant 500s non-deterministically at deep offsets on
+    these entities, which killed two backfills mid-stream. Keyset holds at any
+    depth, and a page that still 500s after retries is shrunk (100 -> 25 -> 5
+    -> 1); a single row that 500s is skipped with a warning rather than sinking
+    the whole run.
+
+    Shared by sync_products and sync_variants so there is exactly ONE copy of
+    this endpoint's hard-won failure handling.
+    """
+    last, skips, seen, full = 0, 0, 0, page
+    while True:
+        f = f"Id gt {last}" + (f" and {filter_clause}" if filter_clause else "")
+        params = {"$select": select, "$filter": f, "$orderby": "Id", "$top": page}
+        if expand:
+            params["$expand"] = expand
+        try:
+            rows = _get(f"{NORCE_QUERY_URL}/{entity_path}", params,
+                        CONTEXT_APP_ID).get("value") or []
+        except RuntimeError as e:
+            if page > 1:
+                page = max(1, page // 4)
+                continue
+            # A single poison row — skip past it. Ids are dense enough that +1
+            # converges; the row is logged so it can be chased upstream.
+            skips += 1
+            if skips > 25:
+                # 25 consecutive single-row failures is not poison data, it is
+                # the endpoint being down (observed 2026-08-16: every query
+                # 500ed for a stretch, then recovered). Fail loudly; the
+                # nightly run picks up where the watermark left off.
+                raise RuntimeError(
+                    f"{entity_path} failing on every row — endpoint outage, "
+                    f"aborting rather than crawling the Id space. Last error: {e}")
+            print(f"   !! skipping {label} Id>{last} after persistent error: {e}", flush=True)
+            last += 1
+            continue
+        skips = 0
+        time.sleep(0.05)              # be polite — three backfills in one day
+                                      # visibly degraded this endpoint
+        for r in rows:
+            yield r
+        if rows:
+            prev, seen = seen, seen + len(rows)
+            last = rows[-1]["Id"]
+            if seen // 10_000 != prev // 10_000:
+                print(f"   {label}… {seen:,} (Id {last})", flush=True)
+        # Terminate ONLY on an empty page. A short page does NOT mean done:
+        # the server silently clamps $top (variants asked for 500, got exactly
+        # 200 back, and a <page check ended the sync after one page — 200 of
+        # 26,661 rows). Keyset makes the empty-page check safe at one extra
+        # request per entity.
+        if page < full:               # a shrunk page succeeded — resume full pages
+            page = full
+        if not rows:
+            return
+
+
+def sync_variants() -> int:
+    """The PARENT product names — the thing that makes the product dimension readable.
+
+    Norce's Product.DefaultName is variant-grain ("2-4 Y", "One Size"), while
+    Variants.DefaultName is the real product ("Lilo Striped Skirt Blue"). This is
+    a plain entity set — no $expand — so it pages far more cheaply than Products
+    and takes a larger page size. DefaultTitle is null in practice; DefaultName
+    is the field to use.
+    """
+    rows = [{"Id": v["Id"], "DefaultName": v.get("DefaultName")}
+            for v in keyset("Products/Variants", "Id,DefaultName",
+                            page=500, label="variants")]
+    return replace(rows, "variants")
+
+
+def collection_flag_ids() -> set[int]:
+    """FlagIds that belong to the 'Product Collection' group (the season).
+
+    One cheap tenant-wide request. Called once per product pass so the ~14 flags
+    a product carries can be filtered down to the ~1 that is a collection before
+    anything is buffered or written.
+    """
+    return {r["Id"] for r in query("Application/ProductFlags", CONTEXT_APP_ID,
+                                   select="Id,GroupId",
+                                   filter=f"GroupId eq {COLLECTION_FLAG_GROUP_ID}")}
+
+
+def sync_products(since: datetime.datetime | None) -> tuple[int, int, int, int]:
+    """Products + their SKUs, category links and collection flags, in one pass.
+
+    ProductCategories has no standalone set (404s), so the only way to get the
+    links is $expand from Products — same for the SKU list and the flag list.
+    VariantId is what joins each product row to its real parent name in
+    `variants`.
+
+    The third $expand (Flags) was validated live at page=100: the tenant serves
+    it fine. Do NOT raise the page size to compensate — the 500s that keyset()
+    documents get worse with every extra expand, not better.
+    """
+    clause = None
+    if since is not None:
+        ts = _odata_ts(since)
+        clause = f"(Updated ge {ts} or (Updated eq null and Created ge {ts}))"
+    # An EMPTY set here would make replace_scoped() delete every collection row
+    # it was handed a scope for — i.e. one renamed flag group upstream silently
+    # blanks the Season column for the whole catalogue. Treat it as a broken
+    # lookup and leave `product_flags` exactly as it was.
+    wanted = collection_flag_ids()
+    if not wanted:
+        print(f"   !! no flags found in group {COLLECTION_FLAG_GROUP_ID} "
+              "('Product Collection') — leaving product_flags untouched. "
+              "Check Application/ProductFlags upstream.", flush=True)
+    prods, skus, cats, flags = [], [], [], []
+    for p in keyset(
+            "Products/Products", "Id,ManufacturerId,DefaultName,IsActive,VariantId",
+            expand="Skus($select=PartNo,ProductId,EanCode),"
+                   "Categories($select=ProductId,CategoryId,IsPrimary),"
+                   "Flags($select=ProductId,FlagId,IsActive)",
+            filter_clause=clause, page=100, label="products"):
+        prods.append({"Id": p["Id"], "ManufacturerId": p.get("ManufacturerId"),
+                      "DefaultName": p.get("DefaultName"), "IsActive": bool(p.get("IsActive")),
+                      "VariantId": p.get("VariantId")})
+        skus.extend({"PartNo": s.get("PartNo"), "ProductId": p["Id"], "EanCode": s.get("EanCode")}
+                    for s in (p.get("Skus") or []))
+        cats.extend({"ProductId": p["Id"], "CategoryId": c.get("CategoryId"),
+                     "IsPrimary": bool(c.get("IsPrimary"))} for c in (p.get("Categories") or []))
+        flags.extend({"ProductId": p["Id"], "FlagId": f.get("FlagId"),
+                      "IsActive": bool(f.get("IsActive"))}
+                     for f in (p.get("Flags") or []) if f.get("FlagId") in wanted)
+    return (merge(prods, "products", ["Id"]),
+            merge(skus, "product_skus", ["PartNo"]),
+            merge(cats, "product_categories", ["ProductId", "CategoryId"]),
+            # Scoped delete-and-insert, not merge: see replace_scoped().
+            replace_scoped(flags, "product_flags", ["ProductId", "FlagId"],
+                           "ProductId", [p["Id"] for p in prods]) if wanted else 0)
+
+
+def sync_sku_costs() -> tuple[int, int]:
+    """CURRENT unit costs per SKU from ProductSkuPriceLists → `sku_costs`.
+
+    WHY THIS ENTITY: OrderItem.CostUnit is dead on this tenant (15 orders in the
+    whole history carry one — module docstring), so margin has to come from the
+    price-list side. Only each application's PRIMARY list is read: the tenant has
+    ~15.2M pricelist rows but the 13 primary lists hold ~326k costed ones, and a
+    probe against real order lines showed the SE primary list already decides
+    coverage — a SKU costed anywhere is costed there too. Coverage over the
+    order HISTORY is bounded by catalogue churn, not by list choice: 85% of the
+    current month's revenue is costed but only ~53% of all-history revenue,
+    because exited SKUs fall off the costed lists (audited 2026-08-18).
+
+    PAGING: this set has NO Id key, so keyset() cannot be reused — pages walk
+    `PartNo gt last` instead. A PartNo's rows (one per price list, ≤13 here) can
+    straddle a page boundary, so the last PartNo of every multi-PartNo page is
+    dropped and re-read by the next page; a page holding a single PartNo is the
+    final short page and is consumed whole. Termination is the empty page, NEVER
+    a short one — the server clamps $top silently (see keyset()).
+
+    Returns (cost rows, price-list rows). Failure upstream leaves the previous
+    `sku_costs` intact — replace() only runs once the walk has finished.
+    """
+    pls = [{"ApplicationId": r.get("ApplicationId"), "PriceListId": r.get("PriceListId")}
+           for r in query("Application/ApplicationPriceLists", CONTEXT_APP_ID,
+                          select="ApplicationId,PriceListId",
+                          filter="IsPrimary eq true")]
+    ids = sorted({r["PriceListId"] for r in pls})
+    if not ids:
+        # Same defence as the flag group: an empty lookup means something broke
+        # upstream, and acting on it would blank every margin on the dashboard.
+        print("   !! no primary price lists in Application/ApplicationPriceLists "
+              "— leaving sku_costs and dim_price_lists untouched.", flush=True)
+        return 0, 0
+    n_pl = replace(pls, "dim_price_lists")
+
+    flt_base = f"CostUnit gt 0 and PriceListId in ({','.join(map(str, ids))})"
+    rows: dict[tuple, dict] = {}
+    last = ""
+    while True:
+        flt = flt_base
+        if last:
+            flt += f" and PartNo gt '{last.replace(chr(39), chr(39)*2)}'"
+        page = _get(f"{NORCE_QUERY_URL}/Products/ProductSkuPriceLists",
+                    {"$select": "PartNo,PriceListId,CurrencyId,CostUnit,CostUnitLastUpdated",
+                     "$filter": flt, "$orderby": "PartNo", "$top": PAGE_SIZE},
+                    CONTEXT_APP_ID).get("value") or []
+        if not page:
+            break
+        last_pn = page[-1]["PartNo"]
+        kept = page if page[0]["PartNo"] == last_pn else \
+            [r for r in page if r["PartNo"] != last_pn]
+        for r in kept:
+            rows[(r["PartNo"], r["PriceListId"])] = {
+                "PartNo": r["PartNo"], "PriceListId": r["PriceListId"],
+                "CurrencyId": r.get("CurrencyId"), "CostUnit": _f(r.get("CostUnit")),
+                "CostUnitLastUpdated": r.get("CostUnitLastUpdated")}
+        prev_last, last = last, kept[-1]["PartNo"]
+        if last == prev_last:
+            # Can only happen if one PartNo fills an entire page on its own,
+            # which the ≤13-lists-per-PartNo invariant rules out — treat it as
+            # data weirdness rather than looping forever on the same filter.
+            raise RuntimeError(f"sku_costs paging stalled on PartNo {last!r}")
+        if len(rows) // 50_000 != (len(rows) - len(kept)) // 50_000:
+            print(f"   sku costs… {len(rows):,} (PartNo {last})", flush=True)
+        time.sleep(0.05)              # same politeness as keyset()
+    return replace(list(rows.values()), "sku_costs"), n_pl
+
+
+def sync_sku_titles() -> int:
+    """Load real product titles by SKU from the Channable Google Shopping feed.
+
+    WHY: Norce's `Product.DefaultName` is variant-grain, so the product
+    dimension of first_purchase_products reads "2-4 Y" / "One Size" / "86/92 cm"
+    instead of a product. The feed's `g:id` IS `OrderItem.PartNo` (verified in
+    the original audit), so it keys straight onto the order lines.
+
+    Config and the streaming approach are reused from inventory_client — same
+    feed, same env var, same iterparse + elem.clear() pattern that keeps a 96 MB
+    document at ~30 MB of peak memory. Only three fields are pulled here, so the
+    aggregation in that module is deliberately not duplicated.
+
+    COVERAGE IS PARTIAL BY DESIGN. The feed is the CURRENT catalogue and skews
+    Babyshop SE, so discontinued SKUs and much of Lekmer simply are not in it.
+    The mart COALESCEs back to the Norce name, which is why this returning 0 —
+    or the secret being absent entirely — degrades to exactly today's behaviour
+    rather than blanking the dimension.
+
+    Requires CHANNABLE_FEED_URL. It is mounted on the dashboard SERVICE but not
+    (yet) on the sync job; without it this logs and returns 0.
+    """
+    import xml.etree.ElementTree as ET
+    try:
+        import inventory_client
+    except Exception as e:
+        print(f"   !! sku_titles skipped — inventory_client unavailable: {e!r}")
+        return 0
+    feed_url = os.environ.get("CHANNABLE_FEED_URL") or inventory_client.CHANNABLE_FEED_URL
+    if not feed_url:
+        print("   !! sku_titles skipped — CHANNABLE_FEED_URL is not set "
+              "(mounted on the dashboard service, not on this job). "
+              "first_purchase_products falls back to the Norce variant names.")
+        return 0
+
+    tmp_path = f"/tmp/channable-{int(time.time())}.xml"
+    with httpx.stream("GET", feed_url, timeout=300.0, follow_redirects=True) as r:
+        r.raise_for_status()
+        with open(tmp_path, "wb") as fh:
+            for chunk in r.iter_bytes(64 * 1024):
+                fh.write(chunk)
+
+    rows: dict[str, dict] = {}
+    try:
+        for _event, elem in ET.iterparse(tmp_path, events=("end",)):
+            if elem.tag != "item":
+                continue
+
+            def t(tag: str, ns: bool = False) -> str:
+                el = elem.find("g:" + tag, inventory_client.NS) if ns else elem.find(tag)
+                return el.text.strip() if (el is not None and el.text) else ""
+
+            sku = t("id", ns=True)
+            # short_title is the product-level name; `title` carries the variant
+            # suffix. Prefer short_title for exactly that reason.
+            title = t("short_title", ns=True) or t("title")
+            if sku and title:
+                # Keyed by SKU so the load is inherently de-duplicated.
+                # image_link feeds the Bundles tab (product images per pair);
+                # the CDN URL takes ?w=&q= resize params, stored as-is here.
+                rows[sku] = {"PartNo": sku, "title": title,
+                             "brand": t("brand", ns=True) or None,
+                             "image_link": t("image_link", ns=True) or None}
+            elem.clear()
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+    return replace(list(rows.values()), "sku_titles")
+
+
+def sync_dimensions() -> dict[str, int]:
+    """Full reload of the lookup tables — a few thousand rows in total.
+
+    All of these are TENANT-WIDE: Application/* and Core/* have no ApplicationId
+    property, so passing an application filter makes the request 400.
+    """
+    out = {}
+    out["dim_manufacturers"] = replace(
+        [{"ManufacturerId": r.get("ManufacturerId"), "Name": r.get("Name"),
+          "IsActive": bool(r.get("IsActive"))}
+         for r in query("Application/ClientManufacturers", CONTEXT_APP_ID,
+                        select="ManufacturerId,Name,IsActive")], "dim_manufacturers")
+    out["dim_categories"] = replace(
+        [{"Id": r.get("Id"), "Code": r.get("Code"), "DefaultName": r.get("DefaultName"),
+          "DefaultFullName": r.get("DefaultFullName"), "IsActive": bool(r.get("IsActive"))}
+         for r in query("Application/Categories", CONTEXT_APP_ID,
+                        select="Id,Code,DefaultName,DefaultFullName,IsActive")], "dim_categories")
+    out["dim_payment_methods"] = replace(
+        [{"Id": r.get("Id"), "DefaultName": r.get("DefaultName")}
+         for r in query("Core/PaymentMethods", CONTEXT_APP_ID, select="Id,DefaultName")], "dim_payment_methods")
+    # ExchangeRate is what makes every amount comparable: Norce stores each order
+    # in its own currency and carries no rate of its own, so this lookup is the
+    # ONLY thing standing between the marts and adding GBP to SEK.
+    out["dim_currencies"] = replace(
+        [{"Id": r.get("Id"), "Code": r.get("Code"), "DefaultName": r.get("DefaultName"),
+          "ExchangeRate": _f(r.get("ExchangeRate"))}
+         for r in query("Core/Currencies", CONTEXT_APP_ID,
+                        select="Id,Code,DefaultName,ExchangeRate")], "dim_currencies")
+    out["dim_countries"] = replace(
+        [{"Id": r.get("Id"), "Code": r.get("Code"), "DefaultName": r.get("DefaultName")}
+         for r in query("Core/Countries", CONTEXT_APP_ID, select="Id,Code,DefaultName")], "dim_countries")
+    # Every flag group, not just the collection one: the group NAME is what makes
+    # `product_flags` legible, and landing the whole lookup costs a few hundred
+    # rows while leaving the door open for the campaign/pricelist groups later.
+    # $expand=Group is the only way to get the name — there is no ProductFlagGroups set.
+    out["dim_product_flags"] = replace(
+        [{"Id": r.get("Id"), "GroupId": r.get("GroupId"),
+          "GroupName": (r.get("Group") or {}).get("DefaultName"),
+          "DefaultName": r.get("DefaultName"), "IsActive": bool(r.get("IsActive")),
+          "SortOrder": r.get("SortOrder")}
+         for r in query("Application/ProductFlags", CONTEXT_APP_ID,
+                        select="Id,GroupId,DefaultName,IsActive,SortOrder",
+                        expand="Group($select=Id,DefaultName)")], "dim_product_flags")
+    return out
+
+
+def apply_marts() -> int:
+    """(Re)create the mart views from norce_marts.sql.
+
+    The file is the single source of truth for the mart definitions; keeping the
+    SQL out of Python means it can be diffed, and pasted straight into the BQ
+    console when something needs debugging. Statements are separated by the
+    `-- @@` sentinel rather than `;` so a semicolon inside a string or comment
+    can never split a statement in half.
+    """
+    with open(MARTS_SQL, encoding="utf-8") as fh:
+        raw = fh.read()
+    n = 0
+    for chunk in raw.split("-- @@"):
+        # A chunk is a statement only if it has executable SQL — the file's
+        # header block and any stray commentary are skipped rather than sent to
+        # BigQuery as a syntax error.
+        body = "\n".join(l for l in chunk.splitlines() if not l.strip().startswith("--")).strip()
+        if not body.upper().startswith("CREATE"):
+            continue
+        bq().query(chunk.replace("${DATASET}", f"{BQ_PROJECT}.{BQ_DATASET}")).result()
+        n += 1
+    return n
+
+
+# ════════════════════════════════════════════════════════════════════════════
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Norce → BigQuery sync for Customer Insights")
+    ap.add_argument("--backfill", action="store_true", help="full history instead of the delta")
+    ap.add_argument("--from", dest="from_date", help="backfill start date (default 2025-06-11)")
+    ap.add_argument("--apps", help="comma-separated application keys (default: all)")
+    ap.add_argument("--marts-only", action="store_true", help="only re-apply norce_marts.sql")
+    ap.add_argument("--titles-only", action="store_true",
+                    help="only reload norce.sku_titles from the Channable feed")
+    ap.add_argument("--products-only", action="store_true",
+                    help="products/variants/dimensions/titles + marts, skipping the orders phase")
+    ap.add_argument("--dims-only", action="store_true",
+                    help="only reload the lookup dimensions, then re-apply the marts")
+    ap.add_argument("--costs-only", action="store_true",
+                    help="only reload norce.sku_costs + dim_price_lists, then re-apply the marts")
+    ap.add_argument("--skip-products", action="store_true", help="skip the product/dimension pass")
+    args = ap.parse_args()
+
+    t0 = time.time()
+
+    # These two modes touch BigQuery and the Channable feed but NEVER the Norce
+    # API, so they run without Norce credentials — which is the difference
+    # between being able to re-apply a mart fix from a laptop and not.
+    if args.marts_only or args.titles_only:
+        ensure_dataset()
+        if args.titles_only:
+            print(f"✓ sku_titles reloaded · {sync_sku_titles():,} SKUs · {time.time()-t0:.1f}s")
+        if args.marts_only:
+            print(f"✓ Norce marts applied · {apply_marts()} statements · {time.time()-t0:.1f}s")
+        return 0
+
+    missing = missing_credentials()
+    if missing:
+        # Graceful, not a crash: the secrets genuinely do not exist yet, a
+        # scheduled run must not page anyone, and refresh_customer_insights.py
+        # serves `"norce": null` until this job has produced rows. Nothing is
+        # created in BigQuery on this path.
+        print("⚠️  Norce sync skipped — missing env var(s): " + ", ".join(missing))
+        print("    Create the secrets and wire them on, then re-run with --backfill:")
+        print("      ./pipeline/setup-customer-insights.sh      (see pipeline/CUSTOMER-INSIGHTS.md)")
+        return 0
+
+    ensure_dataset()
+
+    # Dimensions are a few thousand rows and the marts read them, so this is the
+    # cheap path for anything that only changes a lookup — notably the currency
+    # rates the whole SEK conversion hangs off. ensure_dataset() above has already
+    # appended any new column, so the order is: column → values → views.
+    if args.dims_only:
+        dims = sync_dimensions()
+        print("✓ dimensions reloaded · " + " · ".join(f"{k} {v:,}" for k, v in dims.items()))
+        print(f"✓ Norce marts applied · {apply_marts()} statements · {time.time()-t0:.1f}s")
+        return 0
+
+    # The margin source on its own — ~650 pages of ProductSkuPriceLists, a few
+    # minutes. The path for "costs changed upstream, refresh margins now".
+    if args.costs_only:
+        costs, n_pl = sync_sku_costs()
+        print(f"✓ sku costs reloaded · {costs:,} costed rows · {n_pl} primary price lists")
+        print(f"✓ Norce marts applied · {apply_marts()} statements · {time.time()-t0:.1f}s")
+        return 0
+
+    app_keys = [k.strip() for k in args.apps.split(",")] if args.apps else list(APPLICATIONS)
+    unknown = [k for k in app_keys if k not in APPLICATIONS]
+    if unknown:
+        print(f"✗ Unknown application key(s): {', '.join(unknown)}. "
+              f"Known: {', '.join(APPLICATIONS)}")
+        return 1
+
+    run_started = datetime.datetime.now(datetime.timezone.utc)
+    n_orders = n_items = n_forgotten = 0
+
+    # --products-only skips the ~30-minute orders phase. Use it when only the
+    # product/name side changed (a new VariantId column, a re-titled catalogue) —
+    # the orders watermark is left untouched, so the next normal run still picks
+    # up exactly the orders this one did not look at.
+    if not args.products_only:
+        since = None if args.backfill else watermark("orders")
+        start = datetime.date.fromisoformat(args.from_date) if args.from_date else None
+        mode = (f"backfill from {start or HISTORY_START}" if since is None
+                else f"incremental since {since:%Y-%m-%d %H:%M}Z")
+        print(f"Norce sync · {mode} · {len(app_keys)} application(s)")
+        n_orders, n_items = sync_orders(app_keys, since, start)
+        # Watermark = when the run STARTED, never max(Updated): an order updated
+        # mid-run would otherwise be skipped forever. WATERMARK_LAP re-reads the
+        # overlap on the next run, and the MERGE makes that idempotent.
+        set_watermark("orders", run_started, n_orders)
+        n_forgotten = purge_forgotten()
+    else:
+        print("Norce sync · products only (orders phase skipped)")
+
+    prods = skus = cats = titles = variants = pflags = costs = 0
+    dims: dict[str, int] = {}
+    if not args.skip_products:
+        # A full re-pull whenever the extract SHAPE changed (VariantId was added
+        # to the select; Flags/product_flags after it) — an incremental pass
+        # would leave every untouched product with a NULL VariantId and no
+        # collection, i.e. a blank Season on the products tab.
+        prods, skus, cats, pflags = sync_products(
+            None if (args.backfill or args.products_only) else watermark("products"))
+        set_watermark("products", run_started, prods)
+        variants = sync_variants()
+        dims = sync_dimensions()
+        # Non-fatal: on failure the previous night's sku_costs keeps serving —
+        # costs move slowly, and a stale margin beats a sync that never finishes.
+        try:
+            costs, _ = sync_sku_costs()
+        except Exception as e:
+            print(f"   !! sku_costs refresh failed (non-fatal): {e!r}")
+        # Non-fatal: the Channable feed is a nice-to-have that makes the product
+        # dimension readable. If it is down or unconfigured the marts COALESCE
+        # back through variants, which is now the primary name source anyway.
+        try:
+            titles = sync_sku_titles()
+        except Exception as e:
+            print(f"   !! sku_titles refresh failed (non-fatal): {e!r}")
+
+    n_marts = apply_marts()
+    print(f"✓ Norce sync · orders {n_orders:,} · lines {n_items:,} · products {prods:,} "
+          f"· variants {variants:,} · skus {skus:,} · category links {cats:,} "
+          f"· collection flags {pflags:,} · sku costs {costs:,} "
+          f"· dims {sum(dims.values()):,} · sku titles {titles:,} "
+          f"· forgotten purged {n_forgotten:,} · marts {n_marts} · {time.time()-t0:.1f}s")
+
+    # Season (Product Collection) snapshot for the products tab. Folded in here
+    # rather than given its own Cloud Run job for the same reason bq_source.main()
+    # folds in refresh_roas_impact and budget_source: it reads the marts this run
+    # just rebuilt, it is seconds of work, and one less job is one less thing to
+    # schedule. Wrapped so a Firestore failure can never fail the sync itself —
+    # `refresh_product_seasons.py` is also runnable standalone.
+    try:
+        import refresh_product_seasons as seasons
+        p = seasons.build_payload()
+        seasons.write_firestore(p)
+        print(f"✓ Product seasons snapshot · {len(p['seasons'])} collections · "
+              f"brands {p['coverage']['brands_with_season']}/{p['coverage']['brands_total']}")
+    except Exception as e:
+        print(f"⚠️  Product seasons snapshot failed (non-fatal): {e!r}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

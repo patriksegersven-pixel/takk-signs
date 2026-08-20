@@ -1,0 +1,270 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+ * brand.css — shared Babyshop design system for every dashboard page.
+ *
+ * Served same-origin by app.py (`/brand.css`, same Basic-auth dependency as
+ * /table-tools.js) and linked from each page's <head> BEFORE that page's inline
+ * <style>. That order matters: this file owns the canonical :root token block,
+ * and a page's own :root only needs to declare the handful of tokens that are
+ * genuinely page-specific (its accent, its per-series chart colours). Anything
+ * a page redeclares wins — that is the intended escape hatch, not an accident.
+ *
+ * What lives here:
+ *   • @font-face for Jost (vendored woff2 under /fonts/ — Google Fonts and the
+ *     usual CDNs are unreachable on some of the networks this is viewed from,
+ *     which is also why chart.umd.js is vendored)
+ *   • the design tokens (:root)
+ *   • the whole app header / nav / dropdown chrome rendered by nav.js
+ *   • a light card + table baseline (pages still carry their own detailed rules)
+ *
+ * Palette is taken from babyshop.com: #222 body ink, #1B2839 "black", deep
+ * green #235837 for links/active states, coral #ED7558 sparingly, and the
+ * pale campaign colours (lime #D8F799, blush #F2DFDA, sage #D6E5DB) reserved
+ * for backgrounds — never as a line or bar colour on white.
+ * ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── Jost (vendored) ─────────────────────────────────────────────────────────
+ * Google serves Jost as a variable font, so all four weights resolve to the
+ * same woff2 file; the per-weight @font-face rules just tell the browser which
+ * instance to synthesise. latin covers Swedish å/ä/ö (they sit in Latin-1). */
+@font-face {
+  font-family: 'Jost';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/jost-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+                 U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Jost';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/jost-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+                 U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF,
+                 U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+  /* Brand primitives (babyshop.com custom properties) */
+  --brand-ink:     #1B2839;   /* their "black" — strongest ink            */
+  --brand-text:    #222222;   /* their body text                          */
+  --brand-green:   #235837;   /* --color-highlight — primary accent       */
+  --brand-green-d: #1A4429;
+  --brand-green-l: #EAF2EC;
+  --brand-coral:   #ED7558;   /* --color-accent — sparing use             */
+  --brand-coral-d: #C4461F;
+  --brand-lime:    #D8F799;   /* campaign banner bg, dark text on it      */
+  --brand-blush:   #F2DFDA;   /* --color-primary                          */
+  --brand-sage:    #D6E5DB;   /* --color-secondary                        */
+
+  /* Surfaces + neutrals */
+  --bg:          #FAF9F7;     /* warm near-white page ground              */
+  --card:        #FFFFFF;
+  --border:      #E6E2DC;
+  --border-lt:   #F2EFEB;
+  --h:           #1B2839;     /* headings / strongest ink                 */
+  --body:        #3F4650;
+  --muted:       #8C9098;
+
+  /* Accents (pages override --accent / --hero where they need an identity) */
+  --accent:      #235837;
+  --accent-bg:   #EAF2EC;
+  --accent-dark: #1A4429;
+  --hero:        #A9621A;
+  --hero-bg:     #FBF4E8;
+
+  /* Generic named hues, kept brand-adjacent but chart-legible on white */
+  --blue:        #2F6E8F;
+  --green:       #1E7A45;
+  --amber:       #A9621A;
+  --purple:      #7E5A8C;
+
+  /* Semantic deltas — direction must stay obvious, so these keep real
+   * saturation rather than being pastelled into the brand palette. */
+  --up:          #1E7A45;
+  --up-bg:       #EAF4EC;
+  --down:        #B93A22;
+  --down-bg:     #FBEDE8;
+  --warn:        #A9621A;
+  --warn-bg:     #FBF3E7;
+
+  /* Chart series ramp — ordered for maximum separation between neighbours. */
+  --dv-1: #235837;
+  --dv-2: #1B2839;
+  --dv-3: #ED7558;
+  --dv-4: #A9621A;
+  --dv-5: #3E86A3;
+  --dv-6: #7E5A8C;
+  --dv-7: #8FB77A;
+  --dv-8: #A63F63;
+
+  --shadow-sm:   0 1px 2px rgba(27,40,57,.05);
+  --shadow:      0 1px 3px rgba(27,40,57,.07);
+  --shadow-pop:  0 8px 24px rgba(27,40,57,.12);
+  --r:           7px;
+  --r-sm:        4px;
+
+  --font: 'Jost', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { font-size: 16px; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--body);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  /* Jost ships proportional figures by default and they are wildly uneven —
+   * "111111" measures 108px where "000000" measures 144px at the same size.
+   * Every column of numbers on this dashboard would jitter on each refresh
+   * without this, so tabular figures are the document-wide default. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── App header (rendered by nav.js into <header id="app-header">) ──────────
+ * White, matching babyshop.com, with the real wordmark. Everything that used
+ * to be white-alpha (live dot, refresh pill, tab text) is restated here for a
+ * light ground. */
+header#app-header {
+  background: #fff;
+  color: var(--h);
+  border-bottom: 1px solid var(--border);
+  height: 60px;
+  padding: 0 26px;
+  display: flex; align-items: stretch; justify-content: space-between; gap: 16px;
+  position: sticky; top: 0; z-index: 200;
+}
+#app-header .hdr-left  { display: flex; align-items: center; gap: 13px; flex: 0 0 auto; }
+#app-header .hdr-right { display: flex; align-items: center; gap: 16px; flex: 0 0 auto; }
+#app-header .hdr-nav   { display: flex; align-items: stretch; flex: 1 1 auto; min-width: 0; }
+
+.brand-logo { height: 27px; width: auto; display: block; }
+.brand-logo-link { display: flex; align-items: center; text-decoration: none; }
+.brand-rule {
+  width: 1px; height: 22px; background: var(--border); flex: 0 0 auto;
+}
+.brand-sub {
+  font-size: 10px; font-weight: 500; letter-spacing: .11em; text-transform: uppercase;
+  color: var(--muted); white-space: nowrap;
+}
+
+/* ── Nav tabs ───────────────────────────────────────────────────────────────
+ * Full-height items so the active state can be an understated 2px ink rule at
+ * the bottom edge instead of a filled pill. */
+.nav-tabs { display: flex; align-items: stretch; gap: 2px; min-width: 0; }
+.nav-tab {
+  position: relative;
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 12px;
+  font-family: var(--font);
+  font-size: 12.5px; font-weight: 500; letter-spacing: .01em;
+  color: var(--body); text-decoration: none; white-space: nowrap;
+  transition: color .15s, background .15s;
+}
+.nav-tab:hover { color: var(--h); background: var(--border-lt); }
+.nav-tab.active { color: var(--h); font-weight: 600; }
+.nav-tab.active::after {
+  content: ''; position: absolute; left: 8px; right: 8px; bottom: 0;
+  height: 2px; background: var(--brand-ink); border-radius: 1px;
+}
+.nav-tab:focus-visible,
+.nav-more-btn:focus-visible,
+.nav-menu a:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 3px;
+}
+
+/* Badge marking a non-permanent report (test / ad hoc). */
+.nav-badge {
+  font-size: 8.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  padding: 2px 5px; border-radius: 3px; line-height: 1;
+  background: var(--brand-lime); color: var(--brand-ink);
+}
+.nav-badge.is-adhoc  { background: var(--brand-blush); }
+.nav-badge.is-channel{ background: var(--brand-sage); }
+
+/* ── "More reports" dropdown ───────────────────────────────────────────────── */
+.nav-more { position: relative; display: flex; align-items: stretch; }
+.nav-more-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 12px; border: none; background: none; cursor: pointer;
+  font-family: var(--font); font-size: 12.5px; font-weight: 500;
+  color: var(--muted); transition: color .15s, background .15s;
+}
+.nav-more-btn:hover, .nav-more[data-open="true"] .nav-more-btn { color: var(--h); background: var(--border-lt); }
+.nav-more-btn .caret { font-size: 9px; transition: transform .15s; }
+.nav-more[data-open="true"] .nav-more-btn .caret { transform: rotate(180deg); }
+
+.nav-menu {
+  display: none;
+  position: absolute; top: calc(100% - 6px); left: 0;
+  min-width: 244px; padding: 7px;
+  background: #fff; border: 1px solid var(--border); border-radius: var(--r);
+  box-shadow: var(--shadow-pop); z-index: 300;
+}
+.nav-more[data-open="true"] .nav-menu { display: block; }
+.nav-menu-label {
+  font-size: 9px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--muted); padding: 9px 9px 5px;
+}
+.nav-menu a {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 7px 9px; border-radius: var(--r-sm);
+  font-size: 12.5px; font-weight: 500; color: var(--body); text-decoration: none;
+  white-space: nowrap;
+}
+.nav-menu a:hover { background: var(--brand-green-l); color: var(--brand-green-d); }
+.nav-menu a[aria-current="page"] { color: var(--brand-green-d); font-weight: 600; }
+.nav-menu hr { border: none; border-top: 1px solid var(--border-lt); margin: 5px 2px; }
+
+/* ── Header status chrome (live dot + refresh pill), light-header variants ─── */
+.live-dot {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--muted); letter-spacing: .03em; white-space: nowrap;
+}
+.live-dot::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%;
+  background: #2F7D4F; box-shadow: 0 0 0 2px rgba(47,125,79,.22);
+  animation: blink 2s ease-in-out infinite; flex: 0 0 auto;
+}
+@keyframes blink {
+  0%,100% { box-shadow: 0 0 0 2px rgba(47,125,79,.22); }
+  50%     { box-shadow: 0 0 0 5px rgba(47,125,79,.07); }
+}
+
+.refresh-pill {
+  display: none; align-items: center; gap: 6px;
+  font-size: 11px; padding: 4px 10px; border-radius: 12px;
+  letter-spacing: .02em; cursor: help; white-space: nowrap;
+  background: #FBEDE8; color: #A5321C; border: 1px solid #F0CBBE;
+}
+.refresh-pill.show { display: inline-flex; }
+.refresh-pill.stale   { background: #FBF3E7; color: #8A5416; border-color: #EBD8B6; }
+.refresh-pill.unknown { background: var(--border-lt); color: var(--muted); border-color: var(--border); }
+.refresh-pill::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+}
+
+/* Narrow viewports: the subtitle is the first thing worth losing. */
+@media (max-width: 1280px) {
+  .brand-rule, .brand-sub { display: none; }
+  #app-header { padding: 0 16px; gap: 10px; }
+  .nav-tab { padding: 0 9px; font-size: 12px; }
+}
+
+/* ── Shared card + table baseline ──────────────────────────────────────────
+ * Deliberately thin: every page still ships its own detailed table CSS and
+ * those rules come later in the cascade, so this is only a floor. */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-sm);
+}
+
+table { border-collapse: collapse; }
