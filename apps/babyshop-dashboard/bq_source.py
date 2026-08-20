@@ -353,8 +353,13 @@ def _prod_dim(col, cs, ce, ps, pe, limit=1000):
     dimension that unexpectedly explodes (a dirty column with 100k values) can't
     produce an unbounded response. Raise it if a real dimension ever hits it."""
     def q(s, e):
+        # Blank-dimension rows are ~97% shipping-fee line items (zero COGS, so
+        # they'd show ~100% GM1 as 'Uncategorised') — label them by their title
+        # instead; only the truly blank remainder stays 'Uncategorised'.
         sql = (f"WITH {_pr_cte('Date BETWEEN @cs AND @ce')} "
-               f"SELECT COALESCE(NULLIF({col}, ''), 'Uncategorised') name, {PR} FROM pr_rows "
+               f"SELECT COALESCE(NULLIF({col}, ''), "
+               f"IF(LOWER(Product_title__File_Import) = 'shipping charge', 'Shipping charge', NULL), "
+               f"'Uncategorised') name, {PR} FROM pr_rows "
                f"GROUP BY name HAVING SUM(kv_revenue_product) > 0 ORDER BY rev DESC LIMIT {limit}")
         return _rows(sql, _p(s, e, s, e))
     return _merge_prod(q(cs, ce), q(ps, pe))
