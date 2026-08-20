@@ -612,10 +612,10 @@
           <th title="cf1j4pcmic8ucum_Product_type_2">Category</th>
           <th class="col-season" title="Norce Product Collection — collections worth ≥10% of this category’s attributable revenue over the snapshot window, dominant first. Hover a cell for the full mix.">Season</th>
           <th title="cf1j2rvf6cstma8_kv_revenue_new">Revenue</th>
-          <th title="net kv_gp1_product / net revenue (returns allocated pro-rata per Date × shop — category return-rate differences not reflected)">GM1%</th>
+          <th title="net kv_gp1_product / net revenue (returns allocated pro-rata per day — real return-rate differences (apparel ≫ strollers/toys) not reflected)">GM1%</th>
           <th title="kv_gp1_product − allocated returns (net revenue − COGS)">GP1</th>
           <th title="cf1j4pbl7khku06_kv_gm2_product">GM2%</th>
-          <th title="cf1j4pbasj1d5lc_kv_gp2_product">GP2</th>
+          <th title="cf1j4pbasj1d5lc_kv_gp2_product · Funnel-computed; embeds Funnel's own returns treatment, so for low-return brands (e.g. strollers) it can sit above the uniformly-netted GP1">GP2</th>
           <th title="shopping_cost · Google Shopping cost (GP2 − GP3-Shopping)">Shopping cost</th>
           <th title="cf1ijstf4f5cbk3_kv_gm3_">GM3%</th>
           <th title="cf1j4pau1ki6bas_kv_gp3_shopping">GP3-Shopping</th>
@@ -683,10 +683,10 @@
           <th title="dim-1j4p9puragt0f_kv_brand">Brand</th>
           <th class="col-season" title="Norce Product Collection — collections worth ≥10% of this brand’s attributable revenue over the snapshot window, dominant first. Hover a cell for the full mix.">Season</th>
           <th title="cf1j2rvf6cstma8_kv_revenue_new">Revenue</th>
-          <th title="net kv_gp1_product / net revenue (returns allocated pro-rata per Date × shop — category return-rate differences not reflected)">GM1%</th>
+          <th title="net kv_gp1_product / net revenue (returns allocated pro-rata per day — real return-rate differences (apparel ≫ strollers/toys) not reflected)">GM1%</th>
           <th title="kv_gp1_product − allocated returns (net revenue − COGS)">GP1</th>
           <th title="cf1j4pbl7khku06_kv_gm2_product">GM2%</th>
-          <th title="cf1j4pbasj1d5lc_kv_gp2_product">GP2</th>
+          <th title="cf1j4pbasj1d5lc_kv_gp2_product · Funnel-computed; embeds Funnel's own returns treatment, so for low-return brands (e.g. strollers) it can sit above the uniformly-netted GP1">GP2</th>
           <th title="shopping_cost · Google Shopping cost (GP2 − GP3-Shopping)">Shopping cost</th>
           <th title="cf1ijstf4f5cbk3_kv_gm3_">GM3%</th>
           <th title="cf1j4pau1ki6bas_kv_gp3_shopping">GP3-Shopping</th>
@@ -706,10 +706,10 @@
 const FIELD_IDS = {
   'kv-revenue-product': 'cf1j2rvf6cstma8_kv_revenue_new',
   // No product-level returns exist in the export (kv_returns is KV-feed-only,
-  // with no brand/type/title) — net revenue here is the real (Date × shop)
-  // kv_returns allocated pro-rata over that slice's product revenue. Exact in
-  // total; per-brand/category it assumes the slice's uniform return rate.
-  'kv-net-revenue-product': 'kv_revenue_product − pro-rata (Date × shop) share of kv_returns · derived',
+  // with no brand/type/title) — net revenue here is the day's real
+  // kv_returns allocated pro-rata over the day's product revenue. Exact in
+  // total; per-brand/category it assumes the day's uniform return rate.
+  'kv-net-revenue-product': 'kv_revenue_product − pro-rata daily share of kv_returns · derived',
   'kv-product-cogs':    'cf1j4pbcoib0bom_kv_product_cogs',
   'kv-gp1-product':     'cf1j4pb7q0974md_kv_gp1_product − allocated returns (net revenue − COGS) · derived',
   'kv-gp2-product':     'cf1j4pbasj1d5lc_kv_gp2_product',

@@ -175,35 +175,41 @@ KVD = ("SUM(rev) rev, SUM(rev)-COALESCE(SUM(ret),0) net_rev, "
 # (brand/type/title all empty on every returns row) — an exact per-product
 # netting is impossible from this export.
 #
-# So returns are allocated PRO-RATA: the real kv_returns per (Date, shop_new)
-# slice is spread across that slice's product revenue, i.e. every product row
-# in a slice gets the slice's return rate. Totals tie out exactly — summed
-# product net revenue = product revenue − the slice's real returns — and
-# net_rev − netted gp1 still equals the real COGS. The caveat is per-row: a
-# brand/category's netted GM1 assumes the shop-day's uniform return rate, so
-# category-level return differences (clothing ≫ toys) are NOT reflected.
-# Grain is (Date, shop_new): both feeds carry shop 100%; market is on 94% of
-# product rows and its rate spread (SE 14% vs ROW EUR 5%) only shifts brand
-# mix marginally in the all-market tables — not worth the join fragility.
-# kv_returns only populates from ~Sep 2025, so earlier slices net to gross.
+# So returns are allocated PRO-RATA: the real kv_returns per Date are spread
+# across that day's product revenue, i.e. every product row gets the day's
+# uniform return rate. Totals tie out exactly — summed product net revenue =
+# product revenue − the day's real returns — and net_rev − netted gp1 still
+# equals the real COGS. The caveat is per-row: a brand/category's netted GM1
+# assumes the day's uniform return rate, so real return-rate differences
+# (apparel ≫ strollers/toys) are NOT reflected.
+# Grain is Date ONLY — nothing finer joins across the two feeds:
+#   · shop_new is NOT a shop on product rows: it mostly carries the brand
+#     ('Kuling', 'Konges Sløjd', …); only ~10% of product revenue sits under
+#     'Babyshop', where 100% of returns sit. A (Date, shop_new) grain put a
+#     ~135% return rate on that 10% (negative net revenue, GP1 < GP2) and a
+#     0% rate on the other 90% (still-gross, inflated GM1).
+#   · market_level_1 is NULL on every product-revenue row.
+# The day pool includes Lekmer returns (Lekmer has no product rows), so the
+# product tab's total netting matches the KV Overview's.
+# kv_returns only populates from ~Sep 2025, so earlier days net to gross.
 def _pr_cte(where: str) -> str:
-    """CTE `pr_rows`: the raw table plus `pr_ret_rate`, the (Date, shop_new)
-    slice's returns ÷ product revenue. Cost-only rows (NULL product revenue)
-    pass through untouched — NULL × rate stays NULL, so gp3's shopping_cost
-    keeps summing over them. `where` must only constrain the date range."""
+    """CTE `pr_rows`: the raw table plus `pr_ret_rate`, the day's returns ÷
+    product revenue. Cost-only rows (NULL product revenue) pass through
+    untouched — NULL × rate stays NULL, so gp3's shopping_cost keeps summing
+    over them. `where` must only constrain the date range."""
     return f"""
     pr_ret AS (
-      SELECT Date d, shop_new s, SUM(kv_returns) ret
-      FROM `{BQ_TABLE}` WHERE {where} GROUP BY d, s),
+      SELECT Date d, SUM(kv_returns) ret
+      FROM `{BQ_TABLE}` WHERE {where} GROUP BY d),
     pr_base AS (
-      SELECT Date d, shop_new s, SUM(kv_revenue_product) rev
-      FROM `{BQ_TABLE}` WHERE {where} GROUP BY d, s
+      SELECT Date d, SUM(kv_revenue_product) rev
+      FROM `{BQ_TABLE}` WHERE {where} GROUP BY d
       HAVING SUM(kv_revenue_product) > 0),
     pr_rows AS (
       SELECT t.*, COALESCE(r.ret / b.rev, 0) AS pr_ret_rate
       FROM `{BQ_TABLE}` t
-      LEFT JOIN pr_base b ON b.d = t.Date AND b.s = t.shop_new
-      LEFT JOIN pr_ret  r ON r.d = t.Date AND r.s = t.shop_new
+      LEFT JOIN pr_base b ON b.d = t.Date
+      LEFT JOIN pr_ret  r ON r.d = t.Date
       WHERE {where})
     """
 
