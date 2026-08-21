@@ -148,6 +148,25 @@
     return out.replace(WS, ' ').trim();
   }
 
+  /* Every filterable value of a cell. Normally the one atomic value cellText
+   * returns, but a cell may declare data-tt-values="A|B|C" (pipe-separated) when
+   * it genuinely holds several — the Season column's mixed-collection pills.
+   * The checkbox filter then treats the row as carrying ALL of them: it is shown
+   * only while every one is checked, so checking a single season surfaces only
+   * the rows that are purely that season. Sort/export still use data-tt-value
+   * (the dominant value). Values must not contain '|'. */
+  function cellValues(el, ignoreSel) {
+    if (el && el.dataset && el.dataset.ttValues != null) {
+      var parts = el.dataset.ttValues.split('|'), out = [], i;
+      for (i = 0; i < parts.length; i++) {
+        var v = parts[i].trim();
+        if (v) out.push(v);
+      }
+      if (out.length) return out;
+    }
+    return [cellText(el, ignoreSel)];
+  }
+
   var SCALES = { k: 1e3, m: 1e6, b: 1e9 };
 
   /* Parse the FIRST numeric token in a formatted cell.
@@ -644,6 +663,10 @@
     return cellText(this._cell(row, col), this.ignoreSel);
   };
 
+  Tools.prototype._vals = function (row, col) {
+    return cellValues(this._cell(row, col), this.ignoreSel);
+  };
+
   /* excluded uses a null prototype: the keys are arbitrary cell values, and on a
    * plain object a value of "__proto__" would silently fail to register. */
   function newColState() {
@@ -685,7 +708,14 @@
     var st = this.state[col];
     if (!st) return true;
     var raw = this._val(row, col);
-    if (st.excluded[raw]) return false;
+    if (hasKeys(st.excluded)) {
+      // Multi-value cells (data-tt-values) hide as soon as ANY of their values
+      // is unchecked — so checking one season alone keeps only pure rows.
+      var vals = this._vals(row, col);
+      for (var vi = 0; vi < vals.length; vi++) {
+        if (st.excluded[vals[vi]]) return false;
+      }
+    }
     if (!st.op) return true;
     if (this._numeric[col]) {
       var v = parseNum(raw);
@@ -720,8 +750,10 @@
       }
       var cell = self._cell(row, col);
       if (!cell) return;
-      var v = cellText(cell, self.ignoreSel);
-      if (!(v in seen)) { seen[v] = 1; out.push(v); }
+      var vs = cellValues(cell, self.ignoreSel);
+      for (var i = 0; i < vs.length; i++) {
+        if (!(vs[i] in seen)) { seen[vs[i]] = 1; out.push(vs[i]); }
+      }
     });
     if (this._numeric[col]) {
       out.sort(function (a, b) {

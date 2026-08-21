@@ -444,8 +444,10 @@
     <div class="page-title">Product Overview</div>
     <div class="filter-right">
       <div class="period-tabs" id="period-tabs">
+        <button class="ptab active" data-period="mtd" title="Month to date">MTD</button>
+        <button class="ptab" data-period="lm" title="Last month">Last month</button>
         <button class="ptab" data-period="7D">7D</button>
-        <button class="ptab active" data-period="30D">30D</button>
+        <button class="ptab" data-period="30D">30D</button>
         <button class="ptab" data-period="90D">90D</button>
         <button class="ptab" data-period="custom" title="Custom date range">Custom</button>
       </div>
@@ -746,11 +748,24 @@ function _yoyWday(r) {
   const SH = 364 * 86400000;
   return { start: new Date(r.start.getTime() - SH), end: new Date(r.end.getTime() - SH) };
 }
+// Month-to-date: 1st of the end date's month → the end date itself.
+function _mtdRange(end) {
+  const e = new Date(end);
+  return { start: new Date(e.getFullYear(), e.getMonth(), 1), end: new Date(e) };
+}
+// Last month: full previous calendar month (1st → last day).
+function _lastMonthRange(end) {
+  const e = new Date(end);
+  return { start: new Date(e.getFullYear(), e.getMonth() - 1, 1),
+           end:   new Date(e.getFullYear(), e.getMonth(), 0) };
+}
 const _TODAY = new Date();
 const _YESTERDAY = new Date(_TODAY); _YESTERDAY.setDate(_YESTERDAY.getDate() - 1);
 const _R7  = _rangeBack(_YESTERDAY, 7);
 const _R30 = _rangeBack(_YESTERDAY, 30);
 const _R90 = _rangeBack(_YESTERDAY, 90);
+const _RMTD = _mtdRange(_YESTERDAY);
+const _RLM  = _lastMonthRange(_YESTERDAY);
 
 /* ─── Period data with comparison modes ──────────────
  * pop      = previous period
@@ -795,6 +810,32 @@ const PERIODS = {
                   data: { revenue: 53600000, cogs: 25900000, gp1: 27700000, gp2: 14290000, gp3: 9540000  } },
     },
   },
+  // MTD / Last month — cur + comparisons are overwritten by syncRealPeriod()
+  // from the real daily series; these are just placeholders for first paint.
+  mtd: {
+    label: _fmtRange(_RMTD.start, _RMTD.end),
+    cur:  { revenue: 21613488,  cogs: 10487154,  gp1: 11126334,  gp2: 5384262,   gp3: 3568938  },
+    compares: {
+      pop:      { label: _fmtRange(_priorPeriod(_RMTD).start, _priorPeriod(_RMTD).end),
+                  data: { revenue: 19286437, cogs: 8715344,  gp1: 10571093, gp2: 5913879, gp3: 3963892 } },
+      yoy_date: { label: _fmtRange(_yoyDate(_RMTD).start, _yoyDate(_RMTD).end),
+                  data: { revenue: 18650000, cogs: 9100000,  gp1: 9550000,  gp2: 5050000, gp3: 3450000 } },
+      yoy_wday: { label: _fmtRange(_yoyWday(_RMTD).start, _yoyWday(_RMTD).end) + ' (samma veckodag)',
+                  data: { revenue: 18790000, cogs: 9160000,  gp1: 9630000,  gp2: 5080000, gp3: 3470000 } },
+    },
+  },
+  lm: {
+    label: _fmtRange(_RLM.start, _RLM.end),
+    cur:  { revenue: 21613488,  cogs: 10487154,  gp1: 11126334,  gp2: 5384262,   gp3: 3568938  },
+    compares: {
+      pop:      { label: _fmtRange(_priorPeriod(_RLM).start, _priorPeriod(_RLM).end),
+                  data: { revenue: 19286437, cogs: 8715344,  gp1: 10571093, gp2: 5913879, gp3: 3963892 } },
+      yoy_date: { label: _fmtRange(_yoyDate(_RLM).start, _yoyDate(_RLM).end),
+                  data: { revenue: 18650000, cogs: 9100000,  gp1: 9550000,  gp2: 5050000, gp3: 3450000 } },
+      yoy_wday: { label: _fmtRange(_yoyWday(_RLM).start, _yoyWday(_RLM).end) + ' (samma veckodag)',
+                  data: { revenue: 18790000, cogs: 9160000,  gp1: 9630000,  gp2: 5080000, gp3: 3470000 } },
+    },
+  },
   custom: {
     label: 'Custom range',
     cur:  { revenue: 21613488,  cogs: 10487154,  gp1: 11126334,  gp2: 5384262,   gp3: 3568938  },
@@ -812,7 +853,7 @@ const COMPARE_LABELS = {
   yoy_wday: 'same weekday 2025',
 };
 
-let currentPeriod  = '30D';
+let currentPeriod  = 'mtd';   // default matches the KV Overview
 let currentCompare = 'pop';
 let TOTALS = { cur: PERIODS[currentPeriod].cur, prev: PERIODS[currentPeriod].compares[currentCompare].data };
 let T = TOTALS.cur;
@@ -832,6 +873,8 @@ function _curRange(){
     const s = document.getElementById('d-start').value, e = document.getElementById('d-end').value;
     if (s && e) return { start: _parseISO(s), end: _parseISO(e) };
   }
+  if (currentPeriod === 'mtd') return _mtdRange(_dataEndDate());
+  if (currentPeriod === 'lm')  return _lastMonthRange(_dataEndDate());
   const n = currentPeriod === '7D' ? 7 : currentPeriod === '90D' ? 90 : 30;
   return _rangeBack(_dataEndDate(), n);
 }
@@ -1127,10 +1170,9 @@ function seasonCell(rawRow, dim) {
   ].filter(Boolean).join('\n');
   // A row can genuinely straddle collections (Kuling sells SS26 and AW25 stock
   // at once), so render every collection worth ≥10% of the row's attributable
-  // revenue — up to 3, dominant first — not just the top one. The filter/sort/
-  // export value stays the single dominant season: table-tools treats
-  // data-tt-value as one atomic value, and a per-row mix string would make the
-  // column filter useless.
+  // revenue — up to 3, dominant first — not just the top one. Sort and export
+  // stay on the single dominant season (data-tt-value); the column FILTER sees
+  // all rendered pills via data-tt-values below.
   const pills = mix.filter(m => m && typeof m.v === 'number' && m.v >= 0.10)
                    .sort((a, b) => b.v - a.v).slice(0, 3);
   if (!pills.length) pills.push({ s, v: share });
@@ -1139,7 +1181,13 @@ function seasonCell(rawRow, dim) {
   const pillHTML = pills.map(m =>
     `<span class="season-pill${(m.v != null && m.v < 0.5) ? ' weak' : ''}">${escHtml(m.s)}</span>${
       m.v != null ? `<span class="season-share">${fmtPct(m.v, 0)}</span>` : ''}`).join('');
+  // data-tt-values lists EVERY rendered pill for the column filter: table-tools
+  // hides a multi-value row as soon as any of its values is unchecked, so
+  // checking a single season shows only the brands purely in that season —
+  // mixed rows (SS26 + CORE + AW26) no longer slip through on their dominant
+  // value. Sort and export still use the dominant season (data-tt-value).
   return `<td class="col-season" data-val="${escHtml(s)}" data-tt-value="${escHtml(s)}"
+    data-tt-values="${escHtml(pills.map(m => m.s).join('|'))}"
     title="${escHtml(tip)}">${pillHTML}</td>`;
 }
 
@@ -1267,9 +1315,11 @@ document.getElementById('compare-mode').addEventListener('change', e => {
 
 // Dynamic tab tooltips + default custom dates pointing at today's window
 (function initDynamicDates(){
+  const _tabNames = { mtd: 'Month to date', lm: 'Last month' };
   document.querySelectorAll('#period-tabs .ptab').forEach(btn => {
     const p = btn.dataset.period;
-    if (PERIODS[p]) btn.title = `Last ${p} (${PERIODS[p].label})`;
+    if (p === 'custom' || !PERIODS[p]) return;
+    btn.title = `${_tabNames[p] || 'Last ' + p} (${PERIODS[p].label})`;
   });
   const iso = d => d.toISOString().slice(0,10);
   document.getElementById('d-start').value = iso(_R30.start);
