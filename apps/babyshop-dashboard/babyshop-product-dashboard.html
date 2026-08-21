@@ -1181,13 +1181,18 @@ function seasonCell(rawRow, dim) {
   const pillHTML = pills.map(m =>
     `<span class="season-pill${(m.v != null && m.v < 0.5) ? ' weak' : ''}">${escHtml(m.s)}</span>${
       m.v != null ? `<span class="season-share">${fmtPct(m.v, 0)}</span>` : ''}`).join('');
-  // data-tt-values lists EVERY rendered pill for the column filter: table-tools
-  // hides a multi-value row as soon as any of its values is unchecked, so
-  // checking a single season shows only the brands purely in that season —
-  // mixed rows (SS26 + CORE + AW26) no longer slip through on their dominant
-  // value. Sort and export still use the dominant season (data-tt-value).
+  // data-tt-values lists every rendered pill for the column filter: table-tools
+  // keeps a multi-value row visible while ANY of its values is checked, so
+  // checking a single season surfaces every brand that carries it — Kuling
+  // (SS26-dominant) still comes up under an AW26 filter. The payload mix is
+  // capped at top-3 collections (MIX_TOP_N in refresh_product_seasons.py), so
+  // a season outside a brand's top 3 is not filterable for that brand.
+  // Sort and export still use the dominant season (data-tt-value).
+  // Filter on the FULL payload mix, not just the ≥10% pills: a brand whose
+  // AW26 share is 8% renders no AW26 pill but must still match an AW26 filter.
+  const fvals = (mix.length ? mix : pills).map(m => m && m.s).filter(Boolean);
   return `<td class="col-season" data-val="${escHtml(s)}" data-tt-value="${escHtml(s)}"
-    data-tt-values="${escHtml(pills.map(m => m.s).join('|'))}"
+    data-tt-values="${escHtml(fvals.join('|'))}"
     title="${escHtml(tip)}">${pillHTML}</td>`;
 }
 

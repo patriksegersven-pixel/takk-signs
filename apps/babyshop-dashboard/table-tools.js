@@ -151,9 +151,9 @@
   /* Every filterable value of a cell. Normally the one atomic value cellText
    * returns, but a cell may declare data-tt-values="A|B|C" (pipe-separated) when
    * it genuinely holds several — the Season column's mixed-collection pills.
-   * The checkbox filter then treats the row as carrying ALL of them: it is shown
-   * only while every one is checked, so checking a single season surfaces only
-   * the rows that are purely that season. Sort/export still use data-tt-value
+   * The checkbox filter treats the row as matching if ANY of its values is
+   * checked, so checking a single season surfaces every row that carries it —
+   * not just rows where it is dominant. Sort/export still use data-tt-value
    * (the dominant value). Values must not contain '|'. */
   function cellValues(el, ignoreSel) {
     if (el && el.dataset && el.dataset.ttValues != null) {
@@ -709,12 +709,16 @@
     if (!st) return true;
     var raw = this._val(row, col);
     if (hasKeys(st.excluded)) {
-      // Multi-value cells (data-tt-values) hide as soon as ANY of their values
-      // is unchecked — so checking one season alone keeps only pure rows.
+      // Multi-value cells (data-tt-values) stay visible while ANY of their
+      // values is still checked — checking one season surfaces every row that
+      // carries it, however small its share. Single-value cells degenerate to
+      // the classic behaviour (their one value must be checked).
       var vals = this._vals(row, col);
+      var kept = false;
       for (var vi = 0; vi < vals.length; vi++) {
-        if (st.excluded[vals[vi]]) return false;
+        if (!st.excluded[vals[vi]]) { kept = true; break; }
       }
+      if (!kept) return false;
     }
     if (!st.op) return true;
     if (this._numeric[col]) {
