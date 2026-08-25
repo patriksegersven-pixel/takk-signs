@@ -62,6 +62,8 @@
     .date-chip-text { display: flex; flex-direction: column; line-height: 1.25; }
     #date-chip-cur { font-size: 13px; font-weight: 500; color: var(--h); font-variant-numeric: tabular-nums; }
     #date-chip-cmp { font-size: 10px; color: var(--muted); margin-top: 1px; font-variant-numeric: tabular-nums; }
+    #date-chip-note { display: none; font-size: 10px; font-weight: 600; color: var(--warn); margin-top: 1px; }
+    #date-chip-note.show { display: block; }
 
     /* ── Custom dates inline ────────────────────────── */
     .custom-dates {
@@ -622,6 +624,7 @@
         <div class="date-chip-text">
           <div id="date-chip-cur">25 apr – 24 maj 2026</div>
           <div id="date-chip-cmp">vs 26 mar – 24 apr 2026</div>
+          <div id="date-chip-note"></div>
         </div>
       </div>
     </div>
@@ -1118,7 +1121,7 @@ let DAILY_LONG = [{"iso":"2025-01-01","revenue":490888,"gp1":484175,"gp2":484175
 const _isoLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const _parseISO = s => { const [y,m,dd] = s.split('-').map(Number); return new Date(y, m-1, dd); };
 function _dataEndDate(){ return DAILY_LONG.length ? _parseISO(DAILY_LONG[DAILY_LONG.length-1].iso) : _YESTERDAY; }
-function _curRange(){
+function _requestedRange(){
   if (currentPeriod === 'custom') {
     const s = document.getElementById('d-start').value, e = document.getElementById('d-end').value;
     if (s && e) return { start: _parseISO(s), end: _parseISO(e) };
@@ -1127,6 +1130,30 @@ function _curRange(){
   if (currentPeriod === 'lm')  return _lastMonthRange(_dataEndDate());
   const n = currentPeriod === '7D' ? 7 : currentPeriod === '90D' ? 90 : 30;
   return _rangeBack(_dataEndDate(), n);
+}
+/* The daily series stops at the last day the Funnel export has landed — normally
+ * yesterday, since the export runs a day behind. The custom picker will happily
+ * take a later date (picking today is the obvious case) and those days have no
+ * rows at all. Clamp the selection to the days that exist, so the totals, the
+ * comparison span, the breakdown query and the trend all describe the SAME real
+ * window. `missing` counts the days cut off so the chip can say so; `empty`
+ * marks a selection lying entirely past the data — there start/end stay at what
+ * was picked, because the labels must still read back the user's choice. */
+function _curRange(){
+  const req = _requestedRange();
+  if (!DAILY_LONG.length) return { start: req.start, end: req.end, before: 0, after: 0, missing: 0, empty: false };
+  const first = _parseISO(DAILY_LONG[0].iso), last = _dataEndDate();
+  const after  = req.end   > last  ? Math.round((req.end - last) / 86400000) : 0;
+  const before = req.start < first ? Math.round((first - req.start) / 86400000) : 0;
+  const meta = { before, after, missing: before + after };
+  // Wholly past the end (today) or wholly before the start (a pre-export range).
+  if (req.start > last || req.end < first)
+    return { start: req.start, end: req.end, ...meta, empty: true };
+  return {
+    start: before ? new Date(first) : req.start,
+    end:   after  ? new Date(last)  : req.end,
+    ...meta, empty: false,
+  };
 }
 function _cmpRange(r){
   return currentCompare === 'yoy_date' ? _yoyDate(r)
@@ -1150,17 +1177,33 @@ function _sumRange(start, end){
   if (!netn) acc.net_revenue = null;
   return n ? acc : null;
 }
+/* Totals for a window the series cannot answer for. Every field null, so the
+ * cards print '—' through _sekOrDash/_pctOrDash and _delta drops its badge —
+ * the same "missing, not zero" convention the gp1/net_revenue gaps already use. */
+const _noTotals = () => ({ revenue:null, net_revenue:null, gp1:null, gp2:null, gp3:null, txns:null, adCost:null });
+
 /* Overwrite PERIODS[currentPeriod] cur + active comparison with real summed values. */
 function syncRealPeriod(){
   if (!DAILY_LONG.length) return;
-  const r = _curRange(); const cur = _sumRange(r.start, r.end);
-  if (!cur) return;                               // selected range has no data → keep existing
-  const c = _cmpRange(r); const prev = _sumRange(c.start, c.end);
-  const p = PERIODS[currentPeriod];
+  const r = _curRange(), c = _cmpRange(r);
+  const p = PERIODS[currentPeriod], cmp = p.compares[currentCompare];
+  const cmpLabel = _fmtRange(c.start, c.end) + (currentCompare === 'yoy_wday' ? ' (samma veckodag)' : '');
+  // Nothing in the selection has landed yet — the "today" case. Blank the cards:
+  // the previous selection's numbers sitting under today's date read as a real
+  // (and alarming) day, and that is exactly what this function used to leave up.
+  if (r.empty) {
+    p.cur = _noTotals(); p.label = _fmtRange(r.start, r.end);
+    cmp.data = _noTotals(); cmp.label = cmpLabel;
+    return;
+  }
+  const cur = _sumRange(r.start, r.end);
+  if (!cur) return;                               // hole mid-series → keep existing
+  const prev = _sumRange(c.start, c.end);
   p.cur = cur; p.label = _fmtRange(r.start, r.end);
-  const cmp = p.compares[currentCompare];
-  cmp.data = prev || cur;
-  cmp.label = _fmtRange(c.start, c.end) + (currentCompare === 'yoy_wday' ? ' (samma veckodag)' : '');
+  // No comparison window in the series (a range reaching back before the export
+  // begins) → '—'. Comparing the period against itself printed a measured 0,0%.
+  cmp.data = prev || _noTotals();
+  cmp.label = cmpLabel;
 }
 
 const WEEKS = [
@@ -1424,7 +1467,7 @@ function renderKPIs() {
   const cards = [
     {
       label:'kv-Revenue', field: FIELD_IDS['kv-revenue'],
-      value: fmtSEK(CUR.revenue),
+      value: _sekOrDash(CUR.revenue),
       delta: _delta(CUR.revenue, PREV.revenue),
       sub: 'kv-revenue',
     },
@@ -1442,7 +1485,7 @@ function renderKPIs() {
     },
     {
       label:'kv-GP2', field: FIELD_IDS['kv-gp2'],
-      value: fmtSEK(CUR.gp2),
+      value: _sekOrDash(CUR.gp2),
       delta: _delta(CUR.gp2, PREV.gp2),
       sub: 'after ops costs · '+ _pctOrDash(gm2_cur) +' GM2',
     },
@@ -1454,7 +1497,7 @@ function renderKPIs() {
     },
     {
       label:'kv-GP3', field: FIELD_IDS['kv-gp3'],
-      value: fmtSEK(CUR.gp3),
+      value: _sekOrDash(CUR.gp3),
       delta: _delta(CUR.gp3, PREV.gp3),
       sub: 'after ad spend · '+ _pctOrDash(gm3_cur) +' GM3',
       badge: '★ Nyckeltal', hero: true,
@@ -1527,6 +1570,26 @@ function updateDateChip() {
   const c = p.compares[currentCompare];
   document.getElementById('date-chip-cur').textContent = p.label;
   document.getElementById('date-chip-cmp').textContent = 'vs ' + c.label;
+  // Say it out loud when the selection runs past the data. The export lands a
+  // day behind, so today is always empty and a range ending today is always a
+  // day short — without this the clamped window looks like the picked one.
+  const note = document.getElementById('date-chip-note');
+  if (!note) return;
+  const r = _curRange();
+  if (!DAILY_LONG.length || !r.missing) { note.textContent = ''; note.classList.remove('show'); return; }
+  const firstDay = _parseISO(DAILY_LONG[0].iso), lastDay = _dataEndDate();
+  const from = _ymd(firstDay), through = _ymd(lastDay);
+  // The two-sided messages name a window that can span years, so they carry the
+  // year (_fmtRange); the one-sided ones sit next to a chip that already shows it.
+  const span = _fmtRange(firstDay, lastDay);
+  const days = n => `${n} day${n > 1 ? 's' : ''}`;
+  note.textContent =
+      r.empty && r.after  ? `no data yet · export reaches ${through}`
+    : r.empty             ? `no data for this range · series covers ${span}`
+    : r.after && r.before ? `partly outside the data · showing ${span}`
+    : r.after             ? `last ${days(r.after)} not loaded · showing through ${through}`
+    :                       `first ${days(r.before)} predate the data · showing from ${from}`;
+  note.classList.add('show');
 }
 
 function setPeriod(name) {
@@ -1566,10 +1629,18 @@ document.getElementById('compare-mode').addEventListener('change', e => {
     if (p === 'custom' || !PERIODS[p]) return;
     btn.title = `${_tabNames[p] || 'Last ' + p} (${PERIODS[p].label})`;
   });
-  const iso = d => d.toISOString().slice(0,10);
-  document.getElementById('d-start').value = iso(_R30.start);
-  document.getElementById('d-end').value   = iso(_R30.end);
+  document.getElementById('d-start').value = _isoLocal(_R30.start);
+  document.getElementById('d-end').value   = _isoLocal(_R30.end);
+  _setDateMax(_dataEndDate());
 })();
+
+/* Cap both pickers at the last day the series covers, so today is not an option
+ * on offer while the export is a day behind (which it always is). Typing a later
+ * date still works — _curRange() clamps it and the chip explains. */
+function _setDateMax(end) {
+  const max = _isoLocal(end);
+  ['d-start', 'd-end'].forEach(id => { const el = document.getElementById(id); if (el) el.max = max; });
+}
 
 /* ── Live data overlay (fetched from /api/kv-data, refreshed by cron) ───
  * Embedded constants render instantly; this then overlays the most
@@ -1604,6 +1675,7 @@ async function fetchLiveAndOverlay() {
         };
         _reanchor('7D', 7);
         _reanchor('90D', 90);
+        _setDateMax(_de);
         const _r30 = _rangeBack(_de, 30), _iso = d => d.toLocaleDateString('sv-SE');
         const _ds = document.getElementById('d-start'), _den = document.getElementById('d-end');
         if (_ds && _den && currentPeriod !== 'custom') { _ds.value = _iso(_r30.start); _den.value = _iso(_r30.end); }
@@ -1710,32 +1782,29 @@ async function checkRefreshStatus() {
 checkRefreshStatus();
 
 /* ── Custom date range ───────────────────────────── */
+/* Reset the custom slot to empty and let syncRealPeriod() fill it from the real
+ * daily series. It used to seed the slot with the 30-day totals scaled by
+ * days/30 — a leftover from before the long series existed. That made a one-day
+ * range render one-thirtieth of the last 30 days as if it were that day, and a
+ * range the series cannot cover (today) kept the invention on screen, because
+ * syncRealPeriod bailed out the moment it found no rows. Never fabricate: show
+ * '—' and let the chip explain why. */
 function setCustomRange(start, end) {
-  // Compute days between
   const s = new Date(start), e = new Date(end);
   const days = Math.max(1, Math.round((e - s) / 86400000) + 1);
-  // Scale 30D base values to the custom day count (placeholder for live data)
-  const base30 = PERIODS['30D'];
-  const scale = days / 30;
   const fmt = d => d.toLocaleDateString('sv-SE', { day:'numeric', month:'short', year:'numeric' });
   PERIODS.custom = {
     label: `${fmt(s)} – ${fmt(e)}`,
-    cur: scaleObj(base30.cur, scale),
+    cur: _noTotals(),
     compares: {
-      pop: { label: `Previous ${days} days`,
-             data: scaleObj(base30.compares.pop.data, scale) },
+      pop: { label: `Previous ${days} days`, data: _noTotals() },
       yoy_date: { label: `${fmt(new Date(s.getFullYear()-1, s.getMonth(), s.getDate()))} – ${fmt(new Date(e.getFullYear()-1, e.getMonth(), e.getDate()))}`,
-                  data: scaleObj(base30.compares.yoy_date.data, scale) },
+                  data: _noTotals() },
       yoy_wday: { label: `${fmt(new Date(s.getTime() - 364*86400000))} – ${fmt(new Date(e.getTime() - 364*86400000))} (samma veckodag)`,
-                  data: scaleObj(base30.compares.yoy_wday.data, scale) },
+                  data: _noTotals() },
     },
   };
   if (currentPeriod === 'custom') { applyFilter(); loadBreakdown(); }
-}
-function scaleObj(o, k) {
-  const out = {};
-  for (const key in o) out[key] = Math.round(o[key] * k);
-  return out;
 }
 document.getElementById('d-start').addEventListener('change', () => {
   setCustomRange(document.getElementById('d-start').value, document.getElementById('d-end').value);
@@ -1872,6 +1941,15 @@ let _bkSeq = 0;
 async function loadBreakdown(){
   if (!DAILY_LONG.length) return;
   const r = _curRange(), c = _cmpRange(r);
+  // Selection past the data: BigQuery has nothing to return, and leaving the
+  // tables alone would park the previous range's rows under today's date.
+  if (r.empty) {
+    _bkSeq++;                             // drop any in-flight response
+    MARKETS.splice(0); SHOPS.splice(0); CHANNELS.splice(0);
+    applyFilter();
+    renderMarketTable(); renderShopCards(); renderChannelTable(); renderChannelChart();
+    return;
+  }
   const af = _activeFilters();
   const p = new URLSearchParams({
     dataset: 'kv',
@@ -1962,7 +2040,9 @@ function _normDay(iso, r) {
 // select an arbitrary span and a multi-year daily line is unreadable anyway.
 const _MAX_TREND_DAYS = 400;
 function _daysBetween(range) {
-  const out = [], d = new Date(range.start);
+  const out = [];
+  if (range.empty) return out;            // selection is past the data — nothing to draw
+  const d = new Date(range.start);
   while (d <= range.end && out.length < _MAX_TREND_DAYS) {
     out.push(_isoLocal(d)); d.setDate(d.getDate() + 1);
   }
@@ -2117,6 +2197,17 @@ function applyFilter() {
     pill.style.display = 'inline-block';
   } else {
     pill.style.display = 'none';
+  }
+
+  // Nothing in the selected window exists yet — no filter can make it exist, and
+  // a BigQuery round-trip for an empty range only risks leaving stale cards up.
+  if (_curRange().empty) {
+    _filtSeq++;
+    CUR  = periodBase.cur;                // syncRealPeriod() just nulled these
+    PREV = cmpBase;
+    _useAllSeries();
+    _renderFiltered();
+    return;
   }
 
   if (af.length === 0) {
@@ -2373,8 +2464,14 @@ function _trendCmp() {
 }
 function _updateTrendSub() {
   const sub = document.getElementById('trend-sub');
+  if (!sub) return;
   const D = _trendDaily();
-  if (!sub || !D.length) return;
+  // No days in range — the selection sits past the data. Returning early left
+  // the previous window's dates above an empty chart.
+  if (!D.length) {
+    sub.textContent = `${PERIODS[currentPeriod].label} · no data yet` + _seriesSuffix();
+    return;
+  }
   // Rows built by _recomputeTrendSeries carry `iso`; the embedded placeholder
   // series only has the "25/4" label, so fall back to parsing that.
   const at = r => (r.iso ? _parseISO(r.iso) : _parseDailyD(r.d, _YESTERDAY));

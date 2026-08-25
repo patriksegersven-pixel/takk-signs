@@ -57,6 +57,8 @@
     .date-chip-text { display: flex; flex-direction: column; line-height: 1.25; }
     #date-chip-cur { font-size: 13px; font-weight: 500; color: var(--h); font-variant-numeric: tabular-nums; }
     #date-chip-cmp { font-size: 10px; color: var(--muted); margin-top: 1px; font-variant-numeric: tabular-nums; }
+    #date-chip-note { display: none; font-size: 10px; font-weight: 600; color: var(--warn); margin-top: 1px; }
+    #date-chip-note.show { display: block; }
     .custom-dates {
       display: flex; align-items: center; gap: 6px;
       background: var(--card); border: 1px solid var(--border);
@@ -469,6 +471,7 @@
         <div class="date-chip-text">
           <div id="date-chip-cur">25 apr – 24 maj 2026</div>
           <div id="date-chip-cmp">vs 26 mar – 24 apr 2026</div>
+          <div id="date-chip-note"></div>
         </div>
       </div>
     </div>
@@ -868,7 +871,7 @@ let DAILY_LONG = [{"iso":"2025-01-01","revenue":490888,"cogs":6429,"gp1":484459,
 const _isoLocal = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const _parseISO = s => { const [y,m,dd] = s.split('-').map(Number); return new Date(y, m-1, dd); };
 function _dataEndDate(){ return DAILY_LONG.length ? _parseISO(DAILY_LONG[DAILY_LONG.length-1].iso) : _YESTERDAY; }
-function _curRange(){
+function _requestedRange(){
   if (currentPeriod === 'custom') {
     const s = document.getElementById('d-start').value, e = document.getElementById('d-end').value;
     if (s && e) return { start: _parseISO(s), end: _parseISO(e) };
@@ -877,6 +880,30 @@ function _curRange(){
   if (currentPeriod === 'lm')  return _lastMonthRange(_dataEndDate());
   const n = currentPeriod === '7D' ? 7 : currentPeriod === '90D' ? 90 : 30;
   return _rangeBack(_dataEndDate(), n);
+}
+/* The daily series stops at the last day the Funnel export has landed — normally
+ * yesterday, since the export runs a day behind. The custom picker will happily
+ * take a later date (picking today is the obvious case) and those days have no
+ * rows at all. Clamp the selection to the days that exist, so the totals, the
+ * comparison span and the breakdown query all describe the SAME real window.
+ * `missing` counts the days cut off so the chip can say so; `empty` marks a
+ * selection lying entirely past the data — there start/end stay at what was
+ * picked, because the labels must still read back the user's choice. */
+function _curRange(){
+  const req = _requestedRange();
+  if (!DAILY_LONG.length) return { start: req.start, end: req.end, before: 0, after: 0, missing: 0, empty: false };
+  const first = _parseISO(DAILY_LONG[0].iso), last = _dataEndDate();
+  const after  = req.end   > last  ? Math.round((req.end - last) / 86400000) : 0;
+  const before = req.start < first ? Math.round((first - req.start) / 86400000) : 0;
+  const meta = { before, after, missing: before + after };
+  // Wholly past the end (today) or wholly before the start (a pre-export range).
+  if (req.start > last || req.end < first)
+    return { start: req.start, end: req.end, ...meta, empty: true };
+  return {
+    start: before ? new Date(first) : req.start,
+    end:   after  ? new Date(last)  : req.end,
+    ...meta, empty: false,
+  };
 }
 function _cmpRange(r){
   return currentCompare === 'yoy_date' ? _yoyDate(r)
@@ -897,17 +924,32 @@ function _sumRange(start, end){
   if (!netn) acc.net_revenue = null;
   return n ? acc : null;
 }
+/* Totals for a window the series cannot answer for. Every field null, so the
+ * cards print '—' and deltaBadge drops its badge instead of inventing a figure. */
+const _noTotals = () => ({ revenue:null, net_revenue:null, cogs:null, gp1:null, gp2:null, gp3:null });
+
 /* Overwrite PERIODS[currentPeriod] cur + active comparison with real summed values. */
 function syncRealPeriod(){
   if (!DAILY_LONG.length) return;
-  const r = _curRange(); const cur = _sumRange(r.start, r.end);
-  if (!cur) return;                               // selected range has no data → keep existing
-  const c = _cmpRange(r); const prev = _sumRange(c.start, c.end);
-  const p = PERIODS[currentPeriod];
+  const r = _curRange(), c = _cmpRange(r);
+  const p = PERIODS[currentPeriod], cmp = p.compares[currentCompare];
+  const cmpLabel = _fmtRange(c.start, c.end) + (currentCompare === 'yoy_wday' ? ' (samma veckodag)' : '');
+  // Nothing in the selection has landed yet — the "today" case. Blank the cards:
+  // the previous selection's numbers sitting under today's date read as a real
+  // (and alarming) day, and that is exactly what this function used to leave up.
+  if (r.empty) {
+    p.cur = _noTotals(); p.label = _fmtRange(r.start, r.end);
+    cmp.data = _noTotals(); cmp.label = cmpLabel;
+    return;
+  }
+  const cur = _sumRange(r.start, r.end);
+  if (!cur) return;                               // hole mid-series → keep existing
+  const prev = _sumRange(c.start, c.end);
   p.cur = cur; p.label = _fmtRange(r.start, r.end);
-  const cmp = p.compares[currentCompare];
-  cmp.data = prev || cur;
-  cmp.label = _fmtRange(c.start, c.end) + (currentCompare === 'yoy_wday' ? ' (samma veckodag)' : '');
+  // No comparison window in the series (a range reaching back before the export
+  // begins) → '—'. Comparing the period against itself printed a measured 0,0%.
+  cmp.data = prev || _noTotals();
+  cmp.label = cmpLabel;
 }
 
 // GM Structure by dimension: each entry has cogs%, ops%, mkt% (gp3% = remainder)
@@ -1196,7 +1238,16 @@ function seasonCell(rawRow, dim) {
     title="${escHtml(tip)}">${pillHTML}</td>`;
 }
 
+const _num       = v => typeof v === 'number' && isFinite(v);
+const _sekOrDash = v => _num(v) ? fmtSEK(v) : '—';
+const _pctOrDash = v => _num(v) ? fmtPct(v) : '—';
+const _ratio     = (a, b) => (_num(a) && _num(b) && b !== 0) ? a / b : null;
+/* A window the series cannot answer for carries nulls, and an entity can be
+ * pure cost with no revenue to divide by. Both print '—': a badge reading
+ * "NaN%" — or worse, "+0,0%" — claims a measurement that was never made. */
 function deltaBadge(cur, prev) {
+  if (!_num(cur) || !_num(prev) || prev === 0)
+    return '<span class="kpi-delta" style="color:var(--muted)">—</span>';
   const d = (cur - prev) / Math.abs(prev);
   const good = d > 0;
   return `<span class="kpi-delta ${good?'up':'down'}">${d>=0?arrowUp:arrowDown}${d>=0?'+':''}${fmtPct(d)}</span>`;
@@ -1215,50 +1266,49 @@ function renderKPIs() {
   const cards = [
     {
       label:'Revenue', field: FIELD_IDS['kv-revenue-product'],
-      value: fmtSEK(T.revenue),
+      value: _sekOrDash(T.revenue),
       delta: deltaBadge(T.revenue, P.revenue),
       note: 'Top line · kv-revenue-product',
     },
     {
       label:'Net Revenue', field: FIELD_IDS['kv-net-revenue-product'],
-      value: typeof T.net_revenue === 'number' ? fmtSEK(T.net_revenue) : '—',
-      delta: (typeof T.net_revenue === 'number' && typeof P.net_revenue === 'number')
-               ? deltaBadge(T.net_revenue, P.net_revenue) : '',
+      value: _sekOrDash(T.net_revenue),
+      delta: deltaBadge(T.net_revenue, P.net_revenue),   // guards its own nulls now
       note: 'after returns (allocated)',
       pills: ['− Returns'],
     },
     {
       label:'GP1', field: FIELD_IDS['kv-gp1-product'],
-      value: fmtSEK(gp1),
+      value: _sekOrDash(gp1),
       delta: deltaBadge(gp1, P.gp1),
-      note: `GM1 ${fmtPct(gp1/_nrevT(T))} · after returns & COGS`,
+      note: `GM1 ${_pctOrDash(_ratio(gp1, _nrevT(T)))} · after returns & COGS`,
       pills: ['− COGS'],
     },
     {
       label:'GP2', field: FIELD_IDS['kv-gp2-product'],
-      value: fmtSEK(gp2),
+      value: _sekOrDash(gp2),
       delta: deltaBadge(gp2, P.gp2),
-      note: `GM2 ${fmtPct(gp2/T.revenue)} · after ops costs`,
+      note: `GM2 ${_pctOrDash(_ratio(gp2, T.revenue))} · after ops costs`,
       pills: ['− Shipping + P&P + Payment'],
     },
     {
       label:'GP3-Shopping', field: FIELD_IDS['kv-gp3-shopping'],
-      value: fmtSEK(gp3),
+      value: _sekOrDash(gp3),
       delta: deltaBadge(gp3, P.gp3),
-      note: `GM3 ${fmtPct(gp3/T.revenue)} · after marketing`,
+      note: `GM3 ${_pctOrDash(_ratio(gp3, T.revenue))} · after marketing`,
       badge: '★ Nyckeltal',
       hero: true,
     },
     {
       label:'GM2%', field: FIELD_IDS['kv-gm2-product'],
-      value: fmtPct(gp2/T.revenue),
-      delta: deltaBadge(gp2/T.revenue, P.gp2/P.revenue),
+      value: _pctOrDash(_ratio(gp2, T.revenue)),
+      delta: deltaBadge(_ratio(gp2, T.revenue), _ratio(P.gp2, P.revenue)),
       note: 'GP2 / Revenue',
     },
     {
       label:'GM3%', field: FIELD_IDS['kv-gm3-shopping'],
-      value: fmtPct(gp3/T.revenue),
-      delta: deltaBadge(gp3/T.revenue, P.gp3/P.revenue),
+      value: _pctOrDash(_ratio(gp3, T.revenue)),
+      delta: deltaBadge(_ratio(gp3, T.revenue), _ratio(P.gp3, P.revenue)),
       note: 'GP3 / Revenue · target metric',
     },
   ];
@@ -1289,6 +1339,26 @@ function updateDateChip() {
   const c = p.compares[currentCompare];
   document.getElementById('date-chip-cur').textContent = p.label;
   document.getElementById('date-chip-cmp').textContent = 'vs ' + c.label;
+  // Say it out loud when the selection runs past the data. The export lands a
+  // day behind, so today is always empty and a range ending today is always a
+  // day short — without this the clamped window looks like the picked one.
+  const note = document.getElementById('date-chip-note');
+  if (!note) return;
+  const r = _curRange();
+  if (!DAILY_LONG.length || !r.missing) { note.textContent = ''; note.classList.remove('show'); return; }
+  const firstDay = _parseISO(DAILY_LONG[0].iso), lastDay = _dataEndDate();
+  const from = _ymd(firstDay), through = _ymd(lastDay);
+  // The two-sided messages name a window that can span years, so they carry the
+  // year (_fmtRange); the one-sided ones sit next to a chip that already shows it.
+  const span = _fmtRange(firstDay, lastDay);
+  const days = n => `${n} day${n > 1 ? 's' : ''}`;
+  note.textContent =
+      r.empty && r.after  ? `no data yet · export reaches ${through}`
+    : r.empty             ? `no data for this range · series covers ${span}`
+    : r.after && r.before ? `partly outside the data · showing ${span}`
+    : r.after             ? `last ${days(r.after)} not loaded · showing through ${through}`
+    :                       `first ${days(r.before)} predate the data · showing from ${from}`;
+  note.classList.add('show');
 }
 
 function setPeriod(name) {
@@ -1326,10 +1396,18 @@ document.getElementById('compare-mode').addEventListener('change', e => {
     if (p === 'custom' || !PERIODS[p]) return;
     btn.title = `${_tabNames[p] || 'Last ' + p} (${PERIODS[p].label})`;
   });
-  const iso = d => d.toISOString().slice(0,10);
-  document.getElementById('d-start').value = iso(_R30.start);
-  document.getElementById('d-end').value   = iso(_R30.end);
+  document.getElementById('d-start').value = _isoLocal(_R30.start);
+  document.getElementById('d-end').value   = _isoLocal(_R30.end);
+  _setDateMax(_dataEndDate());
 })();
+
+/* Cap both pickers at the last day the series covers, so today is not an option
+ * on offer while the export is a day behind (which it always is). Typing a later
+ * date still works — _curRange() clamps it and the chip explains. */
+function _setDateMax(end) {
+  const max = _isoLocal(end);
+  ['d-start', 'd-end'].forEach(id => { const el = document.getElementById(id); if (el) el.max = max; });
+}
 
 /* ── Live data overlay (fetched from /api/product-data) ──── */
 async function fetchLiveAndOverlay() {
@@ -1357,6 +1435,7 @@ async function fetchLiveAndOverlay() {
     if (Array.isArray(live.categories)) CATEGORIES.splice(0, CATEGORIES.length, ...live.categories);
     if (Array.isArray(live.brands))     BRANDS.splice    (0, BRANDS.length,     ...live.brands);
     if (Array.isArray(live.daily_long)) DAILY_LONG = live.daily_long;   // real long daily series
+    if (typeof _setDateMax === 'function') _setDateMax(_dataEndDate());
 
     // Long-term chart follows the daily series — rebuild its monthly totals
     // so 2026 reaches the live data_end instead of the embedded snapshot's.
@@ -1434,27 +1513,26 @@ async function checkRefreshStatus() {
 }
 checkRefreshStatus();
 
-function scaleObj(o, k) {
-  const out = {};
-  for (const key in o) out[key] = Math.round(o[key] * k);
-  return out;
-}
+/* Reset the custom slot to empty and let syncRealPeriod() fill it from the real
+ * daily series. It used to seed the slot with the 30-day totals scaled by
+ * days/30 — a leftover from before the long series existed. That made a one-day
+ * range render one-thirtieth of the last 30 days as if it were that day, and a
+ * range the series cannot cover (today) kept the invention on screen, because
+ * syncRealPeriod bailed out the moment it found no rows. Never fabricate: show
+ * '—' and let the chip explain why. */
 function setCustomRange(start, end) {
   const s = new Date(start), e = new Date(end);
   const days = Math.max(1, Math.round((e - s) / 86400000) + 1);
-  const base30 = PERIODS['30D'];
-  const scale = days / 30;
   const fmt = d => d.toLocaleDateString('sv-SE', { day:'numeric', month:'short', year:'numeric' });
   PERIODS.custom = {
     label: `${fmt(s)} – ${fmt(e)}`,
-    cur: scaleObj(base30.cur, scale),
+    cur: _noTotals(),
     compares: {
-      pop: { label: `Previous ${days} days`,
-             data: scaleObj(base30.compares.pop.data, scale) },
+      pop: { label: `Previous ${days} days`, data: _noTotals() },
       yoy_date: { label: `${fmt(new Date(s.getFullYear()-1, s.getMonth(), s.getDate()))} – ${fmt(new Date(e.getFullYear()-1, e.getMonth(), e.getDate()))}`,
-                  data: scaleObj(base30.compares.yoy_date.data, scale) },
+                  data: _noTotals() },
       yoy_wday: { label: `${fmt(new Date(s.getTime() - 364*86400000))} – ${fmt(new Date(e.getTime() - 364*86400000))} (samma veckodag)`,
-                  data: scaleObj(base30.compares.yoy_wday.data, scale) },
+                  data: _noTotals() },
     },
   };
   if (currentPeriod === 'custom') { applyFilter(); loadBreakdown(); }
@@ -1615,6 +1693,15 @@ let _bkSeq = 0;
 async function loadBreakdown(){
   if (!DAILY_LONG.length) return;
   const r = _curRange(), c = _cmpRange(r);
+  // Selection past the data: BigQuery has nothing to return, and leaving the
+  // tables alone would park the previous range's rows under today's date.
+  if (r.empty) {
+    _bkSeq++;                                    // drop any in-flight response
+    BRANDS.splice(0); CATEGORIES.splice(0);
+    renderBrandTable(); renderCategoryTable();
+    applyFilter();
+    return;
+  }
   const q = `/api/breakdown?dataset=product&start=${_isoLocal(r.start)}&end=${_isoLocal(r.end)}`
           + `&cstart=${_isoLocal(c.start)}&cend=${_isoLocal(c.end)}`;
   const seq = ++_bkSeq;
@@ -1652,8 +1739,10 @@ function applyFilter() {
     pill.style.display = 'none';
   }
 
-  if (!activeKey) {
-    TOTALS = { cur: periodBase.cur, prev: cmpBase };
+  // Nothing in the selected window exists yet — no brand or category filter can
+  // make it exist, and scaling a null comparison by revenue share yields 0.
+  if (!activeKey || _curRange().empty) {
+    TOTALS = { cur: periodBase.cur, prev: cmpBase };   // syncRealPeriod() nulled these
   } else {
     const sourceMap = { brand: BRANDS, category: CATEGORIES };
     const entry = sourceMap[activeKey].find(e => e.name === activeVal);
