@@ -949,6 +949,71 @@ function shareFor(index, account, name, id) {
   return index.byName[JSON.stringify([account, String(name || '').trim().toLowerCase()])] || null;
 }
 
+/**
+ * The calibrated-recommendation block computed server-side from BigQuery
+ * (roas_sims_bq.py: κ level factors shrunk to class medians + the measured-
+ * marginal gate). Optional in exactly the way shares and actuals are: a
+ * payload without it — an old cached payload, the demo payload, a snapshot
+ * from before the feature — renders the page exactly as it looked before.
+ * Numbers here are display-only: the page's own curve math stays untouched,
+ * because the calibrated view is EVIDENCE about the curve, not a new curve.
+ */
+function normalizeCalibration(cal) {
+  if (!cal || !Array.isArray(cal.rows) || !cal.rows.length) return null;
+  var rows = cal.rows.filter(function (r) {
+    return r && r.account && (r.strategyId || r.name) && parseRoas(r.recFinal) !== null;
+  });
+  if (!rows.length) return null;
+  return { runDate: String(cal.run_date || cal.runDate || ''), rows: rows };
+}
+
+function buildCalIndex(cal) {
+  if (!cal) return null;
+  var byId = {}, byName = {};
+  cal.rows.forEach(function (r) {
+    r.runDate = cal.runDate;
+    if (r.strategyId) byId[JSON.stringify([r.account, String(r.strategyId).trim()])] = r;
+    if (r.name) byName[JSON.stringify([r.account, String(r.name).toLowerCase()])] = r;
+  });
+  return { byId: byId, byName: byName, count: cal.rows.length, runDate: cal.runDate };
+}
+
+function calFor(index, account, name, id) {
+  if (!index) return null;
+  if (id) {
+    var hit = index.byId[JSON.stringify([account, String(id).trim()])];
+    if (hit) return hit;
+  }
+  return index.byName[JSON.stringify([account, String(name || '').trim().toLowerCase()])] || null;
+}
+
+var CAL_GATE_LABEL = {
+  'revert-spend-increase': 'revert',
+  'restore-profitable-spend': 'restore'
+};
+
+function calGateTitle(c) {
+  if (!c || !c.gate) return '';
+  var m = c.lastMarginal !== null && c.lastMarginal !== undefined ? Number(c.lastMarginal).toFixed(2) : '?';
+  var sim = c.lastSimMarginal !== null && c.lastSimMarginal !== undefined ? Number(c.lastSimMarginal).toFixed(2) : '?';
+  var when = c.lastChangeDate || 'the last change';
+  if (c.gate === 'revert-spend-increase')
+    return 'Gated by measured evidence: the ' + when + ' spend increase returned ' + m +
+      ' GP2 per krona (the simulation promised ' + sim + '), so the recommendation reverts to at least the pre-change target.';
+  return 'Gated by measured evidence: the spend given up on ' + when + ' was returning ' + m +
+    ' GP2 per krona (simulation said ' + sim + '), so the recommendation restores at most the pre-change target.';
+}
+
+function calRecTitle(c) {
+  if (!c) return '';
+  var bits = ['Google\u2019s latest curve deflated by this campaign\u2019s measured optimism factors ' +
+    '\u03baC ' + Number(c.kCost).toFixed(2) + ' / \u03baV ' + Number(c.kValue).toFixed(2) +
+    ' (' + (c.kappaDays || 0) + 'd, shrunk toward the ' + (c.incClass || 'class') + ' median), optimum re-derived'];
+  if (c.gate) bits.push(calGateTitle(c));
+  bits.push('BigQuery roas_sims.v_calibrated_recs, run ' + (c.runDate || ''));
+  return bits.join(' \u00b7 ');
+}
+
 /* ---------- actual performance, two attribution schemes -------------------------
 
    WHY THIS EXISTS
@@ -1890,6 +1955,8 @@ const state = {
   shareIndex: null,   // (account, campaign id|name) -> share row
   actuals: [],        // normalised actual-performance rows (every run date present)
   actualIndex: null,  // (account, run date, campaign id|name) -> actuals row
+  calibration: null,  // calibrated-recs block from BigQuery (run_date + rows), or null
+  calIndex: null,     // (account, strategy id|name) -> calibration row
   source: 'demo',     // 'live' | 'cached' | 'demo'
   fetchedAt: null,
   error: null,
@@ -1981,6 +2048,10 @@ function adoptPayload(payload, source, fetchedAt){
      columns are not rendered at all — the page looks exactly as it did before. */
   state.actuals = normalizeActuals(payload.actuals);
   state.actualIndex = buildActualIndex(state.actuals);
+  /* Calibration is optional in the same way: absent -> the column and the
+     drill-down rows simply do not render. */
+  state.calibration = normalizeCalibration(payload.calibration);
+  state.calIndex = buildCalIndex(state.calibration);
   state.source = source;
   state.fetchedAt = fetchedAt || null;
 }
@@ -2495,7 +2566,8 @@ function renderSummaryTable(){
   /* Actual-ROAS columns exist only when the Actuals tab has a row for this run. Without them
      the table is exactly the 11-column table that predates the feature. */
   const act = anyActuals();
-  const NCOL = act ? 13 : 11;
+  const cal = !!state.calIndex;
+  const NCOL = (act ? 13 : 11) + (cal ? 1 : 0);
   /* The header tooltip covers the whole column, so it may only claim POAS when conversion value
      is gross profit for EVERY campaign in the selection. One revenue-reporting account is enough
      to make the claim false; the per-cell tooltip still says which is which. */
@@ -2507,6 +2579,7 @@ function renderSummaryTable(){
       <th>Campaign</th>
       <th title="the Target ROAS configured right now">Current</th>
       <th title="the simulated target with the highest ${G3}">Rec.</th>
+      ${cal ? `<th data-tt-value="Calibrated rec" title="Google\u2019s curve corrected by MEASURED evidence: \u03ba optimism factors learned from ${esc(state.calIndex.runDate || 'recent')} history, and a gate that reverts any move the last measured marginal refuted. This is the number to act on; Rec. is Google\u2019s raw claim.">Calibrated</th>` : ''}
       <th title="target where the marginal krona returns exactly 1.0, interpolated">Breakeven</th>
       ${act ? `<th data-tt-value="Actual ROAS (conv. time)" title="MEASURED, not simulated: conversion value counted on the date each conversion happened (Google Ads &quot;by conv. time&quot;, this account's default view) divided by cost over the same window.${poasNote}">Actual ROAS<br><span class="assumption">conv. time</span></th>
       <th data-tt-value="Actual ROAS (click time)" title="MEASURED, not simulated: conversion value counted on the date of the click that led to it (Google Ads' standard columns) divided by cost over the same window. This is the scheme the bid simulator and Target ROAS bidding run on.">Actual ROAS<br><span class="assumption">click time</span></th>` : ''}
@@ -2543,6 +2616,11 @@ function renderSummaryTable(){
       <td><b style="color:var(--accent)">${fmtPct(s.opt.target)}</b>${
         s.incAdjusted && s.optObserved.target !== s.opt.target
           ? `<div class="assumption" title="where the unadjusted GP3 maximum sits">obs ${fmtPct(s.optObserved.target)}</div>` : ''}</td>
+      ${cal ? (c => c
+        ? `<td title="${esc(calRecTitle(c))}"><b style="color:${c.gate ? 'var(--warn, #b45309)' : 'var(--accent)'}">${fmtPct(c.recFinal)}</b>${
+            c.gate ? `<div class="assumption">${esc(CAL_GATE_LABEL[c.gate] || 'gated')} · m ${c.lastMarginal !== null && c.lastMarginal !== undefined ? Number(c.lastMarginal).toFixed(2) : '?'}</div>`
+                   : `<div class="assumption">\u03baV ${Number(c.kValue).toFixed(2)}</div>`}</td>`
+        : '<td class="cell-muted">\u2014</td>')(calFor(state.calIndex, s.account, s.name, s.id)) : ''}
       <td class="cell-muted mono">${be}</td>
       ${actCells}
       <td>${fmtMoney(cur.cost, s.currency)}</td>
@@ -2724,6 +2802,12 @@ function renderStrategy(){
   meta.innerHTML = `
     <div><span class="k">Current target</span><span class="v">${fmtPct(s.currentTarget)}</span></div>
     <div><span class="k">Recommended</span><span class="v" style="color:var(--accent)">${fmtPct(s.opt.target)}</span></div>
+    ${(c => c ? `
+    <div><span class="k">Calibrated rec</span><span class="v" title="${esc(calRecTitle(c))}" style="color:${c.gate ? 'var(--warn, #b45309)' : 'var(--accent)'}">${fmtPct(c.recFinal)}${
+      c.gate ? ` <span class="pill pill-warn" title="${esc(calGateTitle(c))}">${esc(CAL_GATE_LABEL[c.gate] || 'gated')}</span>` : ''}</span></div>
+    <div><span class="k">\u03ba cost / value</span><span class="v" title="Measured optimism at the operating point over ${c.kappaDays || 0} days: actual \u00f7 simulated, shrunk toward the ${esc(c.incClass || 'class')} median. Below 1.0 = the simulation over-promises.">${Number(c.kCost).toFixed(2)} / ${Number(c.kValue).toFixed(2)}</span></div>${
+      c.lastMarginal !== null && c.lastMarginal !== undefined ? `
+    <div><span class="k">Last measured marginal</span><span class="v" title="Realized marginal GP2 per krona across the ${esc(c.lastChangeDate || 'last')} target change vs the simulation\u2019s claim over the same segment.">${Number(c.lastMarginal).toFixed(2)} <span class="assumption">sim said ${c.lastSimMarginal !== null && c.lastSimMarginal !== undefined ? Number(c.lastSimMarginal).toFixed(2) : '?'}</span></span></div>` : ''}` : '')(calFor(state.calIndex, s.account, s.name, s.id))}
     <div><span class="k">Breakeven (interp.)</span><span class="v">${s.breakeven.target ? fmtPct1(s.breakeven.target) : '—'}</span></div>
     <div><span class="k">${G3} uplift</span><span class="v ${s.uplift > 1 ? 'pos' : s.uplift < -1 ? 'neg' : ''}">${signedMoney(s.uplift, s.currency)}</span></div>
     <div><span class="k">Cost change</span><span class="v">${signedMoney(s.costChange, s.currency)}</span></div>

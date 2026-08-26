@@ -94,6 +94,11 @@ from typing import Any, Iterable
 FIRESTORE_PROJECT   = os.environ.get("FIRESTORE_PROJECT") or os.environ.get("GCP_PROJECT")
 SNAPSHOT_COLLECTION = os.environ.get("ROAS_SIMS_COLLECTION", "roas_sim_snapshots")
 CONFIG_COLLECTION   = os.environ.get("ROAS_SIMS_CONFIG_COLLECTION", "roas_sim_config")
+# Calibrated recommendations (BigQuery v_calibrated_recs, written back by the
+# refresh so the dashboard gets them in its single Firestore read). Own
+# collection — never share one between features (CLAUDE.md).
+CALIBRATION_COLLECTION = os.environ.get("ROAS_SIMS_CALIBRATION_COLLECTION",
+                                        "roas_sim_calibration")
 CONFIG_DOC          = "config"
 
 # History retention, mirroring the Ads script's LOOKBACK_PRUNE_DAYS.
@@ -1099,6 +1104,18 @@ def refresh(run_date: str | None = None, db=None) -> dict:
             except Exception as e:
                 bq_export = f"error: {_error_text(e)[:500]}"
                 print(f"WARN roas_sims_bq export failed: {bq_export}", flush=True)
+            # Calibrated recs come FROM BigQuery (κ needs 28 days of history and
+            # the marginal-evidence tables), so this runs after the export and is
+            # equally best-effort: on failure the previous doc keeps serving and
+            # its own run_date shows the staleness.
+            try:
+                import roas_sims_bq
+                cal = roas_sims_bq.calibration_payload()
+                db.collection(CALIBRATION_COLLECTION).document("latest").set(cal)
+                bq_export = {**bq_export, "calibration_rows": len(cal["rows"])} \
+                    if isinstance(bq_export, dict) else bq_export
+            except Exception as e:
+                print(f"WARN calibration write failed: {_error_text(e)[:500]}", flush=True)
     finally:
         if lock.get("locked"):
             release_lock(db, holder)
@@ -1244,6 +1261,17 @@ def latest_snapshots(limit: int, db=None) -> list[dict]:
     docs = [d for d in docs if isinstance(d, dict) and d.get("run_date")]
     docs.sort(key=lambda d: d["run_date"])
     return docs
+
+
+def _load_calibration(db) -> dict | None:
+    """roas_sim_calibration/latest, or None — a read failure must not fail the payload."""
+    try:
+        doc = db.collection(CALIBRATION_COLLECTION).document("latest").get()
+        d = doc.to_dict() if doc.exists else None
+        return d if isinstance(d, dict) and isinstance(d.get("rows"), list) else None
+    except Exception as e:
+        print(f"WARN calibration read failed: {_error_text(e)[:300]}", flush=True)
+        return None
 
 
 def build_payload(runs: int = 0, account: str = "", db=None) -> dict:
@@ -1392,6 +1420,11 @@ def build_payload(runs: int = 0, account: str = "", db=None) -> dict:
                   if shares else None,
         "actuals": {"columns": actual_cols, "rows": actuals, "runDates": actual_dates}
                    if actuals else None,
+        # Calibrated recs from BigQuery (κ level correction + marginal-evidence
+        # gate), written back by the refresh. Absent is a NORMAL state — a page
+        # without it renders exactly as it did before the feature; a stale one
+        # is visible through its own run_date.
+        "calibration": _load_calibration(db),
     }
 
 

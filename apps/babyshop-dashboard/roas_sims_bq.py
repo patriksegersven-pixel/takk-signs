@@ -722,6 +722,56 @@ def export_snapshot(doc: dict, ensure: bool = True) -> dict:
     return {"run_date": run_date, **loaded}
 
 
+def calibration_payload() -> dict:
+    """
+    Compact calibrated-recommendation block for the dashboard.
+
+    One row per strategy from v_calibrated_recs, keyed the way the page indexes
+    strategies (customer_name + strategy_id). The refresh writes this to
+    Firestore `roas_sim_calibration/latest` right after the BigQuery export, so
+    the block always reflects the snapshot that was just collected; the page
+    treats a missing block exactly like a payload that predates the feature.
+    """
+    sql = f"""
+        SELECT run_date, customer_name, strategy_id, strategy_name, inc_class,
+               kappa_days, k_cost, k_value, current_target,
+               rec_google, rec_calibrated, rec_final, gate,
+               last_change_date, last_old_target, last_marginal,
+               last_sim_marginal, gp3_cal_at_current, gp3_cal_at_rec
+        FROM `{T("v_calibrated_recs")}`
+    """
+    rows = []
+    run_date = None
+    for r in bq().query(sql).result():
+        run_date = r.run_date.isoformat()
+        rows.append({
+            "account": r.customer_name,
+            "strategyId": str(r.strategy_id),
+            "name": r.strategy_name,
+            "incClass": r.inc_class,
+            "kappaDays": r.kappa_days,
+            "kCost": round(r.k_cost, 4) if r.k_cost is not None else None,
+            "kValue": round(r.k_value, 4) if r.k_value is not None else None,
+            "currentTarget": r.current_target,
+            "recGoogle": r.rec_google,
+            "recCalibrated": r.rec_calibrated,
+            "recFinal": r.rec_final,
+            "gate": r.gate,
+            "lastChangeDate": r.last_change_date.isoformat() if r.last_change_date else None,
+            "lastOldTarget": r.last_old_target,
+            "lastMarginal": round(r.last_marginal, 4) if r.last_marginal is not None else None,
+            "lastSimMarginal": round(r.last_sim_marginal, 4) if r.last_sim_marginal is not None else None,
+            "gp3CalAtCurrent": r.gp3_cal_at_current,
+            "gp3CalAtRec": r.gp3_cal_at_rec,
+        })
+    return {
+        "run_date": run_date,
+        "generated_at": (_dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)
+                         .isoformat().replace("+00:00", "Z")),
+        "rows": rows,
+    }
+
+
 def backfill(dates: list[str] | None = None) -> list[dict]:
     """Export every snapshot still in Firestore (or just `dates`), oldest first."""
     from refresh_roas_sims import RUN_DATE_RE, SNAPSHOT_COLLECTION, _firestore
