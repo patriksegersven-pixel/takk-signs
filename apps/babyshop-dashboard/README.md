@@ -37,6 +37,15 @@ Simulations page was originally developed is archived and read-only.)
   Firestore `roas_sim_snapshots`, plus the reader that rebuilds the payload
   `/api/roas-sims` serves. Config lives in Firestore `roas_sim_config/config`
   and is editable with no deploy.
+- `roas_sims_bq.py` — BigQuery export of every ROAS-sims snapshot into dataset
+  `roas_sims` (EU): `sim_points` / `impression_shares` / `actuals` partitioned
+  by run_date, the `target_changes` prediction log, and views `v_kappa`
+  (per-campaign sim-optimism factor) + `v_change_scoring` (predicted vs
+  realized per applied change). Called best-effort from `refresh()` — Firestore
+  keeps 90 days for serving, BigQuery keeps everything for model training.
+  Missed days: `python3 roas_sims_bq.py --backfill`. Every applied tROAS change
+  MUST be logged to `target_changes` with its predicted Δcost/ΔGP3 at apply
+  time — unlogged changes cannot be scored and the calibration never learns.
 - `requirements.txt`, `Dockerfile` — runtime (uvicorn on `python:3.12-slim`)
 - `pipeline/` — docs + operator tooling (dockerignored, not deployed):
   - `PIPELINE.md` — full pipeline documentation, data semantics and setup

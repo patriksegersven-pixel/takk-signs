@@ -1085,15 +1085,27 @@ def refresh(run_date: str | None = None, db=None) -> dict:
         snapshot = build_snapshot(run_date)
         written = {"written": None, "pruned": []}
         seeded = False
+        bq_export: dict | str = "skipped"
         if not skip_firestore:
             written = write_snapshot(snapshot, db=db)
             seeded = seed_config(db)
+            # Best-effort: BigQuery keeps the un-pruned training history for the
+            # in-house bid model (roas_sims_bq.py). The dashboard serves from
+            # Firestore alone, so a BigQuery failure must never fail the refresh —
+            # a missed day is re-exportable with `python3 roas_sims_bq.py --date`.
+            try:
+                import roas_sims_bq
+                bq_export = roas_sims_bq.export_snapshot(snapshot)
+            except Exception as e:
+                bq_export = f"error: {_error_text(e)[:500]}"
+                print(f"WARN roas_sims_bq export failed: {bq_export}", flush=True)
     finally:
         if lock.get("locked"):
             release_lock(db, holder)
 
     return {
         "status": "ok" if snapshot["ok"] else "error",
+        "bq_export": bq_export,
         "run_date": snapshot["run_date"],
         "counts": snapshot["counts"],
         "accounts": [{k: a[k] for k in ("cid", "name", "status", "error", "sim_rows",
