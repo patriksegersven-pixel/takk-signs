@@ -240,6 +240,111 @@ _VIEWS = {
           USING (run_date, customer_name, strategy_id)
         WHERE a.cost > 0
     """,
+    # Calibration v2 — κ with empirical-Bayes shrinkage. Per-campaign κ is a
+    # spend-weighted mean over the last 28 days; overlapping 7-day windows mean
+    # ~7 daily readings ≈ 1 independent observation, so effective weight is
+    # days/7. Each campaign is shrunk toward its incrementality class's MEDIAN
+    # (measured 2026-08-26: the generic-class MEAN was 1.45 against a median of
+    # 1.01 — tiny ROW campaigns with garbage sims produce κ up to 13 and a mean
+    # prior would inflate every campaign's κ above 1, flipping the correction's
+    # sign) with prior strength τ=2 independent-week-equivalents. Raw κ is also
+    # clamped to [0.25, 4]: outside that band the sim is noise, not a level to
+    # learn from.
+    # Class rules mirror incrementalityClass() in babyshop-roas-simulations.html
+    # EXACTLY: 'brand' anywhere → brand; 'pb-generic' → generic; '-pb-' or
+    # trailing '-pb' → private-label; else generic.
+    # κ here is a LEVEL correction at the operating point. The curves' remaining
+    # failure mode is SLOPE optimism (marginal value of moving the target),
+    # which only v_change_scoring can measure — apply step caps on top.
+    "v_kappa_calibrated": """
+        WITH k AS (
+          SELECT customer_name, strategy_name, strategy_id, currency,
+                 CASE
+                   WHEN LOWER(strategy_name) LIKE '%brand%' THEN 'brand'
+                   WHEN LOWER(strategy_name) LIKE '%pb-generic%' THEN 'generic'
+                   WHEN LOWER(strategy_name) LIKE '%-pb-%'
+                     OR LOWER(strategy_name) LIKE '%-pb' THEN 'private-label'
+                   ELSE 'generic'
+                 END AS inc_class,
+                 kappa_cost, kappa_value, actual_cost
+          FROM `{v_kappa}`
+          WHERE run_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 28 DAY)
+            AND kappa_cost IS NOT NULL AND kappa_value IS NOT NULL
+        ),
+        per_campaign AS (
+          SELECT customer_name, strategy_name, strategy_id, currency, inc_class,
+                 COUNT(*) AS days,
+                 COUNT(*) / 7.0 AS n_eff,
+                 LEAST(4, GREATEST(0.25,
+                   SUM(actual_cost * kappa_cost)  / SUM(actual_cost))) AS k_cost_raw,
+                 LEAST(4, GREATEST(0.25,
+                   SUM(actual_cost * kappa_value) / SUM(actual_cost))) AS k_value_raw,
+                 AVG(actual_cost) AS avg_7d_cost
+          FROM k
+          GROUP BY 1, 2, 3, 4, 5
+        ),
+        class_prior AS (
+          SELECT inc_class,
+                 APPROX_QUANTILES(k_cost_raw,  100)[OFFSET(50)] AS k_cost_class,
+                 APPROX_QUANTILES(k_value_raw, 100)[OFFSET(50)] AS k_value_class,
+                 COUNT(*) AS class_campaigns
+          FROM per_campaign
+          GROUP BY 1
+        )
+        SELECT p.customer_name, p.strategy_name, p.strategy_id, p.currency,
+               p.inc_class, p.days, p.avg_7d_cost,
+               p.k_cost_raw, p.k_value_raw,
+               c.k_cost_class, c.k_value_class, c.class_campaigns,
+               (p.n_eff * p.k_cost_raw  + 2 * c.k_cost_class)  / (p.n_eff + 2)
+                 AS k_cost,
+               (p.n_eff * p.k_value_raw + 2 * c.k_value_class) / (p.n_eff + 2)
+                 AS k_value
+        FROM per_campaign p
+        JOIN class_prior c USING (inc_class)
+    """,
+    # Google's latest curve with both axes deflated by shrunk κ, optimum
+    # re-derived: gp3_cal = κ_value·value − κ_cost·cost per simulated point,
+    # rec = argmax (anchor excluded, matching the dashboard's Rec. semantics).
+    # rec_google is the RAW curve's argmax for comparison. uplift_cal is the
+    # calibrated GP3 gain vs the calibrated GP3 at the point nearest the live
+    # target — in currency units per week. Deliberately no step cap here: caps
+    # are an apply-time policy, not a property of the curve.
+    "v_calibrated_recs": """
+        WITH pts AS (
+          SELECT s.run_date, s.customer_name, s.strategy_name, s.strategy_id,
+                 s.currency, s.current_target, s.strategy_type, s.target_roas,
+                 k.inc_class, k.k_cost, k.k_value, k.days AS kappa_days,
+                 k.k_value * s.conversions_value - k.k_cost * s.cost AS gp3_cal,
+                 s.conversions_value - s.cost AS gp3_raw
+          FROM `{sim_points}` s
+          JOIN `{v_kappa_calibrated}` k USING (customer_name, strategy_id)
+          WHERE s.run_date = (SELECT MAX(run_date) FROM `{sim_points}`)
+            AND NOT s.is_anchor
+            AND s.current_target > 0
+        )
+        SELECT run_date, customer_name, strategy_name, strategy_id, currency,
+               inc_class, strategy_type, kappa_days,
+               ANY_VALUE(current_target) AS current_target,
+               ANY_VALUE(k_cost)  AS k_cost,
+               ANY_VALUE(k_value) AS k_value,
+               ARRAY_AGG(STRUCT(target_roas, gp3_cal)
+                         ORDER BY gp3_cal DESC LIMIT 1)[OFFSET(0)].target_roas
+                 AS rec_calibrated,
+               ARRAY_AGG(STRUCT(target_roas, gp3_raw)
+                         ORDER BY gp3_raw DESC LIMIT 1)[OFFSET(0)].target_roas
+                 AS rec_google,
+               ROUND(MAX(gp3_cal)) AS gp3_cal_at_rec,
+               ROUND(ARRAY_AGG(STRUCT(target_roas, gp3_cal)
+                     ORDER BY ABS(target_roas - current_target) LIMIT 1)
+                     [OFFSET(0)].gp3_cal) AS gp3_cal_at_current,
+               ROUND(MAX(gp3_cal)
+                     - ARRAY_AGG(STRUCT(target_roas, gp3_cal)
+                       ORDER BY ABS(target_roas - current_target) LIMIT 1)
+                       [OFFSET(0)].gp3_cal) AS uplift_cal
+        FROM pts
+        GROUP BY run_date, customer_name, strategy_name, strategy_id, currency,
+                 inc_class, strategy_type, kappa_days
+    """,
     # Scores every logged target change once clean windows exist on both sides:
     # pre = last collected 7-day window ENDING before the change, post = latest
     # window STARTING after it (never a window straddling the change day). GP3 is
@@ -320,7 +425,9 @@ def ensure_tables() -> None:
     for name, sql in _VIEWS.items():
         v = bigquery.Table(T(name))
         v.view_query = sql.format(sim_points=T("sim_points"), actuals=T("actuals"),
-                                  target_changes=T("target_changes"))
+                                  target_changes=T("target_changes"),
+                                  v_kappa=T("v_kappa"),
+                                  v_kappa_calibrated=T("v_kappa_calibrated"))
         bq().delete_table(v, not_found_ok=True)   # views have no data; recreate freely
         bq().create_table(v)
 
