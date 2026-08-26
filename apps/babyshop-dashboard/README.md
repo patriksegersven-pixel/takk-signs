@@ -40,8 +40,12 @@ Simulations page was originally developed is archived and read-only.)
 - `roas_sims_bq.py` — BigQuery export of every ROAS-sims snapshot into dataset
   `roas_sims` (EU): `sim_points` / `impression_shares` / `actuals` partitioned
   by run_date, the `target_changes` prediction log, and views `v_kappa`
-  (per-campaign sim-optimism factor) + `v_change_scoring` (predicted vs
-  realized per applied change). Called best-effort from `refresh()` — Firestore
+  (per-campaign sim-optimism factor), `v_change_scoring` (predicted vs
+  realized per applied change), `v_marginal_scoring`/`v_lambda` (realized vs
+  sim-implied marginal GP2-per-cost across each applied step) and
+  `v_calibrated_recs`, whose `rec_final` is gated by that marginal evidence —
+  it reverts, and never deepens, a spend move the measured marginal already
+  refuted. Called best-effort from `refresh()` — Firestore
   keeps 90 days for serving, BigQuery keeps everything for model training.
   Missed days: `python3 roas_sims_bq.py --backfill`. Every applied tROAS change
   MUST be logged to `target_changes` with its predicted Δcost/ΔGP3 at apply

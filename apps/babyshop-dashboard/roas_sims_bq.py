@@ -177,9 +177,36 @@ SCHEMAS: dict[str, list[bigquery.SchemaField]] = {
         S("currency", "STRING"),
         S("notes", "STRING"),
     ],
+    # Hand-loaded marginal measurements — same shape v_marginal_scoring derives
+    # automatically, for scorings done outside the actuals pipeline (e.g. the
+    # 2026-08-18 apply was measured directly off the Ads API before clean post
+    # windows existed in `actuals`). Auto rows outrank these in v_lambda.
+    "marginal_observations": [
+        S("change_date", "DATE", mode="REQUIRED"),
+        S("customer_name", "STRING"),
+        S("campaign_id", "STRING"),
+        S("campaign_name", "STRING"),
+        S("currency", "STRING"),
+        S("old_target", "FLOAT64"),
+        S("new_target", "FLOAT64"),
+        S("pre_start", "DATE"),
+        S("pre_end", "DATE"),
+        S("post_start", "DATE"),
+        S("post_end", "DATE"),
+        S("pre_cost", "FLOAT64"),
+        S("delta_cost", "FLOAT64"),
+        S("delta_gp2", "FLOAT64", description="Conversion-time GP2 change across the step"),
+        S("realized_marginal", "FLOAT64", description="delta_gp2 / delta_cost"),
+        S("sim_marginal", "FLOAT64",
+          description="Sim-implied marginal over the same target segment, anchor excluded"),
+        S("lambda", "FLOAT64", description="realized_marginal / sim_marginal"),
+        S("source", "STRING"),
+        S("notes", "STRING"),
+    ],
 }
 _PARTITION = {"sim_points": "run_date", "impression_shares": "run_date",
-              "actuals": "run_date", "target_changes": "change_date"}
+              "actuals": "run_date", "target_changes": "change_date",
+              "marginal_observations": "change_date"}
 _CLUSTER = {"sim_points": ["customer_name", "strategy_name"],
             "actuals": ["customer_name", "strategy_name"]}
 
@@ -302,49 +329,6 @@ _VIEWS = {
         FROM per_campaign p
         JOIN class_prior c USING (inc_class)
     """,
-    # Google's latest curve with both axes deflated by shrunk κ, optimum
-    # re-derived: gp3_cal = κ_value·value − κ_cost·cost per simulated point,
-    # rec = argmax (anchor excluded, matching the dashboard's Rec. semantics).
-    # rec_google is the RAW curve's argmax for comparison. uplift_cal is the
-    # calibrated GP3 gain vs the calibrated GP3 at the point nearest the live
-    # target — in currency units per week. Deliberately no step cap here: caps
-    # are an apply-time policy, not a property of the curve.
-    "v_calibrated_recs": """
-        WITH pts AS (
-          SELECT s.run_date, s.customer_name, s.strategy_name, s.strategy_id,
-                 s.currency, s.current_target, s.strategy_type, s.target_roas,
-                 k.inc_class, k.k_cost, k.k_value, k.days AS kappa_days,
-                 k.k_value * s.conversions_value - k.k_cost * s.cost AS gp3_cal,
-                 s.conversions_value - s.cost AS gp3_raw
-          FROM `{sim_points}` s
-          JOIN `{v_kappa_calibrated}` k USING (customer_name, strategy_id)
-          WHERE s.run_date = (SELECT MAX(run_date) FROM `{sim_points}`)
-            AND NOT s.is_anchor
-            AND s.current_target > 0
-        )
-        SELECT run_date, customer_name, strategy_name, strategy_id, currency,
-               inc_class, strategy_type, kappa_days,
-               ANY_VALUE(current_target) AS current_target,
-               ANY_VALUE(k_cost)  AS k_cost,
-               ANY_VALUE(k_value) AS k_value,
-               ARRAY_AGG(STRUCT(target_roas, gp3_cal)
-                         ORDER BY gp3_cal DESC LIMIT 1)[OFFSET(0)].target_roas
-                 AS rec_calibrated,
-               ARRAY_AGG(STRUCT(target_roas, gp3_raw)
-                         ORDER BY gp3_raw DESC LIMIT 1)[OFFSET(0)].target_roas
-                 AS rec_google,
-               ROUND(MAX(gp3_cal)) AS gp3_cal_at_rec,
-               ROUND(ARRAY_AGG(STRUCT(target_roas, gp3_cal)
-                     ORDER BY ABS(target_roas - current_target) LIMIT 1)
-                     [OFFSET(0)].gp3_cal) AS gp3_cal_at_current,
-               ROUND(MAX(gp3_cal)
-                     - ARRAY_AGG(STRUCT(target_roas, gp3_cal)
-                       ORDER BY ABS(target_roas - current_target) LIMIT 1)
-                       [OFFSET(0)].gp3_cal) AS uplift_cal
-        FROM pts
-        GROUP BY run_date, customer_name, strategy_name, strategy_id, currency,
-                 inc_class, strategy_type, kappa_days
-    """,
     # Scores every logged target change once clean windows exist on both sides:
     # pre = last collected 7-day window ENDING before the change, post = latest
     # window STARTING after it (never a window straddling the change day). GP3 is
@@ -394,6 +378,176 @@ _VIEWS = {
         LEFT JOIN pre  USING (change_date, campaign_id)
         LEFT JOIN post USING (change_date, campaign_id)
     """,
+    # Slope calibration — the layer the level-κ cannot provide. For every scored
+    # change, the realized marginal (ΔGP2 ÷ Δcost across the step, conv-time)
+    # against the sim-implied marginal over the SAME target segment on the
+    # change-date curve (anchor excluded). lambda = realized ÷ sim-implied.
+    # Measured for the 2026-08-18 apply on SE pb-generic: sim said +1.20 per
+    # marginal krona, reality delivered −1.52 — level-κ saw none of that.
+    "v_marginal_scoring": """
+        WITH seg AS (
+          SELECT run_date, customer_name, strategy_id,
+                 target_roas, cost, conversions_value,
+                 LEAD(target_roas) OVER w AS t2,
+                 LEAD(cost) OVER w AS cost2,
+                 LEAD(conversions_value) OVER w AS value2
+          FROM `{sim_points}`
+          WHERE NOT is_anchor
+          WINDOW w AS (PARTITION BY run_date, customer_name, strategy_id
+                       ORDER BY target_roas)
+        ),
+        targets AS (
+          SELECT c.change_date, c.customer_name, c.campaign_id, x.which, x.t
+          FROM `{target_changes}` c,
+               UNNEST([STRUCT('old' AS which, c.old_target AS t),
+                       STRUCT('new' AS which, c.new_target AS t)]) x
+        ),
+        interp AS (
+          SELECT tg.change_date, tg.customer_name, tg.campaign_id, tg.which,
+                 seg.cost AS c1, IFNULL(seg.cost2, seg.cost) AS c2,
+                 seg.conversions_value AS v1,
+                 IFNULL(seg.value2, seg.conversions_value) AS v2,
+                 CASE WHEN seg.t2 IS NULL OR tg.t <= seg.target_roas THEN 0.0
+                      WHEN tg.t >= seg.t2 THEN 1.0
+                      ELSE (tg.t - seg.target_roas) / (seg.t2 - seg.target_roas)
+                 END AS w
+          FROM targets tg
+          JOIN seg ON seg.run_date = tg.change_date
+                  AND seg.customer_name = tg.customer_name
+                  AND seg.strategy_id = tg.campaign_id
+          QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY tg.change_date, tg.campaign_id, tg.which
+            ORDER BY CASE WHEN tg.t BETWEEN seg.target_roas
+                            AND IFNULL(seg.t2, seg.target_roas) THEN 0 ELSE 1 END,
+                     ABS(tg.t - seg.target_roas)) = 1
+        ),
+        pivoted AS (
+          SELECT change_date, customer_name, campaign_id,
+                 MAX(IF(which = 'old', c1 + w * (c2 - c1), NULL)) AS sim_cost_old,
+                 MAX(IF(which = 'old', v1 + w * (v2 - v1), NULL)) AS sim_value_old,
+                 MAX(IF(which = 'new', c1 + w * (c2 - c1), NULL)) AS sim_cost_new,
+                 MAX(IF(which = 'new', v1 + w * (v2 - v1), NULL)) AS sim_value_new
+          FROM interp
+          GROUP BY 1, 2, 3
+        )
+        SELECT *, SAFE_DIVIDE(realized_marginal, sim_marginal) AS lambda
+        FROM (
+          SELECT s.change_date, s.customer_name, s.campaign_name, s.campaign_id,
+                 s.currency, s.source, s.old_target, s.new_target, s.pre_cost,
+                 s.post_cost - s.pre_cost AS delta_cost,
+                 (s.post_gp3 + s.post_cost) - (s.pre_gp3 + s.pre_cost) AS delta_gp2,
+                 SAFE_DIVIDE((s.post_gp3 + s.post_cost) - (s.pre_gp3 + s.pre_cost),
+                             s.post_cost - s.pre_cost) AS realized_marginal,
+                 SAFE_DIVIDE(p.sim_value_new - p.sim_value_old,
+                             p.sim_cost_new - p.sim_cost_old) AS sim_marginal
+          FROM `{v_change_scoring}` s
+          LEFT JOIN pivoted p USING (change_date, campaign_id)
+          WHERE s.pre_cost IS NOT NULL AND s.post_cost IS NOT NULL
+        )
+    """,
+    # Latest marginal evidence per campaign. Auto rows (v_marginal_scoring, fed
+    # by the daily actuals windows) take precedence over hand-loaded rows in
+    # `marginal_observations` for the same change — same measurement, consistent
+    # windows. spend_increased is judged by realized Δcost, not target
+    # direction: cost is ground truth across tROAS and MCV alike.
+    "v_lambda": """
+        WITH obs AS (
+          SELECT change_date, customer_name, campaign_id, campaign_name, currency,
+                 old_target, new_target, pre_cost, delta_cost, delta_gp2,
+                 realized_marginal, sim_marginal, lambda, source, 1 AS pref
+          FROM `{v_marginal_scoring}`
+          WHERE realized_marginal IS NOT NULL
+          UNION ALL
+          SELECT change_date, customer_name, campaign_id, campaign_name, currency,
+                 old_target, new_target, pre_cost, delta_cost, delta_gp2,
+                 realized_marginal, sim_marginal, lambda, source, 0 AS pref
+          FROM `{marginal_observations}`
+        )
+        SELECT * EXCEPT(pref), delta_cost > 0 AS spend_increased
+        FROM obs
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY campaign_id
+                                   ORDER BY change_date DESC, pref DESC) = 1
+    """,
+    # Google's latest curve with both axes deflated by shrunk κ, optimum
+    # re-derived (anchor excluded, matching the dashboard's Rec. semantics) —
+    # then GATED by measured marginal evidence, because κ is a level correction
+    # and the sims' worst failure is slope optimism. The gate:
+    #   revert-spend-increase    last change raised spend and its realized
+    #                            marginal GP2/cost came in under 0.9 — the old
+    #                            target was measurably better, so rec_final is
+    #                            lifted to at least it. Compared against the
+    #                            OLD target, not current: a rec that points up
+    #                            but stops short of the refuted step's origin
+    #                            still gets lifted the rest of the way.
+    #   restore-profitable-spend last change cut spend that was returning over
+    #                            1.1 per krona — rec_final restores at most the
+    #                            old target.
+    # Steps with |Δcost| under 5% of pre-spend carry no usable marginal signal
+    # and never gate. rec_calibrated is kept alongside rec_final so the gate's
+    # effect is always visible. Deliberately no step cap here: caps are an
+    # apply-time policy, not a property of the curve.
+    "v_calibrated_recs": """
+        WITH base AS (
+          SELECT run_date, customer_name, strategy_name, strategy_id, currency,
+                 inc_class, strategy_type, kappa_days,
+                 ANY_VALUE(current_target) AS current_target,
+                 ANY_VALUE(k_cost)  AS k_cost,
+                 ANY_VALUE(k_value) AS k_value,
+                 ARRAY_AGG(STRUCT(target_roas, gp3_cal)
+                           ORDER BY gp3_cal DESC LIMIT 1)[OFFSET(0)].target_roas
+                   AS rec_calibrated,
+                 ARRAY_AGG(STRUCT(target_roas, gp3_raw)
+                           ORDER BY gp3_raw DESC LIMIT 1)[OFFSET(0)].target_roas
+                   AS rec_google,
+                 ROUND(MAX(gp3_cal)) AS gp3_cal_at_rec,
+                 ROUND(ARRAY_AGG(STRUCT(target_roas, gp3_cal)
+                       ORDER BY ABS(target_roas - current_target) LIMIT 1)
+                       [OFFSET(0)].gp3_cal) AS gp3_cal_at_current
+          FROM (
+            SELECT s.run_date, s.customer_name, s.strategy_name, s.strategy_id,
+                   s.currency, s.current_target, s.strategy_type, s.target_roas,
+                   k.inc_class, k.k_cost, k.k_value, k.days AS kappa_days,
+                   k.k_value * s.conversions_value - k.k_cost * s.cost AS gp3_cal,
+                   s.conversions_value - s.cost AS gp3_raw
+            FROM `{sim_points}` s
+            JOIN `{v_kappa_calibrated}` k USING (customer_name, strategy_id)
+            WHERE s.run_date = (SELECT MAX(run_date) FROM `{sim_points}`)
+              AND NOT s.is_anchor
+              AND s.current_target > 0
+          )
+          GROUP BY run_date, customer_name, strategy_name, strategy_id, currency,
+                   inc_class, strategy_type, kappa_days
+        ),
+        gated AS (
+          SELECT b.*,
+                 l.change_date        AS last_change_date,
+                 l.old_target         AS last_old_target,
+                 l.realized_marginal  AS last_marginal,
+                 l.sim_marginal       AS last_sim_marginal,
+                 l.lambda             AS last_lambda,
+                 CASE
+                   WHEN l.campaign_id IS NULL
+                     OR ABS(l.delta_cost) < 0.05 * l.pre_cost THEN NULL
+                   WHEN l.spend_increased AND l.realized_marginal < 0.9
+                        AND b.rec_calibrated < l.old_target
+                     THEN 'revert-spend-increase'
+                   WHEN NOT l.spend_increased AND l.realized_marginal > 1.1
+                        AND b.rec_calibrated > l.old_target
+                     THEN 'restore-profitable-spend'
+                 END AS gate
+          FROM base b
+          LEFT JOIN `{v_lambda}` l ON l.campaign_id = b.strategy_id
+        )
+        SELECT * EXCEPT(gate), gate,
+               CASE gate
+                 WHEN 'revert-spend-increase'
+                   THEN GREATEST(rec_calibrated, last_old_target)
+                 WHEN 'restore-profitable-spend'
+                   THEN LEAST(rec_calibrated, last_old_target)
+                 ELSE rec_calibrated
+               END AS rec_final
+        FROM gated
+    """,
 }
 
 
@@ -427,7 +581,11 @@ def ensure_tables() -> None:
         v.view_query = sql.format(sim_points=T("sim_points"), actuals=T("actuals"),
                                   target_changes=T("target_changes"),
                                   v_kappa=T("v_kappa"),
-                                  v_kappa_calibrated=T("v_kappa_calibrated"))
+                                  v_kappa_calibrated=T("v_kappa_calibrated"),
+                                  v_change_scoring=T("v_change_scoring"),
+                                  v_marginal_scoring=T("v_marginal_scoring"),
+                                  v_lambda=T("v_lambda"),
+                                  marginal_observations=T("marginal_observations"))
         bq().delete_table(v, not_found_ok=True)   # views have no data; recreate freely
         bq().create_table(v)
 
