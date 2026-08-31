@@ -345,6 +345,11 @@ _VIEWS = {
           JOIN `{actuals}` a
             ON a.strategy_id = c.campaign_id AND a.customer_name = c.customer_name
           WHERE a.end_date < c.change_date AND a.cost > 0
+            -- a window containing ANY change on this campaign is contaminated
+            AND NOT EXISTS (
+              SELECT 1 FROM `{target_changes}` x
+              WHERE x.campaign_id = c.campaign_id
+                AND x.change_date BETWEEN a.start_date AND a.end_date)
           QUALIFY ROW_NUMBER() OVER (PARTITION BY c.change_date, c.campaign_id
                                      ORDER BY a.end_date DESC, a.run_date DESC) = 1
         ),
@@ -356,6 +361,10 @@ _VIEWS = {
           JOIN `{actuals}` a
             ON a.strategy_id = c.campaign_id AND a.customer_name = c.customer_name
           WHERE a.start_date > c.change_date AND a.cost > 0
+            AND NOT EXISTS (
+              SELECT 1 FROM `{target_changes}` x
+              WHERE x.campaign_id = c.campaign_id
+                AND x.change_date BETWEEN a.start_date AND a.end_date)
           QUALIFY ROW_NUMBER() OVER (PARTITION BY c.change_date, c.campaign_id
                                      ORDER BY a.end_date DESC, a.run_date DESC) = 1
         )
@@ -465,8 +474,13 @@ _VIEWS = {
         )
         SELECT * EXCEPT(pref), delta_cost > 0 AS spend_increased
         FROM obs
+        -- An observation whose |Δcost| clears the 5% signal floor outranks a
+        -- newer one that does not: a step the bidder barely acted on carries no
+        -- slope evidence, and letting it displace a real measurement silently
+        -- drops the gate (seen 2026-08-31 on SE pb-generic).
         QUALIFY ROW_NUMBER() OVER (PARTITION BY campaign_id
-                                   ORDER BY change_date DESC, pref DESC) = 1
+                                   ORDER BY (ABS(delta_cost) >= 0.05 * pre_cost) DESC,
+                                            change_date DESC, pref DESC) = 1
     """,
     # Google's latest curve with both axes deflated by shrunk κ, optimum
     # re-derived (anchor excluded, matching the dashboard's Rec. semantics) —
