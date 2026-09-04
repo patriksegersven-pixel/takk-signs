@@ -139,6 +139,7 @@ SIM_HTML       = STATIC_DIR / "babyshop-roas-simulations.html"
 VOYADO_HTML    = STATIC_DIR / "babyshop-voyado-dashboard.html"
 BUNDLES_HTML   = STATIC_DIR / "babyshop-bundles-dashboard.html"
 SOS_HTML       = STATIC_DIR / "babyshop-sos-dashboard.html"
+META_HTML      = STATIC_DIR / "babyshop-meta-dashboard.html"
 TABLE_TOOLS_JS = STATIC_DIR / "table-tools.js"
 CHART_JS       = STATIC_DIR / "chart.umd.js"
 BRAND_CSS      = STATIC_DIR / "brand.css"
@@ -209,6 +210,11 @@ def bundles_dashboard(_: str = Depends(verify)):
 @app.get("/babyshop-sos-dashboard.html")
 def sos_dashboard(_: str = Depends(verify)):
     return FileResponse(SOS_HTML, media_type="text/html")
+
+
+@app.get("/babyshop-meta-dashboard.html")
+def meta_dashboard(_: str = Depends(verify)):
+    return FileResponse(META_HTML, media_type="text/html")
 
 
 # Shared table filtering + export module, used by <script src="/table-tools.js">
@@ -453,6 +459,34 @@ def api_bundles(_: str = Depends(verify)):
                     "gross_margin": 0.44, "images": ""},
         "shops": {}, "baskets": [], "category_pairs": [], "pairs": [],
         "caveats": ["no Bundles snapshot yet — refresh_bundles.py has not run"],
+    }
+
+
+@app.get("/api/meta")
+def api_meta(_: str = Depends(verify)):
+    """Meta creatives snapshot (written to Firestore by refresh_meta.py).
+
+    Same 200-with-a-skeleton contract as /api/bundles. Shape mirrors
+    refresh_meta.build_payload() — keep the two in step."""
+    from funnel_client import get_cache
+
+    try:
+        data = get_cache().get("meta")
+    except Exception as e:
+        print(f"ERROR /api/meta: {type(e).__name__}: {e}", flush=True)
+        data = None
+    if data is not None:
+        return data
+    return {
+        "generated_at": None,
+        "sources": {"marts": None, "staging": None, "account_id": None,
+                    "account_label": None, "attribution": "7d_click,1d_view",
+                    "markets": ["SE", "NO"], "min_spend": 300, "images": ""},
+        "window": {"from": None, "to": None, "prev_from": None,
+                   "prev_to": None, "days": 7},
+        "kpis": {}, "media_types": [], "media_formats": [],
+        "top_creatives": {"SE": [], "NO": []}, "recent": [],
+        "caveats": ["no Meta snapshot yet — refresh_meta.py has not run"],
     }
 
 
