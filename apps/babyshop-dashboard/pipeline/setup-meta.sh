@@ -5,27 +5,28 @@
 #   apps/babyshop-dashboard/refresh_meta.py   BigQuery (Bluebird warehouse) -> Firestore
 #   GET /api/meta                             what the Meta creatives tab reads
 #
-# ── PREREQUISITE: cross-project BigQuery read (run these ONCE, by hand) ──────
+# ── PREREQUISITE: cross-project BigQuery read (done 2026-09-04, keep for reference) ──
 # This is the only job on the legacy dashboard that reads a dataset in ANOTHER
 # project: the Meta mart lives in the new stack's warehouse,
 # claude-private-499703. The query JOB is billed to project-a7ade44e (where the
-# runtime SA already holds bigquery.jobUser), so the SA needs nothing but
-# dataViewer on the two kuvio datasets. Grant it as a kuvio owner:
+# runtime SA already holds bigquery.jobUser), so the SA needs nothing but READ
+# on three kuvio datasets: babyshop_marts (the mart), babyshop_staging (the
+# stg_meta__ads view) AND babyshop_raw (views resolve against ads_native with
+# the caller's permissions — without raw access the "recent" query 403s).
 #
-#   bq --account=patrik@kuvio.io --project_id=claude-private-499703 \
-#      add-iam-policy-binding \
-#      --member=serviceAccount:871631085269-compute@developer.gserviceaccount.com \
-#      --role=roles/bigquery.dataViewer \
-#      claude-private-499703:babyshop_marts
+# `bq add-iam-policy-binding` / `get-iam-policy` require allowlisting on that
+# project and `bq` has no --account flag, so patch the dataset access list
+# instead (as a kuvio owner):
 #
-#   bq --account=patrik@kuvio.io --project_id=claude-private-499703 \
-#      add-iam-policy-binding \
-#      --member=serviceAccount:871631085269-compute@developer.gserviceaccount.com \
-#      --role=roles/bigquery.dataViewer \
-#      claude-private-499703:babyshop_staging
+#   export CLOUDSDK_CORE_ACCOUNT=patrik@kuvio.io
+#   for ds in babyshop_marts babyshop_staging babyshop_raw; do
+#     bq --project_id=claude-private-499703 show --format=prettyjson claude-private-499703:$ds \
+#       | python3 -c 'import json,sys; d=json.load(sys.stdin); d["access"].append({"role":"READER","userByEmail":"871631085269-compute@developer.gserviceaccount.com"}); json.dump({"access":d["access"]},open("/tmp/"+sys.argv[1]+".json","w"))' $ds \
+#       && bq --project_id=claude-private-499703 update --source /tmp/$ds.json claude-private-499703:$ds
+#   done
 #
-# Without both, the job fails with "Access Denied: Table
-# claude-private-499703:babyshop_marts.agg_daily_kpis_by_ad".
+# Without all three, the job fails with "Access Denied: Table
+# claude-private-499703:babyshop_<dataset>.<table>".
 #
 # Note that 871631085269-compute@ is the legacy project's DEFAULT compute SA,
 # so this grant gives every Cloud Run job and service in project-a7ade44e read
