@@ -6,12 +6,12 @@
   <title>Meta creatives · Babyshop</title>
   <link rel="icon" type="image/svg+xml" href="/babyshop-favicon.svg">
   <link rel="stylesheet" href="/brand.css">
-  <!-- Shared column filters + CSV/Sheets export; the three tables opt in with data-tools. -->
+  <!-- Shared column filters + CSV/Sheets export; every table opts in with data-tools. -->
   <script src="/table-tools.js"></script>
   <style>
     /* Tokens, the header chrome and a card/table floor come from brand.css.
        This block is only the page layer: its accent, and the creative-specific
-       furniture (thumbnails, donuts, chips, lightbox). */
+       furniture (thumbnails, donuts, chips, sparklines, lightbox). */
     :root {
       /* Deep green like the other channel tabs — deliberately NOT Meta blue:
          the palette identifies the dashboard, not the ad platform. */
@@ -37,9 +37,11 @@
     .section-title { font-size:15px; font-weight:700; color:var(--h); letter-spacing:-.2px; display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
     .section-tag { font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--accent); background:var(--accent-bg); border-radius:3px; padding:2px 7px; }
     .section-sub { font-size:12px; color:var(--muted); margin-top:4px; max-width:900px; line-height:1.55; }
+    .sub-head { font-size:10px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); margin:16px 0 8px; }
 
     /* KPI tiles */
-    .kpi-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; }
+    .kpi-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
+    .kpi-grid.four { grid-template-columns:repeat(4,1fr); }
     .kpi { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:15px 14px; }
     .kpi.spot { border-color:var(--accent); position:relative; overflow:hidden; }
     .kpi.spot::after { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:var(--accent); }
@@ -60,26 +62,29 @@
     .card .csub { color:var(--muted); font-size:11px; margin-top:2px; line-height:1.5; }
     .card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
     .two { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    .three { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
     .stack { margin-top:20px; }
 
     /* A table card puts its head in padding and lets the table run edge to edge. */
     .card.tbl { padding:0; overflow:hidden; }
     .card.tbl .card-head { padding:16px 20px 12px; margin-bottom:0; border-bottom:1px solid var(--border); align-items:center; }
+    /* Mobile contract: a wide table scrolls INSIDE its card, the page never does. */
     .tbl-scroll { overflow-x:auto; }
 
     table { width:100%; border-collapse:collapse; }
     /* Measures right-align so the digits stack; rank, thumbnail and the
        creative name are labels and stay left. */
     th, td { text-align:right; padding:10px 14px; font-size:13px; font-variant-numeric:tabular-nums; white-space:nowrap; }
-    th:first-child, td:first-child, th.cre, td.cre, .thumb-cell { text-align:left; }
+    th:first-child, td:first-child, th.cre, td.cre, .thumb-cell, th.lbl, td.lbl { text-align:left; }
     /* The creative name is the one column allowed to wrap; every measure stays
        on one line and the card scrolls sideways instead of breaking "3 739 kr". */
     th.cre, td.cre { white-space:normal; min-width:150px; }
     .card.tbl table { min-width:560px; }
+    #fatigueTable { min-width:1240px; }
     /* The two top-5 cards sit side by side, and table-tools adds a filter
        caret to every header — at 14px cell padding the ROAS column fell off
        the right edge of the card in the default view. */
-    .two .card.tbl th, .two .card.tbl td { padding-left:10px; padding-right:10px; }
+    .two .card.tbl th, .two .card.tbl td, .three .card.tbl th, .three .card.tbl td { padding-left:10px; padding-right:10px; }
     thead th { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); border-bottom:1px solid var(--border); }
     tbody td { font-weight:500; color:var(--body); border-bottom:1px solid var(--border-lt); vertical-align:middle; }
     tbody tr:last-child td { border-bottom:none; }
@@ -92,13 +97,16 @@
               background:var(--accent-bg); color:var(--accent-dark); border:1px solid #D3E3D8; font-size:9.5px; font-weight:700; letter-spacing:.06em; }
 
     /* ── Creative thumbnails ───────────────────────────────────────────────
-       104px 1:1 crops. Sources are small Meta preview renditions, so they are
-       upscaled and read soft; image-rendering stays auto so the browser
-       smooths rather than blocks them. The URLs are signed and expire after
-       ~4 days, which is what the onerror fallback is really for. */
+       104px 1:1 crops (56px on the dense boards). Sources are small Meta
+       preview renditions, so they are upscaled and read soft; image-rendering
+       stays auto so the browser smooths rather than blocks them. The URLs are
+       signed and expire after ~4 days, which is what the onerror fallback is
+       really for. */
     .thumb-cell { width:104px; padding:12px 0 12px 14px; }
+    .thumb-cell.sm { width:60px; padding:8px 0 8px 12px; }
     .thumb { display:block; width:104px; height:104px; padding:0; border:1px solid var(--border); border-radius:6px; overflow:hidden;
              background:var(--border-lt); cursor:zoom-in; transition:box-shadow .15s, border-color .15s, transform .15s; }
+    .thumb.sm, .thumb-fallback.sm { width:48px; height:48px; border-radius:5px; font-size:16px; }
     .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
     .thumb:hover { border-color:var(--accent); box-shadow:var(--shadow-pop); transform:translateY(-1px); }
     .thumb:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
@@ -106,7 +114,7 @@
                       border-radius:6px; background:var(--border-lt); color:var(--muted); font-size:26px; font-weight:600; }
 
     .cname { font-weight:600; color:var(--h); display:block; line-height:1.35; font-size:13px; }
-    .chips { display:flex; gap:5px; margin-top:6px; flex-wrap:wrap; }
+    .chips { display:flex; gap:5px; margin-top:6px; flex-wrap:wrap; align-items:center; }
     .chip { font-size:9.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; padding:3px 7px; border-radius:3px; white-space:nowrap; line-height:1; }
     .chip.c-highend { background:var(--accent-bg); color:var(--accent-dark); }
     .chip.c-ugc     { background:#FBEDE8; color:#A5321C; }
@@ -115,6 +123,56 @@
     .chip.c-partner { background:#E8F0F4; color:#245A75; }
     .chip.c-legacy  { background:var(--border-lt); color:#6B7078; }
     .chip.media     { background:#fff; color:var(--muted); border:1px solid var(--border); font-weight:600; }
+    .chip.promo     { background:#FDF0E3; color:#9A5A12; border:1px solid #EFD9BC; }
+
+    /* Fatigue status. Semantic, not decorative: green keeps working, amber is
+       losing ground, red is spent, grey means we cannot judge it yet. */
+    .st { display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; padding:3px 8px; border-radius:3px; line-height:1; white-space:nowrap; }
+    .st.s-stable    { background:var(--accent-bg); color:var(--accent-dark); }
+    .st.s-fatiguing { background:var(--warn-bg);   color:#8A5416; }
+    .st.s-exhausted { background:var(--down-bg);   color:var(--down); }
+    .st.s-fresh     { background:#E8F0F4;          color:#245A75; }
+    .st.s-none      { background:var(--border-lt); color:#6B7078; }
+
+    /* An index is a ratio against the ad's own baseline week; colour says
+       whether it is still holding, not whether it is big. */
+    .ix { font-weight:700; }
+    .ix.good { color:var(--up); }
+    .ix.warn { color:#8A5416; }
+    .ix.bad  { color:var(--down); }
+    .ix.na   { color:var(--muted); font-weight:500; }
+
+    /* Preview links live under the creative name, small enough not to compete
+       with it. */
+    .links { display:flex; gap:8px; margin-top:5px; flex-wrap:wrap; }
+    .links a { font-size:10.5px; color:var(--accent); text-decoration:none; font-weight:600; border-bottom:1px solid transparent; }
+    .links a:hover { border-bottom-color:var(--accent); }
+    .links a.ig { color:#A5321C; }
+
+    .spark { display:block; }
+    .spark-cell { width:96px; padding-right:18px; }
+
+    /* Spend-by-status strip above the fatigue board. */
+    .strip { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
+    .strip .sc { flex:1 1 150px; background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:12px 14px; }
+    .strip .sc .sv { font-size:19px; font-weight:700; color:var(--h); letter-spacing:-.4px; margin-top:7px; }
+    .strip .sc .sn { font-size:10.5px; color:var(--muted); margin-top:3px; }
+    .headline { background:var(--warn-bg); border:1px solid #EBD8B6; color:#8A5416; border-radius:var(--r); padding:11px 16px; font-size:12.5px; line-height:1.6; margin-bottom:14px; }
+    .headline b { font-weight:700; }
+
+    /* Leaderboard cards */
+    .lb-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
+    .lb { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:14px 16px 8px; }
+    .lb h4 { font-size:12px; font-weight:700; color:var(--h); letter-spacing:-.1px; }
+    .lb .lbsub { font-size:10px; color:var(--muted); margin-top:2px; line-height:1.45; }
+    .lb ol { list-style:none; margin-top:10px; }
+    .lb li { display:flex; align-items:center; gap:9px; padding:7px 0; border-top:1px solid var(--border-lt); }
+    .lb li:first-child { border-top:none; }
+    .lb .lname { flex:1; min-width:0; }
+    .lb .lname .n { font-size:11.5px; font-weight:600; color:var(--h); display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .lb .lname .s { font-size:10px; color:var(--muted); }
+    .lb .lval { font-size:12.5px; font-weight:700; color:var(--h); text-align:right; white-space:nowrap; }
+    .lb .lempty { font-size:11.5px; color:var(--muted); padding:10px 0 14px; }
 
     /* Donuts */
     .donut-body { display:flex; align-items:center; gap:22px; flex-wrap:wrap; }
@@ -142,6 +200,9 @@
     .method { background:var(--warn-bg); border:1px solid #EBD8B6; color:#8A5416; border-radius:var(--r); padding:11px 16px; font-size:11.5px; line-height:1.6; margin-top:26px; }
     .method b { color:#8A5416; }
     .method ul { margin:6px 0 0 16px; }
+    .method dl { margin:8px 0 0; }
+    .method dt { font-weight:700; margin-top:7px; }
+    .method dd { margin-left:0; }
     .acct { text-align:center; font-size:11px; color:var(--muted); padding-top:26px; letter-spacing:.02em; }
     .pending { text-align:center; color:var(--muted); font-size:13px; padding:60px 0 30px; }
     .fail { text-align:center; color:var(--down); font-size:13px; padding:40px 0; }
@@ -156,10 +217,15 @@
                 background:rgba(255,255,255,.1); color:#fff; font-size:17px; line-height:1; cursor:pointer; font-family:var(--font); }
     #lb-close:hover { background:rgba(255,255,255,.2); }
 
-    @media (max-width:1180px) { .kpi-grid { grid-template-columns:repeat(3,1fr); } }
+    @media (max-width:1180px) {
+      .kpi-grid, .kpi-grid.four { grid-template-columns:repeat(3,1fr); }
+      .lb-grid { grid-template-columns:repeat(2,1fr); }
+      .three { grid-template-columns:1fr; }
+    }
     @media (max-width:980px)  { .two { grid-template-columns:1fr; } }
     @media (max-width:700px)  {
-      .kpi-grid { grid-template-columns:repeat(2,1fr); }
+      .kpi-grid, .kpi-grid.four { grid-template-columns:repeat(2,1fr); }
+      .lb-grid { grid-template-columns:1fr; }
       main { padding:20px 14px 44px; }
       th, td { padding:9px 10px; }
       .thumb-cell { padding-left:10px; }
@@ -176,7 +242,7 @@
 <script src="/nav.js"></script>
 
 <main>
-  <div class="page-title">Creative analysis, last 7 days · SE + NO</div>
+  <div class="page-title">Creative analysis · SE + NO</div>
   <div class="page-sub" id="pageSub">Creative analysis · Meta, ad level</div>
 
   <!-- Everything below is snapshot-driven and stays hidden until /api/meta
@@ -190,7 +256,10 @@
       <div class="section-sub" id="kpiSub"></div>
     </div>
   </div>
+  <div class="sub-head">Spend and outcome</div>
   <div class="kpi-grid" id="kpiGrid"></div>
+  <div class="sub-head">Creative relevance</div>
+  <div class="kpi-grid four" id="kpiGrid2"></div>
 
   <div class="card tbl stack" id="marketCard" hidden>
     <div class="card-head">
@@ -201,15 +270,82 @@
     </div>
     <div class="tbl-scroll">
       <table id="marketTable">
-        <thead><tr><th>Market</th><th>Spend</th><th>Purchases</th><th>CPA</th><th>CTR</th><th>CPM</th><th>ROAS*</th></tr></thead>
+        <thead><tr><th>Market</th><th>Spend</th><th>Purchases</th><th>CPA</th><th>Link CTR</th><th>CPM</th><th>ROAS*</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
   </div>
 
+  <!-- ── 2. Fatigue board ───────────────────────────────────────────────── -->
   <div class="section-head">
     <div>
-      <div class="section-title">Concept and media mix</div>
+      <div class="section-title">Creative fatigue<span class="section-tag" id="fatigueTag">Last 7 days</span></div>
+      <div class="section-sub" id="fatigueSub"></div>
+    </div>
+  </div>
+  <div class="headline" id="fatigueHeadline" hidden></div>
+  <div class="strip" id="fatigueStrip"></div>
+
+  <div class="card tbl">
+    <div class="tbl-scroll">
+      <table id="fatigueTable" data-tools data-export-name="meta-fatigue">
+        <thead><tr>
+          <th></th><th class="cre">Creative</th><th class="lbl">Status</th>
+          <th>Uploaded</th><th>Days active</th><th>Spend</th><th title="Average daily frequency (impressions ÷ summed daily reach)">Daily freq*</th>
+          <th>Link CTR</th><th>CTR idx</th><th>Hook</th><th>Hook idx</th>
+          <th>CPA</th><th>CPA idx</th><th class="lbl">Weekly link CTR</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="note-line" id="fatigueNote"></div>
+
+  <!-- ── 3. Leaderboards ────────────────────────────────────────────────── -->
+  <div class="section-head">
+    <div>
+      <div class="section-title">Leaderboards<span class="section-tag" id="lbTag">Last 28 days</span></div>
+      <div class="section-sub" id="lbSub"></div>
+    </div>
+  </div>
+  <div class="lb-grid" id="lbGrid"></div>
+
+  <!-- ── 4. What works ──────────────────────────────────────────────────── -->
+  <div class="section-head">
+    <div>
+      <div class="section-title">What works<span class="section-tag">Last 28 days</span></div>
+      <div class="section-sub" id="rollupSub"></div>
+    </div>
+  </div>
+  <div class="three">
+    <div class="card tbl">
+      <div class="card-head"><div><h3>By concept tag</h3><div class="csub">From the ad-naming convention</div></div></div>
+      <div class="tbl-scroll"><table id="rollTag" data-tools data-export-name="meta-by-tag"></table></div>
+    </div>
+    <div class="card tbl">
+      <div class="card-head"><div><h3>By media type</h3><div class="csub">Video, still, carousel, DPA</div></div></div>
+      <div class="tbl-scroll"><table id="rollMedia" data-tools data-export-name="meta-by-media"></table></div>
+    </div>
+    <div class="card tbl">
+      <div class="card-head"><div><h3>Promo vs evergreen</h3><div class="csub">Discount language in the ad, campaign or copy</div></div></div>
+      <div class="tbl-scroll"><table id="rollPromo" data-tools data-export-name="meta-by-promo"></table></div>
+    </div>
+  </div>
+
+  <div class="card tbl stack" id="crossCard" hidden>
+    <div class="card-head">
+      <div>
+        <h3>Concept tag × media type</h3>
+        <div class="csub" id="crossSub"></div>
+      </div>
+    </div>
+    <div class="tbl-scroll"><table id="rollCross" data-tools data-export-name="meta-tag-x-media"></table></div>
+  </div>
+
+  <!-- ── 5. Mix donuts ──────────────────────────────────────────────────── -->
+  <div class="section-head">
+    <div>
+      <div class="section-title">Concept and media mix<span class="section-tag">Last 7 days</span></div>
       <div class="section-sub">Spend split by media type and tagged concept, SE+NO. Both are derived from the ad name — see the method box at the bottom.</div>
     </div>
   </div>
@@ -278,6 +414,7 @@
   </div>
   <div class="note-line">*ROAS is Meta's platform-reported value on its default attribution window — context, not a GM-verified return.</div>
 
+  <!-- ── 6. Recently uploaded ───────────────────────────────────────────── -->
   <div class="section-head">
     <div>
       <div class="section-title">Recently uploaded creatives</div>
@@ -288,7 +425,7 @@
   <div class="card tbl">
     <div class="tbl-scroll">
       <table id="recentTable" data-tools data-export-name="meta-recent">
-        <thead><tr><th class="rank"></th><th></th><th class="cre">Creative</th><th>Market</th><th>Uploaded</th><th>Purchases</th><th>Spend</th><th>CPA</th></tr></thead>
+        <thead><tr><th class="rank"></th><th></th><th class="cre">Creative</th><th>Market</th><th>Uploaded</th><th>Days active</th><th>Purchases</th><th>Spend</th><th>CPA</th><th>Link CTR</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -325,7 +462,9 @@
   function kr2(n) { return n == null ? dash : n.toFixed(2).replace('.', ',') + ' kr'; }
   function int(n) { return n == null ? dash : Math.round(n).toLocaleString('sv-SE'); }
   function pct(n) { return n == null ? dash : n.toFixed(1).replace('.', ',') + ' %'; }
+  function pct2(n){ return n == null ? dash : n.toFixed(2).replace('.', ',') + ' %'; }
   function roas(n){ return n == null ? dash : n.toFixed(1).replace('.', ',') + 'x'; }
+  function num2(n){ return n == null ? dash : n.toFixed(2).replace('.', ','); }
 
   /* One colour per bucket label, shared by both donuts so "DPA / catalog"
      is the same amber in each. */
@@ -340,6 +479,10 @@
   var CHIP = {
     'High End': 'c-highend', 'UGC': 'c-ugc', 'In-house production': 'c-inhouse',
     'DPA / catalog': 'c-dpa', 'Partnership': 'c-partner', 'Untagged / legacy': 'c-legacy'
+  };
+  var STCLASS = {
+    'Stable': 's-stable', 'Fatiguing': 's-fatiguing', 'Exhausted': 's-exhausted',
+    'Fresh': 's-fresh', 'No baseline': 's-none'
   };
   /* The parenthetical is redundant at chip size — the chip sits beside a
      media-type chip, not a column header that needs the full bucket name. */
@@ -379,29 +522,95 @@
     }).join('');
   }
 
+  /* ── Sparkline ────────────────────────────────────────────────────────────
+     Weekly link CTR since the ad's first spend day, drawn inline: no chart
+     library, no layout pass, one <svg> per row. Values are normalised to the
+     ad's OWN min/max — this shows the shape of a decline, not a level anyone
+     should compare across rows. */
+  function spark(weeks, key) {
+    var vals = [], i;
+    for (i = 0; i < (weeks || []).length; i++) {
+      if (weeks[i][key] != null) vals.push(weeks[i][key]);
+    }
+    if (vals.length < 2) return '<span class="dim">' + dash + '</span>';
+    var W = 76, H = 22, pad = 3;
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    var span = (hi - lo) || 1;
+    var pts = vals.map(function (v, ix) {
+      var x = pad + ix * (W - 2 * pad) / (vals.length - 1);
+      var y = H - pad - (v - lo) / span * (H - 2 * pad);
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    });
+    var first = vals[0], last = vals[vals.length - 1];
+    var stroke = last >= first * 0.85 ? 'var(--up)' : (last >= first * 0.7 ? '#B4791F' : 'var(--down)');
+    var lastPt = pts[pts.length - 1].split(',');
+    return '<svg class="spark" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" ' +
+           'role="img" aria-label="Weekly link CTR, ' + vals.length + ' weeks">' +
+           '<title>' + vals.length + ' weeks · ' + pct2(first) + ' → ' + pct2(last) + '</title>' +
+           '<polyline fill="none" stroke="' + stroke + '" stroke-width="1.4" stroke-linejoin="round" ' +
+           'stroke-linecap="round" points="' + pts.join(' ') + '"></polyline>' +
+           '<circle cx="' + lastPt[0] + '" cy="' + lastPt[1] + '" r="1.8" fill="' + stroke + '"></circle></svg>';
+  }
+
   /* ── Thumbnails ───────────────────────────────────────────────────────────
      Meta's signed CDN URLs die about four days after minting, so a broken
      image is an expected state, not an exception: swap in the concept's
      initial rather than leaving a torn-image icon. */
-  function thumbCell(c) {
+  function thumbInner(c, sm) {
     var src = c.thumbnail_url;
     var big = c.image_url || c.thumbnail_url;
     var cap = c.display_name || c.ad_name || '';
     var initial = (cap || '?').trim().charAt(0).toUpperCase() || '?';
-    if (!src) return '<td class="thumb-cell"><span class="thumb-fallback">' + esc(initial) + '</span></td>';
-    return '<td class="thumb-cell"><button type="button" class="thumb" data-src="' + esc(big) +
+    var cls = sm ? ' sm' : '';
+    if (!src) return '<span class="thumb-fallback' + cls + '">' + esc(initial) + '</span>';
+    return '<button type="button" class="thumb' + cls + '" data-src="' + esc(big) +
            '" data-cap="' + esc(cap) + '" aria-label="Enlarge: ' + esc(cap) + '">' +
            '<img src="' + esc(src) + '" alt="' + esc(cap) + '" loading="lazy" ' +
-           'onerror="this.parentNode.outerHTML=\'<span class=&quot;thumb-fallback&quot;>' + esc(initial) + '</span>\'">' +
-           '</button></td>';
+           'onerror="this.parentNode.outerHTML=\'<span class=&quot;thumb-fallback' + cls + '&quot;>' + esc(initial) + '</span>\'">' +
+           '</button>';
+  }
+  function thumbCell(c, sm) {
+    return '<td class="thumb-cell' + (sm ? ' sm' : '') + '">' + thumbInner(c, sm) + '</td>';
   }
 
-  function nameCell(c) {
-    var chip = CHIP[c.tag] || 'c-legacy';
+  /* Preview links. Ads Manager always exists (it is a deep link built from the
+     account and ad ids); the Instagram permalink only exists for the subset of
+     creatives published as an IG post — coverage is stated in the method box
+     rather than hidden behind a missing icon. */
+  function linkBar(c) {
+    var out = [];
+    if (c.ads_manager_url) {
+      out.push('<a href="' + esc(c.ads_manager_url) + '" target="_blank" rel="noopener noreferrer">' +
+               'Open in Ads Manager ↗</a>');
+    }
+    if (c.instagram_url) {
+      out.push('<a class="ig" href="' + esc(c.instagram_url) + '" target="_blank" rel="noopener noreferrer" ' +
+               'title="Instagram permalink">◻ Instagram ↗</a>');
+    }
+    return out.length ? '<div class="links">' + out.join('') + '</div>' : '';
+  }
+
+  function chipRow(c) {
+    return '<div class="chips"><span class="chip ' + (CHIP[c.tag] || 'c-legacy') + '">' + esc(c.tag) + '</span>' +
+           '<span class="chip media">' + esc(shortMedia(c.media_type)) + '</span>' +
+           (c.market ? '<span class="chip media">' + esc(c.market) + '</span>' : '') +
+           (c.promo ? '<span class="chip promo">Promo</span>' : '') + '</div>';
+  }
+
+  function nameCell(c, withLinks) {
     return '<td class="cre" title="' + esc(c.ad_name) + '">' +
            '<span class="cname">' + esc(c.display_name || c.ad_name) + '</span>' +
-           '<div class="chips"><span class="chip ' + chip + '">' + esc(c.tag) + '</span>' +
-           '<span class="chip media">' + esc(shortMedia(c.media_type)) + '</span></div></td>';
+           chipRow(c) + (withLinks ? linkBar(c) : '') + '</td>';
+  }
+
+  /* An index below 0.85 is the tab's own fatigue threshold, so the colouring
+     and the classification cannot drift apart. CPA runs the other way. */
+  function idxCell(v, inverted) {
+    if (v == null) return '<td class="ix na">' + dash + '</td>';
+    var cls;
+    if (inverted) cls = v <= 1.05 ? 'good' : (v <= 1.3 ? 'warn' : 'bad');
+    else          cls = v >= 0.85 ? 'good' : (v >= 0.7 ? 'warn' : 'bad');
+    return '<td class="ix ' + cls + '">' + v.toFixed(2).replace('.', ',') + '×</td>';
   }
 
   /* Rows are joined once and assigned in a single innerHTML write — never
@@ -415,7 +624,7 @@
       return;
     }
     tb.innerHTML = rows.map(function (c, i) {
-      return '<tr><td class="rank">' + (i + 1) + '</td>' + thumbCell(c) + nameCell(c) +
+      return '<tr><td class="rank">' + (i + 1) + '</td>' + thumbCell(c) + nameCell(c, true) +
              '<td class="strong">' + kr(c.spend) + '</td>' +
              '<td class="strong">' + int(c.purchases) + '</td>' +
              '<td class="strong">' + kr2(c.cpa) + '</td>' +
@@ -426,18 +635,148 @@
   function renderRecent(rows) {
     var tb = $('recentTable').tBodies[0];
     if (!rows.length) {
-      tb.innerHTML = '<tr><td colspan="8" class="dim" style="text-align:center;padding:26px">' +
+      tb.innerHTML = '<tr><td colspan="10" class="dim" style="text-align:center;padding:26px">' +
                      'No newly uploaded ads delivered in this window.</td></tr>';
       return;
     }
     tb.innerHTML = rows.map(function (c, i) {
-      return '<tr><td class="rank">' + (i + 1) + '</td>' + thumbCell(c) + nameCell(c) +
+      return '<tr><td class="rank">' + (i + 1) + '</td>' + thumbCell(c) + nameCell(c, true) +
              '<td class="dim">' + esc(c.market) + '</td>' +
              '<td class="dim">' + esc(c.uploaded) + '</td>' +
+             '<td class="dim">' + int(c.days_active) + '</td>' +
              '<td class="strong">' + int(c.purchases) + '</td>' +
              '<td class="strong">' + kr(c.spend) + '</td>' +
-             '<td class="strong">' + kr2(c.cpa) + '</td></tr>';
+             '<td class="strong">' + kr2(c.cpa) + '</td>' +
+             '<td>' + pct2(c.link_ctr) + '</td></tr>';
     }).join('');
+  }
+
+  /* ── Fatigue board ────────────────────────────────────────────────────── */
+  function renderFatigue(f, win) {
+    var rows = f.rows || [];
+    var tb = $('fatigueTable').tBodies[0];
+    if (!rows.length) {
+      tb.innerHTML = '<tr><td colspan="14" class="dim" style="text-align:center;padding:26px">' +
+                     'No ad delivered in this window.</td></tr>';
+      return;
+    }
+    tb.innerHTML = rows.map(function (c) {
+      return '<tr>' + thumbCell(c, true) + nameCell(c, true) +
+             '<td class="lbl"><span class="st ' + (STCLASS[c.status] || 's-none') + '">' + esc(c.status) + '</span></td>' +
+             '<td class="dim">' + esc(c.uploaded || dash) + '</td>' +
+             '<td class="dim">' + int(c.days_active) + '</td>' +
+             '<td class="strong">' + kr(c.spend) + '</td>' +
+             '<td>' + num2(c.frequency) + '</td>' +
+             '<td>' + pct2(c.link_ctr) + '</td>' +
+             idxCell(c.ctr_index, false) +
+             '<td>' + (c.is_video ? pct2(c.hook_rate) : '<span class="dim">' + dash + '</span>') + '</td>' +
+             idxCell(c.hook_index, false) +
+             '<td class="strong">' + kr2(c.cpa) + '</td>' +
+             idxCell(c.cpa_index, true) +
+             '<td class="lbl spark-cell">' + spark(c.weeks, 'link_ctr') + '</td></tr>';
+    }).join('');
+
+    // Spend share by status, worst first — the strip is the summary a media
+    // buyer reads before any row.
+    $('fatigueStrip').innerHTML = (f.by_status || []).map(function (b) {
+      return '<div class="sc"><span class="st ' + (STCLASS[b.status] || 's-none') + '">' + esc(b.status) + '</span>' +
+             '<div class="sv">' + pct(b.pct) + '</div>' +
+             '<div class="sn">' + kr(b.spend) + ' · ' + int(b.ads) + ' ads</div></div>';
+    }).join('');
+
+    if (f.at_risk_pct != null) {
+      $('fatigueHeadline').hidden = false;
+      $('fatigueHeadline').innerHTML = '<b>' + pct(f.at_risk_pct) + ' of last-7-day spend (' +
+        kr(f.at_risk_spend) + ') sits on creatives classified Fatiguing or Exhausted.</b> ' +
+        'That is the money a refresh would move first — the "Fatiguing now" card below ranks it.';
+    }
+
+    var t = f.thresholds || {};
+    $('fatigueSub').textContent =
+      'One row per ad that spent in ' + win.from + ' – ' + win.to + '. Each ad is judged against its OWN baseline: ' +
+      'the first full 7-day week, counted from its first spend day, that spent at least ' +
+      int(t.baseline_min_spend) + ' kr. Video is scored on the hook index, everything else on the link-CTR index.';
+    $('fatigueNote').textContent =
+      'Fresh: fewer than ' + int(t.fresh_days) + ' days since first spend. Stable: index ≥ ' + num2(t.stable_index) +
+      '. Fatiguing: index ' + num2(t.exhausted_index) + '–' + num2(t.stable_index) + ', or frequency up ' +
+      num2(t.freq_rise) + '× on baseline. Exhausted: index < ' + num2(t.exhausted_index) + ' and at least ' +
+      int(t.exhausted_days) + ' days active. No baseline: the ad never had a full week over ' +
+      int(t.baseline_min_spend) + ' kr. The sparkline is weekly link CTR since launch, up to ' +
+      int(t.weeks_kept) + ' weeks, scaled to each ad’s own range. *Frequency is the average daily frequency (impressions ÷ summed daily reach), not a 7-day figure.';
+  }
+
+  /* ── Leaderboards ─────────────────────────────────────────────────────── */
+  var LB_FMT = {
+    hook_rate: pct2, hold_rate: pct2, link_ctr: pct2, lpv_rate: pct,
+    cpa: kr2, saves_shares_per_1k: num2, purchases: int, spend: kr
+  };
+  var LB_SUB = {
+    hook_rate: '3-second video views ÷ impressions. Video ads only.',
+    hold_rate: 'Thruplays ÷ video plays — who stays past the hook.',
+    link_ctr: 'Link clicks ÷ impressions.',
+    cpa: 'Spend ÷ purchases. Ads with at least one purchase.',
+    lpv_rate: 'Landing page views ÷ link clicks — the click that survives.',
+    social: 'Saves + shares per 1 000 impressions.',
+    rising: 'First spend in the last 14 days, ranked by purchases.',
+    fatiguing_now: 'Fatiguing or Exhausted, ranked by last-7-day spend — the money to move.'
+  };
+  var LB_ORDER = ['hook_rate', 'hold_rate', 'link_ctr', 'cpa', 'lpv_rate', 'social',
+                  'rising', 'fatiguing_now'];
+
+  function renderLeaderboards(lbs) {
+    $('lbGrid').innerHTML = LB_ORDER.map(function (key) {
+      var card = lbs[key];
+      if (!card) return '';
+      var fmt = LB_FMT[card.metric] || num2;
+      var body;
+      if (!card.rows || !card.rows.length) {
+        body = '<div class="lempty">No ad clears the floor.</div>';
+      } else {
+        body = '<ol>' + card.rows.map(function (r) {
+          var meta = kr(r.spend) + (key === 'rising' && r.days_since_first_spend != null
+            ? ' · ' + int(r.days_since_first_spend) + ' d live' : '');
+          return '<li>' + thumbInner(r, true) +
+                 '<span class="lname"><span class="n" title="' + esc(r.ad_name) + '">' +
+                 esc(r.display_name || r.ad_name) + '</span>' +
+                 '<span class="s">' + esc(r.market || '') + ' · ' + esc(shortMedia(r.media_type)) +
+                 (r.promo ? ' · Promo' : '') + ' · ' + meta + '</span></span>' +
+                 '<span class="lval">' + fmt(r.value) + '</span></li>';
+        }).join('') + '</ol>';
+      }
+      return '<div class="lb"><h4>' + esc(card.title) + '</h4>' +
+             '<div class="lbsub">' + esc(LB_SUB[key] || '') + '</div>' + body + '</div>';
+    }).join('');
+  }
+
+  /* ── Rollups ──────────────────────────────────────────────────────────── */
+  var ROLL_COLS = [
+    { h: 'Ads',        f: function (r) { return int(r.ads); } },
+    { h: 'Spend',      f: function (r) { return kr(r.spend); },      cls: 'strong' },
+    { h: 'Share',      f: function (r) { return pct(r.share); } },
+    { h: 'Link CTR',   f: function (r) { return pct2(r.link_ctr); } },
+    { h: 'Hook',       f: function (r) { return pct2(r.hook_rate); } },
+    { h: 'Hold',       f: function (r) { return pct2(r.hold_rate); } },
+    { h: 'LPV rate',   f: function (r) { return pct(r.lpv_rate); } },
+    { h: 'CPA',        f: function (r) { return kr2(r.cpa); },       cls: 'strong' },
+    { h: 'ROAS*',      f: function (r) { return roas(r.roas); },     cls: 'dim' },
+    { h: 'Purchases',  f: function (r) { return int(r.purchases); } },
+    { h: 'S+S / 1k',   f: function (r) { return num2(r.saves_shares_per_1k); } }
+  ];
+
+  function renderRollup(tableId, rows, label) {
+    var head = '<thead><tr><th class="lbl">' + esc(label) + '</th>' +
+               ROLL_COLS.map(function (c) { return '<th>' + esc(c.h) + '</th>'; }).join('') +
+               '</tr></thead>';
+    var body = rows.length
+      ? rows.map(function (r) {
+          return '<tr><td class="lbl">' + esc(r.label) + '</td>' +
+                 ROLL_COLS.map(function (c) {
+                   return '<td class="' + (c.cls || '') + '">' + c.f(r) + '</td>';
+                 }).join('') + '</tr>';
+        }).join('')
+      : '<tr><td colspan="' + (ROLL_COLS.length + 1) + '" class="dim" style="text-align:center;padding:22px">' +
+        'Nothing clears the floor.</td></tr>';
+    $(tableId).innerHTML = head + '<tbody>' + body + '</tbody>';
   }
 
   /* ── KPI tiles ────────────────────────────────────────────────────────────
@@ -456,21 +795,29 @@
     { k: 'spend',     label: 'Spend, SE+NO',       fmt: kr,   note: 'Last 7 days', spot: true },
     { k: 'purchases', label: 'Purchases (attributed)', fmt: int, note: 'Website purchases, pixel' },
     { k: 'cpa',       label: 'Blended CPA',        fmt: kr2,  note: 'Spend / purchases' },
-    { k: 'ctr',       label: 'Blended CTR',        fmt: pct,  note: 'Clicks / impressions, hook proxy' },
-    { k: 'cpm',       label: 'Blended CPM',        fmt: kr,   note: 'Cost of distribution' },
-    { k: 'roas',      label: 'Platform ROAS',      fmt: roas, note: 'Context, not GM-verified' }
+    { k: 'roas',      label: 'Platform ROAS',      fmt: roas, note: 'Context, not GM-verified' },
+    { k: 'cpm',       label: 'Blended CPM',        fmt: kr,   note: 'Cost of distribution' }
   ];
+  var TILES2 = [
+    { k: 'link_ctr',  label: 'Link CTR',           fmt: pct2, note: 'actions.link_click / impressions', spot: true },
+    { k: 'hook_rate', label: 'Hook rate',          fmt: pct2, note: '3-sec views / impressions, video ads' },
+    { k: 'lpv_rate',  label: 'LPV rate',           fmt: pct,  note: 'Landing page views / link clicks' },
+    { k: 'ctr',       label: 'Blended CTR (all)',  fmt: pct,  note: 'Every click, incl. profile taps' }
+  ];
+
+  function tileHtml(c, t, lib, d) {
+    return '<div class="kpi' + (t.spot ? ' spot' : '') + '">' +
+           '<div class="k">' + esc(t.label) + '</div>' +
+           '<div class="v">' + t.fmt(c[t.k]) + '</div>' +
+           deltaPill(t.k, d[t.k], lib) +
+           '<div class="n">' + esc(t.note) + '</div></div>';
+  }
 
   function renderKpis(c) {
     var lib = c.lower_is_better || ['cpa', 'cpm'];
     var d = c.delta_pct || {};
-    $('kpiGrid').innerHTML = TILES.map(function (t) {
-      return '<div class="kpi' + (t.spot ? ' spot' : '') + '">' +
-             '<div class="k">' + esc(t.label) + '</div>' +
-             '<div class="v">' + t.fmt(c[t.k]) + '</div>' +
-             deltaPill(t.k, d[t.k], lib) +
-             '<div class="n">' + esc(t.note) + '</div></div>';
-    }).join('');
+    $('kpiGrid').innerHTML = TILES.map(function (t) { return tileHtml(c, t, lib, d); }).join('');
+    $('kpiGrid2').innerHTML = TILES2.map(function (t) { return tileHtml(c, t, lib, d); }).join('');
   }
 
   function renderMarkets(kpis, markets) {
@@ -483,7 +830,7 @@
              '<td class="strong">' + kr(k.spend) + '</td>' +
              '<td class="strong">' + int(k.purchases) + '</td>' +
              '<td class="strong">' + kr2(k.cpa) + '</td>' +
-             '<td>' + pct(k.ctr) + '</td>' +
+             '<td>' + pct2(k.link_ctr) + '</td>' +
              '<td>' + kr2(k.cpm) + '</td>' +
              '<td class="dim">' + roas(k.roas) + '</td></tr>';
     }).join('');
@@ -508,7 +855,7 @@
     var car = find(types, 'Carousel');
     if (car && car.spend > 0) parts.push('Carousel is still running at ' + kr(car.spend) + '.');
     var dpa = find(types, 'DPA / catalog');
-    if (dpa && dpa.spend > 0) parts.push('DPA / catalog, ' + kr(dpa.spend) + ' (' + pct(dpa.pct) + '), is excluded from the tables below.');
+    if (dpa && dpa.spend > 0) parts.push('DPA / catalog, ' + kr(dpa.spend) + ' (' + pct(dpa.pct) + '), is excluded from the ranked tables below.');
     return parts.join(' ');
   }
 
@@ -556,13 +903,35 @@
     }
   }
 
+  /* The method box carries the caveat list AND every definition the payload
+     ships, so a number on this page can always be traced to its formula
+     without opening the refresh script. */
+  var METHOD_KEYS = [
+    'link_ctr', 'frequency', 'hook_rate', 'hold_rate', 'completion', 'avg_seconds',
+    'lpv_rate', 'cost_per_lpv', 'atc_rate', 'purchase_rate', 'social_per_1k',
+    'promo', 'uploaded', 'days_active', 'baseline', 'ctr_index', 'hook_index',
+    'cpa_index', 'status', 'leaderboards', 'rising', 'top5', 'recent'
+  ];
+
   function renderMethod(d) {
     var s = d.sources || {};
-    var out = ['<b>Method and caveats.</b> Source: ' + esc(s.marts || '') +
+    var ig = s.instagram_coverage || {};
+    var out = ['<b>Method and caveats.</b> Source: ' + esc(s.insights || s.marts || '') +
+               ', joined to ' + esc(s.ads || '') + ' and ' + esc(s.creatives || '') +
                '. Attribution: ' + esc(s.attribution || '') + '.'];
+    if (ig.ads != null) {
+      out.push(' Instagram permalinks exist for ' + int(ig.ads) + ' of ' + int(ig.ads_total) +
+               ' delivering ads (' + pct(ig.ads_pct) + ' of ads, ' + pct(ig.spend_pct) +
+               ' of spend); the rest link to Ads Manager only.');
+    }
     if (d.caveats && d.caveats.length) {
       out.push('<ul>' + d.caveats.map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('') + '</ul>');
     }
+    var defs = d.definitions || {};
+    var dl = METHOD_KEYS.filter(function (k) { return defs[k]; }).map(function (k) {
+      return '<dt>' + esc(k) + '</dt><dd>' + esc(defs[k]) + '</dd>';
+    }).join('');
+    if (dl) out.push('<dl>' + dl + '</dl>');
     $('method').hidden = false;
     $('method').innerHTML = out.join('');
   }
@@ -578,20 +947,44 @@
                               '. Compared with ' + w.prev_from + ' – ' + w.prev_to + '.';
     $('ctx').innerHTML =
       '<span><b>Attribution:</b> Meta default window (7d click / 1d view)</span>' +
-      '<span><b>Source:</b> ' + esc(s.marts || '') + '</span>' +
-      '<span><b>Markets:</b> ' + esc(markets.join(', ')) + ' (read from the ad name)</span>';
-    $('topSub').textContent = 'Top 5 per market, ranked by lowest cost per purchase (CPA), minimum ' +
+      '<span><b>Source:</b> ' + esc(s.insights || s.marts || '') + '</span>' +
+      '<span><b>Markets:</b> ' + esc(markets.join(', ')) + ' (read from the ad name)</span>' +
+      '<span><b>Ranking floors:</b> ' + int(s.min_spend) + ' kr over 7 days, ' +
+        int(s.min_spend_l28) + ' kr over 28</span>';
+    $('fatigueTag').textContent = w.from + ' – ' + w.to;
+    $('lbTag').textContent = (w.l28_from || '') + ' – ' + (w.l28_to || w.to);
+    $('lbSub').textContent = 'Ranked over the last ' + int(w.long_days || 28) + ' days, minimum ' +
+      int(s.min_spend_l28) + ' kr spend so a single cheap impression cannot top a card. ' +
+      'DPA / catalog is excluded — it is a feed, not a creative anyone iterates on.';
+    $('rollupSub').textContent = 'Ratio of sums over the last ' + int(w.long_days || 28) +
+      ' days. "n ads" is there so a row built on one creative is visible as such.';
+    $('topSub').textContent = 'Top 5 per market, ranked by lowest cost per purchase (CPA) over the last 7 days, minimum ' +
       int(s.min_spend) + ' kr spend for statistical relevance. Platform ROAS is shown as context, ' +
       'not as the ranking basis. DPA / catalog is excluded.';
     $('recentSub').textContent = 'Ads created ' + w.from + ' to ' + w.to +
       ' that delivered. Ranked by attributed purchases in the window.';
     $('recentNote').textContent = 'New concepts only: an ad whose name already existed on an older ' +
-      'ad counts as a re-upload and is not listed here.';
+      'ad counts as a re-upload and is not listed here. "Days active" counts days with spend, not ' +
+      'calendar days since upload.';
     $('acct').textContent = (s.account_label || '') + ' · ' + (s.account_id || '');
 
     var kpis = d.kpis || {};
     if (kpis.combined) renderKpis(kpis.combined);
     renderMarkets(kpis, markets);
+
+    renderFatigue(d.fatigue || {}, w);
+    renderLeaderboards(d.leaderboards || {});
+
+    var ro = d.rollups || {};
+    renderRollup('rollTag', ro.by_tag || [], 'Concept tag');
+    renderRollup('rollMedia', ro.by_media_type || [], 'Media type');
+    renderRollup('rollPromo', ro.by_promo || [], 'Type');
+    if ((ro.by_tag_media || []).length) {
+      $('crossCard').hidden = false;
+      $('crossSub').textContent = 'Only cells above the ' + int(s.min_spend_l28) +
+        ' kr floor are shown — below it the cross is a list of one-ad curiosities.';
+      renderRollup('rollCross', ro.by_tag_media, 'Tag × media type');
+    }
 
     var total = kpis.combined ? kpis.combined.spend : null;
     renderMix('donut1', 'legend1', d.media_types || [], 'Spend by media type', total);
@@ -606,8 +999,19 @@
     renderMethod(d);
 
     // The tables carry data-tools, so they were enhanced empty at
-    // DOMContentLoaded; re-derive column types now that they have rows.
-    if (window.TableTools) window.TableTools.refreshAll();
+    // DOMContentLoaded; re-derive column types now that they have rows. The
+    // numeric columns are pinned rather than sniffed: the fatigue board's
+    // index column renders "0,73×" and its Uploaded column an ISO date, both
+    // of which the heuristic would type wrongly.
+    if (window.TableTools) {
+      window.TableTools.enhance($('fatigueTable'),
+        { numericColumns: [4, 5, 6, 7, 8, 9, 10, 11, 12] });
+      ['rollTag', 'rollMedia', 'rollPromo', 'rollCross'].forEach(function (id) {
+        window.TableTools.enhance($(id), { numericColumns: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] });
+      });
+      window.TableTools.enhance($('recentTable'), { numericColumns: [5, 6, 7, 8, 9] });
+      window.TableTools.refreshAll();
+    }
   }
 
   /* ── Lightbox ─────────────────────────────────────────────────────────────
