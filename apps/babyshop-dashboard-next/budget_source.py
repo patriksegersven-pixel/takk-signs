@@ -2,7 +2,7 @@
 """
 Budget / forecast source for the Babyshop dashboard.
 
-Parses the "Rullande P&L" forecast workbook (Forecast v1.xlsx) into a compact
+Parses Finance's "Rullande forecast · P&L" workbook export into a compact
 monthly JSON — one entry per P&L line, 12 months (Jan→Dec) + full year — and
 writes it to Firestore doc `funnel_cache/<WORKSPACE>__budget-2026`, which the
 dashboard reads via /api/budget.
@@ -34,28 +34,41 @@ BUDGET_JSON = os.path.join(HERE, "budget_2026.json")
 YEAR = 2026
 
 # ── P&L line map ──────────────────────────────────────────────────────────────
-# key -> (row in the "Blad1" sheet, human label, group, whether it's a cost line)
-# Rows verified against Forecast v1.xlsx (columns C..N = M1..M12 = Jan..Dec, O = FY).
+# The workbook is the "Rullande forecast · P&L" export from Finance's app
+# (sheet "P&L": column A = line label, B..M = Jan..Dec, N = FY). Rows move
+# between exports, so lines are located by label, not by row number.
+#
+# key -> (workbook labels summed into the line, human label, group, is_cost)
+# Sub-total lines the dashboard tracks are exact workbook rows; the two
+# bracket lines the old layout carried as one row are sums of workbook rows:
+#   direct_var  = Net Shipping + Total Fulfillment + Transaction fees (= GP1 − GP2)
+#   interest_da = Amortization & Depreciation + Total Financial Items (= EBITDA − EBT)
 LINES = [
-    ("gross_sales", 8,  "Gross sales",          "sales",   False),
-    ("returns",     10, "Sales returns",        "sales",   True),
-    ("net_sales",   13, "Net sales",            "sales",   False),
-    ("cogs",        16, "Cost of goods sold",   "cogs",    True),
-    ("gp1",         18, "Gross profit 1",       "profit",  False),
-    ("direct_var",  34, "Direct variable costs","cost",    True),
-    ("gp2",         36, "Gross profit 2",       "profit",  False),
-    ("marketing",   40, "Marketing costs",      "cost",    True),
-    ("gp3",         43, "Gross profit 3",       "profit",  False),
-    ("opex",        56, "Operating expenses",   "cost",    True),
-    ("other_income",59, "Other income",         "other",   False),
-    ("ebitda",      61, "EBITDA",               "profit",  False),
-    ("interest_da", 71, "Interest, D&A",        "cost",    True),
-    ("ebt",         73, "EBT",                  "profit",  False),
-    ("eat",         77, "Earnings after tax",   "profit",  False),
+    ("gross_sales", ["Gross Sales"],           "Gross sales",           "sales",  False),
+    ("returns",     ["Returns"],               "Sales returns",         "sales",  True),
+    ("net_sales",   ["Net Sales"],             "Net sales",             "sales",  False),
+    ("cogs",        ["Total COGS"],            "Cost of goods sold",    "cogs",   True),
+    ("gp1",         ["Gross profit 1"],        "Gross profit 1",        "profit", False),
+    ("direct_var",  ["Net Shipping", "Total Fulfillment", "Transaction fees"],
+                                               "Direct variable costs", "cost",   True),
+    ("gp2",         ["GP2"],                   "Gross profit 2",        "profit", False),
+    ("marketing",   ["Total Marketing"],       "Marketing costs",       "cost",   True),
+    ("gp3",         ["GP3"],                   "Gross profit 3",        "profit", False),
+    ("opex",        ["Total Overhead"],        "Operating expenses",    "cost",   True),
+    ("other_income",["Other Income"],          "Other income",          "other",  False),
+    ("ebitda",      ["EBITDA"],                "EBITDA",                "profit", False),
+    ("interest_da", ["Amortization & Depreciation", "Total Financial Items"],
+                                               "Interest, D&A",         "cost",   True),
+    ("ebt",         ["EBT"],                   "EBT",                   "profit", False),
+    ("eat",         ["Net Income"],            "Earnings after tax",    "profit", False),
 ]
-MONTH_STATUS_ROW = 5   # C5..N5 = "Actual" / "Forecast"
-MONTH_COLS = list(range(3, 15))   # C(3) .. N(14)  → M1..M12
-FY_COL = 15                       # O
+SHEET = "P&L"
+HEADER_ROW = 5                    # A5 = "SEK", B5..M5 = "jan · prognos" …, N5 = "FY"
+MONTH_COLS = list(range(2, 14))   # B(2) .. M(13)  → Jan..Dec
+FY_COL = 14                       # N
+# Identities the workbook must satisfy; a failed check means a row was
+# renamed/moved and the label map above needs a look.
+IDENTITIES = [("gp1", "direct_var", "gp2"), ("ebitda", "interest_da", "ebt")]
 
 
 def _num(v):
@@ -67,28 +80,60 @@ def _num(v):
         return None
 
 
+def _month_status(header) -> str:
+    h = (str(header or "")).lower()
+    return "Actual" if ("utfall" in h or "actual" in h) else "Forecast"
+
+
 def parse_xlsx(path: str) -> dict:
     """Parse the forecast workbook into the budget dict."""
     import openpyxl
     wb = openpyxl.load_workbook(path, data_only=True)
-    ws = wb["Blad1"]
+    ws = wb[SHEET]
 
-    month_status = [ws.cell(row=MONTH_STATUS_ROW, column=c).value for c in MONTH_COLS]
-    month_status = [(s or "").strip() or "Forecast" for s in month_status]
+    # Label -> row (first occurrence). "Cost of goods sold" appears twice
+    # (section header + line); we only address sub-totals, so first-hit is fine.
+    rows = {}
+    for r in range(1, ws.max_row + 1):
+        lbl = ws.cell(row=r, column=1).value
+        if isinstance(lbl, str) and lbl.strip() and lbl.strip() not in rows:
+            rows[lbl.strip()] = r
+
+    month_status = [_month_status(ws.cell(row=HEADER_ROW, column=c).value)
+                    for c in MONTH_COLS]
+
+    def _row_vals(label):
+        r = rows.get(label)
+        if r is None:
+            raise KeyError(f"P&L line {label!r} not found in {os.path.basename(path)}")
+        return ([_num(ws.cell(row=r, column=c).value) for c in MONTH_COLS],
+                _num(ws.cell(row=r, column=FY_COL).value))
 
     lines = {}
-    for key, row, label, group, is_cost in LINES:
-        monthly = [_num(ws.cell(row=row, column=c).value) for c in MONTH_COLS]
-        fy = _num(ws.cell(row=row, column=FY_COL).value)
+    for key, labels, label, group, is_cost in LINES:
+        monthly = [0] * 12
+        fy = 0
+        for lb in labels:
+            m, f = _row_vals(lb)
+            monthly = [a + (b or 0) for a, b in zip(monthly, m)]
+            fy += (f or 0)
         # Store costs as positive magnitudes (the sheet keeps them negative);
         # `is_cost` tells the UI how to render them.
         if is_cost:
-            monthly = [(-v if v is not None else None) for v in monthly]
-            fy = (-fy if fy is not None else None)
+            monthly = [-v for v in monthly]
+            fy = -fy
         lines[key] = {
             "label": label, "group": group, "is_cost": is_cost,
             "monthly": monthly, "fy": fy,
         }
+
+    for top, cost, bottom in IDENTITIES:
+        for i in range(13):
+            pick = (lambda k: lines[k]["fy"]) if i == 12 else (lambda k: lines[k]["monthly"][i])
+            diff = pick(top) - pick(cost) - pick(bottom)
+            if abs(diff) > 2:   # rounding only
+                raise ValueError(f"{top} − {cost} ≠ {bottom} (col {i}, off by {diff}); "
+                                 f"check the LINES label map")
 
     return {
         "year": YEAR,
@@ -97,6 +142,7 @@ def parse_xlsx(path: str) -> dict:
         "line_order": [k for k, *_ in LINES],
         "lines": lines,
         "source_file": os.path.basename(path),
+        "exported": (str(ws.cell(row=2, column=1).value or "")[:40]),
         "note": "Rullande P&L forecast. Costs stored as positive magnitudes.",
     }
 
@@ -124,8 +170,9 @@ def push_budget(budget: dict | None = None) -> None:
 
 if __name__ == "__main__":
     import sys
-    src = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser(
-        "~/Downloads/Forecast v1 (1).xlsx")
+    if len(sys.argv) < 2 or sys.argv[1].startswith("--"):
+        sys.exit("usage: budget_source.py <rullande-forecast.xlsx> [--no-push]")
+    src = sys.argv[1]
     budget = parse_xlsx(src)
     with open(BUDGET_JSON, "w", encoding="utf-8") as f:
         json.dump(budget, f, ensure_ascii=False, indent=2)
