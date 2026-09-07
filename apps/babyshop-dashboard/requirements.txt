@@ -15,3 +15,10 @@ google-ads==31.2.0
 delta-sharing==1.4.2
 pandas==2.3.3
 pyarrow==23.0.1
+# refresh_meta.py mirrors creative images: requests fetches the signed Meta CDN
+# URL, Pillow resizes it to a 640px long-side JPEG plus a 192px square thumb,
+# and the bytes go to Firestore (meta_creative_images). requests already arrives
+# as a transitive dependency of google-* and delta-sharing; pinned here because
+# refresh_meta imports it directly.
+requests==2.32.3
+Pillow==11.1.0

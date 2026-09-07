@@ -27,7 +27,7 @@ import secrets
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 # ── App ──────────────────────────────────────────────────────────────────────
@@ -497,6 +497,73 @@ def api_meta(_: str = Depends(verify)):
         "top_creatives": {"SE": [], "NO": []}, "recent": [],
         "caveats": ["no Meta snapshot yet — refresh_meta.py has not run"],
     }
+
+
+# Mirrored creative images, one Firestore document per ad, written by
+# refresh_meta.mirror_images(). The tab used to hotlink Meta's signed CDN URL,
+# which is 64x64 for most creatives and dies about four days after minting;
+# this serves our own 640px/192px JPEGs instead.
+#
+# Read STRICTLY by document id. `meta_creative_images` holds base64 image bytes,
+# so a list/query over it would pull megabytes per request — there is no route
+# anywhere that enumerates this collection.
+META_IMAGE_COLLECTION = "meta_creative_images"
+META_IMAGE_SIZES = {"thumb": "thumb_b64", "large": "large_b64"}
+
+
+@app.get("/api/meta/image/{ad_id}")
+def api_meta_image(ad_id: str, size: str = "thumb", _: str = Depends(verify)):
+    """One mirrored creative image as image/jpeg. 404 when it was never mirrored.
+
+    404 is a normal, expected answer: an ad whose only source URL was already
+    dead, or one added since the last refresh, simply has no document. The page
+    treats it as "fall back to the hotlink, then to a placeholder"."""
+    import base64
+
+    field = META_IMAGE_SIZES.get(size)
+    if field is None:
+        raise HTTPException(status_code=400, detail="size must be thumb or large")
+    # The ad id lands in a Firestore document path; Meta ids are digits, and
+    # anything else would either miss or (with a '/') address a different path.
+    if not ad_id.isdigit():
+        raise HTTPException(status_code=404, detail="Not found")
+
+    try:
+        from funnel_client import get_firestore_db, FUNNEL_WORKSPACE
+        db = get_firestore_db()
+        if db is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        snap = (db.collection(META_IMAGE_COLLECTION)
+                  .document(f"{FUNNEL_WORKSPACE}__{ad_id}").get())
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"ERROR /api/meta/image/{ad_id}: {type(e).__name__}: {e}", flush=True)
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if not snap.exists:
+        raise HTTPException(status_code=404, detail="Not found")
+    d = snap.to_dict() or {}
+    b64 = d.get(field) or d.get("thumb_b64")
+    if not b64:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        raw = base64.b64decode(b64)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    return Response(
+        content=raw,
+        media_type="image/jpeg",
+        headers={
+            # Private: the whole service sits behind Basic auth and these are a
+            # client's ad creatives, not public assets. A day is safe because a
+            # mirrored image is immutable for the life of its document — the
+            # nightly job only rewrites it when a BETTER source appears.
+            "Cache-Control": "private, max-age=86400",
+            "X-Image-Source": str(d.get("source") or ""),
+        },
+    )
 
 
 @app.get("/api/roas-impact")

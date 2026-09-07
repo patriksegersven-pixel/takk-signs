@@ -33,7 +33,27 @@
 # access to those two datasets. A dedicated SA would be tighter; that is a
 # deliberate open decision, not an oversight.
 #
-# Otherwise this job only READS BigQuery and writes one Firestore doc, so it
+# ── IMAGE MIRROR (added in v3) ───────────────────────────────────────────────
+# The job now also FETCHES the creative images over the public internet
+# (scontent-*.xx.fbcdn.net and www.facebook.com/ads/image/) and stores resized
+# JPEGs as base64 in Firestore collection `meta_creative_images`, one document
+# per ad, which GET /api/meta/image/<ad_id> serves. This needs:
+#   • egress to the internet — the job runs with Cloud Run's DEFAULT egress
+#     (no VPC connector, no egress restrictions), so fbcdn is reachable. If a
+#     VPC connector with "all traffic" egress is ever added to this job, the
+#     mirror silently degrades to placeholders unless Cloud NAT is configured.
+#   • no extra IAM: the runtime SA's roles/datastore.user already covers the
+#     new collection.
+# Every fetch is wrapped, so a dead URL or a network failure costs one
+# thumbnail and never the run. Knobs: META_SKIP_IMAGES=1 disables the mirror,
+# META_IMAGE_ADS=<n> caps it (local runs).
+#
+# Firestore cost: ~92 documents, 3-6 KiB for a 64px-only creative and 60-90 KiB
+# for a full-size still or video poster. Documents carry a 30-day expires_at
+# and are only re-fetched when they are older than 14 days or a better source
+# appears, so a steady-state nightly run rewrites almost nothing.
+#
+# Otherwise this job only READS BigQuery and writes Firestore docs, so it
 # needs no secrets and no env vars of its own.
 #
 # Idempotent: re-running updates the job in place (and repoints it at the
@@ -78,10 +98,11 @@ echo "   ${ACTION}d $JOB -> python3 refresh_meta.py"
 
 echo "== 2. Daily Cloud Scheduler job =="
 # 04:30 Stockholm, after bundles-refresh (04:15) and well after the warehouse's
-# own Meta loads (~03:58). DAILY, not weekly, and that is not a cadence
-# preference: the creative thumbnails are signed Meta CDN URLs that expire
-# about four days after they are minted, so a snapshot has to be re-cut long
-# before then or the tab renders rows of broken images.
+# own Meta loads (~03:58). DAILY, not weekly: the source URLs are signed Meta
+# CDN links that expire about four days after minting, so the mirror has to
+# re-cut before then or a newly launched ad never gets an image at all. (The
+# images already mirrored survive — that is the point of the mirror — but the
+# numbers still need a daily snapshot.)
 ACTION=create
 gcloud scheduler jobs describe "${JOB}-daily" --project="$PROJECT" \
   --location="$SCHEDULER_REGION" >/dev/null 2>&1 && ACTION=update

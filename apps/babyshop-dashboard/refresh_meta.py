@@ -91,6 +91,47 @@ DOC_KEY    = "meta"
 TTL        = 30 * 24 * 3600
 FIRESTORE_PROJECT = os.environ.get("FIRESTORE_PROJECT", "project-a7ade44e-e7e3-4871-a83")
 
+# ── Image mirror ─────────────────────────────────────────────────────────────
+# Meta hands out two kinds of picture and only one of them is worth showing:
+#   • creative.thumbnail_url — 64x64, ALWAYS present, and the size is signed
+#     into the URL (stp=…p64x64_q75…). Rewriting it to p640x640, or stripping
+#     stp= altogether, returns "URL signature mismatch" 403. Verified again
+#     2026-09-07: 64px really is all this URL will ever give.
+#   • a full-size still — creative.image_url, or the video poster at
+#     object_story_spec.video_data.image_url (1080x1920 on this account), or
+#     link_data.picture. Present on some creatives, absent on many.
+# Both expire ~4 days after minting, so neither can be linked from a snapshot
+# that outlives a run. This job therefore MIRRORS the best available source
+# into its own Firestore collection, one document per ad, and the tab reads
+# GET /api/meta/image/<ad_id>. The snapshot itself stays small: it carries the
+# source NAME, never the bytes.
+IMAGES_COLLECTION  = "meta_creative_images"
+IMAGE_TTL          = int(os.environ.get("META_IMAGE_TTL_DAYS", "30")) * 24 * 3600
+IMAGE_LARGE_PX     = int(os.environ.get("META_IMAGE_LARGE_PX", "640"))
+IMAGE_THUMB_PX     = int(os.environ.get("META_IMAGE_THUMB_PX", "192"))
+IMAGE_QUALITY      = int(os.environ.get("META_IMAGE_QUALITY", "82"))
+# A doc whose source is already this good and was fetched inside this many days
+# is left alone, so the nightly run re-fetches almost nothing.
+IMAGE_REFRESH_DAYS = int(os.environ.get("META_IMAGE_REFRESH_DAYS", "14"))
+IMAGE_TIMEOUT      = float(os.environ.get("META_IMAGE_TIMEOUT", "10"))
+IMAGE_WORKERS      = int(os.environ.get("META_IMAGE_WORKERS", "8"))
+# 0 = every ad in the payload. Set META_IMAGE_ADS=15 for a local run so the
+# mirror exercises the real code path without pulling ~90 images.
+IMAGE_ADS_CAP      = int(os.environ.get("META_IMAGE_ADS", "0"))
+SKIP_IMAGES        = os.environ.get("META_SKIP_IMAGES") == "1"
+# Best first. A doc is only re-fetched when the available source outranks the
+# stored one (so a 'thumbnail' entry is replaced the day a poster appears).
+IMAGE_SOURCE_RANK  = {"image_url": 4, "video_poster": 3, "link_picture": 2,
+                      "thumbnail": 1}
+IMAGE_SOURCE_LABEL = {
+    "image_url":    "full-size",
+    "video_poster": "video poster",
+    "link_picture": "link preview image",
+    "thumbnail":    "64 px thumbnail — Meta does not expose a larger one for this ad",
+}
+IMAGE_UA = ("Mozilla/5.0 (compatible; babyshop-dashboard meta-refresh; "
+            "+https://github.com/patriksegersven-pixel/takk-signs)")
+
 WINDOW_DAYS  = int(os.environ.get("META_WINDOW_DAYS", "7"))
 LONG_DAYS    = int(os.environ.get("META_LONG_DAYS", "28"))
 SETTLE_DAYS  = int(os.environ.get("META_SETTLE_DAYS", "2"))
@@ -168,12 +209,15 @@ CAVEATS = [
     "Meta's own quality / engagement / conversion rankings are not in the feed, "
     "and neither is preview_shareable_link — the preview links here are an Ads "
     "Manager deep link and, where one exists, the Instagram permalink",
-    "creative thumbnails are signed Meta CDN URLs that expire about 4 days "
-    "after they are minted, which is why this job runs daily — a snapshot "
-    "older than ~3 days renders broken images even though the numbers are fine",
-    "those thumbnails are 64x64: the requested size is signed into the URL, so "
-    "asking for a larger rendition returns 403, and creative_image_url (a real "
-    "full-size still) is populated on well under 5% of rows",
+    "creative images are MIRRORED by this job — the Meta CDN URLs are signed "
+    "and expire about 4 days after minting, so the tab serves its own copies "
+    "from /api/meta/image/<ad_id> rather than hotlinking a URL that will die",
+    "the source is the best rendition Meta exposes per ad, in order: the "
+    "creative's full-size image_url, the video poster in "
+    "object_story_spec.video_data.image_url, link_data.picture, then the 64x64 "
+    "thumbnail_url. For page-post shares the 64px thumbnail is genuinely all "
+    "there is: the size is signed into the URL, so asking for a larger "
+    "rendition returns 403 — the lightbox says so per creative",
     "concept tags (High End / UGC / In-house / Partnership) come from the "
     "agency's ad-naming convention, not from a field; anything unrecognised is "
     "reported as 'Untagged / legacy' rather than hidden",
@@ -388,14 +432,25 @@ DAY_SELECT = f"""
       {ACT('onsite_conversion.post_save')}        AS saves,
       {ACT('comment')}                            AS comments,
       x.uploaded, x.effective_status, x.thumbnail_url, x.image_url,
+      x.video_poster_url, x.link_picture_url,
       x.instagram_permalink_url, x.creative_title, x.creative_body,
       x.creative_video_id
 """
 
+# object_story_spec is the only place a full-size still lives for most of this
+# account: image_url is populated on a handful of creatives, but every VIDEO
+# creative carries a 1080x1920 poster at $.video_data.image_url. link_data.picture
+# is the same idea for link ads. Page-post SHARE creatives carry an (almost)
+# empty story spec and no image_hash URL at all — for those the 64px thumbnail
+# is genuinely the only rendition the connector exposes.
 DIMS_CTE = f"""
       dims AS (
         SELECT a.ad_id, DATE(a.created_time) AS uploaded, a.effective_status,
                c.thumbnail_url, c.image_url, c.instagram_permalink_url,
+               JSON_VALUE(c.object_story_spec, "$.video_data.image_url")
+                 AS video_poster_url,
+               JSON_VALUE(c.object_story_spec, "$.link_data.picture")
+                 AS link_picture_url,
                c.title AS creative_title, c.body AS creative_body,
                c.video_id AS creative_video_id
         FROM {ADS} a
@@ -466,6 +521,8 @@ def per_ad(win: dict) -> list[dict]:
              ANY_VALUE(media_type)             AS media_type,
              ANY_VALUE(thumbnail_url)          AS thumbnail_url,
              ANY_VALUE(image_url)              AS image_url,
+             ANY_VALUE(video_poster_url)       AS video_poster_url,
+             ANY_VALUE(link_picture_url)       AS link_picture_url,
              ANY_VALUE(instagram_permalink_url) AS instagram_permalink_url,
              ANY_VALUE(uploaded)               AS uploaded,
              ANY_VALUE(effective_status)       AS effective_status,
@@ -730,6 +787,215 @@ def _slim(c: dict, value_key: str) -> dict:
         "instagram_url": c["instagram_url"], "ads_manager_url": c["ads_manager_url"],
         "value": c.get(value_key), "spend": c["spend"], "purchases": c["purchases"],
     }
+
+
+# ── Image mirror ─────────────────────────────────────────────────────────────
+def _best_image(r: dict) -> tuple[str | None, str | None]:
+    """The best rendition Meta exposes for this ad, and what it is called.
+
+    Order matters and is not cosmetic: image_url and the video poster are real
+    full-size stills, link_data.picture is a feed-sized preview, and
+    thumbnail_url is a 64px square that cannot be asked for any larger."""
+    for col, source in (("image_url", "image_url"),
+                        ("video_poster_url", "video_poster"),
+                        ("link_picture_url", "link_picture"),
+                        ("thumbnail_url", "thumbnail")):
+        url = r.get(col)
+        if url:
+            return str(url), source
+    return None, None
+
+
+def _walk_creatives(node):
+    """Every dict in the payload that names an ad. The payload repeats the same
+    ad across the fatigue board, the leaderboards, the top-5 tables and the
+    recent list, so annotating by walk beats threading a map through nine call
+    sites."""
+    if isinstance(node, dict):
+        if node.get("ad_id"):
+            yield node
+        for v in node.values():
+            yield from _walk_creatives(v)
+    elif isinstance(node, list):
+        for v in node:
+            yield from _walk_creatives(v)
+
+
+def _image_jobs(payload: dict, by_ad: dict, spend_by_ad: dict) -> list[dict]:
+    """One fetch job per DISTINCT ad the payload shows, best source first.
+
+    Capped by META_IMAGE_ADS for local runs — highest L7 spend first, so a
+    15-ad local run mirrors the rows a reviewer actually looks at."""
+    seen: dict[str, dict] = {}
+    for c in _walk_creatives(payload):
+        ad_id = str(c["ad_id"])
+        if ad_id in seen:
+            continue
+        row = by_ad.get(ad_id)
+        if not row:
+            continue
+        url, source = _best_image(row)
+        if url:
+            seen[ad_id] = {"ad_id": ad_id, "url": url, "source": source}
+    jobs = sorted(seen.values(), key=lambda j: -_f(spend_by_ad.get(j["ad_id"])))
+    return jobs[:IMAGE_ADS_CAP] if IMAGE_ADS_CAP > 0 else jobs
+
+
+def _encode(raw: bytes) -> dict:
+    """One fetched image → the two renditions a doc stores.
+
+    Never upscales. A 64px thumbnail stays 64px: blowing it up to 640 in
+    Pillow would cost 40x the bytes and show the reader exactly the same
+    pixels the browser would have interpolated anyway."""
+    import base64, io
+    from PIL import Image
+
+    im = Image.open(io.BytesIO(raw))
+    im.load()
+    if im.mode in ("RGBA", "LA", "P"):
+        # JPEG has no alpha; composite onto white rather than letting Pillow
+        # drop the channel and turn transparent logo backgrounds black.
+        im = im.convert("RGBA")
+        bg = Image.new("RGB", im.size, (255, 255, 255))
+        bg.paste(im, mask=im.split()[-1])
+        im = bg
+    elif im.mode != "RGB":
+        im = im.convert("RGB")
+
+    w, h = im.size
+
+    def jpeg(img) -> str:
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=IMAGE_QUALITY, optimize=True)
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+
+    large = im.copy()
+    large.thumbnail((IMAGE_LARGE_PX, IMAGE_LARGE_PX), Image.LANCZOS)
+
+    side = min(w, h)
+    left, top = (w - side) // 2, (h - side) // 2
+    thumb = im.crop((left, top, left + side, top + side))
+    if side > IMAGE_THUMB_PX:
+        thumb = thumb.resize((IMAGE_THUMB_PX, IMAGE_THUMB_PX), Image.LANCZOS)
+
+    return {"thumb_b64": jpeg(thumb), "large_b64": jpeg(large), "w": w, "h": h}
+
+
+def mirror_images(jobs: list[dict]) -> tuple[dict, dict]:
+    """Fetch, resize and store one document per ad in `meta_creative_images`.
+
+    Returns (present, stats). `present` maps ad_id → {source, has_large} for
+    every ad the collection now serves, including the ones this run skipped
+    because a good-enough document was already there.
+
+    Nothing in here may fail the job. A dead CDN URL, a truncated JPEG or a
+    Firestore hiccup costs one thumbnail, not a snapshot: the tab falls back to
+    the hotlinked URL and then to a placeholder."""
+    import concurrent.futures
+    from google.cloud import firestore
+
+    present: dict[str, dict] = {}
+    stats = {"considered": len(jobs), "fetched": 0, "skipped": 0, "failed": 0,
+             "bytes": 0, "by_source": {}}
+    if not jobs:
+        return present, stats
+
+    try:
+        import requests  # noqa: F401
+        from PIL import Image  # noqa: F401
+    except Exception as e:
+        print(f"   ! image mirror disabled — {type(e).__name__}: {e}", flush=True)
+        stats["failed"] = len(jobs)
+        return present, stats
+
+    db = firestore.Client(project=FIRESTORE_PROJECT, credentials=_credentials())
+    col = db.collection(IMAGES_COLLECTION)
+    doc_id = lambda ad_id: f"{WORKSPACE}__{ad_id}"          # noqa: E731
+    now = time.time()
+
+    # Read the existing docs BY ID. Never a collection scan: this collection
+    # holds base64 image bytes, so listing it would pull megabytes per run.
+    existing: dict[str, dict] = {}
+    try:
+        refs = [col.document(doc_id(j["ad_id"])) for j in jobs]
+        for snap in db.get_all(refs):
+            if snap.exists:
+                d = snap.to_dict() or {}
+                # The bytes are not needed here, only the provenance.
+                existing[snap.id] = {"source": d.get("source"),
+                                     "fetched_at": _f(d.get("fetched_at"))}
+    except Exception as e:
+        print(f"   ! could not read {IMAGES_COLLECTION}: {type(e).__name__}: {e}",
+              flush=True)
+
+    todo = []
+    for j in jobs:
+        ex = existing.get(doc_id(j["ad_id"]))
+        if ex:
+            fresh = (now - ex["fetched_at"]) < IMAGE_REFRESH_DAYS * 86400
+            good = (IMAGE_SOURCE_RANK.get(ex.get("source"), 0)
+                    >= IMAGE_SOURCE_RANK.get(j["source"], 0))
+            if fresh and good:
+                stats["skipped"] += 1
+                present[j["ad_id"]] = {
+                    "source": ex["source"],
+                    "has_large": ex.get("source") != "thumbnail"}
+                continue
+        todo.append(j)
+
+    def one(j: dict) -> dict | None:
+        import requests
+        try:
+            r = requests.get(j["url"], timeout=IMAGE_TIMEOUT,
+                             headers={"User-Agent": IMAGE_UA})
+            r.raise_for_status()
+            enc = _encode(r.content)
+            col.document(doc_id(j["ad_id"])).set({
+                **enc,
+                "ad_id": j["ad_id"],
+                "source": j["source"],
+                "fetched_at": now,
+                "expires_at": now + IMAGE_TTL,
+                "workspace": WORKSPACE,
+            })
+            return {"ad_id": j["ad_id"], "source": j["source"],
+                    "bytes": len(enc["thumb_b64"]) + len(enc["large_b64"])}
+        except Exception as e:
+            print(f"   ! image {j['ad_id']} ({j['source']}): "
+                  f"{type(e).__name__}: {e}", flush=True)
+            return None
+
+    if todo:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=IMAGE_WORKERS) as ex:
+            for res in ex.map(one, todo):
+                if res is None:
+                    stats["failed"] += 1
+                    continue
+                stats["fetched"] += 1
+                stats["bytes"] += res["bytes"]
+                present[res["ad_id"]] = {
+                    "source": res["source"],
+                    "has_large": res["source"] != "thumbnail"}
+
+    for v in present.values():
+        stats["by_source"][v["source"]] = stats["by_source"].get(v["source"], 0) + 1
+    return present, stats
+
+
+def annotate_images(payload: dict, present: dict) -> None:
+    """Stamp `image_source` / `has_large` onto every creative the mirror serves.
+
+    Deliberately the LAST step before the Firestore write: an ad only advertises
+    a mirrored image once the bytes are actually stored, so a failed fetch
+    leaves the tab on its hotlink → placeholder fallback instead of pointing at
+    a 404."""
+    for c in _walk_creatives(payload):
+        got = present.get(str(c["ad_id"]))
+        if got:
+            c["image_source"] = got["source"]
+            c["has_large"] = got["has_large"]
+    payload.setdefault("sources", {})["image_labels"] = IMAGE_SOURCE_LABEL
+    payload["sources"]["images_mirrored"] = len(present)
 
 
 # ── Fatigue ──────────────────────────────────────────────────────────────────
@@ -1074,8 +1340,9 @@ def build_payload() -> dict:
             "markets": MARKETS,
             "min_spend": MIN_SPEND_L7,
             "min_spend_l28": MIN_SPEND_L28,
-            "images": "Meta CDN signed URLs from the creative record "
-                      "(expire ~4 days after minting)",
+            "images": "mirrored into Firestore by this job and served from "
+                      "/api/meta/image/<ad_id>; the Meta CDN URLs they are "
+                      "fetched from are signed and expire ~4 days after minting",
             "instagram_coverage": {
                 "ads": ig_ads, "ads_total": len(cur),
                 "ads_pct": div(ig_ads, len(cur), 100.0, 1),
@@ -1094,6 +1361,14 @@ def build_payload() -> dict:
         "caveats": CAVEATS,
         "definitions": DEFINITIONS,
     }
+    # The fetch list for the image mirror. Carried on the payload (and stripped
+    # in main() before the Firestore write) because the two halves of a local
+    # run are two processes authenticating as two different accounts: the URLs
+    # are only knowable in the BigQuery half and only usable in the Firestore
+    # half. META_OUT/META_IN replays the whole thing end to end.
+    by_ad = {str(r["ad_id"]): r for r in rows}
+    spend_by_ad = {str(r["ad_id"]): _f(r.get("spend")) for r in cur}
+    payload["_image_jobs"] = _image_jobs(payload, by_ad, spend_by_ad)
     return payload
 
 
@@ -1136,20 +1411,37 @@ def main():
 
     out = os.environ.get("META_OUT")
     if out:
+        # Written WITH _image_jobs so a META_IN replay can still mirror.
         with open(out, "w", encoding="utf-8") as fh:
             json.dump(p, fh, ensure_ascii=False)
         print(f"   wrote {out} ({os.path.getsize(out):,} bytes)")
 
-    where = "(skipped)" if os.environ.get("SKIP_FIRESTORE") else write_firestore(p)
+    jobs = p.pop("_image_jobs", None) or []
+    skip_fs = bool(os.environ.get("SKIP_FIRESTORE"))
+    img = {"considered": len(jobs), "fetched": 0, "skipped": 0, "failed": 0,
+           "bytes": 0, "by_source": {}}
+    if jobs and not SKIP_IMAGES and not skip_fs:
+        present, img = mirror_images(jobs)
+        annotate_images(p, present)
+    elif jobs:
+        print(f"   images skipped ({len(jobs)} candidates) — "
+              f"{'META_SKIP_IMAGES' if SKIP_IMAGES else 'SKIP_FIRESTORE'}")
+
+    where = "(skipped)" if skip_fs else write_firestore(p)
     k = p["kpis"]["combined"]
     w = p["window"]
     fat = p.get("fatigue", {})
     dist = " / ".join(f"{b['status']} {b['ads']}" for b in fat.get("by_status", []))
+    src = " / ".join(f"{s} {n}" for s, n in sorted(img["by_source"].items()))
     print(f"✓ Meta refresh · {where} · {w['from']}..{w['to']} · "
           f"spend {k['spend']:,.0f} kr / {k['purchases']} purchases / CPA {k['cpa']} / "
           f"ROAS {k['roas']}x · link CTR {k['link_ctr']}% · "
           f"fatigue {len(fat.get('rows', []))} ads [{dist}], "
           f"{fat.get('at_risk_pct')}% of spend at risk · "
+          f"images {img['fetched']} fetched / {img['skipped']} cached / "
+          f"{img['failed']} failed of {img['considered']}"
+          + (f" [{src}]" if src else "")
+          + f", {img['bytes']/1024:,.0f} KiB b64 · "
           f"{len(json.dumps(p, ensure_ascii=False)):,} B · {time.time()-t0:.1f}s")
 
 

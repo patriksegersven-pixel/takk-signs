@@ -275,6 +275,18 @@ def get_cache() -> _Cache:
         return _cache_singleton
 
 
+def get_firestore_db():
+    """The Firestore client the snapshot cache already built, or None.
+
+    For the handful of routes that need a collection OTHER than funnel_cache
+    (today: /api/meta/image reading meta_creative_images). Reusing the cache's
+    client keeps the ADC-then-gcloud-token fallback in one place and avoids a
+    second connection per process. Returns None when the cache fell back to the
+    in-process backend — callers must handle that as "not available".
+    """
+    return getattr(get_cache(), "_db", None)
+
+
 def _cached(key: str, fn, ttl: int = CACHE_TTL_SECONDS):
     """Read-through cache: check, fetch on miss, store on success."""
     cache = get_cache()

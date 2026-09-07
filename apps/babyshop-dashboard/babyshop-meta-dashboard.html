@@ -80,7 +80,7 @@
        on one line and the card scrolls sideways instead of breaking "3 739 kr". */
     th.cre, td.cre { white-space:normal; min-width:150px; }
     .card.tbl table { min-width:560px; }
-    #fatigueTable { min-width:1240px; }
+    #fatigueTable { min-width:1460px; }
     /* The two top-5 cards sit side by side, and table-tools adds a filter
        caret to every header — at 14px cell padding the ROAS column fell off
        the right edge of the card in the default view. */
@@ -97,21 +97,47 @@
               background:var(--accent-bg); color:var(--accent-dark); border:1px solid #D3E3D8; font-size:9.5px; font-weight:700; letter-spacing:.06em; }
 
     /* ── Creative thumbnails ───────────────────────────────────────────────
-       104px 1:1 crops (56px on the dense boards). Sources are small Meta
-       preview renditions, so they are upscaled and read soft; image-rendering
-       stays auto so the browser smooths rather than blocks them. The URLs are
-       signed and expire after ~4 days, which is what the onerror fallback is
-       really for. */
-    .thumb-cell { width:104px; padding:12px 0 12px 14px; }
-    .thumb-cell.sm { width:60px; padding:8px 0 8px 12px; }
-    .thumb { display:block; width:104px; height:104px; padding:0; border:1px solid var(--border); border-radius:6px; overflow:hidden;
+       128px 1:1 crops (96px in the leaderboard cards). The bytes come from
+       /api/meta/image/<ad_id>, which the refresh job mirrored from the best
+       rendition Meta exposes for that ad — a 640px still or video poster where
+       one exists, the 64px thumbnail where it does not. Hotlinking the signed
+       Meta CDN URL is only the fallback now: it dies about four days after
+       minting, which is what the onerror chain is for. */
+    .thumb-cell { width:128px; padding:12px 0 12px 14px; }
+    .thumb { display:block; width:128px; height:128px; padding:0; border:1px solid var(--border); border-radius:6px; overflow:hidden;
              background:var(--border-lt); cursor:zoom-in; transition:box-shadow .15s, border-color .15s, transform .15s; }
-    .thumb.sm, .thumb-fallback.sm { width:48px; height:48px; border-radius:5px; font-size:16px; }
+    .thumb.sm, .thumb-fallback.sm { width:96px; height:96px; border-radius:5px; font-size:24px; }
     .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
     .thumb:hover { border-color:var(--accent); box-shadow:var(--shadow-pop); transform:translateY(-1px); }
     .thumb:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-    .thumb-fallback { display:flex; align-items:center; justify-content:center; width:104px; height:104px; border:1px solid var(--border);
-                      border-radius:6px; background:var(--border-lt); color:var(--muted); font-size:26px; font-weight:600; }
+    .thumb-fallback { display:flex; align-items:center; justify-content:center; width:128px; height:128px; border:1px solid var(--border);
+                      border-radius:6px; background:var(--border-lt); color:var(--muted); font-size:30px; font-weight:600; }
+
+    /* ── "?" help ──────────────────────────────────────────────────────────
+       Every metric label on this page carries one. The text lives in ONE HELP
+       object in the script below and is reused verbatim in the method box, so
+       a definition cannot drift between the tooltip and the footnote.
+
+       The panel is position:fixed, not absolute, and that is not a style
+       choice: the fatigue board lives inside `.tbl-scroll` (overflow-x:auto,
+       which computes overflow-y to auto too) and `.card.tbl` is
+       overflow:hidden, so an absolutely positioned panel would be clipped by
+       its own table. Fixed escapes both. Script sets only left/top — every
+       other rule, including the flip near the right edge, is here. */
+    .help { position:relative; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto;
+            width:14px; height:14px; margin-left:5px; padding:0; border:1px solid var(--border); border-radius:50%;
+            background:var(--card); color:var(--muted); font:700 9px/1 var(--font); cursor:help; vertical-align:middle; }
+    .help:hover, .help[data-open="1"] { border-color:var(--accent); color:var(--accent); background:var(--accent-bg); }
+    .help:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+    .help .tip { display:none; position:fixed; left:0; top:0; z-index:600; width:min(320px, calc(100vw - 24px));
+                 background:var(--card); border:1px solid var(--border); border-radius:var(--r-sm); box-shadow:var(--shadow-pop);
+                 padding:11px 13px; color:var(--body); font:400 11.5px/1.55 var(--font);
+                 text-align:left; text-transform:none; letter-spacing:normal; white-space:normal; cursor:auto; }
+    .help[data-open="1"] .tip { display:block; }
+    .help .tip b { display:block; font-size:9px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+                   color:var(--muted); margin-bottom:3px; }
+    .help .tip b + span { display:block; color:var(--h); font-weight:400; }
+    .help .tip b.how { margin-top:9px; }
 
     .cname { font-weight:600; color:var(--h); display:block; line-height:1.35; font-size:13px; }
     .chips { display:flex; gap:5px; margin-top:6px; flex-wrap:wrap; align-items:center; }
@@ -149,8 +175,13 @@
     .links a:hover { border-bottom-color:var(--accent); }
     .links a.ig { color:#A5321C; }
 
+    /* The fatigue trend is the third column, not a trailing decoration: the
+       shape of an ad's weekly link CTR is the thing the status chip summarises,
+       and a reader who has to scroll 1 100px right to see it reads the chip
+       instead. 160x36 is enough to tell a slide from a plateau. */
     .spark { display:block; }
-    .spark-cell { width:96px; padding-right:18px; }
+    .spark-cell { width:170px; padding-left:12px; padding-right:12px; }
+    .spark-cell .dim { font-size:11px; }
 
     /* Spend-by-status strip above the fatigue board. */
     .strip { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
@@ -163,10 +194,10 @@
     /* Leaderboard cards */
     .lb-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
     .lb { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:14px 16px 8px; }
-    .lb h4 { font-size:12px; font-weight:700; color:var(--h); letter-spacing:-.1px; }
+    .lb h4 { font-size:12px; font-weight:700; color:var(--h); letter-spacing:-.1px; display:flex; align-items:center; }
     .lb .lbsub { font-size:10px; color:var(--muted); margin-top:2px; line-height:1.45; }
     .lb ol { list-style:none; margin-top:10px; }
-    .lb li { display:flex; align-items:center; gap:9px; padding:7px 0; border-top:1px solid var(--border-lt); }
+    .lb li { display:flex; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--border-lt); }
     .lb li:first-child { border-top:none; }
     .lb .lname { flex:1; min-width:0; }
     .lb .lname .n { font-size:11.5px; font-weight:600; color:var(--h); display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -203,6 +234,9 @@
     .method dl { margin:8px 0 0; }
     .method dt { font-weight:700; margin-top:7px; }
     .method dd { margin-left:0; }
+    /* "How to read it" — the same second half the tooltip shows, set apart so
+       the formula and the judgement do not run together. */
+    .method dd i { display:block; font-style:normal; opacity:.82; margin-top:2px; }
     .acct { text-align:center; font-size:11px; color:var(--muted); padding-top:26px; letter-spacing:.02em; }
     .pending { text-align:center; color:var(--muted); font-size:13px; padding:60px 0 30px; }
     .fail { text-align:center; color:var(--down); font-size:13px; padding:40px 0; }
@@ -210,9 +244,13 @@
     /* Lightbox */
     #lb { position:fixed; inset:0; z-index:500; background:rgba(27,40,57,.82); display:none; align-items:center; justify-content:center; padding:32px; }
     #lb[data-open="true"] { display:flex; }
-    #lb figure { margin:0; max-width:480px; width:100%; display:flex; flex-direction:column; gap:12px; }
+    #lb figure { margin:0; max-width:640px; width:100%; display:flex; flex-direction:column; gap:10px; }
     #lb img { display:block; width:100%; margin:0 auto; max-height:74vh; object-fit:contain; border-radius:var(--r); background:#fff; }
     #lb figcaption { color:#fff; font-size:12.5px; text-align:center; line-height:1.5; }
+    /* Says which rendition is on screen, so "this looks soft" is answered
+       before it is asked: a 64px thumbnail is Meta's limit for that ad, not a
+       mistake in the mirror. */
+    #lb-src { color:rgba(255,255,255,.7); font-size:11px; text-align:center; line-height:1.5; }
     #lb-close { position:absolute; top:18px; right:20px; width:34px; height:34px; border-radius:50%; border:1px solid rgba(255,255,255,.35);
                 background:rgba(255,255,255,.1); color:#fff; font-size:17px; line-height:1; cursor:pointer; font-family:var(--font); }
     #lb-close:hover { background:rgba(255,255,255,.2); }
@@ -264,13 +302,13 @@
   <div class="card tbl stack" id="marketCard" hidden>
     <div class="card-head">
       <div>
-        <h3>By market</h3>
+        <h3 data-help="market">By market</h3>
         <div class="csub">Market is read from the ad name (SWE/NOR), not from the campaign market flag — mixed SE+NO campaigns carry ads for both.</div>
       </div>
     </div>
     <div class="tbl-scroll">
       <table id="marketTable">
-        <thead><tr><th>Market</th><th>Spend</th><th>Purchases</th><th>CPA</th><th>Link CTR</th><th>CPM</th><th>ROAS*</th></tr></thead>
+        <thead><tr><th data-help="market">Market</th><th data-help="spend">Spend</th><th data-help="purchases">Purchases</th><th data-help="cpa">CPA</th><th data-help="link_ctr">Link CTR</th><th data-help="cpm">CPM</th><th data-help="roas">ROAS*</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -288,12 +326,15 @@
 
   <div class="card tbl">
     <div class="tbl-scroll">
-      <table id="fatigueTable" data-tools data-export-name="meta-fatigue">
+      <table id="fatigueTable" data-tools data-export-ignore=".help" data-export-name="meta-fatigue">
         <thead><tr>
-          <th></th><th class="cre">Creative</th><th class="lbl">Status</th>
-          <th>Uploaded</th><th>Days active</th><th>Spend</th><th title="Average daily frequency (impressions ÷ summed daily reach)">Daily freq*</th>
-          <th>Link CTR</th><th>CTR idx</th><th>Hook</th><th>Hook idx</th>
-          <th>CPA</th><th>CPA idx</th><th class="lbl">Weekly link CTR</th>
+          <th></th><th class="cre" data-help="creative">Creative</th><th class="lbl" data-help="status">Status</th>
+          <th class="lbl" data-help="trend">Trend</th>
+          <th data-help="uploaded">Uploaded</th><th data-help="days_active">Days active</th><th data-help="spend">Spend</th>
+          <th data-help="frequency">Daily freq*</th>
+          <th data-help="link_ctr">Link CTR</th><th data-help="ctr_index">CTR idx</th>
+          <th data-help="hook_rate">Hook</th><th data-help="hook_index">Hook idx</th>
+          <th data-help="cpa">CPA</th><th data-help="cpa_index">CPA idx</th>
         </tr></thead>
         <tbody></tbody>
       </table>
@@ -319,27 +360,27 @@
   </div>
   <div class="three">
     <div class="card tbl">
-      <div class="card-head"><div><h3>By concept tag</h3><div class="csub">From the ad-naming convention</div></div></div>
-      <div class="tbl-scroll"><table id="rollTag" data-tools data-export-name="meta-by-tag"></table></div>
+      <div class="card-head"><div><h3 data-help="tag">By concept tag</h3><div class="csub">From the ad-naming convention</div></div></div>
+      <div class="tbl-scroll"><table id="rollTag" data-tools data-export-ignore=".help" data-export-name="meta-by-tag"></table></div>
     </div>
     <div class="card tbl">
-      <div class="card-head"><div><h3>By media type</h3><div class="csub">Video, still, carousel, DPA</div></div></div>
-      <div class="tbl-scroll"><table id="rollMedia" data-tools data-export-name="meta-by-media"></table></div>
+      <div class="card-head"><div><h3 data-help="media_type">By media type</h3><div class="csub">Video, still, carousel, DPA</div></div></div>
+      <div class="tbl-scroll"><table id="rollMedia" data-tools data-export-ignore=".help" data-export-name="meta-by-media"></table></div>
     </div>
     <div class="card tbl">
-      <div class="card-head"><div><h3>Promo vs evergreen</h3><div class="csub">Discount language in the ad, campaign or copy</div></div></div>
-      <div class="tbl-scroll"><table id="rollPromo" data-tools data-export-name="meta-by-promo"></table></div>
+      <div class="card-head"><div><h3 data-help="promo">Promo vs evergreen</h3><div class="csub">Discount language in the ad, campaign or copy</div></div></div>
+      <div class="tbl-scroll"><table id="rollPromo" data-tools data-export-ignore=".help" data-export-name="meta-by-promo"></table></div>
     </div>
   </div>
 
   <div class="card tbl stack" id="crossCard" hidden>
     <div class="card-head">
       <div>
-        <h3>Concept tag × media type</h3>
+        <h3 data-help="tag_media">Concept tag × media type</h3>
         <div class="csub" id="crossSub"></div>
       </div>
     </div>
-    <div class="tbl-scroll"><table id="rollCross" data-tools data-export-name="meta-tag-x-media"></table></div>
+    <div class="tbl-scroll"><table id="rollCross" data-tools data-export-ignore=".help" data-export-name="meta-tag-x-media"></table></div>
   </div>
 
   <!-- ── 5. Mix donuts ──────────────────────────────────────────────────── -->
@@ -354,7 +395,7 @@
     <div class="card">
       <div class="card-head">
         <div>
-          <h3>Media type</h3>
+          <h3 data-help="media_type_mix">Media type</h3>
           <div class="csub">DPA / catalog renders dynamically, usually as a product carousel</div>
         </div>
       </div>
@@ -368,7 +409,7 @@
     <div class="card">
       <div class="card-head">
         <div>
-          <h3>Media format</h3>
+          <h3 data-help="media_format_mix">Media format</h3>
           <div class="csub">Based on the Ads Manager naming convention (e.g. "High End", "UGC")</div>
         </div>
       </div>
@@ -393,8 +434,8 @@
         <div style="display:flex;align-items:center;gap:9px"><span class="emblem">SE</span><h3>Sweden, top 5</h3></div>
       </div>
       <div class="tbl-scroll">
-        <table id="topSE" data-tools data-export-name="meta-top-se">
-          <thead><tr><th class="rank"></th><th></th><th class="cre">Creative</th><th>Spend</th><th>Purchases</th><th>CPA</th><th>ROAS*</th></tr></thead>
+        <table id="topSE" data-tools data-export-ignore=".help" data-export-name="meta-top-se">
+          <thead><tr><th class="rank"></th><th></th><th class="cre" data-help="creative">Creative</th><th data-help="spend">Spend</th><th data-help="purchases">Purchases</th><th data-help="cpa">CPA</th><th data-help="roas">ROAS*</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -405,8 +446,8 @@
         <div style="display:flex;align-items:center;gap:9px"><span class="emblem">NO</span><h3>Norway, top 5</h3></div>
       </div>
       <div class="tbl-scroll">
-        <table id="topNO" data-tools data-export-name="meta-top-no">
-          <thead><tr><th class="rank"></th><th></th><th class="cre">Creative</th><th>Spend</th><th>Purchases</th><th>CPA</th><th>ROAS*</th></tr></thead>
+        <table id="topNO" data-tools data-export-ignore=".help" data-export-name="meta-top-no">
+          <thead><tr><th class="rank"></th><th></th><th class="cre" data-help="creative">Creative</th><th data-help="spend">Spend</th><th data-help="purchases">Purchases</th><th data-help="cpa">CPA</th><th data-help="roas">ROAS*</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -424,8 +465,8 @@
 
   <div class="card tbl">
     <div class="tbl-scroll">
-      <table id="recentTable" data-tools data-export-name="meta-recent">
-        <thead><tr><th class="rank"></th><th></th><th class="cre">Creative</th><th>Market</th><th>Uploaded</th><th>Days active</th><th>Purchases</th><th>Spend</th><th>CPA</th><th>Link CTR</th></tr></thead>
+      <table id="recentTable" data-tools data-export-ignore=".help" data-export-name="meta-recent">
+        <thead><tr><th class="rank"></th><th></th><th class="cre" data-help="creative">Creative</th><th data-help="market">Market</th><th data-help="uploaded">Uploaded</th><th data-help="days_active">Days active</th><th data-help="purchases">Purchases</th><th data-help="spend">Spend</th><th data-help="cpa">CPA</th><th data-help="link_ctr">Link CTR</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -442,7 +483,7 @@
 
 <div id="lb" role="dialog" aria-modal="true" aria-label="Creative preview" data-open="false">
   <button type="button" id="lb-close" aria-label="Close">×</button>
-  <figure><img id="lb-img" src="" alt=""><figcaption id="lb-cap"></figcaption></figure>
+  <figure><img id="lb-img" src="" alt=""><figcaption id="lb-cap"></figcaption><div id="lb-src"></div></figure>
 </div>
 
 <script>
@@ -490,6 +531,381 @@
 
   var SNAP = null;
 
+  /* ── HELP ─────────────────────────────────────────────────────────────────
+     ONE definition per metric, used in two places: the "?" tooltip next to the
+     label, and the method box at the foot of the page. Nothing on this page may
+     define a metric anywhere else — a tooltip that disagrees with the footnote
+     is worse than no tooltip.
+
+     `what` states the formula and the source field it comes from.
+     `how`  states how to read it: what good and bad look like, what to compare
+            it against, and the trap.
+
+     The reference ranges are this ACCOUNT's own distribution, measured on the
+     2026-08-30 – 09-05 window (90 delivering ads) and the 28-day rollups — not
+     an industry benchmark. They are stated as "on this account" for that
+     reason; re-measure them when the account changes shape. */
+  var HELP = {
+    spend: { label: 'Spend', what:
+      'Meta’s ad spend for the ad, summed over the window, SEK, SE and NO ads only ' +
+      '(stg_meta__ads_insights.spend). Every cost figure on this page is a ratio of sums ' +
+      'over this column — nothing averages a per-day or per-ad ratio.', how:
+      'The denominator under CPA, CPM and cost per LPV, and the weight behind every ranking. ' +
+      'Read it beside the status chip rather than on its own: on this account 37 096 kr moved ' +
+      'through 90 ads in the last 7 days, and about a fifth of it sits on creatives already ' +
+      'classified Fatiguing or Exhausted. Trap: spend ranks nothing. A big number here is a ' +
+      'budget decision that was already made, not a verdict on the creative.' },
+
+    purchases: { label: 'Purchases', what:
+      'actions.offsite_conversion.fb_pixel_purchase — website purchases the Meta pixel ' +
+      'attributes to the ad on Meta’s default 7-day-click / 1-day-view window.', how:
+      'The outcome the creative is judged on, and the only volume figure here that is not a rate. ' +
+      'Compare it against the ad’s spend, never against another ad’s count on its own. ' +
+      'Trap: this is Meta’s attribution, not Norce orders — it will not reconcile with the KV ' +
+      'tab, and the same order is claimed by Google and email too.' },
+
+    cpa: { label: 'CPA', what:
+      'spend ÷ purchases, a ratio of sums (never an average of per-ad CPAs).', how:
+      'The ranking metric for the top-5 tables. Compare an ad against its own market and its own ' +
+      'baseline week, never across markets: on this account SE runs at 14,67 kr and NO at 40,22 kr ' +
+      'for a blended 19,31 kr, and the per-ad median is 23 kr with the middle half between 15 and ' +
+      '39 kr. Trap: CPA falls whenever a discount is live, so a promo creative and an evergreen one ' +
+      'are not comparable unless they ran in the same weeks.' },
+
+    roas: { label: 'ROAS', what:
+      'action_values.offsite_conversion.fb_pixel_purchase ÷ spend — Meta’s own platform-reported ' +
+      'return on its default attribution window.', how:
+      'Context, not a verdict. On this account it reads 12,0x blended while the median ad reads 8,2x, ' +
+      'because a handful of high-value orders pull the blend. Trap: it is gross of returns and it ' +
+      'double-counts orders the other channels also claim — the KV tab’s GM1 is the number to ' +
+      'plan on. Use it to separate a cheap purchase from a valuable one, not to set budget.' },
+
+    cpm: { label: 'CPM', what:
+      'spend ÷ impressions × 1 000 — the cost of a thousand impressions.', how:
+      'Distribution cost, not creative quality. On this account 60,57 kr blended, and the market gap ' +
+      'is the story: SE 54,28 kr against NO 74,82 kr. Compare an ad only against the same market and ' +
+      'the same weeks. Trap: a CPM that rises while the creative is unchanged is auction pressure or ' +
+      'a narrowing audience — do not read it as the ad getting worse.' },
+
+    ctr: { label: 'Blended CTR (all clicks)', what:
+      'clicks ÷ impressions using the insights `clicks` column, which counts EVERY click on the ad — ' +
+      'profile taps, expands, reactions and link clicks alike.', how:
+      'Kept only for continuity with the first version of this tab. Judge creatives on Link CTR ' +
+      'instead. The gap between the two is the interesting part: 3,43 % here against a link CTR of ' +
+      '3,05 %. Trap: a wide gap means people are engaging with the post rather than leaving for the ' +
+      'site, which reads as success on this row and as nothing in the basket.' },
+
+    link_ctr: { label: 'Link CTR', what:
+      'actions.link_click ÷ impressions — the click that actually leaves Meta. The action, not the ' +
+      '`clicks` column: the connector loads no inline_link_clicks field.', how:
+      'The relevance metric for anything that is not video. On this account the blended figure is ' +
+      '3,05 %, but that is lifted by DPA / catalog at 10,4 %; a hand-made creative sits nearer the ' +
+      'per-ad median of 1,5 %, with the middle half between 0,8 % and 2,3 %. Compare against the ' +
+      'ad’s own baseline (the CTR idx column) and against the same media type. Trap: a rising ' +
+      'link CTR with a falling LPV rate is not a better ad — it is a slower page or a click the ' +
+      'creative over-promised.' },
+
+    hook_rate: { label: 'Hook rate', what:
+      'actions.video_view — Meta’s 3-second video view — ÷ impressions. Video ads only. Note the ' +
+      'denominator: video_plays counts every play START including sub-3-second ones, so it belongs ' +
+      'under hold and completion, not under the hook.', how:
+      'Reads as: did the first frame stop the scroll. Compare against the ad’s own baseline and ' +
+      'against the same media type; on this account the video median is 14,0 %, below ~10 % is weak ' +
+      'and above ~20 % is strong. Trap: a strong hook with a weak hold rate means the opening ' +
+      'over-promises — the thumbstop works and the content does not pay it off.' },
+
+    hold_rate: { label: 'Hold rate', what:
+      'video_thruplays ÷ video_plays. A thruplay is 15 seconds watched, or the whole video where it ' +
+      'is shorter than that.', how:
+      'Whether the hook’s promise survives contact. The median video ad on this account holds ' +
+      '3,4 %, the middle half runs 1,9–7,2 % and the best reach about 11 %. Only ever read it beside ' +
+      'the hook: high hook + low hold is a bait opening, low hook + high hold is a slow start worth ' +
+      're-cutting. Trap: the rate is mechanically higher on short videos, so compare similar lengths.' },
+
+    lpv_rate: { label: 'LPV rate', what:
+      'actions.landing_page_view ÷ actions.link_click — the share of clicks where the page actually ' +
+      'rendered.', how:
+      'Click quality and page speed, not creative quality. On this account 90 % blended, per-ad ' +
+      'median 82 %, middle half 51–95 %. Meta attributes the two actions independently, so a value ' +
+      'slightly above 100 % is normal and not a bug. Trap: below ~50 % is almost never the ad — it ' +
+      'is a slow landing page, a redirect, or a click that never meant to arrive.' },
+
+    frequency: { label: 'Daily frequency', what:
+      'impressions ÷ the SUM of daily reach across the window — the impression-weighted mean of ' +
+      'Meta’s own DAILY frequency. The feed carries reach at daily grain only, so a true 7-day ' +
+      'frequency does not exist in this data and is not shown.', how:
+      'The saturation signal. Levels are compressed on this account — median 1,20, top decile 1,39, ' +
+      'nothing above 1,51 — so read it as a RATIO against the ad’s own baseline week, which is ' +
+      'what the fatigue model does (flagged at 1,5× baseline). Trap: a flat CTR with a rising ' +
+      'frequency is still fatigue: the same people are being shown the ad more often to hold the ' +
+      'same result.' },
+
+    status: { label: 'Status', what:
+      'The fatigue verdict. Fresh: fewer than 14 days since first spend, too new to judge. Stable: ' +
+      'index ≥ 0,85 and frequency not up 1,5× on baseline. Fatiguing: index 0,70–0,85, or frequency ' +
+      'up 1,5×. Exhausted: index < 0,70 and at least 28 days active. No baseline: the ad never had a ' +
+      'full 7-day week over 300 kr. The index is the hook index for video ads and the link-CTR index ' +
+      'for everything else.', how:
+      'The board sorts worst-money-first on this, so the top rows are where a refresh pays. On this ' +
+      'account 19,3 % of last-7-day spend sits on Fatiguing or Exhausted rows. Trap: "No baseline" is ' +
+      'neither good nor bad — it means the ad never spent enough in one week to be measurable, so ' +
+      'read the Trend column instead of the chip.' },
+
+    trend: { label: 'Trend', what:
+      'Weekly link CTR since the ad’s first spend day: one point per 7-day bucket counted from ' +
+      'that day (not ISO weeks — an ad launched on a Thursday would otherwise get a 1-day first ' +
+      'week), up to 12 buckets. On video ads the lighter second line is the weekly hook rate. Each ' +
+      'line is scaled to its OWN range, so the shape is comparable across rows and the level is not. ' +
+      'The hollow marker is the baseline week; the filled marker is the current window.', how:
+      'Reads as: the shape of fatigue — a slide from the left says the audience is tiring; a flat ' +
+      'line with rising frequency says it has been shown to the same people too often. A step down ' +
+      'that then holds is usually an audience or placement change, not decay. Trap: two points are ' +
+      'not a trend — check Days active before reading a story into a short line.' },
+
+    uploaded: { label: 'Uploaded', what:
+      'DATE(stg_meta__ads.created_time) — when the ad object was created in Ads Manager, which can ' +
+      'be well before it first spent anything.', how:
+      'Read it against Days active: a creative uploaded in June with 6 active days has barely been ' +
+      'tested, and one uploaded in June with 90 has been in market all summer. Trap: re-uploading an ' +
+      'old concept into a new adset mints a new created_time, so this column will call it new. The ' +
+      'Recently uploaded table screens those out by ad name; this column does not.' },
+
+    days_active: { label: 'Days active', what:
+      'Days with spend > 0 between the ad’s first spend day and the end of the window. Not ' +
+      'calendar days since upload, and not days since launch.', how:
+      'The age that matters for fatigue, and the gate on the Exhausted verdict (28 days). On this ' +
+      'account the median is 24 days, a tenth of ads run past 69, and the oldest still delivering is ' +
+      '160. Trap: an ad paused for three weeks and restarted has few active days but an audience ' +
+      'that already saw it — read it with the Trend column, not on its own.' },
+
+    ctr_index: { label: 'CTR index', what:
+      'The window’s link CTR ÷ the SAME ad’s baseline-week link CTR. Above 1 is better. ' +
+      'Undefined (—) when the ad never had a full 7-day week over 300 kr to be measured against.', how:
+      'How much relevance the ad has lost against its own start, which is the only fair comparison ' +
+      'for a creative. The median on this account is 1,03, so a typical ad is holding; 0,85 is the ' +
+      'Fatiguing threshold and below 0,70 with 28 active days is Exhausted. Trap: an ad with a poor ' +
+      'first week has an easy baseline and can show a flattering index — check the Trend column ' +
+      'before celebrating a 1,4×.' },
+
+    hook_index: { label: 'Hook index', what:
+      'The window’s hook rate ÷ the same ad’s baseline-week hook rate, video ads only. ' +
+      'Above 1 is better. This is the index that drives the status chip for video.', how:
+      'The clearest single fatigue reading for video: it isolates the first frame from everything ' +
+      'downstream. Median 1,01 on this account, so most video is holding its thumbstop. Trap: it ' +
+      'goes undefined for a video ad with no usable hook baseline, and the board then falls back to ' +
+      'the CTR index — a dash here does not mean the ad is unjudged.' },
+
+    cpa_index: { label: 'CPA index', what:
+      'The window’s CPA ÷ the same ad’s baseline-week CPA. NOT inverted: above 1 means the ' +
+      'ad got more EXPENSIVE, i.e. worse. Colouring follows cost, not size.', how:
+      'The money consequence of whatever the CTR and hook indices are showing. Median 0,90 on this ' +
+      'account — most ads are cheaper now than in their baseline week, because baselines are set in ' +
+      'the learning phase. Trap: CPA moves with the offer and the season as much as with the ' +
+      'creative, which is exactly why the status chip is driven by the CTR/hook index and not by ' +
+      'this column.' },
+
+    market: { label: 'Market', what:
+      'Parsed from the AD-NAME token (SWE/SE → SE, NOR/NO → NO), falling back to the staging campaign ' +
+      'market only when the name carries no token. Deliberately not dim_campaign_market.', how:
+      'The campaign-level map is wrong here: "KIR | SE+NO-BS-offers" carries separate SE and NO ads, ' +
+      'and mapping it by campaign moves ~5 700 kr into SE and pushes a row out of the NO top 5. Costs ' +
+      'differ by market by nearly 3× on CPA (14,67 vs 40,22 kr), so never compare an ad across ' +
+      'markets. Trap: an ad name with no market token falls back to the campaign — precisely the case ' +
+      'the campaign map gets wrong.' },
+
+    creative: { label: 'Creative', what:
+      'The concept, trimmed out of the KiriMedia ad-name slug ("Product - SWE - 1 - Kuling - Logo+copy ' +
+      '- UGC - VIDEO - 2026-08-14" → "Kuling — Logo+copy"); the raw ad_name is the row’s tooltip. ' +
+      'The chips below are the concept tag, media type, market and promo flag — all derived from the ' +
+      'name, none of them a Meta field. The thumbnail is this job’s own mirrored copy, not a ' +
+      'hotlink.', how:
+      'Rows are aggregated by ad_id, never by ad_name: the same name runs in two adsets and ' +
+      'name-grain aggregation both distorts CPA and promotes the wrong rows past the spend floor. So ' +
+      'the same concept can legitimately appear twice. Trap: click the thumbnail — a soft image is ' +
+      'usually Meta’s 64px limit for that creative, and the lightbox says which rendition it is.' },
+
+    ads: { label: 'Ads', what:
+      'How many distinct ad_ids the row aggregates.', how:
+      'The honesty column. A rollup row built on one creative is a curiosity, not a pattern: on this ' +
+      'account the concept-tag table runs from 65 ads (High End) down to 5 (DPA / catalog). Trap: a ' +
+      'flattering CPA on a 1–2 ad row usually says one ad got lucky in one week.' },
+
+    share: { label: 'Share', what:
+      'The row’s spend ÷ the total spend of the table it sits in, over the last 28 days.', how:
+      'Tells you how much of the budget the row’s verdict actually governs. A tag with a superb ' +
+      'CPA on 2 % of spend is a hypothesis; the same CPA on 40 % is a finding. Trap: share moves when ' +
+      'anything else in the table moves — a row can "grow" purely because another one was paused.' },
+
+    saves_shares_per_1k: { label: 'Saves + shares / 1k', what:
+      '(onsite_conversion.post_save + post [shares]) per 1 000 impressions.', how:
+      'Earned distribution — the only metric here that measures whether anyone wanted to keep or pass ' +
+      'on the ad. This account barely gets any: the median ad is 0,00, the top quarter starts at 0,14 ' +
+      'and the best creative over 28 days reaches 2,11, so anything above ~0,4 is genuinely unusual ' +
+      'here. Trap: tiny numbers — one post that travels can carry an entire rollup row.' },
+
+    tag: { label: 'Concept tag', what:
+      'High End / UGC / In-house production / Partnership, read from the agency’s ad-naming ' +
+      'convention — not a Meta field. Anything unrecognised is reported as "Untagged / legacy".', how:
+      'The closest thing here to a production-style comparison. Over 28 days on this account: High End ' +
+      '65 ads at 19,05 kr CPA, UGC 39 at 17,69 kr, In-house 7 at 16,23 kr. Trap: "Untagged / legacy" ' +
+      'is a monitor, not a rounding bucket — 8 ads and 5 519 kr over 28 days are outside the ' +
+      'convention, and the whole table is only as good as the naming.' },
+
+    media_type: { label: 'Media type', what:
+      'Video / Image (still) / Carousel / Slideshow / DPA / catalog, DERIVED from the ad and campaign ' +
+      'names. The creative field object_type only ever says SHARE or VIDEO here — videos posted as ' +
+      'page-post shares land in SHARE, and carousel, slideshow and DPA are indistinguishable in the ' +
+      'feed because the connector loads no asset_feed_spec and no product_set_id.', how:
+      'Compare a creative only against its own media type: hook and hold do not exist for stills, and ' +
+      'DPA clicks about four times as hard as anything hand-made (10,4 % link CTR against 2,5 %). ' +
+      'Trap: DPA / catalog is excluded from every ranked table on purpose — it is a feed, not a ' +
+      'creative anyone can iterate on.' },
+
+    promo: { label: 'Promo', what:
+      'A case-insensitive regex over ad name + campaign name + creative title + body ' +
+      '(\\d+\\s?%, offer, promo, sale, rea, erbjudande, tilbud, kampanj, -offers), with a manual ' +
+      'PROMO_OVERRIDES list for exceptions.', how:
+      'Separates "the offer worked" from "the creative worked". On this account promo creatives buy ' +
+      'cheaper purchases over 28 days (14,44 kr against 17,54 kr) on about a sixth of the spend. ' +
+      'Trap: the regex is deliberately broad — an ad named "…Wholesale…" matches "sale" — so a wrong ' +
+      'call is corrected in the override list rather than by weakening the pattern for everything.' },
+
+    tag_media: { label: 'Concept tag × media type', what:
+      'The same 28-day ratio-of-sums rollup, crossed. Only cells above the 1 000 kr floor are shown.', how:
+      'Where a tag’s verdict either survives being split by format or turns out to have been one ' +
+      'format all along. Trap: crossing halves the ads per row — check the Ads column before ' +
+      'believing a cell.' },
+
+    media_type_mix: { label: 'Media type mix', what:
+      'Spend share by derived media type over the last 7 days, SE+NO. Same derivation as the Media ' +
+      'type column — read off the ad and campaign names, not from a Meta field.', how:
+      'The mix question: is the budget where the performance is. Read it against the "By media type" ' +
+      'table above rather than on its own — a format taking 30 % of spend at twice the CPA is the ' +
+      'finding, not the slice size. Trap: DPA / catalog appears here (it is real spend) but is ' +
+      'excluded from every ranked table.' },
+
+    media_format_mix: { label: 'Concept mix', what:
+      'Spend share by concept tag over the last 7 days, SE+NO — the ad-naming convention, not a Meta ' +
+      'field.', how:
+      'Shows how much of the week’s budget each production style carried. Trap: the "Untagged / ' +
+      'legacy" slice is the one to watch — it is not a style, it is ads whose names broke the ' +
+      'convention and therefore cannot be attributed to any style at all.' },
+
+    rising: { label: 'Rising', what:
+      'Ads whose FIRST SPEND falls within the last 14 days, ranked by attributed purchases over the ' +
+      'last 28 days. No spend floor applies — a three-day-old ad has not had time to spend 1 000 kr.', how:
+      'New work that is already converting, which is the shortlist worth scaling. Ranked on orders ' +
+      'rather than a rate on purpose: a three-day-old ad’s rates are noise, its orders are not. ' +
+      'Trap: absence from this card is not a verdict — an ad launched 15 days ago has simply aged out ' +
+      'of it.' },
+
+    fatiguing_now: { label: 'Fatiguing now', what:
+      'Ads classified Fatiguing or Exhausted, ranked by last-7-day spend.', how:
+      'The money a refresh moves first: same content as the top of the fatigue board, sorted by how ' +
+      'much budget the problem is costing rather than by how bad the problem is. Trap: a high-spend ' +
+      'Fatiguing ad may still be the cheapest CPA on the account — check the board row before pausing ' +
+      'anything.' }
+  };
+
+  /* One "?" per metric label. `data-help="key"` in the markup (or in a
+     generated string) is enough; decorateHelp() turns every one of them into a
+     button exactly once. Also stamps data-tt-value on <th> so table-tools reads
+     the clean header label rather than the header plus the whole tooltip —
+     cellText() short-circuits on that attribute. `title` stays as the
+     no-JS / no-hover fallback the brief asked to keep. */
+  function decorateHelp(root) {
+    var nodes = (root || document).querySelectorAll('[data-help]');
+    Array.prototype.forEach.call(nodes, function (el) {
+      var h = HELP[el.getAttribute('data-help')];
+      if (!h || el.querySelector(':scope > .help')) return;
+      var label = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (el.tagName === 'TH' && el.dataset.ttValue == null) el.dataset.ttValue = label;
+      // The title fallback lives on the LABEL, not on the "?" — a title on the
+      // button would race the panel and show both at once. Hovering the label
+      // still explains the metric with script disabled or positioning broken.
+      if (!el.title) el.title = h.what;
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'help';
+      b.setAttribute('aria-label', 'What is ' + (label || h.label) + '?');
+      b.innerHTML = '?<span class="tip" role="tooltip">' +
+        '<b>What it is</b><span>' + esc(h.what) + '</span>' +
+        '<b class="how">How to read it</b><span>' + esc(h.how) + '</span></span>';
+      el.appendChild(b);
+    });
+  }
+
+  /* The panel is position:fixed (see the CSS note), so its two coordinates are
+     the only thing script decides. Everything else — width, the flip, the
+     clamp — is a CSS rule or the two lines below. */
+  var openHelp = null;
+  function helpHide() {
+    if (!openHelp) return;
+    openHelp.removeAttribute('data-open');
+    openHelp.removeAttribute('data-pin');
+    openHelp = null;
+  }
+  function helpShow(btn, pin) {
+    if (openHelp && openHelp !== btn) helpHide();
+    btn.setAttribute('data-open', '1');
+    if (pin) btn.setAttribute('data-pin', '1');
+    openHelp = btn;
+    var tip = btn.querySelector('.tip');
+    if (!tip) return;
+    var r = btn.getBoundingClientRect(), pad = 10;
+    var w = tip.offsetWidth, h = tip.offsetHeight;
+    var left = r.left - 8;
+    if (left + w > window.innerWidth - pad) left = r.right + 8 - w;  // flip left
+    // Clamp AFTER the flip, both edges. The anchor can sit outside the viewport
+    // entirely — a header scrolled sideways inside .tbl-scroll — and a flip
+    // alone would then place the panel off-screen with it.
+    left = Math.max(pad, Math.min(left, window.innerWidth - pad - w));
+    var top = r.bottom + 7;
+    if (top + h > window.innerHeight - pad) top = r.top - 7 - h;     // flip above
+    top = Math.max(pad, Math.min(top, window.innerHeight - pad - h));
+    tip.style.left = Math.round(left) + 'px';
+    tip.style.top = Math.round(top) + 'px';
+  }
+  function helpOf(e) {
+    return e.target && e.target.closest ? e.target.closest('.help') : null;
+  }
+  document.addEventListener('mouseover', function (e) {
+    var b = helpOf(e);
+    if (b) { if (b !== openHelp) helpShow(b, false); return; }
+    if (openHelp && !openHelp.hasAttribute('data-pin') &&
+        !(e.target.closest && e.target.closest('.tip'))) helpHide();
+  });
+  function keyboardFocus(el) {
+    try { return el.matches(':focus-visible'); } catch (e) { return true; }
+  }
+  document.addEventListener('focusin', function (e) {
+    var b = helpOf(e);
+    // Keyboard focus pins (there is no pointer to leave with). A POINTER focus
+    // must not pin here: the click handler below would then read it as
+    // "already pinned" and close the panel on the very click that opened it.
+    if (b) { if (keyboardFocus(b)) helpShow(b, true); }
+    else if (openHelp && openHelp.hasAttribute('data-pin')) helpHide();
+  });
+  // Click/tap toggles and pins — the only way a touch device can read one, and
+  // stopPropagation keeps table-tools' header filter out of it.
+  document.addEventListener('click', function (e) {
+    var b = helpOf(e);
+    if (b) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (openHelp === b && b.hasAttribute('data-pin')) helpHide();
+      else helpShow(b, true);
+      return;
+    }
+    if (openHelp && !(e.target.closest && e.target.closest('.tip'))) helpHide();
+  }, true);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' || e.key === 'Esc') helpHide();
+  });
+  // A fixed panel does not travel with its anchor; hide rather than drift.
+  window.addEventListener('resize', helpHide);
+  window.addEventListener('scroll', helpHide, true);
+
   /* ── Donut ────────────────────────────────────────────────────────────────
      r = 15.9155 makes the circumference exactly 100 units, so one unit of
      stroke-dasharray is one percent and no arc maths is needed. */
@@ -524,50 +940,140 @@
 
   /* ── Sparkline ────────────────────────────────────────────────────────────
      Weekly link CTR since the ad's first spend day, drawn inline: no chart
-     library, no layout pass, one <svg> per row. Values are normalised to the
-     ad's OWN min/max — this shows the shape of a decline, not a level anyone
-     should compare across rows. */
-  function spark(weeks, key) {
-    var vals = [], i;
-    for (i = 0; i < (weeks || []).length; i++) {
-      if (weeks[i][key] != null) vals.push(weeks[i][key]);
+     library, no layout pass, one <svg> per row. 160x36, in the THIRD column,
+     because the shape of the curve is what the status chip summarises — a
+     reader who has to scroll a thousand pixels right to see it reads the chip
+     instead and never checks its working.
+
+     Each series is normalised to its OWN min/max: this shows the shape of a
+     decline, not a level anyone should compare across rows. Video ads get the
+     weekly hook rate as a second, lighter line on its own scale — the two are
+     different units, and only their shapes are being compared. */
+  var SPK_W = 160, SPK_H = 36, SPK_TOP = 3, SPK_BOT = 23, SPK_PAD = 3;
+
+  function sparkPts(vals) {
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    var span = (hi - lo) || 1, n = vals.length;
+    return vals.map(function (v, ix) {
+      var x = SPK_PAD + (n === 1 ? 0 : ix * (SPK_W - 2 * SPK_PAD) / (n - 1));
+      var y = SPK_BOT - (v - lo) / span * (SPK_BOT - SPK_TOP);
+      return [x, y];
+    });
+  }
+  function sparkStr(pts) {
+    return pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
+  }
+  /* Compact enough for an 8.5px end label: "1,49%" not "1,49 %". */
+  function pctTiny(n) { return n == null ? dash : n.toFixed(2).replace('.', ',') + '%'; }
+
+  function spark(c) {
+    var weeks = c.weeks || [], i, w;
+    var vals = [], wk = [], hooks = [];
+    for (i = 0; i < weeks.length; i++) {
+      w = weeks[i];
+      if (w.link_ctr == null) continue;
+      vals.push(w.link_ctr);
+      wk.push(w.week);
+      hooks.push(w.hook_rate);
     }
     if (vals.length < 2) return '<span class="dim">' + dash + '</span>';
-    var W = 76, H = 22, pad = 3;
-    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
-    var span = (hi - lo) || 1;
-    var pts = vals.map(function (v, ix) {
-      var x = pad + ix * (W - 2 * pad) / (vals.length - 1);
-      var y = H - pad - (v - lo) / span * (H - 2 * pad);
-      return x.toFixed(1) + ',' + y.toFixed(1);
-    });
+
+    var pts = sparkPts(vals);
     var first = vals[0], last = vals[vals.length - 1];
     var stroke = last >= first * 0.85 ? 'var(--up)' : (last >= first * 0.7 ? '#B4791F' : 'var(--down)');
-    var lastPt = pts[pts.length - 1].split(',');
-    return '<svg class="spark" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" ' +
-           'role="img" aria-label="Weekly link CTR, ' + vals.length + ' weeks">' +
-           '<title>' + vals.length + ' weeks · ' + pct2(first) + ' → ' + pct2(last) + '</title>' +
-           '<polyline fill="none" stroke="' + stroke + '" stroke-width="1.4" stroke-linejoin="round" ' +
-           'stroke-linecap="round" points="' + pts.join(' ') + '"></polyline>' +
-           '<circle cx="' + lastPt[0] + '" cy="' + lastPt[1] + '" r="1.8" fill="' + stroke + '"></circle></svg>';
+    var out = [];
+
+    // Hook rate, video only, on its own scale and behind the CTR line. Drawn
+    // only when it has as many points as the CTR series, so the two shapes are
+    // read over the same weeks and not over different ones.
+    var hookOk = c.is_video && hooks.length === vals.length &&
+                 hooks.every(function (v) { return v != null; });
+    if (hookOk) {
+      out.push('<polyline fill="none" stroke="var(--muted)" stroke-opacity=".42" stroke-width="1" ' +
+               'stroke-linejoin="round" stroke-linecap="round" points="' +
+               sparkStr(sparkPts(hooks)) + '"></polyline>');
+    }
+
+    // Baseline week — the denominator of every index on this row.
+    var bIx = c.baseline_week == null ? -1 : wk.indexOf(c.baseline_week);
+    if (bIx >= 0) {
+      out.push('<line x1="' + pts[bIx][0].toFixed(1) + '" y1="1.5" x2="' + pts[bIx][0].toFixed(1) +
+               '" y2="' + (SPK_BOT + 1.5).toFixed(1) + '" stroke="var(--border)" stroke-width="1" ' +
+               'stroke-dasharray="1.5 1.5"></line>');
+    }
+
+    out.push('<polyline fill="none" stroke="' + stroke + '" stroke-width="1.6" ' +
+             'stroke-linejoin="round" stroke-linecap="round" points="' + sparkStr(pts) + '"></polyline>');
+
+    if (bIx >= 0) {
+      out.push('<circle cx="' + pts[bIx][0].toFixed(1) + '" cy="' + pts[bIx][1].toFixed(1) +
+               '" r="2.1" fill="var(--card)" stroke="var(--muted)" stroke-width="1.1"></circle>');
+    }
+    // Current week, emphasised: a ring in the card colour keeps it readable
+    // where it lands on top of the line.
+    var lp = pts[pts.length - 1];
+    out.push('<circle cx="' + lp[0].toFixed(1) + '" cy="' + lp[1].toFixed(1) +
+             '" r="3" fill="' + stroke + '" stroke="var(--card)" stroke-width="1.2"></circle>');
+
+    out.push('<text x="0" y="33" font-size="8.5" fill="var(--muted)">' + pctTiny(first) + '</text>');
+    out.push('<text x="' + SPK_W + '" y="33" font-size="8.5" text-anchor="end" fill="' + stroke +
+             '" font-weight="600">' + pctTiny(last) + '</text>');
+
+    return '<svg class="spark" width="' + SPK_W + '" height="' + SPK_H + '" viewBox="0 0 ' +
+           SPK_W + ' ' + SPK_H + '" role="img" aria-label="Weekly link CTR, ' + vals.length +
+           ' weeks, ' + pctTiny(first) + ' to ' + pctTiny(last) +
+           (hookOk ? '. Hook rate shown as a second line.' : '') + '">' +
+           '<title>' + vals.length + ' weeks · link CTR ' + pct2(first) + ' → ' + pct2(last) +
+           (bIx >= 0 ? ' · baseline = week ' + c.baseline_week : '') +
+           (hookOk ? ' · lighter line = hook rate' : '') + '</title>' +
+           out.join('') + '</svg>';
   }
 
   /* ── Thumbnails ───────────────────────────────────────────────────────────
-     Meta's signed CDN URLs die about four days after minting, so a broken
-     image is an expected state, not an exception: swap in the concept's
-     initial rather than leaving a torn-image icon. */
+     Three sources, in order:
+       1. /api/meta/image/<ad_id> — this job's own mirror. Present whenever the
+          payload carries image_source, which the refresh job only stamps once
+          the bytes are actually in Firestore.
+       2. the hotlinked Meta CDN thumbnail, for an ad the mirror has not caught
+          up with (added since the last run, or its source URL was already dead).
+       3. the concept's initial in a grey box.
+     Meta's signed URLs die about four days after minting, so 2 failing is an
+     expected state, not an exception — hence the two-step onerror rather than a
+     single fallback. The handler is a named global because these strings are
+     built by innerHTML long after this script ran. */
+  window.__metaImgFail = function (img) {
+    var next = img.getAttribute('data-next');
+    if (next) { img.removeAttribute('data-next'); img.src = next; return; }
+    var b = img.parentNode;
+    if (!b || !b.parentNode) return;
+    var span = document.createElement('span');
+    span.className = 'thumb-fallback' + (b.classList.contains('sm') ? ' sm' : '');
+    span.textContent = img.getAttribute('data-initial') || '?';
+    b.parentNode.replaceChild(span, b);
+  };
+
+  function imgUrl(c, size) {
+    return '/api/meta/image/' + encodeURIComponent(c.ad_id) + '?size=' + size;
+  }
+  var IMG_LABELS = {};   // filled from sources.image_labels
+
   function thumbInner(c, sm) {
-    var src = c.thumbnail_url;
-    var big = c.image_url || c.thumbnail_url;
+    var mirrored = !!c.image_source;
+    var src  = mirrored ? imgUrl(c, 'thumb') : c.thumbnail_url;
+    var next = mirrored ? (c.thumbnail_url || '') : '';
+    var big  = mirrored ? imgUrl(c, 'large') : (c.image_url || c.thumbnail_url || '');
     var cap = c.display_name || c.ad_name || '';
     var initial = (cap || '?').trim().charAt(0).toUpperCase() || '?';
     var cls = sm ? ' sm' : '';
     if (!src) return '<span class="thumb-fallback' + cls + '">' + esc(initial) + '</span>';
     return '<button type="button" class="thumb' + cls + '" data-src="' + esc(big) +
-           '" data-cap="' + esc(cap) + '" aria-label="Enlarge: ' + esc(cap) + '">' +
+           '" data-cap="' + esc(cap) + '" data-source="' + esc(c.image_source || '') +
+           '" data-large="' + (c.has_large ? '1' : '') +
+           '" aria-label="Enlarge: ' + esc(cap) + '">' +
            '<img src="' + esc(src) + '" alt="' + esc(cap) + '" loading="lazy" ' +
-           'onerror="this.parentNode.outerHTML=\'<span class=&quot;thumb-fallback' + cls + '&quot;>' + esc(initial) + '</span>\'">' +
-           '</button>';
+           'data-initial="' + esc(initial) + '"' +
+           (next ? ' data-next="' + esc(next) + '"' : '') +
+           ' onerror="window.__metaImgFail(this)"></button>';
   }
   function thumbCell(c, sm) {
     return '<td class="thumb-cell' + (sm ? ' sm' : '') + '">' + thumbInner(c, sm) + '</td>';
@@ -660,9 +1166,13 @@
                      'No ad delivered in this window.</td></tr>';
       return;
     }
+    // Column order: Creative, Status, TREND, then the measures. The trend is the
+    // evidence behind the status chip, so it sits next to it rather than 1 100px
+    // to its right where only a reader who scrolls would ever meet it.
     tb.innerHTML = rows.map(function (c) {
-      return '<tr>' + thumbCell(c, true) + nameCell(c, true) +
+      return '<tr>' + thumbCell(c) + nameCell(c, true) +
              '<td class="lbl"><span class="st ' + (STCLASS[c.status] || 's-none') + '">' + esc(c.status) + '</span></td>' +
+             '<td class="lbl spark-cell">' + spark(c) + '</td>' +
              '<td class="dim">' + esc(c.uploaded || dash) + '</td>' +
              '<td class="dim">' + int(c.days_active) + '</td>' +
              '<td class="strong">' + kr(c.spend) + '</td>' +
@@ -672,8 +1182,7 @@
              '<td>' + (c.is_video ? pct2(c.hook_rate) : '<span class="dim">' + dash + '</span>') + '</td>' +
              idxCell(c.hook_index, false) +
              '<td class="strong">' + kr2(c.cpa) + '</td>' +
-             idxCell(c.cpa_index, true) +
-             '<td class="lbl spark-cell">' + spark(c.weeks, 'link_ctr') + '</td></tr>';
+             idxCell(c.cpa_index, true) + '</tr>';
     }).join('');
 
     // Spend share by status, worst first — the strip is the summary a media
@@ -701,8 +1210,10 @@
       '. Fatiguing: index ' + num2(t.exhausted_index) + '–' + num2(t.stable_index) + ', or frequency up ' +
       num2(t.freq_rise) + '× on baseline. Exhausted: index < ' + num2(t.exhausted_index) + ' and at least ' +
       int(t.exhausted_days) + ' days active. No baseline: the ad never had a full week over ' +
-      int(t.baseline_min_spend) + ' kr. The sparkline is weekly link CTR since launch, up to ' +
-      int(t.weeks_kept) + ' weeks, scaled to each ad’s own range. *Frequency is the average daily frequency (impressions ÷ summed daily reach), not a 7-day figure.';
+      int(t.baseline_min_spend) + ' kr. The Trend column is weekly link CTR since launch, up to ' +
+      int(t.weeks_kept) + ' weeks, scaled to each ad’s own range — hollow marker = the baseline week, ' +
+      'filled marker = the current window, lighter second line on video ads = hook rate. ' +
+      '*Frequency is the average daily frequency (impressions ÷ summed daily reach), not a 7-day figure.';
   }
 
   /* ── Leaderboards ─────────────────────────────────────────────────────── */
@@ -722,6 +1233,9 @@
   };
   var LB_ORDER = ['hook_rate', 'hold_rate', 'link_ctr', 'cpa', 'lpv_rate', 'social',
                   'rising', 'fatiguing_now'];
+  /* Card key → HELP key. Only `social` differs, because the card is titled by
+     what it ranks and the metric is named by how it is computed. */
+  var LB_HELP = { social: 'saves_shares_per_1k' };
 
   function renderLeaderboards(lbs) {
     $('lbGrid').innerHTML = LB_ORDER.map(function (key) {
@@ -743,29 +1257,33 @@
                  '<span class="lval">' + fmt(r.value) + '</span></li>';
         }).join('') + '</ol>';
       }
-      return '<div class="lb"><h4>' + esc(card.title) + '</h4>' +
+      return '<div class="lb"><h4 data-help="' + esc(LB_HELP[key] || key) + '">' +
+             esc(card.title) + '</h4>' +
              '<div class="lbsub">' + esc(LB_SUB[key] || '') + '</div>' + body + '</div>';
     }).join('');
   }
 
   /* ── Rollups ──────────────────────────────────────────────────────────── */
   var ROLL_COLS = [
-    { h: 'Ads',        f: function (r) { return int(r.ads); } },
-    { h: 'Spend',      f: function (r) { return kr(r.spend); },      cls: 'strong' },
-    { h: 'Share',      f: function (r) { return pct(r.share); } },
-    { h: 'Link CTR',   f: function (r) { return pct2(r.link_ctr); } },
-    { h: 'Hook',       f: function (r) { return pct2(r.hook_rate); } },
-    { h: 'Hold',       f: function (r) { return pct2(r.hold_rate); } },
-    { h: 'LPV rate',   f: function (r) { return pct(r.lpv_rate); } },
-    { h: 'CPA',        f: function (r) { return kr2(r.cpa); },       cls: 'strong' },
-    { h: 'ROAS*',      f: function (r) { return roas(r.roas); },     cls: 'dim' },
-    { h: 'Purchases',  f: function (r) { return int(r.purchases); } },
-    { h: 'S+S / 1k',   f: function (r) { return num2(r.saves_shares_per_1k); } }
+    { h: 'Ads',        k: 'ads',      f: function (r) { return int(r.ads); } },
+    { h: 'Spend',      k: 'spend',    f: function (r) { return kr(r.spend); },      cls: 'strong' },
+    { h: 'Share',      k: 'share',    f: function (r) { return pct(r.share); } },
+    { h: 'Link CTR',   k: 'link_ctr', f: function (r) { return pct2(r.link_ctr); } },
+    { h: 'Hook',       k: 'hook_rate', f: function (r) { return pct2(r.hook_rate); } },
+    { h: 'Hold',       k: 'hold_rate', f: function (r) { return pct2(r.hold_rate); } },
+    { h: 'LPV rate',   k: 'lpv_rate', f: function (r) { return pct(r.lpv_rate); } },
+    { h: 'CPA',        k: 'cpa',      f: function (r) { return kr2(r.cpa); },       cls: 'strong' },
+    { h: 'ROAS*',      k: 'roas',     f: function (r) { return roas(r.roas); },     cls: 'dim' },
+    { h: 'Purchases',  k: 'purchases', f: function (r) { return int(r.purchases); } },
+    { h: 'S+S / 1k',   k: 'saves_shares_per_1k', f: function (r) { return num2(r.saves_shares_per_1k); } }
   ];
 
-  function renderRollup(tableId, rows, label) {
-    var head = '<thead><tr><th class="lbl">' + esc(label) + '</th>' +
-               ROLL_COLS.map(function (c) { return '<th>' + esc(c.h) + '</th>'; }).join('') +
+  function renderRollup(tableId, rows, label, helpKey) {
+    var head = '<thead><tr><th class="lbl"' + (helpKey ? ' data-help="' + esc(helpKey) + '"' : '') +
+               '>' + esc(label) + '</th>' +
+               ROLL_COLS.map(function (c) {
+                 return '<th data-help="' + esc(c.k) + '">' + esc(c.h) + '</th>';
+               }).join('') +
                '</tr></thead>';
     var body = rows.length
       ? rows.map(function (r) {
@@ -807,7 +1325,7 @@
 
   function tileHtml(c, t, lib, d) {
     return '<div class="kpi' + (t.spot ? ' spot' : '') + '">' +
-           '<div class="k">' + esc(t.label) + '</div>' +
+           '<div class="k" data-help="' + esc(t.k) + '">' + esc(t.label) + '</div>' +
            '<div class="v">' + t.fmt(c[t.k]) + '</div>' +
            deltaPill(t.k, d[t.k], lib) +
            '<div class="n">' + esc(t.note) + '</div></div>';
@@ -903,15 +1421,29 @@
     }
   }
 
-  /* The method box carries the caveat list AND every definition the payload
-     ships, so a number on this page can always be traced to its formula
-     without opening the refresh script. */
-  var METHOD_KEYS = [
-    'link_ctr', 'frequency', 'hook_rate', 'hold_rate', 'completion', 'avg_seconds',
-    'lpv_rate', 'cost_per_lpv', 'atc_rate', 'purchase_rate', 'social_per_1k',
-    'promo', 'uploaded', 'days_active', 'baseline', 'ctr_index', 'hook_index',
-    'cpa_index', 'status', 'leaderboards', 'rising', 'top5', 'recent'
+  /* The method box carries the caveat list and every definition, so a number on
+     this page can always be traced to its formula without opening the refresh
+     script. It renders the SAME HELP object the "?" tooltips render — one
+     source of truth, so a tooltip and a footnote cannot drift apart. Payload
+     definitions that HELP does not cover (the derivation rules the SQL owns:
+     baseline, completion, cost per LPV, the ranking floors …) are appended
+     underneath rather than dropped. */
+  var METHOD_ORDER = [
+    'spend', 'purchases', 'cpa', 'roas', 'cpm', 'ctr', 'link_ctr',
+    'hook_rate', 'hold_rate', 'lpv_rate', 'frequency', 'saves_shares_per_1k',
+    'status', 'trend', 'ctr_index', 'hook_index', 'cpa_index',
+    'uploaded', 'days_active', 'market', 'creative', 'ads', 'share',
+    'tag', 'media_type', 'promo', 'tag_media',
+    'media_type_mix', 'media_format_mix', 'rising', 'fatiguing_now'
   ];
+  // Covered verbatim by a HELP entry above — printing the payload's shorter
+  // version too would be the same definition twice, in two wordings.
+  var DEF_COVERED = {
+    link_ctr: 1, frequency: 1, hook_rate: 1, hold_rate: 1, lpv_rate: 1,
+    promo: 1, uploaded: 1, days_active: 1, ctr_index: 1, hook_index: 1,
+    cpa_index: 1, status: 1, rising: 1, spend: 1, purchases: 1, cpa: 1,
+    ctr: 1, cpm: 1, roas: 1, social_per_1k: 1
+  };
 
   function renderMethod(d) {
     var s = d.sources || {};
@@ -924,13 +1456,27 @@
                ' delivering ads (' + pct(ig.ads_pct) + ' of ads, ' + pct(ig.spend_pct) +
                ' of spend); the rest link to Ads Manager only.');
     }
+    if (s.images_mirrored != null) {
+      out.push(' Creative images are mirrored by the refresh job and served from ' +
+               '/api/meta/image/&lt;ad_id&gt;: ' + int(s.images_mirrored) +
+               ' ads have a stored copy.');
+    }
     if (d.caveats && d.caveats.length) {
       out.push('<ul>' + d.caveats.map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('') + '</ul>');
     }
+
+    var dl = METHOD_ORDER.filter(function (k) { return HELP[k]; }).map(function (k) {
+      return '<dt>' + esc(HELP[k].label) + '</dt><dd>' + esc(HELP[k].what) +
+             ' <i>' + esc(HELP[k].how) + '</i></dd>';
+    }).join('');
+
     var defs = d.definitions || {};
-    var dl = METHOD_KEYS.filter(function (k) { return defs[k]; }).map(function (k) {
+    dl += Object.keys(defs).filter(function (k) {
+      return !DEF_COVERED[k] && !HELP[k];
+    }).map(function (k) {
       return '<dt>' + esc(k) + '</dt><dd>' + esc(defs[k]) + '</dd>';
     }).join('');
+
     if (dl) out.push('<dl>' + dl + '</dl>');
     $('method').hidden = false;
     $('method').innerHTML = out.join('');
@@ -941,6 +1487,7 @@
     var w = d.window || {};
     var s = d.sources || {};
     var markets = s.markets || ['SE', 'NO'];
+    IMG_LABELS = s.image_labels || {};
 
     $('pageSub').textContent = 'Creative analysis · ' + (s.account_label || 'Meta') + ' · ad level';
     $('kpiSub').textContent = w.from + ' – ' + w.to + ', ' + markets.join('+') +
@@ -976,14 +1523,14 @@
     renderLeaderboards(d.leaderboards || {});
 
     var ro = d.rollups || {};
-    renderRollup('rollTag', ro.by_tag || [], 'Concept tag');
-    renderRollup('rollMedia', ro.by_media_type || [], 'Media type');
-    renderRollup('rollPromo', ro.by_promo || [], 'Type');
+    renderRollup('rollTag', ro.by_tag || [], 'Concept tag', 'tag');
+    renderRollup('rollMedia', ro.by_media_type || [], 'Media type', 'media_type');
+    renderRollup('rollPromo', ro.by_promo || [], 'Type', 'promo');
     if ((ro.by_tag_media || []).length) {
       $('crossCard').hidden = false;
       $('crossSub').textContent = 'Only cells above the ' + int(s.min_spend_l28) +
         ' kr floor are shown — below it the cross is a list of one-ad curiosities.';
-      renderRollup('rollCross', ro.by_tag_media, 'Tag × media type');
+      renderRollup('rollCross', ro.by_tag_media, 'Tag × media type', 'tag_media');
     }
 
     var total = kpis.combined ? kpis.combined.spend : null;
@@ -998,14 +1545,20 @@
     renderRecent(d.recent || []);
     renderMethod(d);
 
+    // Help buttons go in BEFORE table-tools reads the headers: decorateHelp
+    // stamps data-tt-value on every <th> it touches, which is what stops the
+    // filter panel from being titled "Link CTR ? What it is …".
+    decorateHelp(document);
+
     // The tables carry data-tools, so they were enhanced empty at
     // DOMContentLoaded; re-derive column types now that they have rows. The
     // numeric columns are pinned rather than sniffed: the fatigue board's
     // index column renders "0,73×" and its Uploaded column an ISO date, both
-    // of which the heuristic would type wrongly.
+    // of which the heuristic would type wrongly. Indices shifted by one when
+    // Trend moved into column 3.
     if (window.TableTools) {
       window.TableTools.enhance($('fatigueTable'),
-        { numericColumns: [4, 5, 6, 7, 8, 9, 10, 11, 12] });
+        { numericColumns: [5, 6, 7, 8, 9, 10, 11, 12, 13] });
       ['rollTag', 'rollMedia', 'rollPromo', 'rollCross'].forEach(function (id) {
         window.TableTools.enhance($(id), { numericColumns: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] });
       });
@@ -1017,26 +1570,28 @@
   /* ── Lightbox ─────────────────────────────────────────────────────────────
      Delegated, because every .thumb is created after this script runs. */
   var lastFocus = null;
-  function lbOpen(src, cap) {
+  function lbOpen(src, cap, source) {
     var img = $('lb-img');
     img.src = src;
     img.alt = cap;
     $('lb-cap').textContent = cap;
-    // Meta signs the size into the thumbnail URL (stp=…p64x64…), so rewriting
-    // it to a larger rendition returns 403 — 64px really is all the API gives
-    // for most creatives. Cap the blow-up at 3x rather than stretching a 64px
-    // PNG across 480px, and let the handful of ads that carry a real
-    // creative_image_url fill the frame.
+    // The mirror stores the long side at up to 640px, so a full-size still or a
+    // video poster fills the frame. A 64px thumbnail is NOT stretched across
+    // it: Meta signs the size into that URL (stp=…p64x64…) and every attempt at
+    // a larger rendition returns "URL signature mismatch" 403, so the honest
+    // thing is to cap the blow-up at 3x and say why underneath.
     img.style.maxWidth = '';
     img.onload = function () {
       img.style.maxWidth = img.naturalWidth < 160 ? (img.naturalWidth * 3) + 'px' : '';
     };
+    $('lb-src').textContent = source ? (IMG_LABELS[source] || source) : '';
     $('lb').setAttribute('data-open', 'true');
     $('lb-close').focus();
   }
   function lbClose() {
     $('lb').setAttribute('data-open', 'false');
     $('lb-img').removeAttribute('src');
+    $('lb-src').textContent = '';
     if (lastFocus) lastFocus.focus();
   }
   // Open is delegated because every .thumb is created after this script runs.
@@ -1044,7 +1599,8 @@
     var b = e.target.closest ? e.target.closest('.thumb') : null;
     if (!b) return;
     lastFocus = b;
-    lbOpen(b.getAttribute('data-src'), b.getAttribute('data-cap') || '');
+    lbOpen(b.getAttribute('data-src'), b.getAttribute('data-cap') || '',
+           b.getAttribute('data-source') || '');
   });
   // Close listens on mousedown on the overlay itself, NOT on a shared document
   // click: the press that opens the lightbox starts on a thumbnail, so the
