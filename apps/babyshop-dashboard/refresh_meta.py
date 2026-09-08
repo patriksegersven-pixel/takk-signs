@@ -29,6 +29,26 @@ MARKET × PERIOD FILTERS (v4)
   The relevance floors scale with the window length (300 kr over 7 days is
   1 200 kr over 28), so "minimum spend" always means the same RATE of spend.
 
+CUSTOM DATE RANGES (v4.1)
+  A preset covers the four windows people ask for most; a campaign burst, a
+  Black Week or "the three days the TV spot ran" is not one of them. The tab
+  can therefore also ask for an arbitrary [from, to], which the SERVICE answers
+  live out of BigQuery (app.py: GET /api/meta?from=&to=).
+
+  There is exactly ONE aggregation code path, and it is this file's:
+
+    fetch_rows(start, end)   the single BigQuery pull — ad-days over the whole
+                             scan (window AND its comparison period), per-ad
+                             dimensions, per-ad weekly history since first
+                             spend, and the upload list
+    build_combo(rows, market, start, end, ...)
+                             one payload out of those rows
+
+  The nightly job calls fetch_rows once and build_combo twelve times; a custom
+  request calls fetch_rows for [from − span, to] and build_combo once. Neither
+  can drift from the other, because a custom range and a preset that happen to
+  cover the same dates are literally the same function over the same rows.
+
 WHERE THE DATA COMES FROM
   v1 read the pre-aggregated mart `babyshop_marts.agg_daily_kpis_by_ad`. v2
   reads one level lower, `babyshop_staging.stg_meta__ads_insights`, because the
@@ -93,7 +113,7 @@ Run locally:
   META_IN=/tmp/meta.json python3 refresh_meta.py
 """
 from __future__ import annotations
-import datetime, json, os, re, time
+import datetime, json, os, re, threading, time
 from google.cloud import bigquery
 
 # The warehouse holding the Meta data (the NEW stack's project) …
@@ -192,6 +212,21 @@ DEFAULT_DAYS   = WINDOW_DAYS
 # The BigQuery scan has to cover the longest period AND its equally long
 # comparison period: 90 + 90 = 180 days back from the settled end date.
 MAX_DAYS       = max(PERIOD_OPTIONS)
+
+# ── Custom ranges (v4.1) ─────────────────────────────────────────────────────
+# The bounds a live [from, to] has to satisfy. They live here, next to the
+# preset grid, so the API and the job cannot state different limits.
+#   • DATA_START — the first day the Meta connector has insights for. Asking
+#     for anything earlier does not fail, it silently returns a window that is
+#     partly empty, which is worse.
+#   • MAX_SPAN_DAYS — the scan is TWICE the span (the window plus its
+#     comparison period), so 180 days of window is a 360-day scan. That is the
+#     ceiling on what one page view may cost.
+#   • WEEKLY_CAP_SPAN — above this the per-ad weekly series (WEEKS_KEPT = 12
+#     buckets) no longer covers the whole window, and the UI says so.
+DATA_START      = os.environ.get("META_DATA_START", "2025-06-18")
+MAX_SPAN_DAYS   = int(os.environ.get("META_MAX_SPAN_DAYS", "180"))
+WEEKLY_CAP_SPAN = int(os.environ.get("META_WEEKLY_CAP_SPAN", "90"))
 
 
 def combo_key(market: str, days: int) -> str:
@@ -312,9 +347,12 @@ CAVEATS = [
     "not reconcile to Norce orders and are not comparable to the KV tab",
     "the window ends " + str(SETTLE_DAYS) + " days before today so attribution "
     "has settled; the last two days of spend are deliberately not shown",
-    "the market and period controls do not query anything: every combination "
-    "is precomputed by this job into its own snapshot, so switching them reads "
-    "one document and nothing is recalculated in the browser",
+    "the market and period PRESETS do not query anything: every combination is "
+    "precomputed by this job into its own snapshot, so switching them reads one "
+    "document and nothing is recalculated in the browser. A CUSTOM date range "
+    "is the exception — it is computed live from BigQuery when you press Apply, "
+    "by this same code over the same rows, which is why it takes a few seconds "
+    "and a preset does not",
     "the relevance floors scale with the selected period — 300 kr over 7 days "
     "is 1 200 kr over 28 — so a ranking means the same thing at every period; "
     "the figure in force is printed under each table",
@@ -408,16 +446,31 @@ def _credentials():
 
     META_AUTH=gcloud forces the subprocess path: locally the ADC file belongs
     to one account and the warehouse read has to run as the other, and
-    CLOUDSDK_CORE_ACCOUNT only steers the CLI, never ADC."""
+    CLOUDSDK_CORE_ACCOUNT only steers the CLI, never ADC.
+
+    META_LIVE_AUTH / META_LIVE_ACCOUNT are the same two knobs for the SERVICE,
+    which serves custom date ranges out of this module (app.py). They are named
+    apart from META_AUTH deliberately: the job and the service run in the same
+    image, and a variable set on the service must not silently change how the
+    job authenticates. In production NEITHER is set — the runtime SA's ADC is
+    the right credential on both sides, and no new IAM is needed because the
+    live query is the same read the nightly job already performs."""
     import subprocess, google.oauth2.credentials
+
+    mode = os.environ.get("META_AUTH") or os.environ.get("META_LIVE_AUTH")
+    # Which gcloud identity mints the token. CLOUDSDK_CORE_ACCOUNT already
+    # steers the CLI on its own; passing it as --account too makes the choice
+    # explicit and survives an env the subprocess does not inherit.
+    account = (os.environ.get("META_LIVE_ACCOUNT")
+               or os.environ.get("CLOUDSDK_CORE_ACCOUNT") or "")
+    cmd = ["gcloud", "auth", "print-access-token"] + (["--account", account] if account else [])
 
     class _GcloudToken(google.oauth2.credentials.Credentials):
         def refresh(self, request):  # noqa: ARG002
-            self.token = subprocess.check_output(
-                ["gcloud", "auth", "print-access-token"]).decode().strip()
+            self.token = subprocess.check_output(cmd).decode().strip()
             self.expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=45)
 
-    if os.environ.get("META_AUTH") != "gcloud":
+    if mode != "gcloud":
         try:
             import google.auth
             creds, _ = google.auth.default()
@@ -425,25 +478,42 @@ def _credentials():
         except Exception:
             pass
 
-    tok = subprocess.check_output(["gcloud", "auth", "print-access-token"]).decode().strip()
+    tok = subprocess.check_output(cmd).decode().strip()
     c = _GcloudToken(tok)
     c.expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=45)
     return c
 
 
 _client = None
+_client_lock = threading.Lock()
 def bq() -> bigquery.Client:
+    """The BigQuery client, built once per process.
+
+    Locked because the service can serve two custom ranges at the same time and
+    two threads racing here would mint two tokens and throw one client away."""
     global _client
-    if _client is None:
-        _client = bigquery.Client(project=BQ_BILLING_PROJECT, location=BQ_LOCATION,
-                                  credentials=_credentials())
+    with _client_lock:
+        if _client is None:
+            _client = bigquery.Client(project=BQ_BILLING_PROJECT, location=BQ_LOCATION,
+                                      credentials=_credentials())
     return _client
+
+
+# Bytes billed, accumulated per THREAD rather than per process: the job runs one
+# fetch and the service can run several concurrently, and a shared counter would
+# report one request's scan on another request's log line.
+_stats = threading.local()
 
 
 def q(sql: str, **params) -> list[dict]:
     cfg = bigquery.QueryJobConfig(query_parameters=[
         bigquery.ScalarQueryParameter(k, "DATE", v) for k, v in params.items()])
-    return [dict(r) for r in bq().query(sql, job_config=cfg).result()]
+    job = bq().query(sql, job_config=cfg)
+    rows = [dict(r) for r in job.result()]
+    n = getattr(_stats, "bytes", None)
+    if n is not None:
+        _stats.bytes = n + int(job.total_bytes_processed or 0)
+    return rows
 
 
 def I(v):
@@ -1274,6 +1344,50 @@ def annotate_images(payload: dict, present: dict) -> None:
     payload["sources"]["images_mirrored"] = len(present)
 
 
+def mirror_index(payload: dict, db) -> dict:
+    """What the image mirror already holds for the ads in one payload.
+
+    The nightly job mirrors images; the SERVICE must not — fetching a hundred
+    creatives off Meta's CDN is minutes of work and belongs nowhere near a page
+    load. But a custom range shows the same ads as the presets, and their bytes
+    are already in Firestore, so the live path reads the mirror's INDEX and
+    annotates exactly as the job does. Without this a custom view would fall
+    back to hotlinking Meta's signed URLs, which are dead after ~4 days, and
+    show a wall of grey initials next to a preset that shows pictures.
+
+    Read strictly by document id over the ads in this payload — never a
+    collection scan, which would pull the base64 bytes of every creative ever
+    mirrored — and with a field mask, so even these documents come back without
+    their two images. An ad the mirror has never seen is simply absent, which
+    is the same state the job leaves after a failed fetch."""
+    ids = {str(c["ad_id"]) for c in _walk_creatives(payload) if c.get("ad_id")}
+    if not ids or db is None:
+        return {}
+    col = db.collection(IMAGES_COLLECTION)
+    out: dict[str, dict] = {}
+    ordered = sorted(ids)
+    try:
+        # get_all is one round trip, but a single call with ~700 refs is not;
+        # chunked so a very wide payload cannot stall a page load.
+        for i in range(0, len(ordered), 200):
+            refs = [col.document(f"{WORKSPACE}__{a}") for a in ordered[i:i + 200]]
+            for snap in db.get_all(refs, field_paths=["source", "w", "h"]):
+                if not snap.exists:
+                    continue
+                d = snap.to_dict() or {}
+                out[snap.id.split("__", 1)[-1]] = {
+                    "source": d.get("source"),
+                    "has_large": d.get("source") != "thumbnail",
+                    "w": d.get("w"), "h": d.get("h")}
+    except Exception as e:
+        # Not fatal: no annotation means the hotlink/placeholder fallback, which
+        # is a worse-looking table, not a wrong one.
+        print(f"   ! could not read {IMAGES_COLLECTION}: {type(e).__name__}: {e}",
+              flush=True)
+        return {}
+    return out
+
+
 # ── Fatigue ──────────────────────────────────────────────────────────────────
 def _index(cur, base) -> float | None:
     """current ÷ baseline, but only when BOTH sides exist.
@@ -1622,7 +1736,7 @@ def _window(days: int) -> dict:
 
 
 def _scan_window() -> dict:
-    """The single BigQuery scan every combination is summed out of.
+    """The single BigQuery scan every PRESET combination is summed out of.
 
     Back to the start of the longest period's COMPARISON period — 90 days of
     window plus 90 days of previous is 180 days — plus the long-window start
@@ -1635,21 +1749,115 @@ def _scan_window() -> dict:
     }
 
 
-def build_one(market: str, days: int, by_ad: dict, dims: dict,
-              weeks_by_ad: dict, uploads: list[dict], account_id: str,
-              generated_at: str) -> dict:
-    """One combination's payload. Identical in shape to every other."""
-    win = _window(days)
+def _as_date(v) -> datetime.date:
+    return v if isinstance(v, datetime.date) else datetime.date.fromisoformat(str(v))
+
+
+# ── The one fetch ────────────────────────────────────────────────────────────
+def fetch_rows(start, end, window_from=None) -> dict:
+    """Everything BigQuery is asked for, once, for a scan of [start, end].
+
+    `start` is the first day of the SCAN, not of the window: it already
+    includes the comparison period (the job scans 180 days to serve a 90-day
+    window; a custom 21-day range scans 42). `window_from` is the earliest day
+    a window inside this scan may start on — the weekly history and the upload
+    list are restricted to ads that were live from there, because those are the
+    only ads any payload built off these rows can show. It defaults to the
+    midpoint, which is exactly right for a scan shaped "window plus an equally
+    long comparison period" — i.e. for both callers.
+
+    Four queries, always the same four (plus the one-off preview probe), so a
+    custom range costs the same as a nightly run over the same span:
+      per_ad_day   ad × day measures over the whole scan
+      ad_dims      one row per ad — name, market, tag, media type, image URLs
+      weekly       per-ad 7-day buckets since that ad's first spend
+      upload_rows  ads created inside the window, with first-created-by-name
+
+    Returns the bag every build_combo() call sums out of, plus what the scan
+    cost (`bytes_processed`, `elapsed`) so the caller can log it."""
+    start, end = _as_date(start), _as_date(end)
+    if window_from is None:
+        window_from = start + datetime.timedelta(days=((end - start).days + 1) // 2)
+    scan = {"to": end.isoformat(), "scan_from": start.isoformat(),
+            "long_from": _as_date(window_from).isoformat()}
+
+    t0 = time.time()
+    _stats.bytes = 0
+    dims = {str(r["ad_id"]): r for r in ad_dims(scan)}
+    by_ad: dict[str, list[dict]] = {}
+    for r in per_ad_day(scan):
+        by_ad.setdefault(str(r["ad_id"]), []).append(r)
+    weeks_by_ad: dict[str, list[dict]] = {}
+    for w in weekly(scan):
+        weeks_by_ad.setdefault(str(w["ad_id"]), []).append(w)
+    uploads = upload_rows(scan)
+    account_id = next((str(r["account_id"]) for r in dims.values()
+                       if r.get("account_id")), "")
+    return {
+        "scan": scan, "by_ad": by_ad, "dims": dims, "weeks": weeks_by_ad,
+        "uploads": uploads, "account_id": account_id,
+        "ad_days": sum(len(v) for v in by_ad.values()),
+        "bytes_processed": getattr(_stats, "bytes", 0) or 0,
+        "elapsed": round(time.time() - t0, 2),
+    }
+
+
+def build_combo(rows: dict, market: str, start, end, prev_start=None,
+                prev_end=None, long_days: int | None = None,
+                days: int | None = None, generated_at: str | None = None,
+                custom: bool = False) -> dict:
+    """One payload: one market over one date range, out of `rows`.
+
+    The ONLY place a payload is assembled. A preset is this function over the
+    dates `_window(days)` computes; a custom range is this function over the
+    dates the reader picked. Nothing else differs — same floors (scaled by the
+    span), same fatigue baselines (each ad's own first good week, from its full
+    history in `rows`), same leaderboard and rollup windows.
+
+    Defaults, all of them what a custom range wants:
+      prev_start/prev_end   the equally long period immediately before
+      long_days             the span — leaderboards and rollups use the SAME
+                            window as the headline (which is what the 14/28/90
+                            presets do; only the 7-day preset passes 28 here)
+      days                  the `filters.days` echo: an int for a preset, None
+                            for a custom range, which is how the page tells
+                            them apart"""
+    start, end = _as_date(start), _as_date(end)
+    span = (end - start).days + 1
+    prev_start = (_as_date(prev_start) if prev_start is not None
+                  else start - datetime.timedelta(days=span))
+    prev_end = (_as_date(prev_end) if prev_end is not None
+                else end - datetime.timedelta(days=span))
+    long_days = span if long_days is None else int(long_days)
+    generated_at = generated_at or datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    # `l28_*` keep their v1 names but mean "the LONG window": 28 days on the
+    # 7-day preset, the selected span everywhere else. Keeping the key names
+    # means one payload shape across all 12 presets, custom ranges and versions.
+    win = {
+        "from": start.isoformat(), "to": end.isoformat(),
+        "prev_from": prev_start.isoformat(), "prev_to": prev_end.isoformat(),
+        "l28_from": (end - datetime.timedelta(days=long_days - 1)).isoformat(),
+        "l28_to": end.isoformat(),
+        "days": span, "long_days": long_days,
+    }
+
+    by_ad, dims = rows["by_ad"], rows["dims"]
+    weeks_by_ad, uploads = rows["weeks"], rows["uploads"]
+    account_id = rows["account_id"]
+
     markets = MARKETS if market == "all" else [market]
-    min_spend = floor_short(days)
-    min_spend_long = floor_long(win["long_days"])
+    min_spend = floor_short(span)
+    min_spend_long = floor_long(long_days)
 
     d = lambda s: datetime.date.fromisoformat(s)   # noqa: E731
     cur = _window_rows(by_ad, dims, d(win["from"]), d(win["to"]), markets)
     prev = _window_rows(by_ad, dims, d(win["prev_from"]), d(win["prev_to"]), markets)
     # On the 7-day preset the long window is a genuinely different range; on
-    # every other period it IS the current window, so it is not re-summed.
-    long_rows = (cur if win["long_days"] == days
+    # every other period — and on every custom range — it IS the current
+    # window, so it is not re-summed. Compared on the SPAN, not on `days`,
+    # which a custom range leaves null.
+    long_rows = (cur if long_days == span
                  else _window_rows(by_ad, dims, d(win["l28_from"]),
                                    d(win["l28_to"]), markets))
 
@@ -1725,13 +1933,35 @@ def build_one(market: str, days: int, by_ad: dict, dims: dict,
                 "ads_pct": div(ig_ads, len(cur), 100.0, 1),
                 "spend_pct": div(ig_spend, sum(_f(r["spend"]) for r in cur), 100.0, 1),
             },
+            # Custom ranges only, so a preset payload stays byte-identical to
+            # what v4 wrote. `weekly_capped` is the honest caveat on a long
+            # range: the per-ad series is WEEKS_KEPT buckets, so above
+            # WEEKLY_CAP_SPAN days the Trend column no longer reaches back to
+            # the start of the window even though every total does.
+            **({"live": True,
+                "weekly_capped": span > WEEKLY_CAP_SPAN,
+                "weeks_kept": WEEKS_KEPT} if custom else {}),
         },
-        "filters": {
+        # What was actually served. A preset echoes its `days`; a custom range
+        # sets days=null and carries the dates instead, which is the single
+        # thing the page keys its custom UI off — it never has to infer the
+        # mode from the window block.
+        "filters": ({
+            "market": market,
+            "days": None,
+            "from": win["from"],
+            "to": win["to"],
+            "prev_from": win["prev_from"],
+            "prev_to": win["prev_to"],
+            "custom": True,
+            "available_markets": MARKET_OPTIONS,
+            "available_days": PERIOD_OPTIONS,
+        } if custom else {
             "market": market,
             "days": days,
             "available_markets": MARKET_OPTIONS,
             "available_days": PERIOD_OPTIONS,
-        },
+        }),
         "window": win,
         "kpis": kpis,
         "media_types": _mix(cur, "media_type"),
@@ -1746,8 +1976,47 @@ def build_one(market: str, days: int, by_ad: dict, dims: dict,
     }
 
 
+def build_one(market: str, days: int, rows: dict, generated_at: str) -> dict:
+    """One PRESET combination: `build_combo` over the dates `_window` computes.
+
+    Kept as its own name because the preset window rule — 7 days ranks against
+    28, every other period ranks against itself — is a product decision, not an
+    argument default, and it belongs somewhere a reader can find it."""
+    win = _window(days)
+    return build_combo(rows, market, win["from"], win["to"],
+                       prev_start=win["prev_from"], prev_end=win["prev_to"],
+                       long_days=win["long_days"], days=days,
+                       generated_at=generated_at, custom=False)
+
+
+def build_custom(market: str, start, end, db=None) -> tuple[dict, dict]:
+    """One custom range, fetched and built. The service's entire live path.
+
+    Scans [start − span, end] so the comparison period is in the same pull, and
+    restricts the weekly history to ads live inside [start, end]. `db` is a
+    Firestore client used only to read the image mirror's index (the service
+    passes its own; without one the tab falls back to hotlinks).
+
+    Returns (payload, stats). The stats are NOT part of the payload: the
+    response the page receives has to be shape-identical to a preset snapshot,
+    and what the query cost belongs in the service log."""
+    start, end = _as_date(start), _as_date(end)
+    span = (end - start).days + 1
+    rows = fetch_rows(start - datetime.timedelta(days=span), end, window_from=start)
+    payload = build_combo(rows, market, start, end, custom=True)
+    t_img = time.time()
+    present = mirror_index(payload, db)
+    if present:
+        annotate_images(payload, present)
+    stats = {"bytes_processed": rows["bytes_processed"], "elapsed": rows["elapsed"],
+             "ads": len(rows["dims"]), "ad_days": rows["ad_days"], "span": span,
+             "scan_from": rows["scan"]["scan_from"], "images": len(present),
+             "images_elapsed": round(time.time() - t_img, 2)}
+    return payload, stats
+
+
 def build_all() -> dict:
-    """Every combination, out of one BigQuery scan.
+    """Every preset combination, out of one BigQuery scan.
 
     Returns {"combos": {"<market>_<days>": payload}, "_image_jobs": [...]}.
     META_OUT writes this bundle whole so a META_IN replay can produce all 12
@@ -1755,27 +2024,18 @@ def build_all() -> dict:
     scan = _scan_window()
     generated_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-    dims = {str(r["ad_id"]): r for r in ad_dims(scan)}
-    by_ad: dict[str, list[dict]] = {}
-    for r in per_ad_day(scan):
-        by_ad.setdefault(str(r["ad_id"]), []).append(r)
-    weeks_by_ad: dict[str, list[dict]] = {}
-    for w in weekly(scan):
-        weeks_by_ad.setdefault(str(w["ad_id"]), []).append(w)
-    uploads = upload_rows(scan)
-    account_id = next((str(r["account_id"]) for r in dims.values()
-                       if r.get("account_id")), "")
+    rows = fetch_rows(scan["scan_from"], scan["to"], window_from=scan["long_from"])
+    by_ad, dims = rows["by_ad"], rows["dims"]
     print(f"   scan {scan['scan_from']}..{scan['to']}: {len(dims)} ads, "
-          f"{sum(len(v) for v in by_ad.values()):,} ad-days, "
-          f"{len(weeks_by_ad)} weekly series, {len(uploads)} uploads",
+          f"{rows['ad_days']:,} ad-days, "
+          f"{len(rows['weeks'])} weekly series, {len(rows['uploads'])} uploads, "
+          f"{rows['bytes_processed']/1e9:.2f} GB scanned in {rows['elapsed']}s",
           flush=True)
 
     combos = {}
     for market in MARKET_OPTIONS:
         for days in PERIOD_OPTIONS:
-            combos[f"{market}_{days}"] = build_one(
-                market, days, by_ad, dims, weeks_by_ad, uploads, account_id,
-                generated_at)
+            combos[f"{market}_{days}"] = build_one(market, days, rows, generated_at)
 
     # The fetch list for the image mirror, built from the ads that SPENT in the
     # longest window — the union of every combination's creatives. Carried on

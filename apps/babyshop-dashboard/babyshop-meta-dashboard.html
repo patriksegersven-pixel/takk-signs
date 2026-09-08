@@ -280,6 +280,34 @@
     .fwin b { color:var(--h); font-weight:600; }
     .filters.busy { opacity:.55; pointer-events:none; }
 
+    /* ── Custom range (v4.1) ───────────────────────────────────────────────
+       The one control on this page that DOES query: presets are precomputed
+       documents, an arbitrary range cannot be, so Apply runs a live BigQuery
+       scan. Hence the explicit button — a range must not fire a query on every
+       keystroke of a half-typed date — and the spinner, because seven seconds
+       of silence reads as a broken page. */
+    .dinput { font:600 12px/1 var(--font); color:var(--h); background:var(--card);
+              border:1px solid var(--border); border-radius:6px; padding:6px 8px; }
+    .dinput:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+    .dinput:disabled { opacity:.6; }
+    .fbtn { appearance:none; font:700 12px/1 var(--font); color:#fff; background:var(--accent);
+            border:1px solid var(--accent); border-radius:6px; padding:7px 14px; cursor:pointer; }
+    .fbtn:hover { filter:brightness(1.08); }
+    .fbtn:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+    .fbtn:disabled { opacity:.55; cursor:default; }
+    .floading { display:flex; align-items:center; gap:9px; font-size:11.5px; color:var(--h); font-weight:600; }
+    .spin { width:13px; height:13px; border-radius:50%; border:2px solid var(--border);
+            border-top-color:var(--accent); animation:spin .8s linear infinite; flex:none; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    /* Rejected ranges (the feed starts 2025-06-18, the last two days have not
+       settled, 180 days is the ceiling) come back from the server as a plain
+       message and are printed here rather than in a popup nobody can copy. */
+    .ferr { font-size:11.5px; color:var(--down); font-weight:600; line-height:1.5; }
+    /* The UA's [hidden] rule is display:none at the lowest priority, so any
+       author `display:flex` above it wins and a "hidden" flex row stays on
+       screen. Both of these are flex, so both need this. */
+    .fgroup[hidden], .floading[hidden] { display:none; }
+
     /* ── Sort chips ────────────────────────────────────────────────────────
        The same sort the column headers run, exposed as buttons: the sortable
        columns on the creatives board sit up to 1 300 px to the right, and a
@@ -394,10 +422,12 @@
   <div class="page-title">Creative analysis · SE + NO</div>
   <div class="page-sub" id="pageSub">Creative analysis · Meta, ad level</div>
 
-  <!-- Market and period. Both are precomputed snapshots, not live queries —
-       see the method box. The state also lives in the URL (?market=SE&days=28)
-       so a view can be linked, and in localStorage so a return visit lands
-       where the reader left. -->
+  <!-- Market and period. The presets are precomputed snapshots, not live
+       queries — see the method box. "Custom" is the exception: it reveals two
+       date inputs and queries BigQuery when Apply is pressed. The state lives
+       in the URL (?market=SE&days=28, or ?market=SE&from=…&to=…) so a view can
+       be linked, and in localStorage so a return visit lands where the reader
+       left. -->
   <div class="filters" id="filters" hidden>
     <div class="fgroup">
       <span class="flabel" data-help="filter_market">Market</span>
@@ -407,7 +437,16 @@
       <span class="flabel" data-help="filter_period">Period</span>
       <div class="seg" id="segDays" role="group" aria-label="Period"></div>
     </div>
+    <div class="fgroup" id="customRange" hidden>
+      <label class="flabel" for="cFrom" data-help="filter_custom">From</label>
+      <input class="dinput" type="date" id="cFrom" aria-label="Custom range, first day">
+      <label class="flabel" for="cTo">To</label>
+      <input class="dinput" type="date" id="cTo" aria-label="Custom range, last day">
+      <button type="button" class="fbtn" id="cApply">Apply</button>
+    </div>
+    <div class="floading" id="floading" hidden><span class="spin"></span><span id="floadingTxt"></span></div>
     <div class="fwin" id="fwin" role="status" aria-live="polite"></div>
+    <div class="ferr" id="ferr" role="alert" hidden></div>
   </div>
 
   <!-- Everything below is snapshot-driven and stays hidden until /api/meta
@@ -425,6 +464,10 @@
   <div class="kpi-grid" id="kpiGrid"></div>
   <div class="sub-head">Creative relevance</div>
   <div class="kpi-grid four" id="kpiGrid2"></div>
+  <!-- What the ▲/▼ pills above are measured against. Only shown for a custom
+       range: a preset's comparison is stated in the period tooltip and is the
+       same every time, a custom one is a period the reader never named. -->
+  <div class="chart-note" id="kpiNote" hidden></div>
 
   <div class="card tbl stack" id="marketCard" hidden>
     <div class="card-head">
@@ -678,6 +721,15 @@
   function dv(n) { return n == null ? '' : ' data-val="' + n + '"'; }
   /* "Last 7 days" / "Last 28 days" — the period label used in section tags. */
   function periodLabel(days) { return 'Last ' + int(days) + ' days'; }
+  /* v4.1: a custom range has no "Last N days" name — the dates ARE its name.
+     Every section title goes through winLabel, so a custom view can never
+     leave a "Last 7 days" heading standing over 21 days of numbers. CUSTOM is
+     set once per render from filters.custom; the page is single-threaded and
+     one render owns the DOM from start to finish. */
+  var CUSTOM = false;
+  function winLabel(from, to, days) {
+    return CUSTOM ? (from + ' – ' + to) : periodLabel(days);
+  }
 
   /* One colour per bucket label, shared by both donuts so "DPA / catalog"
      is the same amber in each. */
@@ -999,6 +1051,20 @@
       'means the same thing at every setting. Trap: the fatigue indices still compare against the ad’s ' +
       'own BASELINE WEEK, so on a 90-day period you are comparing a 90-day average against a single ' +
       'week; read the Trend column rather than the index at long settings.' },
+
+    filter_custom: { label: 'Custom date range', what:
+      'Any [from, to] inside the feed’s history, up to 180 days, ending at the latest settled day. ' +
+      'Unlike the presets it is NOT a precomputed snapshot: pressing Apply runs a live BigQuery ' +
+      'query, which is why it takes a few seconds and why it needs a button rather than firing on ' +
+      'every keystroke. The same code builds it as builds the presets, over the same ad-day rows, ' +
+      'so a custom range that happens to match a preset returns the preset’s numbers.', how:
+      'Use it for a period that is a fact rather than a habit — a campaign burst, a Black Week, the ' +
+      'days a TV spot ran. Deltas compare against the equally long period immediately before, and ' +
+      'the leaderboards and effectiveness tables use the range itself (as they do on 14 / 28 / 90 ' +
+      'days, and unlike the 7-day preset which ranks over 28). Trap: the fatigue baseline is still ' +
+      'each ad’s own first good WEEK, and the Trend column still holds at most 12 weekly buckets — ' +
+      'over 90 days the sparkline no longer reaches back to the start of the window, and the page ' +
+      'says so under the table.' },
 
     sort: { label: 'Sort', what:
       'Re-orders the creatives table. The chips and the column headers drive the same routine and the ' +
@@ -1685,7 +1751,10 @@
   }
 
   /* ── Fatigue board ────────────────────────────────────────────────────── */
-  function renderFatigue(f, win) {
+  /* `capped` is sources.weekly_capped: a custom range longer than the per-ad
+     weekly series can cover. Passed in rather than read off a global so the
+     note and the payload that justifies it arrive together. */
+  function renderFatigue(f, win, capped) {
     var rows = f.rows || [];
     var tb = $('fatigueTable').tBodies[0];
     if (!rows.length) {
@@ -1739,8 +1808,9 @@
 
     if (f.at_risk_pct != null) {
       $('fatigueHeadline').hidden = false;
-      $('fatigueHeadline').innerHTML = '<b>' + pct(f.at_risk_pct) + ' of ' + int(win.days) +
-        '-day spend (' + kr(f.at_risk_spend) + ') sits on creatives classified Fatiguing or Exhausted.</b> ' +
+      $('fatigueHeadline').innerHTML = '<b>' + pct(f.at_risk_pct) + ' of ' +
+        (CUSTOM ? esc(win.from) + ' – ' + esc(win.to) : int(win.days) + '-day') +
+        ' spend (' + kr(f.at_risk_spend) + ') sits on creatives classified Fatiguing or Exhausted.</b> ' +
         'That is the money a refresh would move first — the "Fatiguing now" card above ranks it.';
     } else {
       $('fatigueHeadline').hidden = true;
@@ -1762,7 +1832,13 @@
       int(t.baseline_min_spend) + ' kr. The Trend column is weekly link CTR since launch, up to ' +
       int(t.weeks_kept) + ' weeks, scaled to each ad’s own range — hollow marker = the baseline week, ' +
       'filled marker = the current window, lighter second line on video ads = hook rate. ' +
-      '*Frequency is the average daily frequency (impressions ÷ summed daily reach), not a 7-day figure.';
+      '*Frequency is the average daily frequency (impressions ÷ summed daily reach), not a 7-day figure.' +
+      // A range longer than the weekly cap: every total covers the whole range,
+      // but the sparkline does not, and a reader comparing the two would
+      // otherwise conclude the ad went dark.
+      (capped ? ' This range is longer than ' + int(t.weeks_kept) + ' weeks: the totals cover all of ' +
+       'it, but the Trend column still shows at most ' + int(t.weeks_kept) + ' weekly buckets per ad, ' +
+       'so a long-running ad’s sparkline starts later than the window does.' : '');
   }
 
   /* ── Leaderboards ─────────────────────────────────────────────────────── */
@@ -1877,7 +1953,10 @@
   }
 
   var TILES = [
-    { k: 'spend',     label: 'Spend, SE+NO',       fmt: kr,   note: 'Last 7 days', spot: true },
+    // `win: true` — the note IS the window, so it has to be written at render
+    // time. It was a literal "Last 7 days" through v4 and stayed that way at
+    // every other period; a custom range makes the mistake unmissable.
+    { k: 'spend',     label: 'Spend, SE+NO',       fmt: kr,   note: '', win: true, spot: true },
     { k: 'purchases', label: 'Purchases (attributed)', fmt: int, note: 'Website purchases, pixel' },
     { k: 'cpa',       label: 'Blended CPA',        fmt: kr2,  note: 'Spend / purchases' },
     { k: 'roas',      label: 'Platform ROAS',      fmt: roas, note: 'Context, not GM-verified' },
@@ -1890,19 +1969,20 @@
     { k: 'ctr',       label: 'Blended CTR (all)',  fmt: pct,  note: 'Every click, incl. profile taps' }
   ];
 
-  function tileHtml(c, t, lib, d) {
+  function tileHtml(c, t, lib, d, win) {
     return '<div class="kpi' + (t.spot ? ' spot' : '') + '">' +
            '<div class="k" data-help="' + esc(t.k) + '">' + esc(t.label) + '</div>' +
            '<div class="v">' + t.fmt(c[t.k]) + '</div>' +
            deltaPill(t.k, d[t.k], lib) +
-           '<div class="n">' + esc(t.note) + '</div></div>';
+           '<div class="n">' + esc(t.win ? win : t.note) + '</div></div>';
   }
 
-  function renderKpis(c) {
+  function renderKpis(c, w) {
     var lib = c.lower_is_better || ['cpa', 'cpm'];
     var d = c.delta_pct || {};
-    $('kpiGrid').innerHTML = TILES.map(function (t) { return tileHtml(c, t, lib, d); }).join('');
-    $('kpiGrid2').innerHTML = TILES2.map(function (t) { return tileHtml(c, t, lib, d); }).join('');
+    var win = winLabel(w.from, w.to, w.days);
+    $('kpiGrid').innerHTML = TILES.map(function (t) { return tileHtml(c, t, lib, d, win); }).join('');
+    $('kpiGrid2').innerHTML = TILES2.map(function (t) { return tileHtml(c, t, lib, d, win); }).join('');
   }
 
   /* Hidden entirely when a single market is selected: a one-row "by market"
@@ -1999,7 +2079,7 @@
      baseline, completion, cost per LPV, the ranking floors …) are appended
      underneath rather than dropped. */
   var METHOD_ORDER = [
-    'filter_market', 'filter_period', 'sort',
+    'filter_market', 'filter_period', 'filter_custom', 'sort',
     'spend', 'purchases', 'cpa', 'roas', 'cpm', 'ctr', 'link_ctr',
     'hook_rate', 'hold_rate', 'lpv_rate', 'frequency', 'saves_shares_per_1k',
     'status', 'trend', 'ctr_index', 'hook_index', 'cpa_index',
@@ -2024,10 +2104,22 @@
 
   function renderMethod(d) {
     var s = d.sources || {};
+    var w = d.window || {};
     var ig = s.instagram_coverage || {};
     var out = ['<b>Method and caveats.</b> Source: ' + esc(s.insights || s.marts || '') +
                ', joined to ' + esc(s.ads || '') + ' and ' + esc(s.creatives || '') +
                '. Attribution: ' + esc(s.attribution || '') + '.'];
+    // Which of the two paths produced what is on screen, with the dates. The
+    // difference is worth stating: one is last night's snapshot, the other was
+    // computed seconds ago, and they age completely differently.
+    out.push(s.live
+      ? ' This view is a CUSTOM range, ' + esc(w.from) + ' – ' + esc(w.to) + ' (' + int(w.days) +
+        ' days), computed live from BigQuery when Apply was pressed — by the same code, over the ' +
+        'same ad-day rows, as the presets. Its comparison period is ' + esc(w.prev_from) + ' – ' +
+        esc(w.prev_to) + ', and its leaderboards and effectiveness tables use ' + esc(w.l28_from) +
+        ' – ' + esc(w.l28_to) + '.'
+      : ' This view is a PRESET, ' + esc(w.from) + ' – ' + esc(w.to) + ', read as one precomputed ' +
+        'snapshot document; the Custom period option queries an arbitrary range live instead.');
     if (ig.ads != null) {
       out.push(' Instagram permalinks exist for ' + int(ig.ads) + ' of ' + int(ig.ads_total) +
                ' delivering ads (' + pct(ig.ads_pct) + ' of ads, ' + pct(ig.spend_pct) +
@@ -2068,12 +2160,22 @@
     var fl = d.filters || {};
     var markets = s.markets || ['SE', 'NO'];
     var single = markets.length === 1;
+    CUSTOM = fl.custom === true;
     IMG_LABELS = s.image_labels || {};
 
     $('pageSub').textContent = 'Creative analysis · ' + (s.account_label || 'Meta') + ' · ad level';
-    $('kpiTitle').textContent = periodLabel(w.days);
+    $('kpiTitle').textContent = winLabel(w.from, w.to, w.days);
     $('kpiSub').textContent = w.from + ' – ' + w.to + ', ' + markets.join('+') +
-                              '. Compared with ' + w.prev_from + ' – ' + w.prev_to + '.';
+                              (CUSTOM ? ' (' + int(w.days) + ' days, queried live). ' : '. ') +
+                              'Compared with ' + w.prev_from + ' – ' + w.prev_to + '.';
+    // The delta pills need their basis spelled out on a custom range: the
+    // reader chose the window but never chose what it is measured against.
+    $('kpiNote').hidden = !CUSTOM;
+    if (CUSTOM) {
+      $('kpiNote').textContent = 'Every ▲ / ▼ above compares this range with the equally long ' +
+        'period immediately before it, ' + w.prev_from + ' – ' + w.prev_to + ' (' + int(w.days) +
+        ' days) — the same rule the presets use.';
+    }
     $('ctx').innerHTML =
       '<span><b>Attribution:</b> Meta default window (7d click / 1d view)</span>' +
       '<span><b>Source:</b> ' + esc(s.insights || s.marts || '') + '</span>' +
@@ -2090,20 +2192,25 @@
     // is what stops a reader assuming the leaderboards are still monthly.
     $('fatigueTag').textContent = w.from + ' – ' + w.to;
     $('lbTag').textContent = (w.l28_from || '') + ' – ' + (w.l28_to || w.to);
-    $('rollupTag').textContent = periodLabel(w.long_days);
-    $('mixTag').textContent = periodLabel(w.days);
+    $('rollupTag').textContent = winLabel(w.l28_from, w.l28_to, w.long_days);
+    $('mixTag').textContent = winLabel(w.from, w.to, w.days);
     $('topTag').textContent = single ? 'Top 5' : 'Top 5 / market';
     $('mixSub').textContent = 'Spend split by media type and tagged concept, ' +
       markets.join('+') + ', ' + w.from + ' – ' + w.to +
       '. Both are derived from the ad name — see the method box at the bottom.';
+    // On a custom range the leaderboards and rollups use the SAME window as the
+    // headline (as the 14/28/90 presets do), which is worth saying: on the
+    // 7-day preset they do not, and a reader who has seen that expects a
+    // separate month behind these cards.
+    var sameWin = CUSTOM ? ' This is the custom range you selected, not a separate 28-day window.' : '';
     $('lbSub').textContent = 'Ranked over ' + w.l28_from + ' – ' + w.l28_to + ' (' +
       int(w.long_days) + ' days), minimum ' + int(s.min_spend_l28) +
       ' kr spend so a single cheap impression cannot top a card. ' +
-      'DPA / catalog is excluded — it is a feed, not a creative anyone iterates on.';
+      'DPA / catalog is excluded — it is a feed, not a creative anyone iterates on.' + sameWin;
     $('rollupSub').textContent = 'Ratio of sums over ' + w.l28_from + ' – ' + w.l28_to +
       ' (' + int(w.long_days) + ' days). "Ads" is there so a row built on one creative is ' +
       'visible as such, and every index column compares the row against the account average ' +
-      'for this same window — above 1,00× is better, CPA included.';
+      'for this same window — above 1,00× is better, CPA included.' + sameWin;
     $('topSub').textContent = 'Ranked by lowest cost per purchase (CPA) over ' + w.from +
       ' – ' + w.to + ', minimum ' + int(s.min_spend) +
       ' kr spend for statistical relevance. Platform ROAS is shown as context, ' +
@@ -2116,10 +2223,10 @@
     $('acct').textContent = (s.account_label || '') + ' · ' + (s.account_id || '');
 
     var kpis = d.kpis || {};
-    if (kpis.combined) renderKpis(kpis.combined);
+    if (kpis.combined) renderKpis(kpis.combined, w);
     renderMarkets(kpis, markets, single);
 
-    renderFatigue(d.fatigue || {}, w);
+    renderFatigue(d.fatigue || {}, w, s.weekly_capped === true);
     renderLeaderboards(d.leaderboards || {});
 
     var ro = d.rollups || {};
@@ -2248,12 +2355,20 @@
   });
 
   /* ── Filters ──────────────────────────────────────────────────────────────
-     Market × period. Nothing is computed here and nothing is filtered in the
-     browser: the refresh job precomputes all 12 combinations into their own
-     Firestore documents, so a switch is one GET of one snapshot and a full
-     re-render. That is the only way this stays a snapshot tab — filtering
-     client-side would mean shipping every period in every document, and
-     filtering server-side would mean a live BigQuery query per click.
+     Market × period, plus a custom date range. Nothing is computed here and
+     nothing is filtered in the browser.
+
+     A PRESET is one GET of one precomputed Firestore document: the refresh job
+     builds all 12 combinations nightly, so a switch is a read and a re-render.
+     That is what keeps this a snapshot tab — filtering client-side would mean
+     shipping every period in every document.
+
+     A CUSTOM range cannot be precomputed (there are far too many of them), so
+     it is the one control that queries: Apply calls /api/meta?from=&to=, which
+     runs the same aggregation live in BigQuery and answers with the identical
+     payload shape. It therefore takes seconds rather than milliseconds, needs
+     an explicit button (a half-typed date must not fire a scan), and shows a
+     spinner while it runs.
 
      State lives in three places, in this order of authority:
        1. the URL query string, so a view can be pasted into Slack;
@@ -2264,29 +2379,70 @@
   var LS_KEY = 'meta.filters.v4';
   var DEFAULTS = { market: 'all', days: 7 };
   var OPTS = { markets: ['all', 'SE', 'NO'], days: [7, 14, 28, 90] };
-  var state = { market: DEFAULTS.market, days: DEFAULTS.days };
+  var state = { market: DEFAULTS.market, days: DEFAULTS.days, custom: false, from: '', to: '' };
   var inflight = 0;
+  /* The bounds on a custom range, mirrored from refresh_meta.py so the inputs
+     cannot offer a date the server will reject. The SERVER is the authority —
+     these only spare the reader a round trip. */
+  var DATA_START = '2025-06-18';   // first day the Meta connector has insights for
+  var SETTLE_DAYS = 2;             // the last N days have not finished attributing
+  var MAX_SPAN = 180;              // the scan is twice this: window + comparison
+  var ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+  /* Local date, not toISOString(): that converts to UTC, so any evening in
+     Stockholm would offer (and default to) yesterday. */
+  function isoDay(d) {
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) +
+           '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function lastSettled() {
+    var d = new Date();
+    d.setDate(d.getDate() - SETTLE_DAYS);
+    return isoDay(d);
+  }
+  function isDate(s) { return !!(s && ISO_RE.test(s) && !isNaN(Date.parse(s))); }
 
   function readState() {
-    var out = { market: DEFAULTS.market, days: DEFAULTS.days };
+    var out = { market: DEFAULTS.market, days: DEFAULTS.days, custom: false, from: '', to: '' };
+    function take(src, get) {
+      if (OPTS.markets.indexOf(get(src, 'market')) >= 0) out.market = get(src, 'market');
+      var f = get(src, 'from'), t = get(src, 'to');
+      // A range only counts when BOTH ends are real dates: half a range is a
+      // half-typed one, and it must not silently become a query.
+      if (isDate(f) && isDate(t)) { out.custom = true; out.from = f; out.to = t; }
+      else if (OPTS.days.indexOf(+get(src, 'days')) >= 0) {
+        out.custom = false; out.days = +get(src, 'days');
+      }
+    }
     try {
       var saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
-      if (OPTS.markets.indexOf(saved.market) >= 0) out.market = saved.market;
-      if (OPTS.days.indexOf(+saved.days) >= 0) out.days = +saved.days;
+      take(saved, function (o, k) { return o[k] == null ? '' : String(o[k]); });
     } catch (e) { /* private mode, cleared storage — defaults are fine */ }
     var qs = new URLSearchParams(location.search);
     // The URL wins over the remembered choice: a pasted link must show what
     // its sender saw. An unknown value is ignored rather than 404ing the view.
-    if (OPTS.markets.indexOf(qs.get('market')) >= 0) out.market = qs.get('market');
-    if (OPTS.days.indexOf(+qs.get('days')) >= 0) out.days = +qs.get('days');
+    if (qs.get('market') || qs.get('days') || qs.get('from') || qs.get('to')) {
+      take(qs, function (o, k) { return o.get(k) || ''; });
+    }
     return out;
   }
 
   function saveState() {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) { /* noop */ }
+    // Stored in the same shape as the URL — market + EITHER days OR from/to,
+    // never both. Storing the whole state object would leave the last custom
+    // range behind after a preset click, and readState (which recognises a
+    // custom view by having two dates) would restore it on the next visit.
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(
+        state.custom ? { market: state.market, from: state.from, to: state.to }
+                     : { market: state.market, days: state.days }));
+    } catch (e) { /* private mode, cleared storage — the URL still carries it */ }
     var qs = new URLSearchParams(location.search);
     qs.set('market', state.market);
-    qs.set('days', String(state.days));
+    // Exactly one of the two shapes is ever in the URL, so a link can never
+    // carry a preset AND a range and leave the reader guessing which won.
+    if (state.custom) { qs.set('from', state.from); qs.set('to', state.to); qs.delete('days'); }
+    else { qs.set('days', String(state.days)); qs.delete('from'); qs.delete('to'); }
     // replaceState, not pushState: the filters are a view of one page, not a
     // history of pages, and Back should leave the tab rather than walk the
     // reader through every setting they tried.
@@ -2300,15 +2456,71 @@
     }).join('');
     $('segDays').innerHTML = OPTS.days.map(function (d) {
       return '<button type="button" data-v="' + d + '" aria-pressed="false">' + d + ' days</button>';
-    }).join('');
+    }).join('') +
+      '<button type="button" data-v="custom" aria-pressed="false">Custom</button>';
     $('segMarket').addEventListener('click', function (e) {
       var b = e.target.closest('button');
       if (b && b.dataset.v !== state.market) { state.market = b.dataset.v; load(); }
     });
     $('segDays').addEventListener('click', function (e) {
       var b = e.target.closest('button');
-      if (b && +b.dataset.v !== state.days) { state.days = +b.dataset.v; load(); }
+      if (!b) return;
+      if (b.dataset.v === 'custom') {
+        // Reveal the inputs; do NOT query. Nothing is selected yet, and the
+        // reader has to name a range before anything can be scanned.
+        state.custom = true;
+        showCustom(true);
+        markSegs();
+        $('cFrom').focus();
+        return;
+      }
+      // A preset clears the custom state outright — including the dates, so
+      // the URL and the remembered view cannot keep a range that is not shown.
+      if (+b.dataset.v !== state.days || state.custom) {
+        state.days = +b.dataset.v;
+        state.custom = false;
+        showCustom(false);
+        load();
+      }
     });
+    $('cApply').addEventListener('click', applyCustom);
+    // Enter inside either date field is the same gesture as pressing Apply.
+    ['cFrom', 'cTo'].forEach(function (id) {
+      $(id).addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); applyCustom(); }
+      });
+    });
+    $('cFrom').min = $('cTo').min = DATA_START;
+    $('cFrom').max = $('cTo').max = lastSettled();
+  }
+
+  function showCustom(on) {
+    $('customRange').hidden = !on;
+    if (!on) { $('ferr').hidden = true; return; }
+    // Seed the inputs from the window currently on screen, so "Custom" opens on
+    // the dates the reader is already looking at rather than on two blanks.
+    var w = (SNAP && SNAP.window) || {};
+    if (!$('cFrom').value) $('cFrom').value = state.from || w.from || '';
+    if (!$('cTo').value) $('cTo').value = state.to || w.to || lastSettled();
+  }
+
+  /* Client-side validation is a courtesy, not the rule: the server re-checks
+     every bound and its message is what gets printed. These three checks only
+     avoid a round trip for mistakes the inputs can see. */
+  function applyCustom() {
+    var f = $('cFrom').value, t = $('cTo').value;
+    if (!isDate(f) || !isDate(t)) return showErr('pick both a start and an end date');
+    if (f > t) return showErr('the start date is after the end date');
+    var span = Math.round((Date.parse(t) - Date.parse(f)) / 864e5) + 1;
+    if (span > MAX_SPAN) return showErr(span + ' days is over the ' + MAX_SPAN + '-day limit');
+    $('ferr').hidden = true;
+    state.custom = true; state.from = f; state.to = t;
+    load();
+  }
+
+  function showErr(msg) {
+    $('ferr').hidden = false;
+    $('ferr').textContent = msg;
   }
 
   function markSegs() {
@@ -2316,7 +2528,9 @@
       b.setAttribute('aria-pressed', b.dataset.v === state.market ? 'true' : 'false');
     });
     Array.prototype.forEach.call($('segDays').children, function (b) {
-      b.setAttribute('aria-pressed', +b.dataset.v === state.days ? 'true' : 'false');
+      var on = b.dataset.v === 'custom' ? state.custom
+                                        : (!state.custom && +b.dataset.v === state.days);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
   }
 
@@ -2325,14 +2539,25 @@
      guesses. */
   function setWindowLabel(d) {
     var w = (d && d.window) || {};
+    var custom = !!((d && d.filters) || {}).custom;
     if (!w.from) { $('fwin').textContent = ''; return; }
     var long = w.long_days !== w.days
       ? ' Leaderboards and effectiveness use ' + w.l28_from + ' – ' + w.l28_to +
         ' (' + int(w.long_days) + ' days).'
-      : '';
+      : (custom ? ' Leaderboards and effectiveness use this same range.' : '');
     $('fwin').innerHTML = '<b>' + esc(w.from) + ' – ' + esc(w.to) + '</b> · ' + int(w.days) +
-      ' days, ending 2 days back so attribution has settled. Compared with ' +
-      esc(w.prev_from) + ' – ' + esc(w.prev_to) + '.' + esc(long);
+      ' days, ' + (custom ? 'queried live from BigQuery'
+                          : 'ending 2 days back so attribution has settled') +
+      '. Compared with ' + esc(w.prev_from) + ' – ' + esc(w.prev_to) + '.' + esc(long);
+  }
+
+  /* Controls are disabled, not just dimmed, while a live query runs: .busy
+     stops the mouse but a keyboard user could still start a second scan. */
+  function setBusy(on, msg) {
+    $('filters').classList.toggle('busy', on);
+    ['cFrom', 'cTo', 'cApply'].forEach(function (id) { $(id).disabled = on; });
+    $('floading').hidden = !(on && msg);
+    if (on && msg) $('floadingTxt').textContent = msg;
   }
 
   function load() {
@@ -2340,15 +2565,33 @@
     markSegs();
     saveState();
     $('filters').hidden = false;
-    $('filters').classList.add('busy');
-    fetch('/api/meta?market=' + encodeURIComponent(state.market) +
-          '&days=' + encodeURIComponent(state.days), { credentials: 'same-origin' })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
+    $('ferr').hidden = true;
+    var url = state.custom
+      ? '/api/meta?market=' + encodeURIComponent(state.market) +
+        '&from=' + encodeURIComponent(state.from) + '&to=' + encodeURIComponent(state.to)
+      : '/api/meta?market=' + encodeURIComponent(state.market) +
+        '&days=' + encodeURIComponent(state.days);
+    setBusy(true, state.custom
+      ? 'Querying BigQuery for ' + state.from + ' – ' + state.to + '…'
+      : '');
+    fetch(url, { credentials: 'same-origin' })
+      // The body is read whether or not the status is ok: a rejected range and
+      // a failed query both answer with {"error": "…"}, and that message is
+      // the whole point of asking.
+      .then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; },
+                             function () { return { ok: false, body: {} }; });
+      })
+      .then(function (res) {
         // A slow first request must not overwrite a faster later one.
         if (seq !== inflight) return;
+        setBusy(false);
+        if (!res.ok || res.body.error) {
+          showErr(res.body.error || 'the request failed');
+          return;                       // the view on screen stays as it was
+        }
+        var data = res.body;
         SNAP = data;
-        $('filters').classList.remove('busy');
         setPill(data.generated_at);
         // The server states which combination it actually served — an older
         // snapshot set can be missing a document, and it answers with the
@@ -2356,7 +2599,15 @@
         // never claim a window that is not on screen.
         var got = data.filters || {};
         if (OPTS.markets.indexOf(got.market) >= 0) state.market = got.market;
-        if (OPTS.days.indexOf(+got.days) >= 0) state.days = +got.days;
+        if (got.custom === true) {
+          state.custom = true;
+          state.from = got.from; state.to = got.to;
+          $('cFrom').value = got.from; $('cTo').value = got.to;
+          showCustom(true);
+        } else if (OPTS.days.indexOf(+got.days) >= 0) {
+          state.custom = false;
+          state.days = +got.days;
+        }
         if (got.available_markets && got.available_markets.length) {
           OPTS.markets = got.available_markets;
           OPTS.days = got.available_days || OPTS.days;
@@ -2372,7 +2623,7 @@
       })
       .catch(function (e) {
         if (seq !== inflight) return;
-        $('filters').classList.remove('busy');
+        setBusy(false);
         $('failed').hidden = false;
         $('failed').textContent = 'Could not load /api/meta: ' + e.message;
       });
@@ -2380,6 +2631,11 @@
 
   state = readState();
   buildSegs();
+  if (state.custom) {
+    $('cFrom').value = state.from;
+    $('cTo').value = state.to;
+    showCustom(true);
+  }
   // Built before the first render: renderFatigue applies the default sort and
   // marks the matching chip, so the chips have to exist by then.
   buildSortBar();

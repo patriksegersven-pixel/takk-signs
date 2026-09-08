@@ -24,9 +24,12 @@ from __future__ import annotations
 
 import os
 import secrets
+import threading
+import time
+from collections import OrderedDict
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
@@ -462,16 +465,162 @@ def api_bundles(_: str = Depends(verify)):
     }
 
 
-# The Meta tab's filter grid. Every combination is a separate Firestore
-# document written by refresh_meta.py; nothing here queries BigQuery, and the
-# response shape is identical whichever combination is asked for.
+# The Meta tab's filter grid. Every PRESET combination is a separate Firestore
+# document written by refresh_meta.py, so a preset switch is one document read
+# and the response shape is identical whichever combination is asked for.
 #
 # The default (all, 7 days) lives at the bare `meta` key it has had since v1,
 # so an old cached page that asks for no parameters still gets a real snapshot.
+#
+# A CUSTOM range (?from=&to=) is the one thing no snapshot can cover — there are
+# too many of them to precompute — so it is answered live from BigQuery by
+# refresh_meta.build_custom(), the same function the nightly job's presets are
+# built with. See _api_meta_live below.
 META_MARKETS = ("all", "SE", "NO")
 META_DAYS = (7, 14, 28, 90)
 META_DEFAULT_MARKET = "all"
 META_DEFAULT_DAYS = 7
+
+# ── Live custom ranges ───────────────────────────────────────────────────────
+# One BigQuery scan per distinct (market, from, to) per TTL. The cache is small
+# and in-process on purpose: a Cloud Run instance serves a handful of readers,
+# the payload is ~350 kB, and the point is only to stop a re-render, a reload
+# or a second reader from paying for the same scan twice. A per-key lock means
+# two simultaneous requests for the same range run ONE query and both get its
+# result, rather than racing and billing twice.
+META_LIVE_TTL = int(os.environ.get("META_LIVE_TTL", "600"))          # 10 minutes
+META_LIVE_CACHE_MAX = int(os.environ.get("META_LIVE_CACHE_MAX", "12"))
+_meta_live: "OrderedDict[tuple, tuple[float, dict]]" = OrderedDict()
+_meta_live_guard = threading.Lock()      # guards the two dicts below, never a query
+_meta_live_locks: dict = {}
+
+
+def _meta_live_get(key: tuple):
+    """The cached payload for one range, or None. Expiry is checked on read."""
+    with _meta_live_guard:
+        hit = _meta_live.get(key)
+        if hit is None:
+            return None
+        born, payload = hit
+        if time.time() - born > META_LIVE_TTL:
+            _meta_live.pop(key, None)
+            return None
+        _meta_live.move_to_end(key)       # LRU: a range still being read stays
+        return payload, round(time.time() - born)
+
+
+def _meta_live_put(key: tuple, payload: dict) -> None:
+    with _meta_live_guard:
+        _meta_live[key] = (time.time(), payload)
+        _meta_live.move_to_end(key)
+        while len(_meta_live) > META_LIVE_CACHE_MAX:
+            _meta_live.popitem(last=False)
+        # Locks outlive their cache entry by design (a request can be in flight
+        # for a key that is not cached yet), but they must not accumulate.
+        if len(_meta_live_locks) > 4 * META_LIVE_CACHE_MAX:
+            for k in [k for k in _meta_live_locks
+                      if k not in _meta_live and not _meta_live_locks[k].locked()]:
+                _meta_live_locks.pop(k, None)
+
+
+def _meta_live_lock(key: tuple):
+    with _meta_live_guard:
+        lk = _meta_live_locks.get(key)
+        if lk is None:
+            lk = _meta_live_locks[key] = threading.Lock()
+        return lk
+
+
+def _meta_range(date_from: str, date_to: str):
+    """Validate a custom range. Returns (start, end) or raises ValueError.
+
+    The bounds live in refresh_meta so the job and the API cannot state
+    different limits; the messages are written for the reader, because the page
+    prints them verbatim next to the date inputs."""
+    import datetime as _dt
+    import refresh_meta as rm
+
+    if not (date_from and date_to):
+        raise ValueError("a custom range needs both from and to")
+    try:
+        start = _dt.date.fromisoformat(date_from)
+        end = _dt.date.fromisoformat(date_to)
+    except ValueError:
+        raise ValueError("dates must be YYYY-MM-DD")
+    if start > end:
+        raise ValueError("the start date is after the end date")
+    # The same settle offset the presets use: the last two days of spend have
+    # not finished attributing, and showing them would read as a collapse.
+    last = _dt.date.today() - _dt.timedelta(days=rm.SETTLE_DAYS)
+    if end > last:
+        raise ValueError(f"the last settled day is {last.isoformat()} — Meta "
+                         f"attribution needs {rm.SETTLE_DAYS} days to settle")
+    first = _dt.date.fromisoformat(rm.DATA_START)
+    if start < first:
+        raise ValueError(f"the Meta feed starts on {rm.DATA_START}")
+    span = (end - start).days + 1
+    if span > rm.MAX_SPAN_DAYS:
+        raise ValueError(f"{span} days is over the {rm.MAX_SPAN_DAYS}-day limit "
+                         "(the query also scans an equally long comparison period)")
+    return start, end
+
+
+def _api_meta_live(market: str, date_from: str, date_to: str):
+    """One custom range, computed live from BigQuery.
+
+    Credentials come from refresh_meta._credentials(): ADC in production, i.e.
+    the service's own runtime SA — which already holds bigquery.jobUser here and
+    dataViewer on the warehouse datasets because the nightly job runs in this
+    same image with the same identity. No new IAM, no new secret. Locally,
+    META_LIVE_AUTH=gcloud + META_LIVE_ACCOUNT pick a user account instead."""
+    import refresh_meta as rm
+
+    try:
+        start, end = _meta_range(date_from, date_to)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+    key = (market, start.isoformat(), end.isoformat())
+    hit = _meta_live_get(key)
+    if hit is not None:
+        payload, age = hit
+        print(f"/api/meta live {market} {key[1]}..{key[2]} — cache hit "
+              f"({age}s old), no BigQuery", flush=True)
+        return payload
+
+    lock = _meta_live_lock(key)
+    with lock:
+        # Re-checked inside the lock: a request that queued behind an identical
+        # one in flight finds its result here instead of running the scan again.
+        hit = _meta_live_get(key)
+        if hit is not None:
+            payload, age = hit
+            print(f"/api/meta live {market} {key[1]}..{key[2]} — cache hit after "
+                  f"wait ({age}s old), no BigQuery", flush=True)
+            return payload
+        t0 = time.time()
+        try:
+            # The Firestore client is the app's own singleton, used ONLY to read
+            # the image mirror's index by id — the service never writes there
+            # and never fetches from Meta's CDN; mirroring stays the job's work.
+            from funnel_client import get_firestore_db
+            payload, st = rm.build_custom(market, start, end, db=get_firestore_db())
+        except Exception as e:
+            print(f"ERROR /api/meta live {market} {key[1]}..{key[2]}: "
+                  f"{type(e).__name__}: {e}", flush=True)
+            return JSONResponse(
+                {"error": f"the BigQuery query failed ({type(e).__name__}). "
+                          "Try a shorter range, or a preset."}, status_code=502)
+        payload["filters"]["available_markets"] = list(META_MARKETS)
+        payload["filters"]["available_days"] = list(META_DAYS)
+        _meta_live_put(key, payload)
+        print(f"/api/meta live {market} {key[1]}..{key[2]} ({st['span']} d) — "
+              f"{time.time() - t0:.1f}s total, {st['elapsed']}s in BigQuery, "
+              f"{st['bytes_processed']:,} B processed, scan from {st['scan_from']}, "
+              f"{st['ads']} ads / {st['ad_days']:,} ad-days, "
+              f"{st['images']} mirrored images indexed in {st['images_elapsed']}s",
+              flush=True)
+        return payload
 
 
 def _meta_cache_key(market: str, days: int) -> str:
@@ -482,24 +631,36 @@ def _meta_cache_key(market: str, days: int) -> str:
 
 @app.get("/api/meta")
 def api_meta(market: str = META_DEFAULT_MARKET, days: str = str(META_DEFAULT_DAYS),
+             date_from: str = Query("", alias="from"),
+             date_to: str = Query("", alias="to"),
              _: str = Depends(verify)):
     """Meta creatives snapshot (written to Firestore by refresh_meta.py).
 
     Same 200-with-a-skeleton contract as /api/bundles. Shape mirrors
-    refresh_meta.build_one() — keep the two in step.
+    refresh_meta.build_combo() — keep the two in step.
 
     `market` and `days` select one precomputed combination. An unknown value
     falls back to the default rather than 400ing: this is a dashboard read, a
     hand-edited URL should show the default view instead of an error page, and
     the `filters` block in the response always states which combination was
-    actually served."""
+    actually served.
+
+    `from` / `to` (either one present) switch to the live path instead: an
+    arbitrary range, queried from BigQuery, answering with the same payload
+    shape and `filters.custom = true`. Bad input is a 400 and a failed query a
+    502, both `{"error": "…"}` — the page prints the message next to the date
+    inputs, which is more use than a default view the reader did not ask for.
+    `from`/`to` are aliased because `from` is a Python keyword."""
+    if market not in META_MARKETS:
+        market = META_DEFAULT_MARKET
+    if date_from or date_to:
+        return _api_meta_live(market, date_from.strip(), date_to.strip())
+
     from funnel_client import get_cache
 
     # `days` is typed as a string on purpose: FastAPI would answer ?days=abc
     # with a 422 validation page, and a dashboard URL someone hand-edited
     # should show the default view, not an error.
-    if market not in META_MARKETS:
-        market = META_DEFAULT_MARKET
     try:
         days_n = int(days)
     except (TypeError, ValueError):
