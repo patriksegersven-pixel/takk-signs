@@ -18,6 +18,13 @@
       --accent:      #235837;
       --accent-bg:   #EAF2EC;
       --accent-dark: #1A4429;
+      /* brand.css ships --dv-1..--dv-6 and no neutral. The two "we could not
+         classify this" buckets — Untagged / legacy and Slideshow — need a
+         colour that reads as absence rather than as a sixth category; without
+         it `stroke="var(--dv-neutral)"` resolved to nothing and those donut
+         segments rendered invisible. Defined here rather than in brand.css:
+         no other tab references it. */
+      --dv-neutral:  #8A9099;
     }
 
     *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
@@ -80,7 +87,12 @@
        on one line and the card scrolls sideways instead of breaking "3 739 kr". */
     th.cre, td.cre { white-space:normal; min-width:150px; }
     .card.tbl table { min-width:560px; }
-    #fatigueTable { min-width:1460px; }
+    #fatigueTable { min-width:1620px; }
+    /* 16 columns of levels + indices. Below this the cells crush; above it the
+       card scrolls sideways inside itself, which is the page's standing
+       contract for a wide table. */
+    .card.tbl.roll table { min-width:1180px; }
+    .card.tbl.roll th, .card.tbl.roll td { padding-left:10px; padding-right:10px; }
     /* The two top-5 cards sit side by side, and table-tools adds a filter
        caret to every header — at 14px cell padding the ROAS column fell off
        the right edge of the card in the default view. */
@@ -192,7 +204,12 @@
     .headline b { font-weight:700; }
 
     /* Leaderboard cards */
-    .lb-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
+    /* minmax(0,1fr), not 1fr: a grid track's automatic minimum is its
+       content's min-content, so the fixed 96px thumbnail plus a nowrap value
+       pushed each of the four tracks past its share and the PAGE scrolled
+       sideways at 1440px (pre-existing since v3). Zero minimum lets the name
+       ellipsise, which is what its overflow:hidden was always for. */
+    .lb-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; }
     .lb { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:14px 16px 8px; }
     .lb h4 { font-size:12px; font-weight:700; color:var(--h); letter-spacing:-.1px; display:flex; align-items:center; }
     .lb .lbsub { font-size:10px; color:var(--muted); margin-top:2px; line-height:1.45; }
@@ -241,6 +258,89 @@
     .pending { text-align:center; color:var(--muted); font-size:13px; padding:60px 0 30px; }
     .fail { text-align:center; color:var(--down); font-size:13px; padding:40px 0; }
 
+    /* ── Filter bar ────────────────────────────────────────────────────────
+       Market and period. Neither queries anything: the refresh job precomputes
+       all 12 combinations into their own snapshots, so a switch is one fetch
+       of one document and a re-render. The window dates sit beside the
+       controls because "28 days" means nothing without the two dates it
+       actually covers — and the settle offset makes them non-obvious. */
+    .filters { display:flex; align-items:center; gap:10px 22px; flex-wrap:wrap; margin-top:16px;
+               background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm);
+               padding:11px 16px; }
+    .fgroup { display:flex; align-items:center; gap:9px; }
+    .flabel { font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); display:inline-flex; align-items:center; }
+    .seg { display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:var(--border-lt); }
+    .seg button { appearance:none; border:0; background:transparent; font:600 12px/1 var(--font); color:var(--muted);
+                  padding:7px 13px; cursor:pointer; border-right:1px solid var(--border); white-space:nowrap; }
+    .seg button:last-child { border-right:0; }
+    .seg button:hover { color:var(--h); background:#fff; }
+    .seg button[aria-pressed="true"] { background:var(--accent); color:#fff; }
+    .seg button:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+    .fwin { font-size:11.5px; color:var(--muted); line-height:1.5; }
+    .fwin b { color:var(--h); font-weight:600; }
+    .filters.busy { opacity:.55; pointer-events:none; }
+
+    /* ── Sort chips ────────────────────────────────────────────────────────
+       The same sort the column headers run, exposed as buttons: the sortable
+       columns on the creatives board sit up to 1 300 px to the right, and a
+       control nobody can see is a control nobody uses. Chip and header write
+       the same state, so the marked column and the pressed chip cannot
+       disagree. */
+    .sortbar { display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-bottom:12px; }
+    .sortbar .sblabel { font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-right:2px; display:inline-flex; align-items:center; }
+    .schip { appearance:none; font:600 11.5px/1 var(--font); color:var(--muted); background:var(--card);
+             border:1px solid var(--border); border-radius:14px; padding:6px 12px; cursor:pointer; white-space:nowrap; }
+    .schip:hover { border-color:var(--accent); color:var(--accent); }
+    .schip[aria-pressed="true"] { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .schip:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+    .sdir { appearance:none; font:700 11.5px/1 var(--font); color:var(--h); background:var(--card);
+            border:1px solid var(--border); border-radius:6px; padding:6px 10px; cursor:pointer; white-space:nowrap; }
+    .sdir:hover { border-color:var(--accent); color:var(--accent); }
+    .sdir:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+
+    /* Sortable headers. The arrow is a ::after on the <th>, which the shared
+       table-tools funnel button sits beside — padding-right leaves it room.
+       position:relative here does NOT fight table-tools' sticky header: that
+       is set inline by the module and inline wins over any stylesheet rule. */
+    table.sortable thead th { cursor:pointer; user-select:none; position:relative; padding-right:20px; }
+    table.sortable thead th:hover { color:var(--h); }
+    table.sortable thead th::after { content:'⇅'; position:absolute; right:7px; top:50%; transform:translateY(-50%); opacity:.28; font-size:9px; }
+    table.sortable thead th.sort-asc::after  { content:'▲'; opacity:1; color:var(--accent); }
+    table.sortable thead th.sort-desc::after { content:'▼'; opacity:1; color:var(--accent); }
+    table.sortable thead th.sort-asc, table.sortable thead th.sort-desc { color:var(--accent); }
+    /* The sorted column is marked down the whole body, not just in the header:
+       on a 1 600px-wide board the header is off-screen as often as not. */
+    table.sortable tbody td.sorted-col { background:var(--accent-bg); }
+    table.sortable tbody tr:hover td.sorted-col { background:#DFEBE2; }
+
+    /* ── Account index cell ────────────────────────────────────────────────
+       Two readings of one number: the index itself (1,20× = 20 % better than
+       the account average on this metric) and the same thing as a signed
+       delta, because half the readers think in ratios and half in per cent.
+       Every index is oriented so up is better, CPA included. */
+    .ixa { line-height:1.25; }
+    .ixa .iv { font-weight:700; display:block; }
+    .ixa .id { font-size:9.5px; font-weight:600; display:block; opacity:.85; }
+    .ixa.good { color:var(--up); }
+    .ixa.bad  { color:var(--down); }
+    .ixa.mid  { color:var(--body); }
+    .ixa.na   { color:var(--muted); font-weight:500; }
+
+    /* ── Inline bar charts ─────────────────────────────────────────────────
+       CPA by concept tag and by media type. Inline SVG, no chart library and
+       no layout pass — the same reason the row sparklines are hand-drawn. The
+       dashed rule is the account average the index columns are measured
+       against, so the chart and the table are answering the same question. */
+    .chart-card { margin-top:20px; }
+    /* Equal tracks. The two charts share one viewBox and scale to their
+       column, so unequal tracks would render the same chart at two different
+       type sizes side by side and imply the wider one mattered more. */
+    .chart-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+    .chart-wrap { overflow-x:auto; }
+    .chart svg { display:block; width:100%; height:auto; }
+    .chart-note { font-size:11px; color:var(--muted); margin-top:9px; line-height:1.5; }
+    .chart-empty { font-size:12px; color:var(--muted); padding:18px 0; }
+
     /* Lightbox */
     #lb { position:fixed; inset:0; z-index:500; background:rgba(27,40,57,.82); display:none; align-items:center; justify-content:center; padding:32px; }
     #lb[data-open="true"] { display:flex; }
@@ -251,17 +351,28 @@
        before it is asked: a 64px thumbnail is Meta's limit for that ad, not a
        mistake in the mirror. */
     #lb-src { color:rgba(255,255,255,.7); font-size:11px; text-align:center; line-height:1.5; }
+    /* The shareable ad preview, when the feed carries one. It opens on
+       facebook.com and needs a Facebook login, which is fine for the agency
+       and the marketing team and useless to anyone else — so it is an explicit
+       button rather than the thing the whole lightbox turns into. */
+    #lb-links { text-align:center; }
+    #lb-preview { display:inline-block; margin-top:2px; padding:7px 14px; border-radius:6px;
+                  border:1px solid rgba(255,255,255,.35); background:rgba(255,255,255,.1);
+                  color:#fff; font-size:12px; font-weight:600; text-decoration:none; }
+    #lb-preview:hover { background:rgba(255,255,255,.2); }
     #lb-close { position:absolute; top:18px; right:20px; width:34px; height:34px; border-radius:50%; border:1px solid rgba(255,255,255,.35);
                 background:rgba(255,255,255,.1); color:#fff; font-size:17px; line-height:1; cursor:pointer; font-family:var(--font); }
     #lb-close:hover { background:rgba(255,255,255,.2); }
 
     @media (max-width:1180px) {
       .kpi-grid, .kpi-grid.four { grid-template-columns:repeat(3,1fr); }
-      .lb-grid { grid-template-columns:repeat(2,1fr); }
+      .lb-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
       .three { grid-template-columns:1fr; }
     }
-    @media (max-width:980px)  { .two { grid-template-columns:1fr; } }
+    @media (max-width:980px)  { .two { grid-template-columns:1fr; } .chart-grid { grid-template-columns:1fr; } }
     @media (max-width:700px)  {
+      .filters { gap:8px 14px; padding:11px 12px; }
+      .seg button { padding:7px 10px; font-size:11.5px; }
       .kpi-grid, .kpi-grid.four { grid-template-columns:repeat(2,1fr); }
       .lb-grid { grid-template-columns:1fr; }
       main { padding:20px 14px 44px; }
@@ -282,6 +393,22 @@
 <main>
   <div class="page-title">Creative analysis · SE + NO</div>
   <div class="page-sub" id="pageSub">Creative analysis · Meta, ad level</div>
+
+  <!-- Market and period. Both are precomputed snapshots, not live queries —
+       see the method box. The state also lives in the URL (?market=SE&days=28)
+       so a view can be linked, and in localStorage so a return visit lands
+       where the reader left. -->
+  <div class="filters" id="filters" hidden>
+    <div class="fgroup">
+      <span class="flabel" data-help="filter_market">Market</span>
+      <div class="seg" id="segMarket" role="group" aria-label="Market"></div>
+    </div>
+    <div class="fgroup">
+      <span class="flabel" data-help="filter_period">Period</span>
+      <div class="seg" id="segDays" role="group" aria-label="Period"></div>
+    </div>
+    <div class="fwin" id="fwin" role="status" aria-live="polite"></div>
+  </div>
 
   <!-- Everything below is snapshot-driven and stays hidden until /api/meta
        answers, so the page never flashes a set of empty tables. -->
@@ -314,27 +441,35 @@
     </div>
   </div>
 
-  <!-- ── 2. Fatigue board ───────────────────────────────────────────────── -->
+  <!-- ── 2. All creatives ───────────────────────────────────────────────── -->
   <div class="section-head">
     <div>
-      <div class="section-title">Creative fatigue<span class="section-tag" id="fatigueTag">Last 7 days</span></div>
+      <div class="section-title">All creatives<span class="section-tag" id="fatigueTag">Last 7 days</span></div>
       <div class="section-sub" id="fatigueSub"></div>
     </div>
   </div>
   <div class="headline" id="fatigueHeadline" hidden></div>
   <div class="strip" id="fatigueStrip"></div>
 
+  <!-- Sort chips. Wired to the same routine the column headers run, so the
+       pressed chip and the marked column are always the same column. -->
+  <div class="sortbar" id="sortBar">
+    <span class="sblabel" data-help="sort">Sort</span>
+  </div>
+
   <div class="card tbl">
     <div class="tbl-scroll">
-      <table id="fatigueTable" data-tools data-export-ignore=".help" data-export-name="meta-fatigue">
+      <table id="fatigueTable" class="sortable" data-tools data-export-ignore=".help" data-export-name="meta-creatives">
         <thead><tr>
           <th></th><th class="cre" data-help="creative">Creative</th><th class="lbl" data-help="status">Status</th>
           <th class="lbl" data-help="trend">Trend</th>
           <th data-help="uploaded">Uploaded</th><th data-help="days_active">Days active</th><th data-help="spend">Spend</th>
+          <th data-help="purchases">Purchases</th>
           <th data-help="frequency">Daily freq*</th>
           <th data-help="link_ctr">Link CTR</th><th data-help="ctr_index">CTR idx</th>
           <th data-help="hook_rate">Hook</th><th data-help="hook_index">Hook idx</th>
           <th data-help="cpa">CPA</th><th data-help="cpa_index">CPA idx</th>
+          <th data-help="roas">ROAS*</th>
         </tr></thead>
         <tbody></tbody>
       </table>
@@ -351,43 +486,11 @@
   </div>
   <div class="lb-grid" id="lbGrid"></div>
 
-  <!-- ── 4. What works ──────────────────────────────────────────────────── -->
+  <!-- ── 4. Concept and media mix ─────────────────────────────────────── -->
   <div class="section-head">
     <div>
-      <div class="section-title">What works<span class="section-tag">Last 28 days</span></div>
-      <div class="section-sub" id="rollupSub"></div>
-    </div>
-  </div>
-  <div class="three">
-    <div class="card tbl">
-      <div class="card-head"><div><h3 data-help="tag">By concept tag</h3><div class="csub">From the ad-naming convention</div></div></div>
-      <div class="tbl-scroll"><table id="rollTag" data-tools data-export-ignore=".help" data-export-name="meta-by-tag"></table></div>
-    </div>
-    <div class="card tbl">
-      <div class="card-head"><div><h3 data-help="media_type">By media type</h3><div class="csub">Video, still, carousel, DPA</div></div></div>
-      <div class="tbl-scroll"><table id="rollMedia" data-tools data-export-ignore=".help" data-export-name="meta-by-media"></table></div>
-    </div>
-    <div class="card tbl">
-      <div class="card-head"><div><h3 data-help="promo">Promo vs evergreen</h3><div class="csub">Discount language in the ad, campaign or copy</div></div></div>
-      <div class="tbl-scroll"><table id="rollPromo" data-tools data-export-ignore=".help" data-export-name="meta-by-promo"></table></div>
-    </div>
-  </div>
-
-  <div class="card tbl stack" id="crossCard" hidden>
-    <div class="card-head">
-      <div>
-        <h3 data-help="tag_media">Concept tag × media type</h3>
-        <div class="csub" id="crossSub"></div>
-      </div>
-    </div>
-    <div class="tbl-scroll"><table id="rollCross" data-tools data-export-ignore=".help" data-export-name="meta-tag-x-media"></table></div>
-  </div>
-
-  <!-- ── 5. Mix donuts ──────────────────────────────────────────────────── -->
-  <div class="section-head">
-    <div>
-      <div class="section-title">Concept and media mix<span class="section-tag">Last 7 days</span></div>
-      <div class="section-sub">Spend split by media type and tagged concept, SE+NO. Both are derived from the ad name — see the method box at the bottom.</div>
+      <div class="section-title">Concept and media mix<span class="section-tag" id="mixTag">Last 7 days</span></div>
+      <div class="section-sub" id="mixSub">Spend split by media type and tagged concept. Both are derived from the ad name — see the method box at the bottom.</div>
     </div>
   </div>
 
@@ -421,15 +524,78 @@
     </div>
   </div>
 
+  <!-- ── 5. Effectiveness by concept and media ──────────────────────────
+       The donuts above answer "where is the money"; this answers "what did it
+       buy". Same 28-day (or selected-period) rollup, now indexed against the
+       account average so a group's CPA can be read without holding the blended
+       figure in your head, and charted so the shape of the answer is visible
+       before any row is. -->
   <div class="section-head">
     <div>
-      <div class="section-title">Best performing creatives<span class="section-tag">Top 5 / market</span></div>
+      <div class="section-title">Effectiveness by concept and media<span class="section-tag" id="rollupTag">Last 28 days</span></div>
+      <div class="section-sub" id="rollupSub"></div>
+    </div>
+  </div>
+
+  <div class="chart-grid">
+    <div class="card chart-card">
+      <div class="card-head">
+        <div>
+          <h3 data-help="chart_cpa_tag">CPA by concept tag</h3>
+          <div class="csub">Bars are cost per purchase; the dashed rule is the account average for this window. The figure at the end of each bar is the tag’s share of spend.</div>
+        </div>
+      </div>
+      <div class="chart-wrap"><div class="chart" id="chartTag"></div></div>
+      <div class="chart-note" id="chartTagNote"></div>
+    </div>
+    <div class="card chart-card">
+      <div class="card-head">
+        <div>
+          <h3 data-help="chart_cpa_media">CPA by media type</h3>
+          <div class="csub">Same reading, split by format instead of production style.</div>
+        </div>
+      </div>
+      <div class="chart-wrap"><div class="chart" id="chartMedia"></div></div>
+      <div class="chart-note" id="chartMediaNote"></div>
+    </div>
+  </div>
+
+  <!-- Stacked, not three-across: with the four index columns these tables are
+       16 wide, and a third of the page cannot show them without turning every
+       one into a sideways scroll. -->
+  <div class="card tbl stack roll">
+    <div class="card-head"><div><h3 data-help="tag">By concept tag</h3><div class="csub">From the ad-naming convention</div></div></div>
+    <div class="tbl-scroll"><table id="rollTag" class="sortable" data-tools data-export-ignore=".help" data-export-name="meta-by-tag"></table></div>
+  </div>
+  <div class="card tbl stack roll">
+    <div class="card-head"><div><h3 data-help="media_type">By media type</h3><div class="csub">Video, still, carousel, DPA</div></div></div>
+    <div class="tbl-scroll"><table id="rollMedia" class="sortable" data-tools data-export-ignore=".help" data-export-name="meta-by-media"></table></div>
+  </div>
+  <div class="card tbl stack roll">
+    <div class="card-head"><div><h3 data-help="promo">Promo vs evergreen</h3><div class="csub">Discount language in the ad, campaign or copy</div></div></div>
+    <div class="tbl-scroll"><table id="rollPromo" class="sortable" data-tools data-export-ignore=".help" data-export-name="meta-by-promo"></table></div>
+  </div>
+
+  <div class="card tbl stack roll" id="crossCard" hidden>
+    <div class="card-head">
+      <div>
+        <h3 data-help="tag_media">Concept tag × media type</h3>
+        <div class="csub" id="crossSub"></div>
+      </div>
+    </div>
+    <div class="tbl-scroll"><table id="rollCross" class="sortable" data-tools data-export-ignore=".help" data-export-name="meta-tag-x-media"></table></div>
+  </div>
+
+
+  <div class="section-head">
+    <div>
+      <div class="section-title">Best performing creatives<span class="section-tag" id="topTag">Top 5 / market</span></div>
       <div class="section-sub" id="topSub"></div>
     </div>
   </div>
 
   <div class="two">
-    <div class="card tbl">
+    <div class="card tbl" id="topCardSE">
       <div class="card-head">
         <div style="display:flex;align-items:center;gap:9px"><span class="emblem">SE</span><h3>Sweden, top 5</h3></div>
       </div>
@@ -441,7 +607,7 @@
       </div>
     </div>
 
-    <div class="card tbl">
+    <div class="card tbl" id="topCardNO">
       <div class="card-head">
         <div style="display:flex;align-items:center;gap:9px"><span class="emblem">NO</span><h3>Norway, top 5</h3></div>
       </div>
@@ -483,7 +649,8 @@
 
 <div id="lb" role="dialog" aria-modal="true" aria-label="Creative preview" data-open="false">
   <button type="button" id="lb-close" aria-label="Close">×</button>
-  <figure><img id="lb-img" src="" alt=""><figcaption id="lb-cap"></figcaption><div id="lb-src"></div></figure>
+  <figure><img id="lb-img" src="" alt=""><figcaption id="lb-cap"></figcaption><div id="lb-src"></div>
+    <div id="lb-links"><a id="lb-preview" href="#" target="_blank" rel="noopener noreferrer" hidden>Open ad preview ↗</a></div></figure>
 </div>
 
 <script>
@@ -506,6 +673,11 @@
   function pct2(n){ return n == null ? dash : n.toFixed(2).replace('.', ',') + ' %'; }
   function roas(n){ return n == null ? dash : n.toFixed(1).replace('.', ',') + 'x'; }
   function num2(n){ return n == null ? dash : n.toFixed(2).replace('.', ','); }
+  /* The raw number behind a formatted cell, for sorting. Omitted when the
+     value is missing, so cellValue() reads "no value" rather than zero. */
+  function dv(n) { return n == null ? '' : ' data-val="' + n + '"'; }
+  /* "Last 7 days" / "Last 28 days" — the period label used in section tags. */
+  function periodLabel(days) { return 'Last ' + int(days) + ' days'; }
 
   /* One colour per bucket label, shared by both donuts so "DPA / catalog"
      is the same amber in each. */
@@ -800,11 +972,103 @@
       'of it.' },
 
     fatiguing_now: { label: 'Fatiguing now', what:
-      'Ads classified Fatiguing or Exhausted, ranked by last-7-day spend.', how:
-      'The money a refresh moves first: same content as the top of the fatigue board, sorted by how ' +
+      'Ads classified Fatiguing or Exhausted, ranked by spend in the selected window.', how:
+      'The money a refresh moves first: same content as the top of the creatives board, sorted by how ' +
       'much budget the problem is costing rather than by how bad the problem is. Trap: a high-spend ' +
       'Fatiguing ad may still be the cheapest CPA on the account — check the board row before pausing ' +
-      'anything.' }
+      'anything.' },
+
+    /* ── v4: filters, sorting, and the account-relative indices ───────────── */
+
+    filter_market: { label: 'Market filter', what:
+      'All (SE + NO), Sweden only, or Norway only. Market is read from the AD-NAME token, not from ' +
+      'the campaign market flag, so a mixed "SE+NO" campaign is split correctly between the two.', how:
+      'Switch to a single market before comparing any cost figure: SE and NO run nearly 3× apart on ' +
+      'CPA, so an "All" CPA is a weighted blend that describes neither. Nothing is recalculated when ' +
+      'you switch — every combination is precomputed by the nightly job and read as one document. ' +
+      'Trap: the spend floors are absolute, so a single-market view has fewer ads clearing them; the ' +
+      'floor in force is printed under each table.' },
+
+    filter_period: { label: 'Period filter', what:
+      '7, 14, 28 or 90 days, always ending 2 days ago so Meta’s attribution has settled. The KPI ' +
+      'deltas compare against the equally long window immediately before. On 7 days the leaderboards ' +
+      'and the effectiveness tables use 28 days (as they always have); on 14, 28 and 90 they use the ' +
+      'selected period.', how:
+      'Short windows read creative freshness, long windows read whether a concept holds up. The ' +
+      'relevance floors scale with the window — 300 kr over 7 days is 1 200 kr over 28 — so a ranking ' +
+      'means the same thing at every setting. Trap: the fatigue indices still compare against the ad’s ' +
+      'own BASELINE WEEK, so on a 90-day period you are comparing a 90-day average against a single ' +
+      'week; read the Trend column rather than the index at long settings.' },
+
+    sort: { label: 'Sort', what:
+      'Re-orders the creatives table. The chips and the column headers drive the same routine and the ' +
+      'same state, so the pressed chip is always the marked column; clicking the active chip or header ' +
+      'again reverses the direction. Sorting uses the underlying number, not the formatted text.', how:
+      'Default is spend descending — the biggest money first. Sort by CPA ascending to find what to ' +
+      'scale, by Fatigue status to put the worst-decayed spend on top (the payload’s own severity ' +
+      'order), by Hook rate to shortlist thumbstops worth re-cutting. Trap: a sort is not a filter — ' +
+      'the ads below the fold are still in the table, and the column filters in each header stack on ' +
+      'top of whatever sort is active.' },
+
+    idx_cpa: { label: 'CPA index', what:
+      'The account average CPA for this window ÷ this group’s CPA, so ABOVE 1,00 means the group buys ' +
+      'purchases more cheaply than the account does. Deliberately inverted, unlike the CPA idx column ' +
+      'on the creatives board, so that every index in these tables reads better upwards. The second ' +
+      'line is the same number as a signed percentage.', how:
+      '1,20× on CPA index = this group buys a purchase 20 % cheaper than the account average in this ' +
+      'window; below 0,80× is expensive. Read it alongside spend share — a cheap group with 2 % of ' +
+      'spend is a scaling candidate, not a proof. Trap: the reference is the account average for THIS ' +
+      'table and THIS window, so it moves when the market or period filter moves; a group can gain ' +
+      'index because everything else got worse.' },
+
+    idx_roas: { label: 'ROAS index', what:
+      'This group’s platform ROAS ÷ the account average ROAS for the same window. Above 1,00 is ' +
+      'better.', how:
+      'Reads as: does this group return more per krona than the account. It should broadly agree with ' +
+      'the CPA index; where the two disagree, the group is buying purchases of a different VALUE, not ' +
+      'at a different price. Trap: ROAS is Meta’s own attribution and gross of returns — it separates ' +
+      'a cheap purchase from a valuable one, and it does not set budget.' },
+
+    idx_link_ctr: { label: 'Link CTR index', what:
+      'This group’s link CTR ÷ the account average link CTR for the same window. Above 1,00 is ' +
+      'better.', how:
+      'Relevance relative to everything else running. Trap: DPA / catalog clicks about four times as ' +
+      'hard as anything hand-made, and it is INCLUDED in the account average of the concept-tag and ' +
+      'media-type tables — so every hand-made group reads below 1,00 there. Compare hand-made groups ' +
+      'against each other, not against the 1,00 line.' },
+
+    idx_hook: { label: 'Hook index', what:
+      'This group’s hook rate ÷ the account average hook rate, VIDEO ads only on both sides of the ' +
+      'ratio. Above 1,00 is better. Undefined for a group with no video.', how:
+      'The cleanest production-quality comparison on the page: it isolates the first frame, and both ' +
+      'sides of the ratio are measured over video alone, so a group’s video share cannot flatter it. ' +
+      'Trap: a group whose video is a small slice of its spend can post a superb hook index while most ' +
+      'of its budget went through stills — check the media-type table before reading it as a verdict.' },
+
+    chart_cpa_tag: { label: 'CPA by concept tag', what:
+      'One bar per concept tag, length = the tag’s cost per purchase over the selected window; the ' +
+      'dashed rule is the account average CPA the index columns are measured against. The percentage ' +
+      'at the end of each bar is the tag’s share of spend.', how:
+      'Shorter is better. Read the bar and the share together: the finding is a tag well left of the ' +
+      'dashed line carrying real budget, or one well right of it carrying a lot. Trap: bars are not ' +
+      'comparable across markets — switch the market filter rather than reading an "All" chart as if ' +
+      'it described either country.' },
+
+    chart_cpa_media: { label: 'CPA by media type', what:
+      'The same chart split by derived media type instead of concept tag. DPA / catalog is included ' +
+      'here because it is real spend, and excluded from every ranked table.', how:
+      'Formats are structurally different buys, so the spread here is wider than the concept chart and ' +
+      'less actionable: a low DPA CPA is a feed working, not a creative anyone can brief. Trap: media ' +
+      'type is derived from the ad and campaign names, so a mis-named ad lands in the wrong bar.' },
+
+    preview: { label: 'Ad preview', what:
+      'Meta’s shareable ad preview — the ad rendered as it appears in feed. It is not in this data ' +
+      'feed yet (the connector loads no preview_shareable_link column), so the link only appears once ' +
+      'that lands; until then the creative links to Ads Manager and, where one exists, the Instagram ' +
+      'permalink.', how:
+      'It opens on facebook.com and needs a Facebook login, so it is for the agency and the marketing ' +
+      'team rather than for anyone reading this dashboard cold. Trap: a preview shows the CURRENT ' +
+      'creative for the ad; if the ad was edited it will not match the window the numbers cover.' }
   };
 
   /* One "?" per metric label. `data-help="key"` in the markup (or in a
@@ -1066,10 +1330,19 @@
     var initial = (cap || '?').trim().charAt(0).toUpperCase() || '?';
     var cls = sm ? ' sm' : '';
     if (!src) return '<span class="thumb-fallback' + cls + '">' + esc(initial) + '</span>';
+    // With a shareable preview in the feed the thumbnail becomes the shortcut
+    // to it — that is the thing a media buyer actually wants from a picture of
+    // an ad. The mirrored rendition stays one click away, as "Enlarge image"
+    // in the link bar, so nothing is lost. Until the connector loads
+    // preview_shareable_link this attribute is never set and the thumbnail
+    // opens the lightbox exactly as it does today.
+    var prev = c.preview_url || '';
     return '<button type="button" class="thumb' + cls + '" data-src="' + esc(big) +
            '" data-cap="' + esc(cap) + '" data-source="' + esc(c.image_source || '') +
            '" data-large="' + (c.has_large ? '1' : '') +
-           '" aria-label="Enlarge: ' + esc(cap) + '">' +
+           '" data-preview="' + esc(prev) + '"' +
+           (c.image_w ? ' data-w="' + esc(c.image_w) + '" data-h="' + esc(c.image_h) + '"' : '') +
+           ' aria-label="' + (prev ? 'Open ad preview: ' : 'Enlarge: ') + esc(cap) + '">' +
            '<img src="' + esc(src) + '" alt="' + esc(cap) + '" loading="lazy" ' +
            'data-initial="' + esc(initial) + '"' +
            (next ? ' data-next="' + esc(next) + '"' : '') +
@@ -1085,6 +1358,13 @@
      rather than hidden behind a missing icon. */
   function linkBar(c) {
     var out = [];
+    if (c.preview_url) {
+      out.push('<a href="' + esc(c.preview_url) + '" target="_blank" rel="noopener noreferrer" ' +
+               'data-help="preview">Ad preview ↗</a>');
+      // Only offered when the thumbnail has been repurposed to open the
+      // preview — otherwise the thumbnail already is this button.
+      out.push('<a href="#" class="enlarge">Enlarge image ⤢</a>');
+    }
     if (c.ads_manager_url) {
       out.push('<a href="' + esc(c.ads_manager_url) + '" target="_blank" rel="noopener noreferrer">' +
                'Open in Ads Manager ↗</a>');
@@ -1116,7 +1396,254 @@
     var cls;
     if (inverted) cls = v <= 1.05 ? 'good' : (v <= 1.3 ? 'warn' : 'bad');
     else          cls = v >= 0.85 ? 'good' : (v >= 0.7 ? 'warn' : 'bad');
-    return '<td class="ix ' + cls + '">' + v.toFixed(2).replace('.', ',') + '×</td>';
+    return '<td class="ix ' + cls + '" data-val="' + v + '">' +
+           v.toFixed(2).replace('.', ',') + '×</td>';
+  }
+
+  /* An index against the ACCOUNT AVERAGE (the effectiveness tables), as
+     opposed to idxCell's index against the ad's own baseline week. Every one
+     of these is oriented so up is better — CPA included, which is why the
+     payload sends account ÷ group there — so one colour rule covers all four
+     columns and a reader never has to remember which way a column runs.
+     Printed twice: the ratio, and the same thing as a signed percentage. */
+  function idxAcctCell(v) {
+    if (v == null) return '<td class="ixa na">' + dash + '</td>';
+    var cls = v >= 1.10 ? 'good' : (v <= 0.85 ? 'bad' : 'mid');
+    var d = (v - 1) * 100;
+    var sign = d > 0 ? '+' : (d < 0 ? '−' : '±');
+    return '<td class="ixa ' + cls + '" data-val="' + v + '">' +
+           '<span class="iv">' + v.toFixed(2).replace('.', ',') + '×</span>' +
+           '<span class="id">' + sign + Math.abs(d).toFixed(0) + ' %</span></td>';
+  }
+
+  /* ── Sorting ──────────────────────────────────────────────────────────────
+     One routine behind both affordances: the sort chips above the creatives
+     table and a click on any column header. Both call sortTable(), so the
+     pressed chip and the marked column can never disagree — that consistency
+     is the whole reason the chips are not a second implementation.
+
+     Values come from data-val where a cell carries one (every measure does),
+     never from the rendered text: "1 234 kr" and "0,73×" do not parse, and
+     "—" must sort last in either direction rather than as zero. */
+  function cellValue(td) {
+    if (!td) return null;
+    if (td.hasAttribute('data-val')) {
+      var n = parseFloat(td.getAttribute('data-val'));
+      return isNaN(n) ? null : n;
+    }
+    var t = (td.textContent || '').trim();
+    return t === '' || t === dash ? null : t.toLowerCase();
+  }
+
+  function markSorted(table, idx) {
+    var ths = table.tHead ? table.tHead.rows[0].cells : [];
+    Array.prototype.forEach.call(table.querySelectorAll('td.sorted-col'), function (td) {
+      td.classList.remove('sorted-col');
+    });
+    if (idx == null || idx < 0) return;
+    Array.prototype.forEach.call(table.tBodies[0] ? table.tBodies[0].rows : [], function (r) {
+      if (r.cells[idx] && r.cells.length === ths.length) r.cells[idx].classList.add('sorted-col');
+    });
+  }
+
+  function sortTable(table, idx, dir) {
+    if (!table || !table.tBodies[0]) return;
+    var tb = table.tBodies[0];
+    var ths = table.tHead ? table.tHead.rows[0].cells : [];
+    Array.prototype.forEach.call(ths, function (h) {
+      h.classList.remove('sort-asc', 'sort-desc');
+      h.removeAttribute('aria-sort');
+    });
+    if (ths[idx]) {
+      ths[idx].classList.add('sort-' + dir);
+      ths[idx].setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending');
+    }
+    var rows = Array.prototype.slice.call(tb.rows);
+    // An "empty table" placeholder row spans every column; leave it alone.
+    if (rows.length < 2 || (rows[0].cells.length === 1 && rows[0].cells[0].colSpan > 1)) {
+      markSorted(table, idx);
+      return;
+    }
+    var sign = dir === 'asc' ? 1 : -1;
+    rows.sort(function (a, b) {
+      var av = cellValue(a.cells[idx]), bv = cellValue(b.cells[idx]);
+      // A missing value is not a small one. Dashes go last whichever way the
+      // column runs, so reversing the direction never fills the top with "—".
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === 'number' && typeof bv === 'number') return sign * (av - bv);
+      return sign * String(av).localeCompare(String(bv), 'sv');
+    });
+    var frag = document.createDocumentFragment();
+    rows.forEach(function (r) { frag.appendChild(r); });
+    tb.appendChild(frag);
+    markSorted(table, idx);
+  }
+
+  /* Header clicks, delegated once. Bound at load, so a table rebuilt by a
+     filter change keeps working without re-binding anything. */
+  document.addEventListener('click', function (e) {
+    var th = e.target.closest ? e.target.closest('table.sortable thead th') : null;
+    if (!th) return;
+    // The table-tools funnel button and the "?" both live inside the <th>.
+    // "?" already stops propagation in a capture listener; the funnel does not.
+    if (e.target.closest('.tt-fbtn')) return;
+    var table = th.closest('table');
+    var idx = Array.prototype.indexOf.call(th.parentNode.cells, th);
+    var dir = th.classList.contains('sort-desc') ? 'asc' : 'desc';
+    // A first click on a label column reads better ascending (A→Z); on a
+    // measure it reads better descending (biggest first).
+    if (!th.classList.contains('sort-asc') && !th.classList.contains('sort-desc')) {
+      dir = th.classList.contains('cre') || th.classList.contains('lbl') ? 'asc' : 'desc';
+    }
+    sortTable(table, idx, dir);
+    if (table.id === 'fatigueTable') syncChips(idx, dir);
+  });
+
+  /* ── Sort chips ───────────────────────────────────────────────────────────
+     Column indices are pinned to the creatives table's header, in order:
+     0 thumb · 1 Creative · 2 Status · 3 Trend · 4 Uploaded · 5 Days active ·
+     6 Spend · 7 Purchases · 8 Daily freq · 9 Link CTR · 10 CTR idx ·
+     11 Hook · 12 Hook idx · 13 CPA · 14 CPA idx · 15 ROAS. */
+  var SORT_CHIPS = [
+    { label: 'Spend',          col: 6,  dir: 'desc' },
+    { label: 'Purchases',      col: 7,  dir: 'desc' },
+    { label: 'CPA',            col: 13, dir: 'asc'  },
+    { label: 'ROAS',           col: 15, dir: 'desc' },
+    { label: 'Link CTR',       col: 9,  dir: 'desc' },
+    { label: 'Hook rate',      col: 11, dir: 'desc' },
+    { label: 'Fatigue status', col: 2,  dir: 'asc'  }
+  ];
+  var SORT_DEFAULT = { col: 6, dir: 'desc' };   // spend, biggest first
+  var sortState = { col: SORT_DEFAULT.col, dir: SORT_DEFAULT.dir };
+
+  function syncChips(col, dir) {
+    sortState = { col: col, dir: dir };
+    Array.prototype.forEach.call($('sortBar').querySelectorAll('.schip'), function (b) {
+      b.setAttribute('aria-pressed', +b.dataset.col === col ? 'true' : 'false');
+    });
+    var d = $('sortDir');
+    if (d) {
+      d.textContent = dir === 'asc' ? '↑ Ascending' : '↓ Descending';
+      d.setAttribute('aria-label', 'Sort direction: ' +
+        (dir === 'asc' ? 'ascending' : 'descending') + '. Click to reverse.');
+    }
+  }
+
+  function buildSortBar() {
+    var bar = $('sortBar');
+    if (bar.querySelector('.schip')) return;          // built once
+    bar.insertAdjacentHTML('beforeend',
+      SORT_CHIPS.map(function (c) {
+        return '<button type="button" class="schip" data-col="' + c.col +
+               '" data-dir="' + c.dir + '" aria-pressed="false">' + esc(c.label) + '</button>';
+      }).join('') +
+      '<button type="button" class="sdir" id="sortDir">↓ Descending</button>');
+    bar.addEventListener('click', function (e) {
+      var chip = e.target.closest('.schip');
+      if (chip) {
+        var col = +chip.dataset.col;
+        // Pressing the active chip reverses it; a new chip starts at the
+        // direction that column is naturally read in (CPA ascending, the rest
+        // descending).
+        var dir = col === sortState.col
+          ? (sortState.dir === 'desc' ? 'asc' : 'desc')
+          : chip.dataset.dir;
+        sortTable($('fatigueTable'), col, dir);
+        syncChips(col, dir);
+        return;
+      }
+      if (e.target.closest('#sortDir')) {
+        var nd = sortState.dir === 'desc' ? 'asc' : 'desc';
+        sortTable($('fatigueTable'), sortState.col, nd);
+        syncChips(sortState.col, nd);
+      }
+    });
+  }
+
+  /* ── Inline bar chart ─────────────────────────────────────────────────────
+     Horizontal bars, one per group, length = CPA. Hand-drawn SVG for the same
+     reason the row sparklines are: no library, no layout pass, and it renders
+     with the rest of the innerHTML write rather than a frame later.
+
+     The dashed rule is the account average — the exact reference the index
+     columns beside it divide by, so the chart and the table cannot tell
+     different stories. The scale runs from 0 so bar LENGTHS are comparable;
+     a truncated axis would make a 5 % CPA gap look like a doubling. */
+  function barChart(rows, avg, fmt) {
+    if (!rows || !rows.length) return '<div class="chart-empty">Nothing to chart in this window.</div>';
+    // PAD_R reserves room for BOTH the value label at the end of the bar and
+    // the spend share flush right; the 1.14 headroom keeps the longest bar
+    // from pushing its own label into that column.
+    var LBL = 132, PAD_R = 108, ROW = 30, BAR = 15, TOP = 10, BOT = 24, W = 560;
+    var vals = rows.map(function (r) { return r.value; }).filter(function (v) { return v != null; });
+    if (!vals.length) return '<div class="chart-empty">No cost per purchase in this window.</div>';
+    var max = Math.max.apply(null, vals.concat(avg == null ? [] : [avg])) * 1.14 || 1;
+    var plotW = W - LBL - PAD_R;
+    var H = TOP + rows.length * ROW + BOT;
+    var x = function (v) { return LBL + (v / max) * plotW; };
+    // Three layers, painted in this order: bars, then the average rule over
+    // them, then every label over both. SVG has no z-index — order IS depth —
+    // and a bar whose value label happens to land on the dashed rule is
+    // otherwise struck through by it.
+    var bars = [], labels = [];
+
+    rows.forEach(function (r, i) {
+      var y = TOP + i * ROW;
+      var mid = y + ROW / 2;
+      labels.push('<text x="' + (LBL - 8) + '" y="' + (mid + 3.5) + '" text-anchor="end" ' +
+                  'font-size="11" fill="var(--body)">' + esc(shortMedia(r.label)) + '</text>');
+      if (r.value == null) {
+        labels.push('<text x="' + (LBL + 4) + '" y="' + (mid + 3.5) + '" font-size="10.5" ' +
+                    'fill="var(--muted)">no purchases</text>');
+        return;
+      }
+      var w = Math.max(x(r.value) - LBL, 1.5);
+      bars.push('<rect x="' + LBL + '" y="' + (mid - BAR / 2) + '" width="' + w.toFixed(1) +
+                '" height="' + BAR + '" rx="2" fill="' + hue(r.label) + '">' +
+                '<title>' + esc(r.label) + ' — CPA ' + fmt(r.value) + ', ' + pct(r.share) +
+                ' of spend, ' + int(r.ads) + ' ads</title></rect>');
+      // A halo on the value label, so it stays readable in the one place it
+      // cannot avoid — directly on top of the dashed average rule.
+      labels.push('<text x="' + (LBL + w + 6).toFixed(1) + '" y="' + (mid + 3.5) +
+                  '" font-size="10.5" fill="var(--h)" font-weight="600" ' +
+                  'stroke="var(--card)" stroke-width="2.5" paint-order="stroke">' +
+                  esc(fmt(r.value)) + '</text>');
+      // Spend share at the very end of the row, in the reserved right margin:
+      // a cheap group carrying 2 % of budget is a hypothesis, not a finding.
+      labels.push('<text x="' + (W - 4) + '" y="' + (mid + 3.5) + '" text-anchor="end" ' +
+                  'font-size="10" fill="var(--muted)">' + esc(pct(r.share)) + '</text>');
+    });
+
+    var rule = [];
+    if (avg != null && avg > 0) {
+      var ax = x(avg);
+      rule.push('<line x1="' + ax.toFixed(1) + '" y1="' + (TOP - 4) + '" x2="' + ax.toFixed(1) +
+                '" y2="' + (TOP + rows.length * ROW + 2) + '" stroke="var(--h)" stroke-width="1" ' +
+                'stroke-dasharray="3 3" stroke-opacity=".65"></line>');
+      // Keep the label inside the box when the average sits near the right edge.
+      var anchor = ax > W - 120 ? 'end' : 'start';
+      labels.push('<text x="' + (ax + (anchor === 'end' ? -5 : 5)).toFixed(1) + '" y="' +
+                  (TOP + rows.length * ROW + 16) + '" text-anchor="' + anchor + '" font-size="10" ' +
+                  'fill="var(--h)" font-weight="600">Account avg ' + esc(fmt(avg)) + '</text>');
+    }
+
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" width="' + W + '" ' +
+           'aria-label="Cost per purchase by group, with the account average marked">' +
+           bars.join('') + rule.join('') + labels.join('') + '</svg>';
+  }
+
+  function renderBarChart(figId, noteId, rows, avg, label) {
+    var data = (rows || []).map(function (r) {
+      return { label: r.label, value: r.cpa, share: r.share, ads: r.ads, spend: r.spend };
+    });
+    $(figId).innerHTML = barChart(data, avg == null ? null : avg.cpa, kr2);
+    var n = data.filter(function (r) { return r.value != null; }).length;
+    $(noteId).textContent = n
+      ? n + ' of ' + data.length + ' ' + label + ' bought at least one purchase in this window. ' +
+        'Shorter is cheaper; the dashed rule is the account average the index columns divide by.'
+      : '';
   }
 
   /* Rows are joined once and assigned in a single innerHTML write — never
@@ -1162,28 +1689,45 @@
     var rows = f.rows || [];
     var tb = $('fatigueTable').tBodies[0];
     if (!rows.length) {
-      tb.innerHTML = '<tr><td colspan="14" class="dim" style="text-align:center;padding:26px">' +
+      tb.innerHTML = '<tr><td colspan="16" class="dim" style="text-align:center;padding:26px">' +
                      'No ad delivered in this window.</td></tr>';
+      $('fatigueStrip').innerHTML = '';
+      $('fatigueHeadline').hidden = true;
       return;
     }
     // Column order: Creative, Status, TREND, then the measures. The trend is the
     // evidence behind the status chip, so it sits next to it rather than 1 100px
     // to its right where only a reader who scrolls would ever meet it.
+    //
+    // Every measure cell carries data-val, the raw number, so a sort never has
+    // to unpick "1 234 kr" or "0,73×" and a missing value stays missing rather
+    // than becoming zero. Status sorts on the payload's own severity rank
+    // (Exhausted → Fatiguing → No baseline → Fresh → Stable), not alphabetically.
     tb.innerHTML = rows.map(function (c) {
       return '<tr>' + thumbCell(c) + nameCell(c, true) +
-             '<td class="lbl"><span class="st ' + (STCLASS[c.status] || 's-none') + '">' + esc(c.status) + '</span></td>' +
+             '<td class="lbl"' + dv(c.status_rank) + '><span class="st ' + (STCLASS[c.status] || 's-none') + '">' + esc(c.status) + '</span></td>' +
              '<td class="lbl spark-cell">' + spark(c) + '</td>' +
              '<td class="dim">' + esc(c.uploaded || dash) + '</td>' +
-             '<td class="dim">' + int(c.days_active) + '</td>' +
-             '<td class="strong">' + kr(c.spend) + '</td>' +
-             '<td>' + num2(c.frequency) + '</td>' +
-             '<td>' + pct2(c.link_ctr) + '</td>' +
+             '<td class="dim"' + dv(c.days_active) + '>' + int(c.days_active) + '</td>' +
+             '<td class="strong"' + dv(c.spend) + '>' + kr(c.spend) + '</td>' +
+             '<td class="strong"' + dv(c.purchases) + '>' + int(c.purchases) + '</td>' +
+             '<td' + dv(c.frequency) + '>' + num2(c.frequency) + '</td>' +
+             '<td' + dv(c.link_ctr) + '>' + pct2(c.link_ctr) + '</td>' +
              idxCell(c.ctr_index, false) +
-             '<td>' + (c.is_video ? pct2(c.hook_rate) : '<span class="dim">' + dash + '</span>') + '</td>' +
+             '<td' + (c.is_video ? dv(c.hook_rate) : '') + '>' +
+               (c.is_video ? pct2(c.hook_rate) : '<span class="dim">' + dash + '</span>') + '</td>' +
              idxCell(c.hook_index, false) +
-             '<td class="strong">' + kr2(c.cpa) + '</td>' +
-             idxCell(c.cpa_index, true) + '</tr>';
+             '<td class="strong"' + dv(c.cpa) + '>' + kr2(c.cpa) + '</td>' +
+             idxCell(c.cpa_index, true) +
+             '<td class="dim"' + dv(c.roas) + '>' + roas(c.roas) + '</td></tr>';
     }).join('');
+
+    // Default view is spend descending, whatever order the payload arrived in
+    // (it ships worst-money-first, which is one useful order among several and
+    // not the one a reader opens with). Re-applied on every render so a filter
+    // change lands on a table sorted the way the chips say it is.
+    sortTable($('fatigueTable'), sortState.col, sortState.dir);
+    syncChips(sortState.col, sortState.dir);
 
     // Spend share by status, worst first — the strip is the summary a media
     // buyer reads before any row.
@@ -1195,16 +1739,21 @@
 
     if (f.at_risk_pct != null) {
       $('fatigueHeadline').hidden = false;
-      $('fatigueHeadline').innerHTML = '<b>' + pct(f.at_risk_pct) + ' of last-7-day spend (' +
-        kr(f.at_risk_spend) + ') sits on creatives classified Fatiguing or Exhausted.</b> ' +
-        'That is the money a refresh would move first — the "Fatiguing now" card below ranks it.';
+      $('fatigueHeadline').innerHTML = '<b>' + pct(f.at_risk_pct) + ' of ' + int(win.days) +
+        '-day spend (' + kr(f.at_risk_spend) + ') sits on creatives classified Fatiguing or Exhausted.</b> ' +
+        'That is the money a refresh would move first — the "Fatiguing now" card above ranks it.';
+    } else {
+      $('fatigueHeadline').hidden = true;
     }
 
     var t = f.thresholds || {};
     $('fatigueSub').textContent =
-      'One row per ad that spent in ' + win.from + ' – ' + win.to + '. Each ad is judged against its OWN baseline: ' +
+      'Every ad that spent in ' + win.from + ' – ' + win.to + ', ' + int(rows.length) +
+      ' in all, sorted by spend. Each ad is judged against its OWN baseline: ' +
       'the first full 7-day week, counted from its first spend day, that spent at least ' +
-      int(t.baseline_min_spend) + ' kr. Video is scored on the hook index, everything else on the link-CTR index.';
+      int(t.baseline_min_spend) + ' kr. Video is scored on the hook index, everything else on the link-CTR index.' +
+      (win.days > 7 ? ' At this period the current side of every index is a ' + int(win.days) +
+       '-day average against a single baseline week — read the Trend column with it.' : '');
     $('fatigueNote').textContent =
       'Fresh: fewer than ' + int(t.fresh_days) + ' days since first spend. Stable: index ≥ ' + num2(t.stable_index) +
       '. Fatiguing: index ' + num2(t.exhausted_index) + '–' + num2(t.stable_index) + ', or frequency up ' +
@@ -1263,19 +1812,32 @@
     }).join('');
   }
 
-  /* ── Rollups ──────────────────────────────────────────────────────────── */
+  /* ── Effectiveness rollups ────────────────────────────────────────────────
+     Levels first (what the group cost), then the four indices against the
+     ACCOUNT AVERAGE for the same window — the whole point of the table is
+     "which of these is doing better than the average of everything", and a
+     column of raw CPAs answers that only for a reader holding the blended
+     figure in their head.
+
+     `idx: true` marks a column rendered by idxAcctCell rather than a plain
+     formatter. Every index is oriented so up is better, CPA included. */
   var ROLL_COLS = [
-    { h: 'Ads',        k: 'ads',      f: function (r) { return int(r.ads); } },
-    { h: 'Spend',      k: 'spend',    f: function (r) { return kr(r.spend); },      cls: 'strong' },
-    { h: 'Share',      k: 'share',    f: function (r) { return pct(r.share); } },
-    { h: 'Link CTR',   k: 'link_ctr', f: function (r) { return pct2(r.link_ctr); } },
-    { h: 'Hook',       k: 'hook_rate', f: function (r) { return pct2(r.hook_rate); } },
-    { h: 'Hold',       k: 'hold_rate', f: function (r) { return pct2(r.hold_rate); } },
-    { h: 'LPV rate',   k: 'lpv_rate', f: function (r) { return pct(r.lpv_rate); } },
-    { h: 'CPA',        k: 'cpa',      f: function (r) { return kr2(r.cpa); },       cls: 'strong' },
-    { h: 'ROAS*',      k: 'roas',     f: function (r) { return roas(r.roas); },     cls: 'dim' },
-    { h: 'Purchases',  k: 'purchases', f: function (r) { return int(r.purchases); } },
-    { h: 'S+S / 1k',   k: 'saves_shares_per_1k', f: function (r) { return num2(r.saves_shares_per_1k); } }
+    { h: 'Ads',        k: 'ads',      v: 'ads',      f: function (r) { return int(r.ads); } },
+    { h: 'Spend',      k: 'spend',    v: 'spend',    f: function (r) { return kr(r.spend); },      cls: 'strong' },
+    { h: 'Share',      k: 'share',    v: 'share',    f: function (r) { return pct(r.share); } },
+    { h: 'CPA',        k: 'cpa',      v: 'cpa',      f: function (r) { return kr2(r.cpa); },       cls: 'strong' },
+    { h: 'CPA idx',    k: 'idx_cpa',      v: 'idx_cpa',      idx: true },
+    { h: 'ROAS*',      k: 'roas',     v: 'roas',     f: function (r) { return roas(r.roas); },     cls: 'dim' },
+    { h: 'ROAS idx',   k: 'idx_roas',     v: 'idx_roas',     idx: true },
+    { h: 'Link CTR',   k: 'link_ctr', v: 'link_ctr', f: function (r) { return pct2(r.link_ctr); } },
+    { h: 'CTR idx',    k: 'idx_link_ctr', v: 'idx_link_ctr', idx: true },
+    { h: 'Hook',       k: 'hook_rate', v: 'hook_rate', f: function (r) { return pct2(r.hook_rate); } },
+    { h: 'Hook idx',   k: 'idx_hook',     v: 'idx_hook',     idx: true },
+    { h: 'Hold',       k: 'hold_rate', v: 'hold_rate', f: function (r) { return pct2(r.hold_rate); } },
+    { h: 'LPV rate',   k: 'lpv_rate', v: 'lpv_rate', f: function (r) { return pct(r.lpv_rate); } },
+    { h: 'Purchases',  k: 'purchases', v: 'purchases', f: function (r) { return int(r.purchases); } },
+    { h: 'S+S / 1k',   k: 'saves_shares_per_1k', v: 'saves_shares_per_1k',
+      f: function (r) { return num2(r.saves_shares_per_1k); } }
   ];
 
   function renderRollup(tableId, rows, label, helpKey) {
@@ -1289,12 +1851,17 @@
       ? rows.map(function (r) {
           return '<tr><td class="lbl">' + esc(r.label) + '</td>' +
                  ROLL_COLS.map(function (c) {
-                   return '<td class="' + (c.cls || '') + '">' + c.f(r) + '</td>';
+                   if (c.idx) return idxAcctCell(r[c.v]);
+                   return '<td class="' + (c.cls || '') + '"' + dv(r[c.v]) + '>' + c.f(r) + '</td>';
                  }).join('') + '</tr>';
         }).join('')
       : '<tr><td colspan="' + (ROLL_COLS.length + 1) + '" class="dim" style="text-align:center;padding:22px">' +
         'Nothing clears the floor.</td></tr>';
     $(tableId).innerHTML = head + '<tbody>' + body + '</tbody>';
+    // Spend descending, matching the order the payload ships in, but applied
+    // here so the header carries its marker and a reader can see what the
+    // default actually is before changing it.
+    if (rows.length) sortTable($(tableId), 2, 'desc');
   }
 
   /* ── KPI tiles ────────────────────────────────────────────────────────────
@@ -1338,9 +1905,12 @@
     $('kpiGrid2').innerHTML = TILES2.map(function (t) { return tileHtml(c, t, lib, d); }).join('');
   }
 
-  function renderMarkets(kpis, markets) {
+  /* Hidden entirely when a single market is selected: a one-row "by market"
+     table restates the KPI tiles above it and implies a comparison that is not
+     on screen. */
+  function renderMarkets(kpis, markets, single) {
     var rows = markets.filter(function (m) { return kpis[m]; });
-    if (!rows.length) return;
+    if (!rows.length || single) { $('marketCard').hidden = true; return; }
     $('marketCard').hidden = false;
     $('marketTable').tBodies[0].innerHTML = rows.map(function (m) {
       var k = kpis[m];
@@ -1429,12 +1999,15 @@
      baseline, completion, cost per LPV, the ranking floors …) are appended
      underneath rather than dropped. */
   var METHOD_ORDER = [
+    'filter_market', 'filter_period', 'sort',
     'spend', 'purchases', 'cpa', 'roas', 'cpm', 'ctr', 'link_ctr',
     'hook_rate', 'hold_rate', 'lpv_rate', 'frequency', 'saves_shares_per_1k',
     'status', 'trend', 'ctr_index', 'hook_index', 'cpa_index',
     'uploaded', 'days_active', 'market', 'creative', 'ads', 'share',
+    'idx_cpa', 'idx_roas', 'idx_link_ctr', 'idx_hook',
+    'chart_cpa_tag', 'chart_cpa_media',
     'tag', 'media_type', 'promo', 'tag_media',
-    'media_type_mix', 'media_format_mix', 'rising', 'fatiguing_now'
+    'media_type_mix', 'media_format_mix', 'rising', 'fatiguing_now', 'preview'
   ];
   // Covered verbatim by a HELP entry above — printing the payload's shorter
   // version too would be the same definition twice, in two wordings.
@@ -1442,7 +2015,11 @@
     link_ctr: 1, frequency: 1, hook_rate: 1, hold_rate: 1, lpv_rate: 1,
     promo: 1, uploaded: 1, days_active: 1, ctr_index: 1, hook_index: 1,
     cpa_index: 1, status: 1, rising: 1, spend: 1, purchases: 1, cpa: 1,
-    ctr: 1, cpm: 1, roas: 1, social_per_1k: 1
+    ctr: 1, cpm: 1, roas: 1, social_per_1k: 1,
+    // v4: the payload's shorter wording for the same four index columns and
+    // the filter grid, all of which HELP states at length above.
+    cpa_index_acct: 1, roas_index_acct: 1, ctr_index_acct: 1, hook_index_acct: 1,
+    filters: 1
   };
 
   function renderMethod(d) {
@@ -1484,29 +2061,52 @@
 
   function render(d) {
     $('content').hidden = false;
+    $('failed').hidden = true;
+    $('pending').hidden = true;
     var w = d.window || {};
     var s = d.sources || {};
+    var fl = d.filters || {};
     var markets = s.markets || ['SE', 'NO'];
+    var single = markets.length === 1;
     IMG_LABELS = s.image_labels || {};
 
     $('pageSub').textContent = 'Creative analysis · ' + (s.account_label || 'Meta') + ' · ad level';
+    $('kpiTitle').textContent = periodLabel(w.days);
     $('kpiSub').textContent = w.from + ' – ' + w.to + ', ' + markets.join('+') +
                               '. Compared with ' + w.prev_from + ' – ' + w.prev_to + '.';
     $('ctx').innerHTML =
       '<span><b>Attribution:</b> Meta default window (7d click / 1d view)</span>' +
       '<span><b>Source:</b> ' + esc(s.insights || s.marts || '') + '</span>' +
       '<span><b>Markets:</b> ' + esc(markets.join(', ')) + ' (read from the ad name)</span>' +
-      '<span><b>Ranking floors:</b> ' + int(s.min_spend) + ' kr over 7 days, ' +
-        int(s.min_spend_l28) + ' kr over 28</span>';
+      // Two floors, named by what each one gates rather than by its window:
+      // at any period but 7 days the two windows are the same range, and
+      // "1 200 kr over 28 days, 1 000 kr over 28 days" reads as a mistake.
+      '<span><b>Ranking floors:</b> ' + int(s.min_spend) + ' kr for the top-5 tables, ' +
+        int(s.min_spend_l28) + ' kr for the leaderboards and effectiveness tables</span>';
+
+    // Every section tag carries the window it is actually computed over. On the
+    // 7-day preset the long window is 28 days and genuinely differs from the
+    // headline one; at every other period the two are the same, and saying so
+    // is what stops a reader assuming the leaderboards are still monthly.
     $('fatigueTag').textContent = w.from + ' – ' + w.to;
     $('lbTag').textContent = (w.l28_from || '') + ' – ' + (w.l28_to || w.to);
-    $('lbSub').textContent = 'Ranked over the last ' + int(w.long_days || 28) + ' days, minimum ' +
-      int(s.min_spend_l28) + ' kr spend so a single cheap impression cannot top a card. ' +
+    $('rollupTag').textContent = periodLabel(w.long_days);
+    $('mixTag').textContent = periodLabel(w.days);
+    $('topTag').textContent = single ? 'Top 5' : 'Top 5 / market';
+    $('mixSub').textContent = 'Spend split by media type and tagged concept, ' +
+      markets.join('+') + ', ' + w.from + ' – ' + w.to +
+      '. Both are derived from the ad name — see the method box at the bottom.';
+    $('lbSub').textContent = 'Ranked over ' + w.l28_from + ' – ' + w.l28_to + ' (' +
+      int(w.long_days) + ' days), minimum ' + int(s.min_spend_l28) +
+      ' kr spend so a single cheap impression cannot top a card. ' +
       'DPA / catalog is excluded — it is a feed, not a creative anyone iterates on.';
-    $('rollupSub').textContent = 'Ratio of sums over the last ' + int(w.long_days || 28) +
-      ' days. "n ads" is there so a row built on one creative is visible as such.';
-    $('topSub').textContent = 'Top 5 per market, ranked by lowest cost per purchase (CPA) over the last 7 days, minimum ' +
-      int(s.min_spend) + ' kr spend for statistical relevance. Platform ROAS is shown as context, ' +
+    $('rollupSub').textContent = 'Ratio of sums over ' + w.l28_from + ' – ' + w.l28_to +
+      ' (' + int(w.long_days) + ' days). "Ads" is there so a row built on one creative is ' +
+      'visible as such, and every index column compares the row against the account average ' +
+      'for this same window — above 1,00× is better, CPA included.';
+    $('topSub').textContent = 'Ranked by lowest cost per purchase (CPA) over ' + w.from +
+      ' – ' + w.to + ', minimum ' + int(s.min_spend) +
+      ' kr spend for statistical relevance. Platform ROAS is shown as context, ' +
       'not as the ranking basis. DPA / catalog is excluded.';
     $('recentSub').textContent = 'Ads created ' + w.from + ' to ' + w.to +
       ' that delivered. Ranked by attributed purchases in the window.';
@@ -1517,21 +2117,26 @@
 
     var kpis = d.kpis || {};
     if (kpis.combined) renderKpis(kpis.combined);
-    renderMarkets(kpis, markets);
+    renderMarkets(kpis, markets, single);
 
     renderFatigue(d.fatigue || {}, w);
     renderLeaderboards(d.leaderboards || {});
 
     var ro = d.rollups || {};
+    var avg = ro.averages || {};
     renderRollup('rollTag', ro.by_tag || [], 'Concept tag', 'tag');
     renderRollup('rollMedia', ro.by_media_type || [], 'Media type', 'media_type');
     renderRollup('rollPromo', ro.by_promo || [], 'Type', 'promo');
+    $('crossCard').hidden = !(ro.by_tag_media || []).length;
     if ((ro.by_tag_media || []).length) {
-      $('crossCard').hidden = false;
       $('crossSub').textContent = 'Only cells above the ' + int(s.min_spend_l28) +
-        ' kr floor are shown — below it the cross is a list of one-ad curiosities.';
+        ' kr floor are shown — below it the cross is a list of one-ad curiosities. ' +
+        'The index columns still compare against the whole account, not against the surviving cells.';
       renderRollup('rollCross', ro.by_tag_media, 'Tag × media type', 'tag_media');
     }
+    renderBarChart('chartTag', 'chartTagNote', ro.by_tag || [], avg.by_tag, 'concept tags');
+    renderBarChart('chartMedia', 'chartMediaNote', ro.by_media_type || [], avg.by_media_type,
+                   'media types');
 
     var total = kpis.combined ? kpis.combined.spend : null;
     renderMix('donut1', 'legend1', d.media_types || [], 'Spend by media type', total);
@@ -1539,9 +2144,15 @@
     setFlag('flag1', mediaFlag(d.media_types || []));
     setFlag('flag2', formatFlag(d.media_formats || []));
 
+    // A single-market view hides the other market's card rather than showing
+    // an empty one: "no SE ad qualified" and "SE was not asked for" are
+    // different statements and the table cannot tell them apart.
     var top = d.top_creatives || {};
-    renderTop('topSE', top.SE || []);
-    renderTop('topNO', top.NO || []);
+    ['SE', 'NO'].forEach(function (m) {
+      var on = markets.indexOf(m) >= 0;
+      $('topCard' + m).hidden = !on;
+      if (on) renderTop('top' + m, top[m] || []);
+    });
     renderRecent(d.recent || []);
     renderMethod(d);
 
@@ -1552,15 +2163,16 @@
 
     // The tables carry data-tools, so they were enhanced empty at
     // DOMContentLoaded; re-derive column types now that they have rows. The
-    // numeric columns are pinned rather than sniffed: the fatigue board's
+    // numeric columns are pinned rather than sniffed: the creatives board's
     // index column renders "0,73×" and its Uploaded column an ISO date, both
-    // of which the heuristic would type wrongly. Indices shifted by one when
-    // Trend moved into column 3.
+    // of which the heuristic would type wrongly. Indices shifted again when
+    // Purchases and ROAS joined the board.
     if (window.TableTools) {
       window.TableTools.enhance($('fatigueTable'),
-        { numericColumns: [5, 6, 7, 8, 9, 10, 11, 12, 13] });
+        { numericColumns: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] });
       ['rollTag', 'rollMedia', 'rollPromo', 'rollCross'].forEach(function (id) {
-        window.TableTools.enhance($(id), { numericColumns: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] });
+        window.TableTools.enhance($(id),
+          { numericColumns: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] });
       });
       window.TableTools.enhance($('recentTable'), { numericColumns: [5, 6, 7, 8, 9] });
       window.TableTools.refreshAll();
@@ -1570,11 +2182,14 @@
   /* ── Lightbox ─────────────────────────────────────────────────────────────
      Delegated, because every .thumb is created after this script runs. */
   var lastFocus = null;
-  function lbOpen(src, cap, source) {
+  function lbOpen(src, cap, source, preview, w, h) {
     var img = $('lb-img');
     img.src = src;
     img.alt = cap;
     $('lb-cap').textContent = cap;
+    var pv = $('lb-preview');
+    pv.hidden = !preview;
+    if (preview) pv.href = preview;
     // The mirror stores the long side at up to 640px, so a full-size still or a
     // video poster fills the frame. A 64px thumbnail is NOT stretched across
     // it: Meta signs the size into that URL (stp=…p64x64…) and every attempt at
@@ -1584,7 +2199,11 @@
     img.onload = function () {
       img.style.maxWidth = img.naturalWidth < 160 ? (img.naturalWidth * 3) + 'px' : '';
     };
-    $('lb-src').textContent = source ? (IMG_LABELS[source] || source) : '';
+    // The source's real pixel size, which the mirror records per document.
+    // "1080 × 1080" answers "is this soft because of us or because of Meta"
+    // without anyone having to know the rendition names.
+    var label = source ? (IMG_LABELS[source] || source) : '';
+    $('lb-src').textContent = label + (w ? (label ? ' · ' : '') + w + ' × ' + h + ' px' : '');
     $('lb').setAttribute('data-open', 'true');
     $('lb-close').focus();
   }
@@ -1592,15 +2211,32 @@
     $('lb').setAttribute('data-open', 'false');
     $('lb-img').removeAttribute('src');
     $('lb-src').textContent = '';
+    $('lb-preview').hidden = true;
     if (lastFocus) lastFocus.focus();
+  }
+  function lbFromThumb(b) {
+    lastFocus = b;
+    lbOpen(b.getAttribute('data-src'), b.getAttribute('data-cap') || '',
+           b.getAttribute('data-source') || '', b.getAttribute('data-preview') || '',
+           b.getAttribute('data-w'), b.getAttribute('data-h'));
   }
   // Open is delegated because every .thumb is created after this script runs.
   document.addEventListener('click', function (e) {
+    // "Enlarge image", the escape hatch on a row whose thumbnail opens the
+    // preview instead. It sits in the same <td> as the thumbnail.
+    var en = e.target.closest ? e.target.closest('a.enlarge') : null;
+    if (en) {
+      e.preventDefault();
+      var row = en.closest('tr') || en.closest('li');
+      var t = row && row.querySelector('.thumb');
+      if (t) lbFromThumb(t);
+      return;
+    }
     var b = e.target.closest ? e.target.closest('.thumb') : null;
     if (!b) return;
-    lastFocus = b;
-    lbOpen(b.getAttribute('data-src'), b.getAttribute('data-cap') || '',
-           b.getAttribute('data-source') || '');
+    var prev = b.getAttribute('data-preview');
+    if (prev) { window.open(prev, '_blank', 'noopener'); return; }
+    lbFromThumb(b);
   });
   // Close listens on mousedown on the overlay itself, NOT on a shared document
   // click: the press that opens the lightbox starts on a thumbnail, so the
@@ -1611,21 +2247,143 @@
     if ((e.key === 'Escape' || e.key === 'Esc') && $('lb').getAttribute('data-open') === 'true') lbClose();
   });
 
-  fetch('/api/meta', { credentials: 'same-origin' })
-    .then(function (r) { return r.json(); })
-    .then(function (data) {
-      SNAP = data;
-      setPill(data.generated_at);
-      if (!data.generated_at) {
-        $('pending').hidden = false;
-        return;
-      }
-      render(data);
-    })
-    .catch(function (e) {
-      $('failed').hidden = false;
-      $('failed').textContent = 'Could not load /api/meta: ' + e.message;
+  /* ── Filters ──────────────────────────────────────────────────────────────
+     Market × period. Nothing is computed here and nothing is filtered in the
+     browser: the refresh job precomputes all 12 combinations into their own
+     Firestore documents, so a switch is one GET of one snapshot and a full
+     re-render. That is the only way this stays a snapshot tab — filtering
+     client-side would mean shipping every period in every document, and
+     filtering server-side would mean a live BigQuery query per click.
+
+     State lives in three places, in this order of authority:
+       1. the URL query string, so a view can be pasted into Slack;
+       2. localStorage, so a return visit lands where the reader left;
+       3. the defaults the payload itself declares.
+     Every change writes 1 and 2. */
+  var MARKET_LABELS = { all: 'All', SE: 'SE', NO: 'NO' };
+  var LS_KEY = 'meta.filters.v4';
+  var DEFAULTS = { market: 'all', days: 7 };
+  var OPTS = { markets: ['all', 'SE', 'NO'], days: [7, 14, 28, 90] };
+  var state = { market: DEFAULTS.market, days: DEFAULTS.days };
+  var inflight = 0;
+
+  function readState() {
+    var out = { market: DEFAULTS.market, days: DEFAULTS.days };
+    try {
+      var saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+      if (OPTS.markets.indexOf(saved.market) >= 0) out.market = saved.market;
+      if (OPTS.days.indexOf(+saved.days) >= 0) out.days = +saved.days;
+    } catch (e) { /* private mode, cleared storage — defaults are fine */ }
+    var qs = new URLSearchParams(location.search);
+    // The URL wins over the remembered choice: a pasted link must show what
+    // its sender saw. An unknown value is ignored rather than 404ing the view.
+    if (OPTS.markets.indexOf(qs.get('market')) >= 0) out.market = qs.get('market');
+    if (OPTS.days.indexOf(+qs.get('days')) >= 0) out.days = +qs.get('days');
+    return out;
+  }
+
+  function saveState() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) { /* noop */ }
+    var qs = new URLSearchParams(location.search);
+    qs.set('market', state.market);
+    qs.set('days', String(state.days));
+    // replaceState, not pushState: the filters are a view of one page, not a
+    // history of pages, and Back should leave the tab rather than walk the
+    // reader through every setting they tried.
+    history.replaceState(null, '', location.pathname + '?' + qs.toString() + location.hash);
+  }
+
+  function buildSegs() {
+    $('segMarket').innerHTML = OPTS.markets.map(function (m) {
+      return '<button type="button" data-v="' + esc(m) + '" aria-pressed="false">' +
+             esc(MARKET_LABELS[m] || m) + '</button>';
+    }).join('');
+    $('segDays').innerHTML = OPTS.days.map(function (d) {
+      return '<button type="button" data-v="' + d + '" aria-pressed="false">' + d + ' days</button>';
+    }).join('');
+    $('segMarket').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (b && b.dataset.v !== state.market) { state.market = b.dataset.v; load(); }
     });
+    $('segDays').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (b && +b.dataset.v !== state.days) { state.days = +b.dataset.v; load(); }
+    });
+  }
+
+  function markSegs() {
+    Array.prototype.forEach.call($('segMarket').children, function (b) {
+      b.setAttribute('aria-pressed', b.dataset.v === state.market ? 'true' : 'false');
+    });
+    Array.prototype.forEach.call($('segDays').children, function (b) {
+      b.setAttribute('aria-pressed', +b.dataset.v === state.days ? 'true' : 'false');
+    });
+  }
+
+  /* The dates in force, beside the controls. "28 days" is not a date range —
+     the window ends two days ago so attribution has settled, which nobody
+     guesses. */
+  function setWindowLabel(d) {
+    var w = (d && d.window) || {};
+    if (!w.from) { $('fwin').textContent = ''; return; }
+    var long = w.long_days !== w.days
+      ? ' Leaderboards and effectiveness use ' + w.l28_from + ' – ' + w.l28_to +
+        ' (' + int(w.long_days) + ' days).'
+      : '';
+    $('fwin').innerHTML = '<b>' + esc(w.from) + ' – ' + esc(w.to) + '</b> · ' + int(w.days) +
+      ' days, ending 2 days back so attribution has settled. Compared with ' +
+      esc(w.prev_from) + ' – ' + esc(w.prev_to) + '.' + esc(long);
+  }
+
+  function load() {
+    var seq = ++inflight;
+    markSegs();
+    saveState();
+    $('filters').hidden = false;
+    $('filters').classList.add('busy');
+    fetch('/api/meta?market=' + encodeURIComponent(state.market) +
+          '&days=' + encodeURIComponent(state.days), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        // A slow first request must not overwrite a faster later one.
+        if (seq !== inflight) return;
+        SNAP = data;
+        $('filters').classList.remove('busy');
+        setPill(data.generated_at);
+        // The server states which combination it actually served — an older
+        // snapshot set can be missing a document, and it answers with the
+        // default rather than a blank page. Follow it, so the pressed buttons
+        // never claim a window that is not on screen.
+        var got = data.filters || {};
+        if (OPTS.markets.indexOf(got.market) >= 0) state.market = got.market;
+        if (OPTS.days.indexOf(+got.days) >= 0) state.days = +got.days;
+        if (got.available_markets && got.available_markets.length) {
+          OPTS.markets = got.available_markets;
+          OPTS.days = got.available_days || OPTS.days;
+        }
+        markSegs();
+        setWindowLabel(data);
+        if (!data.generated_at) {
+          $('content').hidden = true;
+          $('pending').hidden = false;
+          return;
+        }
+        render(data);
+      })
+      .catch(function (e) {
+        if (seq !== inflight) return;
+        $('filters').classList.remove('busy');
+        $('failed').hidden = false;
+        $('failed').textContent = 'Could not load /api/meta: ' + e.message;
+      });
+  }
+
+  state = readState();
+  buildSegs();
+  // Built before the first render: renderFatigue applies the default sort and
+  // marks the matching chip, so the chips have to exist by then.
+  buildSortBar();
+  load();
 })();
 </script>
 </body>

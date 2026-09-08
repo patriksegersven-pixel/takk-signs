@@ -462,38 +462,99 @@ def api_bundles(_: str = Depends(verify)):
     }
 
 
+# The Meta tab's filter grid. Every combination is a separate Firestore
+# document written by refresh_meta.py; nothing here queries BigQuery, and the
+# response shape is identical whichever combination is asked for.
+#
+# The default (all, 7 days) lives at the bare `meta` key it has had since v1,
+# so an old cached page that asks for no parameters still gets a real snapshot.
+META_MARKETS = ("all", "SE", "NO")
+META_DAYS = (7, 14, 28, 90)
+META_DEFAULT_MARKET = "all"
+META_DEFAULT_DAYS = 7
+
+
+def _meta_cache_key(market: str, days: int) -> str:
+    if market == META_DEFAULT_MARKET and days == META_DEFAULT_DAYS:
+        return "meta"
+    return f"meta__{market}_{days}"
+
+
 @app.get("/api/meta")
-def api_meta(_: str = Depends(verify)):
+def api_meta(market: str = META_DEFAULT_MARKET, days: str = str(META_DEFAULT_DAYS),
+             _: str = Depends(verify)):
     """Meta creatives snapshot (written to Firestore by refresh_meta.py).
 
     Same 200-with-a-skeleton contract as /api/bundles. Shape mirrors
-    refresh_meta.build_payload() — keep the two in step."""
+    refresh_meta.build_one() — keep the two in step.
+
+    `market` and `days` select one precomputed combination. An unknown value
+    falls back to the default rather than 400ing: this is a dashboard read, a
+    hand-edited URL should show the default view instead of an error page, and
+    the `filters` block in the response always states which combination was
+    actually served."""
     from funnel_client import get_cache
 
+    # `days` is typed as a string on purpose: FastAPI would answer ?days=abc
+    # with a 422 validation page, and a dashboard URL someone hand-edited
+    # should show the default view, not an error.
+    if market not in META_MARKETS:
+        market = META_DEFAULT_MARKET
     try:
-        data = get_cache().get("meta")
+        days_n = int(days)
+    except (TypeError, ValueError):
+        days_n = META_DEFAULT_DAYS
+    if days_n not in META_DAYS:
+        days_n = META_DEFAULT_DAYS
+    days = days_n
+
+    cache = None
+    try:
+        cache = get_cache()
+        data = cache.get(_meta_cache_key(market, days))
     except Exception as e:
         print(f"ERROR /api/meta: {type(e).__name__}: {e}", flush=True)
         data = None
+    # A combination whose document has not been written yet (an older refresh
+    # run, or a TTL expiry mid-rollout) falls back to the default document
+    # rather than to an empty skeleton — the wrong window is far better than a
+    # blank page, and the echoed filters say which one is on screen.
+    if data is None and (market, days) != (META_DEFAULT_MARKET, META_DEFAULT_DAYS):
+        try:
+            data = cache.get("meta") if cache else None
+        except Exception as e:
+            print(f"ERROR /api/meta fallback: {type(e).__name__}: {e}", flush=True)
+            data = None
     if data is not None:
+        # Old snapshots predate the filter block; state the default rather than
+        # letting the page think its request was honoured.
+        data.setdefault("filters", {"market": META_DEFAULT_MARKET,
+                                    "days": META_DEFAULT_DAYS})
+        data["filters"]["available_markets"] = list(META_MARKETS)
+        data["filters"]["available_days"] = list(META_DAYS)
         return data
     return {
         "generated_at": None,
         "sources": {"insights": None, "ads": None, "creatives": None,
                     "marts": None, "account_id": None,
                     "account_label": None, "attribution": "7d_click,1d_view",
-                    "markets": ["SE", "NO"], "min_spend": 300,
+                    "markets": ["SE", "NO"], "all_markets": ["SE", "NO"],
+                    "min_spend": 300,
                     "min_spend_l28": 1000, "images": "",
                     "instagram_coverage": {}},
+        "filters": {"market": market, "days": days,
+                    "available_markets": list(META_MARKETS),
+                    "available_days": list(META_DAYS)},
         "window": {"from": None, "to": None, "prev_from": None,
                    "prev_to": None, "l28_from": None, "l28_to": None,
-                   "days": 7, "long_days": 28},
+                   "days": days, "long_days": 28 if days == 7 else days},
         "kpis": {}, "media_types": [], "media_formats": [],
         "fatigue": {"rows": [], "by_status": [], "total_spend": None,
                     "at_risk_spend": None, "at_risk_pct": None,
                     "thresholds": {}},
         "leaderboards": {}, "rollups": {"by_tag": [], "by_media_type": [],
-                                        "by_promo": [], "by_tag_media": []},
+                                        "by_promo": [], "by_tag_media": [],
+                                        "averages": {}, "index_metrics": []},
         "top_creatives": {"SE": [], "NO": []}, "recent": [],
         "caveats": ["no Meta snapshot yet — refresh_meta.py has not run"],
     }

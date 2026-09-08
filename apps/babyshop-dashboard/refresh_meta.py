@@ -2,10 +2,32 @@
 """
 Meta creatives snapshot — Bluebird warehouse (cross-project) → Firestore.
 
-Writes `funnel_cache/<workspace>__meta`, the single document the "Meta
-creatives" tab reads. Same client/auth wiring and the same
-{data, fetched_at, expires_at, ttl_seconds, workspace} wrapper as
+Writes the documents the "Meta creatives" tab reads. Same client/auth wiring
+and the same {data, fetched_at, expires_at, ttl_seconds, workspace} wrapper as
 refresh_bundles.py / refresh_segments.py.
+
+MARKET × PERIOD FILTERS (v4)
+  The tab is a nightly snapshot and must stay one Firestore read per view, so
+  every combination the filter bar can select is PRECOMPUTED here rather than
+  queried on demand:
+
+    markets  all / SE / NO          periods  7 / 14 / 28 / 90 days
+
+  12 documents:
+    funnel_cache/<ws>__meta                  — the default (all, 7 d), kept at
+                                               the legacy id for compatibility
+    funnel_cache/<ws>__meta__<market>_<days> — the other 11
+
+  BigQuery is queried ONCE, at ad-day grain, over the longest span any
+  combination needs (90 d + its 90 d comparison = 180 days) plus the per-ad
+  weekly history the fatigue baselines need. Every window is then summed in
+  Python. Adding a period costs no extra query.
+
+  Window semantics per period, so the 7-day preset behaves exactly as v3 did:
+    7 d   current = L7,  leaderboards / rollups = L28
+    14/28/90 d  current = leaderboards = rollups = the selected period
+  The relevance floors scale with the window length (300 kr over 7 days is
+  1 200 kr over 28), so "minimum spend" always means the same RATE of spend.
 
 WHERE THE DATA COMES FROM
   v1 read the pre-aggregated mart `babyshop_marts.agg_daily_kpis_by_ad`. v2
@@ -61,12 +83,13 @@ WINDOWS
   Pin the end with META_END_DATE=YYYY-MM-DD to reproduce a specific report.
 
 Run locally:
-  # query the warehouse as the kuvio account, dump the payload, write nothing
+  # query the warehouse as the kuvio account, dump ALL 12 payloads to one file,
+  # write nothing
   CLOUDSDK_CORE_ACCOUNT=patrik@kuvio.io META_AUTH=gcloud \\
     META_BQ_BILLING_PROJECT=claude-private-499703 \\
     SKIP_FIRESTORE=1 META_OUT=/tmp/meta.json python3 refresh_meta.py
 
-  # write that payload to Firestore as the gmail account, no BigQuery at all
+  # write that bundle to Firestore as the gmail account, no BigQuery at all
   META_IN=/tmp/meta.json python3 refresh_meta.py
 """
 from __future__ import annotations
@@ -77,6 +100,10 @@ from google.cloud import bigquery
 DATA_PROJECT   = os.environ.get("META_DATA_PROJECT", "claude-private-499703")
 MARTS_DATASET  = os.environ.get("META_MARTS_DATASET", "babyshop_marts")
 STAGING_DATASET = os.environ.get("META_STAGING_DATASET", "babyshop_staging")
+# The connector's landing dataset. Nothing is read from it in the normal case —
+# the staging views already resolve against it — but it is where a newly loaded
+# Meta field appears FIRST, before any dbt model exposes it (see preview_source).
+RAW_DATASET    = os.environ.get("META_RAW_DATASET", "babyshop_raw")
 # … and the project the query JOB is billed to. Defaults to this dashboard's
 # own project: the runtime SA has jobUser there and needs only dataViewer on
 # the datasets above. Override to the data project when running locally as a
@@ -118,17 +145,34 @@ IMAGE_WORKERS      = int(os.environ.get("META_IMAGE_WORKERS", "8"))
 # 0 = every ad in the payload. Set META_IMAGE_ADS=15 for a local run so the
 # mirror exercises the real code path without pulling ~90 images.
 IMAGE_ADS_CAP      = int(os.environ.get("META_IMAGE_ADS", "0"))
+# The production ceiling. Only ads that SPENT inside the longest window (90 d)
+# are mirrored at all, and at most this many of them, highest 90-day spend
+# first — an account that suddenly ships 2 000 creatives must not turn one
+# nightly run into a 2 000-image download.
+IMAGE_MAX          = int(os.environ.get("META_IMAGE_MAX", "300"))
 SKIP_IMAGES        = os.environ.get("META_SKIP_IMAGES") == "1"
-# Best first. A doc is only re-fetched when the available source outranks the
-# stored one (so a 'thumbnail' entry is replaced the day a poster appears).
-IMAGE_SOURCE_RANK  = {"image_url": 4, "video_poster": 3, "link_picture": 2,
-                      "thumbnail": 1}
+# Best first. A doc is re-fetched as soon as a BETTER source becomes available
+# (a 'thumbnail' entry is replaced the day a poster or an HD thumbnail appears)
+# and is NEVER overwritten by a worse one, however stale it is.
+#
+# thumbnail_hd is the same creative.thumbnail_url field, sized differently: the
+# size is signed into the URL (stp=…p64x64… vs …p1080x1080…), so the rendition
+# is knowable from the string without fetching it. The connector was switched
+# to request thumbnail_width/height=1200 on the adcreatives edge, which turns
+# most of this account's 64 px squares into 1080 px ones; a URL that still
+# carries p64x64/s64x64 is genuinely all Meta will give for that ad.
+IMAGE_SOURCE_RANK  = {"image_url": 5, "video_poster": 4, "thumbnail_hd": 3,
+                      "link_picture": 2, "thumbnail": 1}
 IMAGE_SOURCE_LABEL = {
     "image_url":    "full-size",
     "video_poster": "video poster",
+    "thumbnail_hd": "creative thumbnail, full size",
     "link_picture": "link preview image",
     "thumbnail":    "64 px thumbnail — Meta does not expose a larger one for this ad",
 }
+# A thumbnail_url carrying one of these is the 64 px rendition. Anything else
+# is whatever size the connector asked the adcreatives edge for.
+THUMB_SMALL_RE = re.compile(r"[ps]64x64")
 IMAGE_UA = ("Mozilla/5.0 (compatible; babyshop-dashboard meta-refresh; "
             "+https://github.com/patriksegersven-pixel/takk-signs)")
 
@@ -137,12 +181,49 @@ LONG_DAYS    = int(os.environ.get("META_LONG_DAYS", "28"))
 SETTLE_DAYS  = int(os.environ.get("META_SETTLE_DAYS", "2"))
 MARKETS      = ["SE", "NO"]
 
+# ── The filter grid ──────────────────────────────────────────────────────────
+# Every combination is precomputed into its own Firestore document. "all" is
+# SE+NO, i.e. exactly what v3 showed.
+MARKET_OPTIONS = ["all"] + MARKETS
+PERIOD_OPTIONS = [int(x) for x in
+                  os.environ.get("META_PERIODS", "7,14,28,90").split(",") if x.strip()]
+DEFAULT_MARKET = "all"
+DEFAULT_DAYS   = WINDOW_DAYS
+# The BigQuery scan has to cover the longest period AND its equally long
+# comparison period: 90 + 90 = 180 days back from the settled end date.
+MAX_DAYS       = max(PERIOD_OPTIONS)
+
+
+def combo_key(market: str, days: int) -> str:
+    """The Firestore document suffix for one combination.
+
+    The default combination keeps the bare `__meta` id it has had since v1, so
+    an older client (or a cached page) that asks for no filters still lands on
+    a real document."""
+    if market == DEFAULT_MARKET and days == DEFAULT_DAYS:
+        return DOC_KEY
+    return f"{DOC_KEY}__{market}_{days}"
+
 # ── Relevance floors ─────────────────────────────────────────────────────────
 # Nothing is ranked below these. They are shown in the UI rather than applied
 # silently: a leaderboard whose floor the reader cannot see is a leaderboard
 # the reader cannot argue with.
 MIN_SPEND_L7  = float(os.environ.get("META_MIN_SPEND", "300"))     # L7 rankings
 MIN_SPEND_L28 = float(os.environ.get("META_MIN_SPEND_L28", "1000"))  # L28 rankings
+
+
+def floor_short(days: int) -> float:
+    """The current-window floor, scaled to the selected period.
+
+    A fixed 300 kr means "spent enough to be worth ranking" over 7 days and
+    almost nothing over 90. Scaling keeps the floor a RATE of spend, so the
+    top-5 tables mean the same thing at every period."""
+    return round(MIN_SPEND_L7 * days / WINDOW_DAYS)
+
+
+def floor_long(long_days: int) -> float:
+    """Same, for the leaderboard / rollup window."""
+    return round(MIN_SPEND_L28 * long_days / LONG_DAYS)
 
 TOP_N     = int(os.environ.get("META_TOP_N", "5"))
 RECENT_N  = int(os.environ.get("META_RECENT_N", "5"))
@@ -231,6 +312,15 @@ CAVEATS = [
     "not reconcile to Norce orders and are not comparable to the KV tab",
     "the window ends " + str(SETTLE_DAYS) + " days before today so attribution "
     "has settled; the last two days of spend are deliberately not shown",
+    "the market and period controls do not query anything: every combination "
+    "is precomputed by this job into its own snapshot, so switching them reads "
+    "one document and nothing is recalculated in the browser",
+    "the relevance floors scale with the selected period — 300 kr over 7 days "
+    "is 1 200 kr over 28 — so a ranking means the same thing at every period; "
+    "the figure in force is printed under each table",
+    "index columns in the effectiveness tables compare a group against the "
+    "ACCOUNT AVERAGE for the same window and the same table, not against the "
+    "ad's own history (that is what the fatigue indices do)",
 ]
 
 DEFINITIONS = {
@@ -287,10 +377,24 @@ DEFINITIONS = {
                  "never had a full week over " + str(int(BASELINE_MIN_SPEND))
                  + " kr, so there is nothing to compare against. The index is "
                  "the hook index for video ads and the link-CTR index otherwise",
-    "top5":      "per market, ranked by lowest CPA over the L7 window, minimum "
-                 + str(int(MIN_SPEND_L7)) + " kr spend, DPA / catalog excluded",
-    "leaderboards": "L28, minimum " + str(int(MIN_SPEND_L28)) + " kr spend, "
-                    "DPA / catalog excluded",
+    "top5":      "per market, ranked by lowest CPA over the selected window, "
+                 "minimum " + str(int(MIN_SPEND_L7)) + " kr spend per 7 days of "
+                 "window, DPA / catalog excluded",
+    "leaderboards": "the long window (28 days on the 7-day preset, otherwise the "
+                    "selected period), minimum " + str(int(MIN_SPEND_L28))
+                    + " kr spend per 28 days of window, DPA / catalog excluded",
+    "cpa_index_acct": "account average CPA ÷ the group's CPA over the same "
+                      "window and the same table. Above 1.00 means the group "
+                      "buys purchases more cheaply than the account does; the "
+                      "column prints the deviation from 1.00 as a signed "
+                      "percentage so every index reads 'better' upwards",
+    "roas_index_acct": "the group's ROAS ÷ the account average ROAS, same window",
+    "ctr_index_acct":  "the group's link CTR ÷ the account average link CTR",
+    "hook_index_acct": "the group's hook rate ÷ the account average hook rate "
+                       "over VIDEO ads only, on both sides of the ratio",
+    "filters":   "market (all / SE / NO) and period (7 / 14 / 28 / 90 days) are "
+                 "precomputed combinations, not live queries; the window shown "
+                 "beside the controls is the exact date range in force",
     "rising":    "first spend within the last " + str(RISING_DAYS) + " days, "
                  "ranked by L28 purchases",
     "recent":    "ads whose created_time falls in the L7 window and whose ad_name "
@@ -363,6 +467,8 @@ def _f(v) -> float:
 INS  = f"`{DATA_PROJECT}.{STAGING_DATASET}.stg_meta__ads_insights`"
 ADS  = f"`{DATA_PROJECT}.{STAGING_DATASET}.stg_meta__ads`"
 CREA = f"`{DATA_PROJECT}.{STAGING_DATASET}.stg_meta__ad_creatives`"
+# Raw only — read by preview_source() and by nothing else.
+RAW_ADS = f"`{DATA_PROJECT}.{RAW_DATASET}.ads_native`"
 
 
 def ACT(action_type: str, col: str = "i.actions") -> str:
@@ -406,10 +512,11 @@ DERIVE = r"""
       ELSE 'Untagged / legacy' END                        AS tag
 """
 
-# The per-day projection every query starts from: the staging insights row
-# joined to its ad and creative, with the actions JSON unnested into columns.
+# The per-day MEASURE projection. Dimensions are deliberately not here: they
+# are constant per ad and would repeat ~30 times per ad across the 180-day
+# scan, thumbnail URLs included.
 DAY_SELECT = f"""
-      i.date, i.ad_id, i.ad_name, i.campaign_name, i.market, i.account_id,
+      i.date, i.ad_id,
       CAST(i.spend AS FLOAT64)                    AS spend,
       i.impressions, i.clicks,
       CAST(i.reach AS FLOAT64)                    AS reach,
@@ -430,11 +537,7 @@ DAY_SELECT = f"""
       {ACT('post_reaction')}                      AS reactions,
       {ACT('post')}                               AS shares,
       {ACT('onsite_conversion.post_save')}        AS saves,
-      {ACT('comment')}                            AS comments,
-      x.uploaded, x.effective_status, x.thumbnail_url, x.image_url,
-      x.video_poster_url, x.link_picture_url,
-      x.instagram_permalink_url, x.creative_title, x.creative_body,
-      x.creative_video_id
+      {ACT('comment')}                            AS comments
 """
 
 # object_story_spec is the only place a full-size still lives for most of this
@@ -443,10 +546,89 @@ DAY_SELECT = f"""
 # is the same idea for link ads. Page-post SHARE creatives carry an (almost)
 # empty story spec and no image_hash URL at all — for those the 64px thumbnail
 # is genuinely the only rendition the connector exposes.
-DIMS_CTE = f"""
+
+# ── preview_shareable_link ───────────────────────────────────────────────────
+# Meta's shareable ad preview (a facebook.com/ads/… URL that renders the ad as
+# it appears in feed) is NOT in this feed today: neither stg_meta__ads nor the
+# raw ads_native carries a column of that name — verified against
+# INFORMATION_SCHEMA on 2026-09-08. Henrik has been asked for it; it needs a
+# Facebook login to open, which is fine for the agency and the marketing team.
+#
+# Rather than hard-code its absence, the job LOOKS for it every run, in BOTH
+# places it could appear, and passes it through the moment the connector starts
+# loading it:
+#   1. babyshop_staging.stg_meta__ads — where it belongs once the dbt model on
+#      the new stack exposes it;
+#   2. babyshop_raw.ads_native — where the connector lands it FIRST. Checking
+#      raw too means the tab lights up on the next nightly run instead of
+#      waiting on a dbt release on the other stack.
+# Neither carries it today (verified against INFORMATION_SCHEMA 2026-09-08).
+# A null `preview_url` is the only thing the tab sees until one of them does.
+PREVIEW_COLUMN = "preview_shareable_link"
+# (select expression, extra CTE text prepended to dims). None until probed.
+_preview: tuple[str, str] | None = None
+
+
+def _has_column(dataset: str, table: str, column: str) -> bool:
+    return bool(q(f"""
+      SELECT 1
+      FROM `{DATA_PROJECT}.{dataset}.INFORMATION_SCHEMA.COLUMNS`
+      WHERE table_name = '{table}' AND column_name = '{column}'
+    """))
+
+
+def preview_source() -> tuple[str, str]:
+    """Where preview_url comes from this run: (expression, extra CTE).
+
+    Probed once per process, and never fatal: if the probe itself fails the job
+    carries on with no preview links rather than losing the whole snapshot over
+    a cosmetic field.
+
+    The raw branch has to de-duplicate. `ads_native` is Airbyte's landing
+    table — one row per ad PER SYNC — so joining it straight onto dims would
+    fan every ad out into as many rows as it has been synced, and silently
+    multiply every creative in the payload. One newest non-null value per ad
+    is taken instead."""
+    global _preview
+    if _preview is not None:
+        return _preview
+    _preview = ("CAST(NULL AS STRING)", "")
+    try:
+        if _has_column(STAGING_DATASET, "stg_meta__ads", PREVIEW_COLUMN):
+            _preview = (f"a.{PREVIEW_COLUMN}", "")
+            print(f"   preview links: stg_meta__ads.{PREVIEW_COLUMN} found",
+                  flush=True)
+        elif _has_column(RAW_DATASET, "ads_native", PREVIEW_COLUMN):
+            _preview = ("p.preview_url", f"""
+      prev AS (
+        SELECT CAST(id AS STRING) AS ad_id,
+               ARRAY_AGG({PREVIEW_COLUMN} IGNORE NULLS
+                         ORDER BY _airbyte_extracted_at DESC
+                         LIMIT 1)[SAFE_OFFSET(0)] AS preview_url
+        FROM {RAW_ADS}
+        GROUP BY id
+      ),""")
+            print(f"   preview links: ads_native.{PREVIEW_COLUMN} found in RAW "
+                  "— staging model has not exposed it yet", flush=True)
+        else:
+            print(f"   preview links: no {PREVIEW_COLUMN} column in staging or "
+                  "raw yet — preview_url stays null", flush=True)
+    except Exception as e:
+        print(f"   ! preview column probe failed ({type(e).__name__}: {e}) — "
+              "preview_url stays null", flush=True)
+    return _preview
+
+
+def dims_cte() -> str:
+    expr, extra = preview_source()
+    # ON, not USING: `ad_id` also exists on the creatives side of the join, and
+    # USING would be ambiguous the moment the raw branch is live.
+    join = "\n        LEFT JOIN prev p ON p.ad_id = a.ad_id" if extra else ""
+    return f"""{extra}
       dims AS (
         SELECT a.ad_id, DATE(a.created_time) AS uploaded, a.effective_status,
                c.thumbnail_url, c.image_url, c.instagram_permalink_url,
+               {expr} AS preview_url,
                JSON_VALUE(c.object_story_spec, "$.video_data.image_url")
                  AS video_poster_url,
                JSON_VALUE(c.object_story_spec, "$.link_data.picture")
@@ -454,36 +636,13 @@ DIMS_CTE = f"""
                c.title AS creative_title, c.body AS creative_body,
                c.video_id AS creative_video_id
         FROM {ADS} a
-        LEFT JOIN {CREA} c USING (creative_id)
+        LEFT JOIN {CREA} c USING (creative_id){join}
       )
 """
 
-# The measures, summed identically wherever an aggregate is taken.
-SUMS = """
-             SUM(spend)          AS spend,
-             SUM(impressions)    AS impressions,
-             SUM(clicks)         AS clicks,
-             SUM(link_clicks)    AS link_clicks,
-             SUM(lpv)            AS lpv,
-             SUM(atc)            AS atc,
-             SUM(ic)             AS ic,
-             SUM(purchases)      AS purchases,
-             SUM(purchase_value) AS purchase_value,
-             SUM(video_plays)    AS video_plays,
-             SUM(video_3s)       AS video_3s,
-             SUM(video_thruplays) AS video_thruplays,
-             SUM(video_p100)     AS video_p100,
-             SUM(video_seconds)  AS video_seconds,
-             SUM(reactions)      AS reactions,
-             SUM(shares)         AS shares,
-             SUM(saves)          AS saves,
-             SUM(comments)       AS comments,
-             -- daily reach is not summable into period reach; summing it
-             -- instead gives Meta's DAILY frequency averaged over the period.
-             SUM(NULLIF(reach, 0)) AS sum_reach,
-             COUNTIF(spend > 0)  AS live_days
-"""
-
+# The measures, summed identically wherever an aggregate is taken. v3 summed
+# them in SQL (a `SUMS` fragment reused per period); v4 sums them in Python
+# because there are now 12 windows over the same ad-day rows.
 MEASURES = ["spend", "impressions", "clicks", "link_clicks", "lpv", "atc", "ic",
             "purchases", "purchase_value", "video_plays", "video_3s",
             "video_thruplays", "video_p100", "video_seconds", "reactions",
@@ -491,28 +650,40 @@ MEASURES = ["spend", "impressions", "clicks", "link_clicks", "lpv", "atc", "ic",
 
 
 # ── Queries ──────────────────────────────────────────────────────────────────
-def per_ad(win: dict) -> list[dict]:
-    """One pass over all three periods at ad_id grain.
+def per_ad_day(scan: dict) -> list[dict]:
+    """Measures at ad × DAY grain over the whole 180-day scan.
 
-    An ad-day belongs to more than one period (the previous L7 sits inside
-    L28), so the periods are a cross-joined array rather than a CASE — a CASE
-    would silently assign each day to exactly one bucket."""
+    v3 asked BigQuery for three pre-summed periods. With 12 filter combinations
+    that would be 12 queries (or one query with a 24-element period array); at
+    this account's volume the whole ad-day matrix is ~8 000 rows, so it is
+    cheaper and far clearer to pull the days once and sum every window in
+    Python. Every combination is then guaranteed to be summing exactly the same
+    numbers."""
     return q(f"""
-      WITH {DIMS_CTE},
+      SELECT {DAY_SELECT}
+      FROM {INS} i
+      WHERE i.date BETWEEN @scan_from AND @to
+    """, scan_from=scan["scan_from"], to=scan["to"])
+
+
+def ad_dims(scan: dict) -> list[dict]:
+    """One row per ad: name, market, tag, media type, promo flag, image URLs.
+
+    Constant per ad, so it is joined in Python instead of riding along on every
+    ad-day row. The DERIVE block is textually the same one v3 used, so the
+    market / media-type / tag rules cannot drift."""
+    return q(f"""
+      WITH {dims_cte()},
       ins AS (
-        SELECT {DAY_SELECT}
+        SELECT i.date, i.ad_id, i.ad_name, i.campaign_name, i.market, i.account_id,
+               x.uploaded, x.effective_status, x.thumbnail_url, x.image_url,
+               x.video_poster_url, x.link_picture_url, x.instagram_permalink_url,
+               x.preview_url, x.creative_title, x.creative_body, x.creative_video_id
         FROM {INS} i LEFT JOIN dims x USING (ad_id)
-        WHERE i.date BETWEEN @l28_from AND @to
+        WHERE i.date BETWEEN @scan_from AND @to
       ),
-      d AS (SELECT *, {DERIVE} FROM ins),
-      p AS (
-        SELECT d.*, period FROM d, UNNEST([
-          IF(d.date BETWEEN @start     AND @to,   'cur',  NULL),
-          IF(d.date BETWEEN @prev_from AND @prev_to, 'prev', NULL),
-          IF(d.date BETWEEN @l28_from  AND @to,   'l28',  NULL)]) AS period
-        WHERE period IS NOT NULL
-      )
-      SELECT period, ad_id,
+      d AS (SELECT *, {DERIVE} FROM ins)
+      SELECT ad_id,
              ANY_VALUE(mk)                     AS mk,
              ANY_VALUE(ad_name)                AS ad_name,
              ANY_VALUE(campaign_name)          AS campaign_name,
@@ -524,25 +695,25 @@ def per_ad(win: dict) -> list[dict]:
              ANY_VALUE(video_poster_url)       AS video_poster_url,
              ANY_VALUE(link_picture_url)       AS link_picture_url,
              ANY_VALUE(instagram_permalink_url) AS instagram_permalink_url,
+             ANY_VALUE(preview_url)            AS preview_url,
              ANY_VALUE(uploaded)               AS uploaded,
              ANY_VALUE(effective_status)       AS effective_status,
              LOGICAL_OR(REGEXP_CONTAINS(
                CONCAT(IFNULL(ad_name,''), ' ', IFNULL(campaign_name,''), ' ',
                       IFNULL(creative_title,''), ' ', IFNULL(creative_body,'')),
-               r'{PROMO_REGEX}'))              AS promo,
-             {SUMS}
-      FROM p
-      GROUP BY period, ad_id
-    """, start=win["from"], to=win["to"], prev_from=win["prev_from"],
-         prev_to=win["prev_to"], l28_from=win["l28_from"])
+               r'{PROMO_REGEX}'))              AS promo
+      FROM d
+      GROUP BY ad_id
+    """, scan_from=scan["scan_from"], to=scan["to"])
 
 
-def weekly(win: dict) -> list[dict]:
+def weekly(scan: dict) -> list[dict]:
     """Per-ad 7-day buckets counted from that ad's first spend day.
 
     Full history, not just the window: the fatigue baseline is the ad's first
     good week, which for a 200-day-old creative is 200 days ago. Restricted to
-    ads that actually spent something in L28 so the scan stays small."""
+    ads that spent inside the LONGEST selectable window, because those are the
+    only ads any combination's board can show."""
     return q(f"""
       WITH hist AS (
         SELECT i.date, i.ad_id,
@@ -557,7 +728,7 @@ def weekly(win: dict) -> list[dict]:
       ),
       live AS (
         SELECT DISTINCT ad_id FROM hist
-        WHERE date BETWEEN @l28_from AND @to AND spend > 0
+        WHERE date BETWEEN @long_from AND @to AND spend > 0
       ),
       h AS (SELECT hist.* FROM hist JOIN live USING (ad_id)),
       fs AS (
@@ -578,24 +749,73 @@ def weekly(win: dict) -> list[dict]:
       WHERE h.date >= fs.first_day
       GROUP BY h.ad_id, fs.first_day, week
       ORDER BY h.ad_id, week
-    """, to=win["to"], l28_from=win["l28_from"])
+    """, to=scan["to"], long_from=scan["long_from"])
 
 
-def recent_ids(win: dict) -> list[dict]:
-    """Ads created inside the L7 window, minus re-uploads.
+def upload_rows(scan: dict) -> list[dict]:
+    """Ads created inside the longest window, each carrying the FIRST created
+    date its ad_name ever had.
 
-    The `prior` anti-join is what makes this panel mean "new work": without it
-    four re-uploads of last month's concepts into the new -shoes adset crowd
-    the genuinely new batch out of the top 5."""
+    v3 ran an anti-join against "any ad with this name created before @start",
+    which is a different query for every period. `first_created` carries the
+    same information for every period at once: an ad is new work in a window
+    when it was created in that window AND no ad of that name existed before
+    the window opened."""
     return q(f"""
-      WITH prior AS (
-        SELECT DISTINCT ad_name FROM {ADS} WHERE DATE(created_time) < @start
+      WITH first_by_name AS (
+        SELECT ad_name, MIN(DATE(created_time)) AS first_created
+        FROM {ADS} GROUP BY ad_name
       )
-      SELECT ad_id, ad_name, DATE(created_time) AS uploaded, effective_status
-      FROM {ADS}
-      WHERE DATE(created_time) BETWEEN @start AND @to
-        AND ad_name NOT IN (SELECT ad_name FROM prior)
-    """, start=win["from"], to=win["to"])
+      SELECT a.ad_id, a.ad_name, DATE(a.created_time) AS uploaded,
+             a.effective_status, f.first_created
+      FROM {ADS} a JOIN first_by_name f USING (ad_name)
+      WHERE DATE(a.created_time) BETWEEN @long_from AND @to
+    """, long_from=scan["long_from"], to=scan["to"])
+
+
+# ── Window aggregation (the old SQL `SUMS`, in Python) ───────────────────────
+def _sum_days(days: list[dict]) -> dict:
+    """Sum one ad's days into the bag of measures `_metrics` expects.
+
+    `sum_reach` is the sum of DAILY reach, not a period reach — that is what
+    makes `_freq` Meta's daily frequency averaged over the window, and it is
+    the only reach figure the feed can support. `live_days` is COUNTIF(spend>0),
+    the same definition v3's SQL used."""
+    out = {m: 0.0 for m in MEASURES}
+    reach = 0.0
+    live = 0
+    for r in days:
+        for m in MEASURES:
+            out[m] += _f(r.get(m))
+        reach += _f(r.get("reach"))
+        if _f(r.get("spend")) > 0:
+            live += 1
+    out["sum_reach"] = reach
+    out["live_days"] = live
+    return out
+
+
+def _window_rows(by_ad: dict, dims: dict, d_from, d_to,
+                 markets: list[str]) -> list[dict]:
+    """Every ad with any activity in [d_from, d_to], as v3's per-period rows.
+
+    Shape-compatible with what `per_ad` used to return for one period: the ad's
+    dimensions plus its summed measures, so nothing downstream had to change.
+    An ad with no row in the range is absent rather than zero, which is what
+    the SQL GROUP BY did."""
+    out = []
+    for ad_id, days in by_ad.items():
+        dim = dims.get(ad_id)
+        if not dim or dim.get("mk") not in markets:
+            continue
+        sel = [r for r in days if d_from <= r["date"] <= d_to]
+        if not sel:
+            continue
+        row = dict(dim)
+        row.update(_sum_days(sel))
+        row["ad_id"] = ad_id
+        out.append(row)
+    return out
 
 
 # ── Assembly ─────────────────────────────────────────────────────────────────
@@ -768,6 +988,10 @@ def _creative(r: dict, account_id: str, **extra) -> dict:
         # copying the URL twice per row would only inflate the document.
         "image_url": r.get("image_url"),
         "instagram_url": r.get("instagram_permalink_url"),
+        # Meta's shareable ad preview. Null until the connector loads
+        # preview_shareable_link (see preview_expr) — the tab falls back to the
+        # Ads Manager deep link, which is what it has always shown.
+        "preview_url": r.get("preview_url"),
         "ads_manager_url": ADS_MANAGER_URL.format(account_id=account_id, ad_id=ad_id),
     }
     out.update(_metrics(r))
@@ -783,27 +1007,47 @@ def _slim(c: dict, value_key: str) -> dict:
         "ad_id": c["ad_id"], "ad_name": c["ad_name"],
         "display_name": c["display_name"], "tag": c["tag"],
         "media_type": c["media_type"], "market": c["market"], "promo": c["promo"],
-        "thumbnail_url": c["thumbnail_url"], "image_url": c["image_url"],
-        "instagram_url": c["instagram_url"], "ads_manager_url": c["ads_manager_url"],
+        "thumbnail_url": c.get("thumbnail_url"), "image_url": c.get("image_url"),
+        "instagram_url": c.get("instagram_url"), "preview_url": c.get("preview_url"),
+        "ads_manager_url": c.get("ads_manager_url"),
         "value": c.get(value_key), "spend": c["spend"], "purchases": c["purchases"],
     }
 
 
 # ── Image mirror ─────────────────────────────────────────────────────────────
+def _thumb_source(url: str) -> str:
+    """`thumbnail` for a 64 px square, `thumbnail_hd` for anything larger.
+
+    The rendition is encoded in the signed URL (stp=…p64x64… / …p1080x1080…),
+    so this costs a regex and no fetch. Once Henrik's connector change lands —
+    thumbnail_width/height=1200 on the adcreatives edge — most of this account
+    stops being 64 px, and those ads must be re-mirrored rather than left on a
+    stored 64 px copy."""
+    return "thumbnail" if THUMB_SMALL_RE.search(url or "") else "thumbnail_hd"
+
+
 def _best_image(r: dict) -> tuple[str | None, str | None]:
     """The best rendition Meta exposes for this ad, and what it is called.
 
     Order matters and is not cosmetic: image_url and the video poster are real
-    full-size stills, link_data.picture is a feed-sized preview, and
-    thumbnail_url is a 64px square that cannot be asked for any larger."""
+    full-size stills; a full-size thumbnail_url is nearly as good; link_data
+    .picture is a feed-sized preview; and a 64 px thumbnail_url cannot be asked
+    for any larger (rewriting the size in the URL returns a 403 signature
+    mismatch). Candidates are ranked rather than tried in a fixed order,
+    because whether thumbnail_url outranks link_picture depends on its size."""
+    best_url, best_src, best_rank = None, None, 0
     for col, source in (("image_url", "image_url"),
                         ("video_poster_url", "video_poster"),
                         ("link_picture_url", "link_picture"),
-                        ("thumbnail_url", "thumbnail")):
+                        ("thumbnail_url", None)):
         url = r.get(col)
-        if url:
-            return str(url), source
-    return None, None
+        if not url:
+            continue
+        src = source or _thumb_source(str(url))
+        rank = IMAGE_SOURCE_RANK.get(src, 0)
+        if rank > best_rank:
+            best_url, best_src, best_rank = str(url), src, rank
+    return best_url, best_src
 
 
 def _walk_creatives(node):
@@ -821,24 +1065,30 @@ def _walk_creatives(node):
             yield from _walk_creatives(v)
 
 
-def _image_jobs(payload: dict, by_ad: dict, spend_by_ad: dict) -> list[dict]:
-    """One fetch job per DISTINCT ad the payload shows, best source first.
+def _image_jobs(dims: dict, spend_by_ad: dict) -> list[dict]:
+    """One fetch job per ad that SPENT inside the longest window, best source
+    first, highest spend first.
 
-    Capped by META_IMAGE_ADS for local runs — highest L7 spend first, so a
-    15-ad local run mirrors the rows a reviewer actually looks at."""
-    seen: dict[str, dict] = {}
-    for c in _walk_creatives(payload):
-        ad_id = str(c["ad_id"])
-        if ad_id in seen:
+    v3 derived the list by walking the payload. With 12 payloads that would be
+    12 walks over the same ads, and the union is anyway "every ad any
+    combination can show" — which is exactly the set that spent in the 90-day
+    window. Capped by META_IMAGE_MAX in production and by META_IMAGE_ADS for a
+    local run, both spend-ordered so a 10-ad local run mirrors the rows a
+    reviewer actually looks at."""
+    jobs = []
+    for ad_id, spend in spend_by_ad.items():
+        if spend <= 0:
             continue
-        row = by_ad.get(ad_id)
+        row = dims.get(ad_id)
         if not row:
             continue
         url, source = _best_image(row)
         if url:
-            seen[ad_id] = {"ad_id": ad_id, "url": url, "source": source}
-    jobs = sorted(seen.values(), key=lambda j: -_f(spend_by_ad.get(j["ad_id"])))
-    return jobs[:IMAGE_ADS_CAP] if IMAGE_ADS_CAP > 0 else jobs
+            jobs.append({"ad_id": ad_id, "url": url, "source": source,
+                         "spend": spend})
+    jobs.sort(key=lambda j: -_f(j["spend"]))
+    cap = IMAGE_ADS_CAP if IMAGE_ADS_CAP > 0 else IMAGE_MAX
+    return jobs[:cap] if cap > 0 else jobs
 
 
 def _encode(raw: bytes) -> dict:
@@ -921,25 +1171,44 @@ def mirror_images(jobs: list[dict]) -> tuple[dict, dict]:
         for snap in db.get_all(refs):
             if snap.exists:
                 d = snap.to_dict() or {}
-                # The bytes are not needed here, only the provenance.
+                # The bytes are not needed here, only the provenance and the
+                # size — `to_dict()` still pulls them, which is why this read
+                # is by id over the job list and never a collection scan.
                 existing[snap.id] = {"source": d.get("source"),
+                                     "w": d.get("w"), "h": d.get("h"),
                                      "fetched_at": _f(d.get("fetched_at"))}
     except Exception as e:
         print(f"   ! could not read {IMAGES_COLLECTION}: {type(e).__name__}: {e}",
               flush=True)
 
+    def _keep(job: dict, ex: dict) -> None:
+        """Advertise the stored document without re-fetching it."""
+        stats["skipped"] += 1
+        present[job["ad_id"]] = {"source": ex.get("source"),
+                                 "has_large": ex.get("source") != "thumbnail",
+                                 "w": ex.get("w"), "h": ex.get("h")}
+
     todo = []
     for j in jobs:
         ex = existing.get(doc_id(j["ad_id"]))
         if ex:
-            fresh = (now - ex["fetched_at"]) < IMAGE_REFRESH_DAYS * 86400
-            good = (IMAGE_SOURCE_RANK.get(ex.get("source"), 0)
-                    >= IMAGE_SOURCE_RANK.get(j["source"], 0))
-            if fresh and good:
-                stats["skipped"] += 1
-                present[j["ad_id"]] = {
-                    "source": ex["source"],
-                    "has_large": ex.get("source") != "thumbnail"}
+            stored = IMAGE_SOURCE_RANK.get(ex.get("source"), 0)
+            avail = IMAGE_SOURCE_RANK.get(j["source"], 0)
+            # A better source appeared (a poster, or a 64 px thumbnail that is
+            # now served at 1080) — re-fetch NOW, not in 14 days. This is the
+            # whole point of ranking the sources.
+            if avail > stored:
+                todo.append(j)
+                continue
+            # Never trade a good rendition for a worse one. If all Meta offers
+            # today is thinner than what is already stored, keep the stored
+            # copy however old it is — a stale 1080 px poster beats a fresh
+            # 64 px square, and the URL it was fetched from is long dead anyway.
+            if avail < stored:
+                _keep(j, ex)
+                continue
+            if (now - ex["fetched_at"]) < IMAGE_REFRESH_DAYS * 86400:
+                _keep(j, ex)
                 continue
         todo.append(j)
 
@@ -959,6 +1228,7 @@ def mirror_images(jobs: list[dict]) -> tuple[dict, dict]:
                 "workspace": WORKSPACE,
             })
             return {"ad_id": j["ad_id"], "source": j["source"],
+                    "w": enc["w"], "h": enc["h"],
                     "bytes": len(enc["thumb_b64"]) + len(enc["large_b64"])}
         except Exception as e:
             print(f"   ! image {j['ad_id']} ({j['source']}): "
@@ -975,7 +1245,8 @@ def mirror_images(jobs: list[dict]) -> tuple[dict, dict]:
                 stats["bytes"] += res["bytes"]
                 present[res["ad_id"]] = {
                     "source": res["source"],
-                    "has_large": res["source"] != "thumbnail"}
+                    "has_large": res["source"] != "thumbnail",
+                    "w": res["w"], "h": res["h"]}
 
     for v in present.values():
         stats["by_source"][v["source"]] = stats["by_source"].get(v["source"], 0) + 1
@@ -994,6 +1265,11 @@ def annotate_images(payload: dict, present: dict) -> None:
         if got:
             c["image_source"] = got["source"]
             c["has_large"] = got["has_large"]
+            # The SOURCE pixel size, so the lightbox can say "1080 × 1080" and
+            # a 64 px creative is visibly Meta's limit rather than our mirror's.
+            if got.get("w"):
+                c["image_w"] = got.get("w")
+                c["image_h"] = got.get("h")
     payload.setdefault("sources", {})["image_labels"] = IMAGE_SOURCE_LABEL
     payload["sources"]["images_mirrored"] = len(present)
 
@@ -1109,7 +1385,7 @@ def _fatigue_row(cur: dict, weeks: list[dict], win: dict, account_id: str) -> di
 BOARD_KEYS = (
     "ad_id", "ad_name", "display_name", "tag", "media_type", "market", "promo",
     "uploaded", "effective_status", "thumbnail_url", "image_url",
-    "instagram_url", "ads_manager_url",
+    "instagram_url", "preview_url", "ads_manager_url",
     "spend", "impressions", "purchases", "link_ctr", "cpa", "roas",
     "lpv_rate", "hook_rate", "hold_rate", "saves_shares_per_1k",
     "frequency", "is_video", "status", "status_rank",
@@ -1169,10 +1445,10 @@ LEADERBOARDS = [
 
 
 def _leaderboards(l28: list[dict], fatigue_rows: list[dict],
-                  account_id: str) -> dict:
+                  account_id: str, min_spend_long: float) -> dict:
     elig = [r for r in l28
             if r["media_type"] != "DPA / catalog"
-            and _f(r.get("spend")) >= MIN_SPEND_L28]
+            and _f(r.get("spend")) >= min_spend_long]
     cards: dict[str, dict] = {}
     for key, title, metric, direction, need in LEADERBOARDS:
         pool = elig
@@ -1223,10 +1499,56 @@ def _leaderboards(l28: list[dict], fatigue_rows: list[dict],
 
 
 # ── Rollups ──────────────────────────────────────────────────────────────────
-def _rollup(rows: list[dict], keyfn, label="label") -> list[dict]:
+# Index columns compare a GROUP against the ACCOUNT AVERAGE over the same
+# window and the same table. This is a different question from the fatigue
+# indices on the creatives board, which compare an ad against its OWN baseline
+# week — the two are deliberately named apart in the payload (`idx_*` here,
+# `*_index` there) so nothing downstream can confuse them.
+#
+# Every index is oriented so that ABOVE 1.00 IS BETTER, including CPA, which is
+# therefore account ÷ group rather than group ÷ account. Without that the tab
+# would show four columns where three read upwards and one downwards, and the
+# colour of a cell would depend on which column it sat in.
+IDX_SPECS = [
+    ("idx_cpa",      "cpa",      True),
+    ("idx_roas",     "roas",     False),
+    ("idx_link_ctr", "link_ctr", False),
+    ("idx_hook",     "hook_rate", False),
+]
+
+
+def _index_vs(group_v, ref_v, lower_is_better: bool) -> float | None:
+    """One index, or None when either side is missing or zero.
+
+    A zero denominator is undefined, not infinite: a group with no purchases
+    has no CPA to compare, and printing a 0.00× there would read as "free"."""
+    if group_v is None or ref_v is None:
+        return None
+    g, r = float(group_v), float(ref_v)
+    if g == 0 or r == 0:
+        return None
+    return round((r / g) if lower_is_better else (g / r), 3)
+
+
+def _reference(rows: list[dict]) -> dict:
+    """The account average for one table: the same ratio-of-sums over every row
+    the table was built from, so the indices and the spend shares agree on what
+    100 % is."""
+    m = _metrics(_sum_rows(rows))
+    m["hook_rate"] = _hook_kpi(rows)   # video-ad denominator, as everywhere
+    m["ads"] = len(rows)
+    return m
+
+
+def _rollup(rows: list[dict], keyfn, label="label") -> tuple[list[dict], dict]:
     """Ratio-of-sums by any grouping, with the ad count so a reader can see
-    when a row is one creative pretending to be a pattern."""
-    total = sum(_f(r.get("spend")) for r in rows)
+    when a row is one creative pretending to be a pattern, and an index against
+    the account average for the same window.
+
+    Returns (rows, reference) — the reference is what the bar charts draw their
+    dashed average line at."""
+    ref = _reference(rows)
+    total = _f(ref.get("spend"))
     groups: dict[str, list[dict]] = {}
     for r in rows:
         groups.setdefault(keyfn(r), []).append(r)
@@ -1237,82 +1559,136 @@ def _rollup(rows: list[dict], keyfn, label="label") -> list[dict]:
         m["ads"] = len(grp)
         m["share"] = div(m["spend"], total, 100.0, 1)
         m["hook_rate"] = _hook_kpi(grp)
+        for field, metric, lower in IDX_SPECS:
+            m[field] = _index_vs(m.get(metric), ref.get(metric), lower)
         out.append(m)
     out.sort(key=lambda r: -_f(r["spend"]))
-    return out
+    return out, ref
 
 
-def _rollups(l28: list[dict]) -> dict:
-    body = [r for r in l28 if r["media_type"] != "DPA / catalog"]
-    crossed = _rollup(body, lambda r: f"{r['tag']} · {r['media_type']}")
+def _rollups(long_rows: list[dict], min_spend_long: float) -> dict:
+    body = [r for r in long_rows if r["media_type"] != "DPA / catalog"]
+    crossed, crossed_ref = _rollup(body, lambda r: f"{r['tag']} · {r['media_type']}")
     # A crossed table is only worth showing while its cells hold real spend;
-    # below the L28 floor it is a list of one-ad curiosities.
-    crossed = [r for r in crossed if _f(r["spend"]) >= MIN_SPEND_L28]
+    # below the long-window floor it is a list of one-ad curiosities. The
+    # reference stays the FULL body, so a cell's index still answers "against
+    # the account", not "against the cells that survived the floor".
+    crossed = [r for r in crossed if _f(r["spend"]) >= min_spend_long]
+    by_tag, tag_ref = _rollup(long_rows, lambda r: r["tag"])
+    by_media, media_ref = _rollup(long_rows, lambda r: r["media_type"])
+    by_promo, promo_ref = _rollup(
+        long_rows, lambda r: "Promo" if _promo(r) else "Evergreen")
     return {
-        "by_tag": _rollup(l28, lambda r: r["tag"]),
-        "by_media_type": _rollup(l28, lambda r: r["media_type"]),
-        "by_promo": _rollup(l28, lambda r: "Promo" if _promo(r) else "Evergreen"),
+        "by_tag": by_tag,
+        "by_media_type": by_media,
+        "by_promo": by_promo,
         "by_tag_media": crossed,
+        # The account average each table's indices are measured against, and
+        # the level the charts draw their dashed line at.
+        "averages": {"by_tag": tag_ref, "by_media_type": media_ref,
+                     "by_promo": promo_ref, "by_tag_media": crossed_ref},
+        "index_metrics": [{"field": f, "metric": m, "lower_is_better": low}
+                          for f, m, low in IDX_SPECS],
     }
 
 
-def _window() -> dict:
+def _end_date() -> datetime.date:
+    """The last SETTLED day. Pin it with META_END_DATE=YYYY-MM-DD to reproduce
+    a specific report."""
     end = os.environ.get("META_END_DATE")
-    end_d = (datetime.date.fromisoformat(end) if end
-             else datetime.date.today() - datetime.timedelta(days=SETTLE_DAYS))
-    start_d = end_d - datetime.timedelta(days=WINDOW_DAYS - 1)
+    return (datetime.date.fromisoformat(end) if end
+            else datetime.date.today() - datetime.timedelta(days=SETTLE_DAYS))
+
+
+def _window(days: int) -> dict:
+    """One period's dates.
+
+    `l28_from` / `l28_to` keep their v1 names but now mean "the LONG window",
+    which is 28 days on the 7-day preset (exactly what v3 did) and the selected
+    period on every other. Keeping the key names means the payload shape is
+    identical across all 12 combinations and across versions."""
+    end_d = _end_date()
+    start_d = end_d - datetime.timedelta(days=days - 1)
+    long_days = LONG_DAYS if days == DEFAULT_DAYS else days
     return {
         "from": start_d.isoformat(), "to": end_d.isoformat(),
-        "prev_from": (start_d - datetime.timedelta(days=WINDOW_DAYS)).isoformat(),
-        "prev_to":   (end_d - datetime.timedelta(days=WINDOW_DAYS)).isoformat(),
-        "l28_from":  (end_d - datetime.timedelta(days=LONG_DAYS - 1)).isoformat(),
+        "prev_from": (start_d - datetime.timedelta(days=days)).isoformat(),
+        "prev_to":   (end_d - datetime.timedelta(days=days)).isoformat(),
+        "l28_from":  (end_d - datetime.timedelta(days=long_days - 1)).isoformat(),
         "l28_to":    end_d.isoformat(),
-        "days": WINDOW_DAYS,
-        "long_days": LONG_DAYS,
+        "days": days,
+        "long_days": long_days,
     }
 
 
-def build_payload() -> dict:
-    win = _window()
-    rows = per_ad(win)
+def _scan_window() -> dict:
+    """The single BigQuery scan every combination is summed out of.
 
-    def period(p):
-        return [r for r in rows if r["period"] == p and r["mk"] in MARKETS]
+    Back to the start of the longest period's COMPARISON period — 90 days of
+    window plus 90 days of previous is 180 days — plus the long-window start
+    the weekly history and the upload list are restricted to."""
+    end_d = _end_date()
+    return {
+        "to": end_d.isoformat(),
+        "scan_from": (end_d - datetime.timedelta(days=2 * MAX_DAYS - 1)).isoformat(),
+        "long_from": (end_d - datetime.timedelta(days=MAX_DAYS - 1)).isoformat(),
+    }
 
-    cur, prev, l28 = period("cur"), period("prev"), period("l28")
-    account_id = next((str(r["account_id"]) for r in rows if r.get("account_id")), "")
+
+def build_one(market: str, days: int, by_ad: dict, dims: dict,
+              weeks_by_ad: dict, uploads: list[dict], account_id: str,
+              generated_at: str) -> dict:
+    """One combination's payload. Identical in shape to every other."""
+    win = _window(days)
+    markets = MARKETS if market == "all" else [market]
+    min_spend = floor_short(days)
+    min_spend_long = floor_long(win["long_days"])
+
+    d = lambda s: datetime.date.fromisoformat(s)   # noqa: E731
+    cur = _window_rows(by_ad, dims, d(win["from"]), d(win["to"]), markets)
+    prev = _window_rows(by_ad, dims, d(win["prev_from"]), d(win["prev_to"]), markets)
+    # On the 7-day preset the long window is a genuinely different range; on
+    # every other period it IS the current window, so it is not re-summed.
+    long_rows = (cur if win["long_days"] == days
+                 else _window_rows(by_ad, dims, d(win["l28_from"]),
+                                   d(win["l28_to"]), markets))
 
     kpis = {"combined": _with_deltas(_kpis(cur), _kpis(prev))}
-    for m in MARKETS:
+    for m in markets:
         kpis[m] = _with_deltas(_kpis([r for r in cur if r["mk"] == m]),
                                _kpis([r for r in prev if r["mk"] == m]))
 
-    weeks_by_ad: dict[str, list[dict]] = {}
-    for w in weekly(win):
-        weeks_by_ad.setdefault(str(w["ad_id"]), []).append(w)
-
     fatigue = _fatigue(cur, weeks_by_ad, win, account_id)
-    leaderboards = _leaderboards(l28, fatigue["rows"], account_id)
-    rollups = _rollups(l28)
+    leaderboards = _leaderboards(long_rows, fatigue["rows"], account_id,
+                                 min_spend_long)
+    rollups = _rollups(long_rows, min_spend_long)
 
     # Top 5 per market: lowest CPA over a spend floor, DPA excluded — a
-    # catalogue ad is not a creative anyone can iterate on.
+    # catalogue ad is not a creative anyone can iterate on. Only the selected
+    # market(s) are filled; the tab hides the other card rather than showing an
+    # empty one, so an SE view never implies "no NO ad qualified".
     top: dict[str, list[dict]] = {}
-    for m in MARKETS:
+    for m in markets:
         elig = [r for r in cur
                 if r["mk"] == m
                 and r["media_type"] != "DPA / catalog"
-                and _f(r.get("spend")) >= MIN_SPEND_L7
+                and _f(r.get("spend")) >= min_spend
                 and I(r.get("purchases")) > 0]
         elig.sort(key=lambda r: _f(r["spend"]) / I(r["purchases"]))
         top[m] = [_creative(r, account_id) for r in elig[:TOP_N]]
 
-    # Recently uploaded: created in the window, a genuinely new concept, and it
-    # delivered. Metrics come from the same `cur` rows everything else uses.
+    # Recently uploaded: created in the window, a genuinely new concept
+    # (`first_created` proves no older ad carried the name), and it delivered.
     fat_by_id = {c["ad_id"]: c for c in fatigue["rows"]}
     cur_by_id = {str(r["ad_id"]): r for r in cur}
+    w_from, w_to = d(win["from"]), d(win["to"])
     recent = []
-    for a in recent_ids(win):
+    for a in uploads:
+        up = a.get("uploaded")
+        if not (up and w_from <= up <= w_to):
+            continue
+        if a.get("first_created") and a["first_created"] < w_from:
+            continue                      # a re-upload of an older concept
         r = cur_by_id.get(str(a["ad_id"]))
         if not r or _f(r.get("spend")) <= 0:
             continue
@@ -1327,8 +1703,8 @@ def build_payload() -> dict:
     ig_ads = sum(1 for r in cur if r.get("instagram_permalink_url"))
     ig_spend = sum(_f(r["spend"]) for r in cur if r.get("instagram_permalink_url"))
 
-    payload = {
-        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    return {
+        "generated_at": generated_at,
         "sources": {
             "insights": f"{DATA_PROJECT}.{STAGING_DATASET}.stg_meta__ads_insights",
             "ads":      f"{DATA_PROJECT}.{STAGING_DATASET}.stg_meta__ads",
@@ -1337,9 +1713,10 @@ def build_payload() -> dict:
             "account_id": account_id,
             "account_label": "Babyshop SE — New",
             "attribution": "7d_click,1d_view",
-            "markets": MARKETS,
-            "min_spend": MIN_SPEND_L7,
-            "min_spend_l28": MIN_SPEND_L28,
+            "markets": markets,
+            "all_markets": MARKETS,
+            "min_spend": min_spend,
+            "min_spend_l28": min_spend_long,
             "images": "mirrored into Firestore by this job and served from "
                       "/api/meta/image/<ad_id>; the Meta CDN URLs they are "
                       "fetched from are signed and expire ~4 days after minting",
@@ -1348,6 +1725,12 @@ def build_payload() -> dict:
                 "ads_pct": div(ig_ads, len(cur), 100.0, 1),
                 "spend_pct": div(ig_spend, sum(_f(r["spend"]) for r in cur), 100.0, 1),
             },
+        },
+        "filters": {
+            "market": market,
+            "days": days,
+            "available_markets": MARKET_OPTIONS,
+            "available_days": PERIOD_OPTIONS,
         },
         "window": win,
         "kpis": kpis,
@@ -1361,88 +1744,220 @@ def build_payload() -> dict:
         "caveats": CAVEATS,
         "definitions": DEFINITIONS,
     }
-    # The fetch list for the image mirror. Carried on the payload (and stripped
-    # in main() before the Firestore write) because the two halves of a local
-    # run are two processes authenticating as two different accounts: the URLs
-    # are only knowable in the BigQuery half and only usable in the Firestore
-    # half. META_OUT/META_IN replays the whole thing end to end.
-    by_ad = {str(r["ad_id"]): r for r in rows}
-    spend_by_ad = {str(r["ad_id"]): _f(r.get("spend")) for r in cur}
-    payload["_image_jobs"] = _image_jobs(payload, by_ad, spend_by_ad)
-    return payload
 
 
-def _check_size(payload: dict) -> int:
-    n = len(json.dumps(payload, ensure_ascii=False))
+def build_all() -> dict:
+    """Every combination, out of one BigQuery scan.
+
+    Returns {"combos": {"<market>_<days>": payload}, "_image_jobs": [...]}.
+    META_OUT writes this bundle whole so a META_IN replay can produce all 12
+    documents from one file."""
+    scan = _scan_window()
+    generated_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    dims = {str(r["ad_id"]): r for r in ad_dims(scan)}
+    by_ad: dict[str, list[dict]] = {}
+    for r in per_ad_day(scan):
+        by_ad.setdefault(str(r["ad_id"]), []).append(r)
+    weeks_by_ad: dict[str, list[dict]] = {}
+    for w in weekly(scan):
+        weeks_by_ad.setdefault(str(w["ad_id"]), []).append(w)
+    uploads = upload_rows(scan)
+    account_id = next((str(r["account_id"]) for r in dims.values()
+                       if r.get("account_id")), "")
+    print(f"   scan {scan['scan_from']}..{scan['to']}: {len(dims)} ads, "
+          f"{sum(len(v) for v in by_ad.values()):,} ad-days, "
+          f"{len(weeks_by_ad)} weekly series, {len(uploads)} uploads",
+          flush=True)
+
+    combos = {}
+    for market in MARKET_OPTIONS:
+        for days in PERIOD_OPTIONS:
+            combos[f"{market}_{days}"] = build_one(
+                market, days, by_ad, dims, weeks_by_ad, uploads, account_id,
+                generated_at)
+
+    # The fetch list for the image mirror, built from the ads that SPENT in the
+    # longest window — the union of every combination's creatives. Carried on
+    # the bundle (and stripped before the Firestore write) because the two
+    # halves of a local run are two processes authenticating as two different
+    # accounts: the URLs are only knowable in the BigQuery half and only usable
+    # in the Firestore half.
+    long_from = datetime.date.fromisoformat(scan["long_from"])
+    spend_by_ad: dict[str, float] = {}
+    for ad_id, days_rows in by_ad.items():
+        spend_by_ad[ad_id] = sum(_f(r.get("spend")) for r in days_rows
+                                 if r["date"] >= long_from)
+    return {"combos": combos, "_image_jobs": _image_jobs(dims, spend_by_ad)}
+
+
+# ── Document size ────────────────────────────────────────────────────────────
+# 12 documents now, and the 90-day ones carry every ad that spent in three
+# months rather than in one week. Trimming is ordered cheapest-loss-first and
+# every step is recorded in the payload, because a table that silently drops
+# rows is worse than a small one that says it did.
+def _payload_bytes(payload: dict) -> int:
+    return len(json.dumps(payload, ensure_ascii=False))
+
+
+WEEKLY_SERIES_KEEP = int(os.environ.get("META_WEEKLY_ROWS", "150"))
+
+
+def _fit(payload: dict, label: str) -> tuple[int, list[str]]:
+    """Bring one payload under the budget, or raise.
+
+    Steps, in order:
+      1. drop creatives-table rows under 1 kr of spend (a row that spent 4 öre
+         is a rounding artefact, not a creative);
+      2. drop the weekly sparkline series outside the top WEEKLY_SERIES_KEEP
+         rows by spend — the status chip and every index survive, only the
+         sparkline goes, and only on rows nobody scrolls to.
+    The leaderboards are already capped at META_LEADER_N (5) and the weekly
+    series at META_WEEKS_KEPT (12) by construction."""
+    trimmed: list[str] = []
+    n = _payload_bytes(payload)
+    if n <= DOC_BUDGET_BYTES:
+        return n, trimmed
+
+    fat = payload.get("fatigue") or {}
+    rows = fat.get("rows") or []
+    kept = [r for r in rows if _f(r.get("spend")) >= 1.0]
+    if len(kept) < len(rows):
+        fat["rows"] = kept
+        trimmed.append(f"{len(rows) - len(kept)} creatives under 1 kr spend")
+        rows = kept
+        n = _payload_bytes(payload)
+        if n <= DOC_BUDGET_BYTES:
+            return n, trimmed
+
+    ranked = sorted(rows, key=lambda r: -_f(r.get("spend")))
+    dropped = 0
+    for r in ranked[WEEKLY_SERIES_KEEP:]:
+        if r.get("weeks"):
+            r["weeks"] = []
+            r["weeks_trimmed"] = True
+            dropped += 1
+    if dropped:
+        trimmed.append(f"weekly series on {dropped} rows outside the top "
+                       f"{WEEKLY_SERIES_KEEP} by spend")
+        n = _payload_bytes(payload)
+
     if n > DOC_BUDGET_BYTES:
         big = sorted(((len(json.dumps(v, ensure_ascii=False)), k)
                       for k, v in payload.items()), reverse=True)[:3]
         raise RuntimeError(
-            f"Meta payload is {n:,} B, over the {DOC_BUDGET_BYTES:,} B budget. "
-            "Biggest sections: " + ", ".join(f"{k} {s:,} B" for s, k in big)
-            + ". Lower META_WEEKS_KEPT / META_LEADER_N / META_TOP_N — do not "
-              "just raise the budget.")
-    return n
+            f"Meta payload {label} is {n:,} B, over the {DOC_BUDGET_BYTES:,} B "
+            "budget after trimming. Biggest sections: "
+            + ", ".join(f"{k} {s:,} B" for s, k in big)
+            + ". Lower META_WEEKS_KEPT / META_LEADER_N / META_TOP_N / "
+              "META_WEEKLY_ROWS — do not just raise the budget.")
+    return n, trimmed
 
 
-def write_firestore(payload: dict) -> str:
+def write_firestore(combos: dict) -> dict:
+    """Every combination as its own document. Returns {key: bytes}."""
     from google.cloud import firestore
-    _check_size(payload)
+
     db = firestore.Client(project=FIRESTORE_PROJECT, credentials=_credentials())
-    doc_id = f"{WORKSPACE}__{DOC_KEY}"
-    db.collection(COLLECTION).document(doc_id).set({
-        "data": payload, "fetched_at": firestore.SERVER_TIMESTAMP,
-        "expires_at": time.time() + TTL, "ttl_seconds": TTL, "workspace": WORKSPACE})
-    return f"{COLLECTION}/{doc_id}"
+    sizes: dict[str, int] = {}
+    for combo, payload in combos.items():
+        market, days = combo.rsplit("_", 1)
+        key = combo_key(market, int(days))
+        n, trimmed = _fit(payload, combo)
+        if trimmed:
+            payload["sources"]["trimmed"] = trimmed
+            n = _payload_bytes(payload)
+        doc_id = f"{WORKSPACE}__{key}"
+        db.collection(COLLECTION).document(doc_id).set({
+            "data": payload, "fetched_at": firestore.SERVER_TIMESTAMP,
+            "expires_at": time.time() + TTL, "ttl_seconds": TTL,
+            "workspace": WORKSPACE})
+        sizes[key] = n
+    return sizes
 
 
 def main():
     t0 = time.time()
-    # META_IN replays a payload produced by an earlier META_OUT run. The two
+    # META_IN replays a bundle produced by an earlier META_OUT run. The two
     # halves of this job authenticate to different projects as different
     # accounts, and locally one process cannot be both — this splits them.
     src = os.environ.get("META_IN")
     if src:
         with open(src, encoding="utf-8") as fh:
-            p = json.load(fh)
-        print(f"   loaded {src} ({os.path.getsize(src):,} bytes) — BigQuery skipped")
+            bundle = json.load(fh)
+        # A v3 file is a single payload, not a bundle. Read it as the default
+        # combination so an old dump still replays.
+        if "combos" not in bundle:
+            bundle = {"combos": {f"{DEFAULT_MARKET}_{DEFAULT_DAYS}": bundle},
+                      "_image_jobs": bundle.pop("_image_jobs", [])}
+        print(f"   loaded {src} ({os.path.getsize(src):,} bytes, "
+              f"{len(bundle['combos'])} combinations) — BigQuery skipped")
     else:
-        p = build_payload()
+        bundle = build_all()
 
     out = os.environ.get("META_OUT")
     if out:
         # Written WITH _image_jobs so a META_IN replay can still mirror.
         with open(out, "w", encoding="utf-8") as fh:
-            json.dump(p, fh, ensure_ascii=False)
+            json.dump(bundle, fh, ensure_ascii=False)
         print(f"   wrote {out} ({os.path.getsize(out):,} bytes)")
 
-    jobs = p.pop("_image_jobs", None) or []
+    combos = bundle["combos"]
+    jobs = bundle.pop("_image_jobs", None) or []
     skip_fs = bool(os.environ.get("SKIP_FIRESTORE"))
     img = {"considered": len(jobs), "fetched": 0, "skipped": 0, "failed": 0,
            "bytes": 0, "by_source": {}}
     if jobs and not SKIP_IMAGES and not skip_fs:
         present, img = mirror_images(jobs)
-        annotate_images(p, present)
+        # Every combination shows the same ads, so every one is annotated.
+        for p in combos.values():
+            annotate_images(p, present)
     elif jobs:
         print(f"   images skipped ({len(jobs)} candidates) — "
               f"{'META_SKIP_IMAGES' if SKIP_IMAGES else 'SKIP_FIRESTORE'}")
 
-    where = "(skipped)" if skip_fs else write_firestore(p)
-    k = p["kpis"]["combined"]
-    w = p["window"]
-    fat = p.get("fatigue", {})
+    default = combos[f"{DEFAULT_MARKET}_{DEFAULT_DAYS}"]
+    if skip_fs:
+        where = "(skipped)"
+        sizes = {}
+        for combo, p in combos.items():
+            market, days = combo.rsplit("_", 1)
+            n, trimmed = _fit(p, combo)
+            if trimmed:
+                p["sources"]["trimmed"] = trimmed
+                n = _payload_bytes(p)
+            sizes[combo_key(market, int(days))] = n
+    else:
+        sizes = write_firestore(combos)
+        where = f"{COLLECTION}/{WORKSPACE}__{DOC_KEY} +{len(sizes) - 1}"
+
+    k = default["kpis"]["combined"]
+    w = default["window"]
+    fat = default.get("fatigue", {})
     dist = " / ".join(f"{b['status']} {b['ads']}" for b in fat.get("by_status", []))
-    src = " / ".join(f"{s} {n}" for s, n in sorted(img["by_source"].items()))
-    print(f"✓ Meta refresh · {where} · {w['from']}..{w['to']} · "
+    isrc = " / ".join(f"{s} {n}" for s, n in sorted(img["by_source"].items()))
+    print(f"✓ Meta refresh · {where} · default {w['from']}..{w['to']} · "
           f"spend {k['spend']:,.0f} kr / {k['purchases']} purchases / CPA {k['cpa']} / "
           f"ROAS {k['roas']}x · link CTR {k['link_ctr']}% · "
           f"fatigue {len(fat.get('rows', []))} ads [{dist}], "
           f"{fat.get('at_risk_pct')}% of spend at risk · "
           f"images {img['fetched']} fetched / {img['skipped']} cached / "
           f"{img['failed']} failed of {img['considered']}"
-          + (f" [{src}]" if src else "")
+          + (f" [{isrc}]" if isrc else "")
           + f", {img['bytes']/1024:,.0f} KiB b64 · "
-          f"{len(json.dumps(p, ensure_ascii=False)):,} B · {time.time()-t0:.1f}s")
+          f"{len(sizes)} docs, {max(sizes.values()):,} B max "
+          f"({max(sizes, key=sizes.get)}) · {time.time()-t0:.1f}s")
+    for key in sorted(sizes, key=lambda x: -sizes[x]):
+        tr = combos_trimmed(combos, key)
+        print(f"     {key:<22} {sizes[key]:>9,} B" + (f"  · trimmed {tr}" if tr else ""))
+
+
+def combos_trimmed(combos: dict, key: str) -> str:
+    for combo, p in combos.items():
+        market, days = combo.rsplit("_", 1)
+        if combo_key(market, int(days)) == key:
+            return "; ".join((p.get("sources") or {}).get("trimmed") or [])
+    return ""
 
 
 if __name__ == "__main__":
