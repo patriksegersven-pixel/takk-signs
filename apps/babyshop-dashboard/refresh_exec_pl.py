@@ -370,35 +370,53 @@ def gl_by_month_account() -> list[dict]:
 def item_ledger_by_month_market() -> list[dict]:
     """Item-ledger COGS by month x country — the ONLY COGS basis with a country.
 
-    The entries themselves carry no geography; the country is reached through
-    documentNumber -> the sales invoice / credit memo that raised it. Entries
-    whose document resolves to neither (adjustments, transfers) are kept under
-    'XX' rather than dropped, so the market table's COGS still sums to the
-    item-ledger total."""
+    Geography comes from the CUSTOMER on the entry, not from its documentNumber.
+
+    NEVER join this table to the invoice tables on documentNumber. The item
+    ledger books a sale under its posted SHIPMENT number, which lives in a
+    different BC number series from the invoice number, and the two series
+    OVERLAP NUMERICALLY about four months apart. July 2026 shipments run
+    470343-498682; July invoices run 569961-598700; the invoices that actually
+    sit in the shipment range were posted in March and April. So the join
+    matches ~100% of rows, silently, to unrelated older invoices belonging to
+    different customers in different countries.
+
+    That is not a hypothetical. It shipped once: the market table put Sweden at
+    a NEGATIVE 9.7% GP1 and Korea at 80.5%, because the country column had
+    become a reshuffle of the March/April customer mix. Zero July shipment
+    numbers matched a July invoice.
+
+    `sourceNumber` is the customer number on every sale row (`sourceType` =
+    'Customer'), and `bc_customers.number` is unique across 316k rows, so this
+    join is 1:1 and cannot fan out. Two independent checks on July 2026:
+    customer country agrees with the invoice's own sellToCountry on 26,344 of
+    26,390 invoices (99.83%), and with bc_return_receipts' own country column
+    on 7,674 of 7,676 return rows.
+
+    `entryType = 'Sale'` is the cost of goods sold. It spans Sales Shipment,
+    Sales Invoice, Sales Credit Memo and Sales Return Receipt, so returns net
+    off the market that generated them. The old query dropped return receipts
+    into 'XX' entirely and never netted them anywhere. Purchase, Positive and
+    Negative Adjmt. and Transfer are inventory movements, not COGS, and are
+    excluded. Filter on entryType, never documentType: August also carries a
+    'Sales Invoice' documentType under the same entryType.
+
+    This basis remains INDEPENDENT of the group ladder, which takes COGS from
+    the general ledger. The two disagree month to month on the posting cut-off
+    (Jun -9.0%, Jul +3.4%, Aug +2.0% against GL 4006 and friends), which is
+    exactly why no single market-month should be read on its own. The gap is
+    published per month in checks.item_ledger_vs_gl_cogs rather than being
+    scaled away, because scaling market rows onto the GL total would turn a
+    measurement into an allocation."""
     sql = f"""
-    WITH doc_country AS (
-      SELECT number AS documentNumber,
-             IFNULL(NULLIF(sellToCountry, ''), 'XX') AS country
-      FROM {T('bc_sales_invoices')}
-      WHERE postingDate >= @start
-      UNION ALL
-      SELECT number, IFNULL(NULLIF(sellToCountry, ''), 'XX')
-      FROM {T('bc_sales_credit_memos')}
-      WHERE postingDate >= @start
-    ),
-    dc AS (
-      -- A document number is unique across both tables in practice; de-duplicate
-      -- defensively so a collision cannot multiply cost rows.
-      SELECT documentNumber, ANY_VALUE(country) AS country
-      FROM doc_country GROUP BY 1
-    )
     SELECT FORMAT_DATE('%Y-%m', e.postingDate) AS month,
-           IFNULL(dc.country, 'XX') AS country,
+           IFNULL(NULLIF(c.country, ''), 'XX') AS country,
            -- costAmountActual is signed by BC (negative on sales) and already SEK.
            SUM(-e.costAmountActual) AS cogs
     FROM {T('bc_item_ledger_entries')} e
-    LEFT JOIN dc ON dc.documentNumber = e.documentNumber
+    LEFT JOIN {T('bc_customers')} c ON c.number = e.sourceNumber
     WHERE e.postingDate >= @start
+      AND e.entryType = 'Sale'
     GROUP BY 1, 2
     """
     p = [bigquery.ScalarQueryParameter("start", "DATE", HISTORY_START)]
@@ -773,6 +791,25 @@ def build_payload() -> dict:
                                 "never shows a half-empty future column."),
         "fx_note": ("SEK has no row in bc_currency_exchange_rates; the join "
                     "defaults to 1.0. An inner join would drop ~57% of invoices."),
+        # The market table's COGS is the item ledger; the group ladder's is the
+        # general ledger. They are two honest measures of the same thing on
+        # different posting cut-offs, and they disagree month to month. Publish
+        # the gap so the tab can state it instead of quietly scaling one onto
+        # the other, which would turn a measurement into an allocation.
+        "item_ledger_vs_gl_cogs": {
+            m: {"item_ledger": I(sum(r["cogs_item_ledger"]
+                                     for r in markets.get(m, {}).values())),
+                "gl": ladder[m]["cogs"],
+                "pct": F(100 * (sum(r["cogs_item_ledger"]
+                                    for r in markets.get(m, {}).values())
+                                - ladder[m]["cogs"]) / ladder[m]["cogs"], 2)
+                       if ladder[m]["cogs"] else None}
+            for m in months},
+        "item_ledger_note": ("Market COGS is the item ledger, the only basis "
+                             "carrying a country. The group ladder is the "
+                             "general ledger. Market rows therefore do not foot "
+                             "to the ladder, and the gap is posting cut-off, "
+                             "not error."),
     }
 
     forecast = _load_json(FORECAST_FILE)

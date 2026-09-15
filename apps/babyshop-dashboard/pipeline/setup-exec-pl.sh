@@ -102,9 +102,36 @@ gcloud scheduler jobs "$ACTION" http "${JOB}-nightly" \
   --attempt-deadline=180s
 echo "   ${ACTION}d ${JOB}-nightly (0 5 * * *) -> $JOB"
 
+echo "== 3. Norce credentials on the SERVICE (for the live day cards) =="
+# The Executive P&L tab's day-grain cards are ORDER DATE, read live from the
+# Norce API by norce_today.py through GET /api/norce-today. That is a SERVING
+# path, so the credentials have to be on the Cloud Run SERVICE, not only on the
+# norce-sync JOB, which is a different resource and is maintained separately.
+#
+# Deliberately `gcloud run services update --update-secrets` rather than a line
+# in cloudbuild.yaml: that file documents, at length, why it carries no
+# --update-secrets (a deploy with --update-secrets would drop every secret it
+# does not list). --update-env-vars on deploy preserves what is attached here,
+# so this survives later deploys.
+#
+# Without this the tab still renders: /api/norce-today returns
+# {"available": false, "reason": "..."} and the day card prints the reason
+# instead of a number. It never substitutes a stale or scaled figure.
+if gcloud secrets describe NORCE_CLIENT_ID --project="$PROJECT" >/dev/null 2>&1; then
+  gcloud run services update "$SERVICE" \
+    --project="$PROJECT" --region="$REGION" \
+    --update-secrets="NORCE_CLIENT_ID=NORCE_CLIENT_ID:latest,NORCE_CLIENT_SECRET=NORCE_CLIENT_SECRET:latest" \
+    --quiet
+  echo "   attached NORCE_CLIENT_ID + NORCE_CLIENT_SECRET to $SERVICE"
+  echo "   (the runtime SA needs secretAccessor on both; it already has it)"
+else
+  echo "   ! NORCE_CLIENT_ID not found in Secret Manager. Skipping."
+  echo "     The day cards will render their stated-reason empty state."
+fi
+
 cat <<EOF
 
-== 3. First run + smoke test ==
+== 4. First run + smoke test ==
    gcloud run jobs execute ${JOB} --project=${PROJECT} --region=${REGION} --wait
 
    TOKEN=\$(gcloud auth print-access-token)
