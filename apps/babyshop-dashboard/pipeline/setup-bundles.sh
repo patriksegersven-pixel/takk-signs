@@ -57,9 +57,19 @@ echo "   ${ACTION}d $JOB -> python3 refresh_bundles.py"
 echo "== 2. Mount the Channable feed secret on norce-sync (images for bundles) =="
 # Without this, sync_sku_titles() logs a skip and image_link stays NULL for
 # any SKU added to the feed after the last manual backfill.
+#
+# --update-secrets, NOT --set-secrets. THIS LINE CAUSED A FOUR WEEK OUTAGE.
+# --set-secrets REPLACES the job's entire secret set; --update-secrets merges
+# into it. Running this script on 19 Aug 2026 mounted CHANNABLE_FEED_URL and in
+# the same breath unmounted NORCE_CLIENT_ID and NORCE_CLIENT_SECRET. norce-sync
+# then took its missing-credentials path every night and (before the exit code
+# was fixed) reported success while writing nothing, freezing Segments,
+# Customer Insights, Product Seasons and Bundles on 19 Aug data.
+# Never use --set-secrets on a job unless the command lists EVERY secret that
+# job needs.
 gcloud run jobs update norce-sync \
   --project="$PROJECT" --region="$REGION" \
-  --set-secrets="CHANNABLE_FEED_URL=channable-feed-url:latest"
+  --update-secrets="CHANNABLE_FEED_URL=channable-feed-url:latest"
 echo "   norce-sync now carries CHANNABLE_FEED_URL"
 
 echo "== 3. Nightly Cloud Scheduler job =="

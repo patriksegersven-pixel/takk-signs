@@ -1097,14 +1097,34 @@ def main() -> int:
 
     missing = missing_credentials()
     if missing:
-        # Graceful, not a crash: the secrets genuinely do not exist yet, a
-        # scheduled run must not page anyone, and refresh_customer_insights.py
-        # serves `"norce": null` until this job has produced rows. Nothing is
-        # created in BigQuery on this path.
-        print("⚠️  Norce sync skipped — missing env var(s): " + ", ".join(missing))
-        print("    Create the secrets and wire them on, then re-run with --backfill:")
-        print("      ./pipeline/setup-customer-insights.sh      (see pipeline/CUSTOMER-INSIGHTS.md)")
-        return 0
+        # EXIT NON-ZERO. This used to `return 0` on the reasoning that the
+        # secrets did not exist yet and a scheduled run must not page anyone.
+        # That reasoning cost four weeks: on 19 Aug 2026 setup-bundles.sh
+        # replaced the job's secret set with --set-secrets, dropping both Norce
+        # credentials, and from then on the nightly job took this path, printed
+        # this warning and reported succeeded=1. Segments, Customer Insights,
+        # Product Seasons and Bundles served data that froze on 19 Aug behind a
+        # green status, and nobody noticed until someone looked at MAX(OrderDate).
+        #
+        # A job that cannot do its work has FAILED, whether the cause is a dead
+        # API or a config gap. Missing credentials on a scheduled sync is not a
+        # graceful degradation, it is an outage that has not been noticed yet.
+        # Exit 2 (distinct from 1, which any unhandled exception produces) so
+        # Cloud Run records a failed execution and the failure is visible.
+        #
+        # Nothing is created in BigQuery on this path, so this is safe to retry,
+        # and the two credential-free modes (--marts-only, --titles-only) return
+        # earlier and are unaffected.
+        print("✗  Norce sync FAILED, missing env var(s): " + ", ".join(missing))
+        print("    The job definition has lost its secret wiring. Re-attach with:")
+        print("      gcloud run jobs update norce-sync --region=europe-north1 \\")
+        print("        --update-secrets=NORCE_CLIENT_ID=NORCE_CLIENT_ID:latest,"
+              "NORCE_CLIENT_SECRET=NORCE_CLIENT_SECRET:latest")
+        print("    (--update-secrets MERGES. --set-secrets REPLACES the whole set,"
+              " which is what broke this.)")
+        print("    Full setup: ./pipeline/setup-customer-insights.sh"
+              "      (see pipeline/CUSTOMER-INSIGHTS.md)")
+        return 2
 
     ensure_dataset()
 
