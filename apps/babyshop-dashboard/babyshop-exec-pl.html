@@ -1,0 +1,933 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Executive P&amp;L · Babyshop</title>
+  <link rel="icon" type="image/svg+xml" href="/babyshop-favicon.svg">
+  <link rel="stylesheet" href="/brand.css">
+  <!-- Shared column filters + CSV/XLSX export, as on the other seven tabs. -->
+  <script src="/table-tools.js"></script>
+  <style>
+  /* ── Palette bridge ───────────────────────────────────────────────────────
+   * The design prototype carried its own token names. They are kept, so the
+   * layout rules port unchanged, but every value now resolves to a brand.css
+   * token. Light only, like the rest of the dashboard.
+   *
+   *   s1  revenue in        s2  deduction        s3  forecast line
+   *   sub subtotal          proj projection (never blended with booked)
+   */
+  :root{
+    --plane:var(--bg); --surf:var(--card); --surf-2:#F5F3F0; --surf-3:#ECE8E3;
+    --ink:var(--h); --ink-2:var(--body); --ink-3:var(--muted);
+    --rule:var(--border); --rule-2:#D9D3CB; --grid:var(--border-lt);
+    --s1:#235837; --s2:#C4461F; --s3:#2F6E8F; --sub:#1B2839;
+    --good:#1E7A45; --warn:#A9621A; --crit:#B93A22;
+    --good-ink:#1A6038; --warn-ink:#8A5416; --crit-ink:#9E3018;
+    --good-bg:#EAF4EC; --warn-bg:#FBF3E7; --crit-bg:#FBEDE8;
+    --proj:#7E5A8C; --proj-ink:#5E3F6B; --proj-bg:#F4EFF6; --proj-ln:rgba(126,90,140,.34);
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  main{max-width:1320px;margin:0 auto;padding:24px 28px 72px;display:flex;flex-direction:column;gap:16px}
+  h1,h2,h3{margin:0;text-wrap:balance}
+  .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);font-weight:500}
+  .card{background:var(--surf);border:1px solid var(--rule);border-radius:var(--r);box-shadow:var(--shadow-sm)}
+  .card-h{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:13px 17px 11px;
+    border-bottom:1px solid var(--rule);flex-wrap:wrap}
+  .card-h h2{font-size:15px;font-weight:600;letter-spacing:-.01em;color:var(--h)}
+  .card-h .sub{font-size:12px;color:var(--ink-3)}
+  .card-b{padding:15px 17px}
+  .scroll{overflow-x:auto}
+  .mast{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap}
+  .mast h1{font-size:23px;font-weight:700;letter-spacing:-.3px;color:var(--h);line-height:1.15}
+  .mast .dek{font-size:12.5px;color:var(--ink-2);max-width:66ch;margin-top:5px;line-height:1.55}
+  .badge{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10px;
+    letter-spacing:.04em;color:var(--ink-2);background:var(--surf-2);border:1px solid var(--rule);
+    border-radius:var(--r-sm);padding:5px 9px}
+  .badge .dot{width:6px;height:6px;border-radius:50%;background:var(--s1);flex:none}
+  .ctx{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:9px 12px;background:var(--surf);
+    border:1px solid var(--rule);border-radius:var(--r);box-shadow:var(--shadow-sm)}
+  .ctx-g{display:flex;align-items:center;gap:7px}
+  .ctx-l{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+  .seg{display:inline-flex;background:var(--surf-2);border:1px solid var(--rule);border-radius:5px;padding:2px}
+  .seg button{font-family:var(--font);font-size:12px;font-weight:500;color:var(--ink-2);background:none;
+    border:0;border-radius:3px;padding:4px 10px;cursor:pointer;white-space:nowrap}
+  .seg button:hover:not(:disabled){color:var(--ink);background:var(--surf-3)}
+  .seg button[aria-pressed="true"]{background:var(--surf);color:var(--ink);
+    box-shadow:0 1px 2px rgba(27,40,57,.10);font-weight:600}
+  .seg button:disabled{opacity:.5;cursor:default;color:var(--ink-3)}
+  .seg button:disabled .hintx{font-size:9.5px;color:var(--ink-3);margin-left:4px}
+  .seg button:focus-visible,.ctx select:focus-visible{outline:2px solid var(--s1);outline-offset:1px}
+  .ctx select{font-family:var(--font);font-size:12px;color:var(--ink);background:var(--surf-2);
+    border:1px solid var(--rule);border-radius:5px;padding:5px 8px;cursor:pointer}
+  .ctx .spacer{flex:1 1 auto;min-width:8px}
+  .notice{display:flex;align-items:flex-start;gap:8px;padding:10px 13px;border-radius:var(--r-sm);font-size:12px;
+    line-height:1.55;background:var(--warn-bg);color:var(--warn-ink);border:1px solid #EBD8B6}
+  .notice b{font-weight:700}
+  .notice code{font-family:var(--mono);font-size:10.5px;background:var(--surf-3);padding:1px 4px;border-radius:3px;color:var(--ink-2)}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(196px,1fr));gap:12px}
+  .tile{background:var(--surf);border:1px solid var(--rule);border-radius:var(--r);padding:13px 15px 12px;
+    box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:3px;min-width:0}
+  .tile .lab{font-size:11.5px;color:var(--ink-2);font-weight:500;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+  .tile .val{font-size:26px;font-weight:700;letter-spacing:-.5px;line-height:1.1;margin-top:3px;color:var(--h)}
+  .tile .val .u{font-size:13px;font-weight:500;color:var(--ink-3);letter-spacing:0;margin-left:2px}
+  .tile .vs{font-size:11.5px;color:var(--ink-3);font-family:var(--mono)}
+  .delta{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:11.5px;
+    font-weight:600;padding:2px 6px;border-radius:3px;white-space:nowrap}
+  .delta.up{color:var(--good-ink);background:var(--good-bg)}
+  .delta.dn{color:var(--crit-ink);background:var(--crit-bg)}
+  .delta.fl{color:var(--ink-3);background:var(--surf-3)}
+  .mk{display:inline-flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:9px;
+    font-weight:700;width:14px;height:14px;border-radius:3px;cursor:help;flex:none;
+    border:1px solid transparent;vertical-align:1px}
+  .mk-d{color:var(--warn-ink);background:var(--warn-bg);border-color:#EBD8B6}
+  .mk-c{color:var(--crit-ink);background:var(--crit-bg);border-color:#F0CFC4}
+  .mk-b{color:var(--ink-2);background:var(--surf-3);border-color:var(--rule-2)}
+  .mk-p{color:var(--proj-ink);background:var(--proj-bg);border-color:var(--proj-ln)}
+  /* publication state: Booked, Projected, Forecast. Never blended. */
+  .st{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:9px;font-weight:700;
+    letter-spacing:.09em;text-transform:uppercase;padding:2px 7px;border-radius:3px;white-space:nowrap;
+    border:1px solid transparent}
+  .st::before{content:"";width:7px;height:7px;border-radius:2px;flex:none}
+  .st-bk{color:var(--ink-2);background:var(--surf-3);border-color:var(--rule-2)}
+  .st-bk::before{background:var(--s1)}
+  .st-pj{color:var(--proj-ink);background:var(--proj-bg);border-color:var(--proj-ln)}
+  .st-pj::before{background:var(--proj);
+    background-image:linear-gradient(45deg,var(--surf) 25%,transparent 25%,transparent 50%,var(--surf) 50%,var(--surf) 75%,transparent 75%);
+    background-size:4px 4px}
+  .st-fc{color:var(--ink-2);background:var(--surf-3);border-color:var(--rule-2)}
+  .st-fc::before{background:var(--s3);border-radius:50%}
+  .st-or{color:#1A4429;background:#EAF2EC;border-color:#C3D9C9}
+  .st-or::before{background:var(--s1);border-radius:50%}
+  .split{display:flex;height:7px;border-radius:2px;overflow:hidden;background:var(--surf-3);
+    border:1px solid var(--rule);min-width:80px}
+  .split i{display:block;height:100%}
+  .split .bk{background:var(--s1)}
+  .split .es{background:var(--proj);
+    background-image:repeating-linear-gradient(45deg,transparent,transparent 2.5px,var(--surf) 2.5px,var(--surf) 4.5px)}
+  .split-l{display:flex;justify-content:space-between;gap:10px;font-family:var(--mono);font-size:9.5px;
+    color:var(--ink-3);margin-top:3px}
+  .pj-hd{display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));gap:12px}
+  .pj-m{border:1px solid var(--proj-ln);border-radius:var(--r);padding:12px 14px 13px;background:var(--proj-bg);
+    display:flex;flex-direction:column;gap:3px;min-width:0}
+  .pj-m .lab{font-size:11.5px;font-weight:600;color:var(--ink-2);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .pj-m .big{font-size:30px;font-weight:700;letter-spacing:-.6px;line-height:1.08;margin-top:5px;color:var(--ink)}
+  .pj-m .big .bnd{font-size:14px;font-weight:600;color:var(--proj-ink);letter-spacing:0;margin-left:5px}
+  .pj-m .sekline{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);margin-top:5px}
+  .pj-m .rng{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:2px;line-height:1.45}
+  .pj-note{font-size:12px;color:var(--ink-2);line-height:1.6;margin:0;max-width:92ch}
+  .pj-note strong{color:var(--ink);font-weight:600}
+  .pj-grid{display:grid;grid-template-columns:1.25fr 1fr;gap:0;border-top:1px solid var(--rule)}
+  .pj-grid>div{padding:14px 17px}
+  .pj-grid>div:first-child{border-right:1px solid var(--rule)}
+  .unp{display:flex;flex-direction:column;gap:9px}
+  .unp .u{border:1px dashed var(--rule-2);border-radius:5px;padding:9px 11px;background:var(--surf-2)}
+  .unp .u .t{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .unp .u b{font-size:12.5px;font-weight:600;color:var(--ink)}
+  .unp .u .g{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+  .unp .u .f{font-family:var(--mono);font-size:11px;color:var(--crit-ink);font-weight:600}
+  .unp .u p{margin:5px 0 0;font-size:11.5px;color:var(--ink-2);line-height:1.5}
+  /* day grain */
+  .dg{display:grid;grid-template-columns:1.15fr 1fr;gap:12px}
+  .dgc{background:var(--surf);border:1px solid var(--rule);border-radius:var(--r);box-shadow:var(--shadow-sm);
+    display:flex;flex-direction:column;overflow:hidden;min-width:0}
+  .dgc>.stripe{height:3px;flex:none;background:var(--s1)}
+  .dgc.prov>.stripe{background:var(--warn)}
+  .dgc.dead>.stripe{background:var(--rule-2)}
+  .dgc .hd{padding:11px 14px 9px;border-bottom:1px solid var(--rule);display:flex;
+    align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  .dgc .hd h3{font-size:14px;font-weight:600;letter-spacing:-.01em;color:var(--h)}
+  .dgc .hd .dt{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);white-space:nowrap}
+  .dgc .bd{padding:12px 14px 13px;display:flex;flex-direction:column;gap:11px;flex:1}
+  .dg-prim .k{font-size:11px;color:var(--ink-2);font-weight:500;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+  .dg-prim .v{font-size:25px;font-weight:700;letter-spacing:-.5px;line-height:1.1;margin-top:2px;color:var(--h)}
+  .dg-prim .v .u{font-size:13px;font-weight:500;color:var(--ink-3);margin-left:3px}
+  .dg-sec{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-family:var(--mono);font-size:11.5px;
+    color:var(--ink-2);padding-top:9px;border-top:1px dashed var(--rule-2)}
+  .dg-sec .lb{font-family:var(--font);font-size:11px;color:var(--ink-3)}
+  .dg-note{font-size:11.5px;color:var(--ink-2);line-height:1.55;margin:0}
+  .dg-note b{color:var(--ink)}
+  .matbar{height:8px;border-radius:2px;background:var(--surf-3);border:1px solid var(--rule);overflow:hidden}
+  .matbar i{display:block;height:100%;background:var(--warn)}
+  table.dgl{width:100%;border-collapse:collapse;font-size:12px}
+  table.dgl td{padding:4px 0;border-bottom:1px solid var(--rule);text-align:right;white-space:nowrap}
+  table.dgl td.l{text-align:left;color:var(--ink-2);white-space:normal}
+  table.dgl tr:last-child td{border-bottom:0}
+  table.dgl tr.s td{font-weight:600;color:var(--ink);border-top:1px solid var(--rule-2)}
+  .fresh{display:flex;gap:7px 16px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);align-items:center}
+  .fresh b{color:var(--ink-2);font-weight:600}
+  .spark{display:block;width:100%;height:auto}
+  /* scorecard */
+  .sc{width:100%;border-collapse:collapse;font-size:12.5px}
+  .sc th,.sc td{padding:0;border:0}
+  .sc thead th{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-3);font-weight:500;padding:0 10px 8px;text-align:right;vertical-align:bottom}
+  .sc thead th.l{text-align:left}
+  .sc thead th small{display:block;font-size:9px;letter-spacing:.03em;text-transform:none;color:var(--ink-3)}
+  .sc tbody td{padding:9px 10px;border-top:1px solid var(--rule);text-align:right;vertical-align:top}
+  .sc tbody td.l{text-align:left;font-weight:500;white-space:nowrap}
+  .sc tbody tr:hover td{background:var(--surf-2)}
+  .sc .m-v{font-size:14.5px;font-weight:700;letter-spacing:-.3px;white-space:nowrap;color:var(--h)}
+  .sc .m-p{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:1px}
+  .sc .m-d{margin-top:4px}
+  .sc td.open{background:repeating-linear-gradient(45deg,transparent,transparent 5px,var(--surf-3) 5px,var(--surf-3) 9px)}
+  .sc td.sup .m-v{color:var(--ink-3);font-size:12px;font-weight:500;font-style:italic}
+  .sc .why{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);margin-top:3px;white-space:normal;
+    max-width:150px;margin-left:auto;line-height:1.35}
+  .sc tbody tr.grp td{border-top:2px solid var(--rule-2)}
+  /* data tables */
+  table.d{border-collapse:collapse;width:100%;font-size:12.5px}
+  table.d th,table.d td{text-align:right;padding:6px 9px;white-space:nowrap}
+  table.d th{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-3);font-weight:500;border-bottom:1px solid var(--rule-2);padding-bottom:7px;vertical-align:bottom}
+  table.d td{border-bottom:1px solid var(--rule)}
+  table.d th.l,table.d td.l{text-align:left}
+  table.d tbody tr:hover td{background:var(--surf-2)}
+  .rung{font-weight:500;color:var(--ink)}
+  .rung .hint{display:block;font-size:10.5px;color:var(--ink-3);font-weight:400;margin-top:1px;white-space:normal;max-width:34ch}
+  tr.sub td{background:var(--surf-2);font-weight:600}
+  tr.sub:hover td{background:var(--surf-3)}
+  tr.hero td{background:var(--surf-3);font-weight:700}
+  tr.una td{color:var(--ink-3)}
+  tr.una .rung{font-weight:400;color:var(--ink-3)}
+  td.wf{padding:0 9px;width:308px;min-width:308px}
+  .na{color:var(--ink-3);font-family:var(--mono);font-size:11px}
+  .sev-pill{font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;
+    padding:2px 7px;border-radius:3px;white-space:nowrap}
+  .sev-pill.ok{color:var(--good-ink);background:var(--good-bg)}
+  .sev-pill.open{color:var(--warn-ink);background:var(--warn-bg)}
+  .pos{color:var(--good-ink)} .neg{color:var(--crit-ink)}
+  table.d tfoot td{border-bottom:0;border-top:1px solid var(--rule-2);font-weight:600;padding-top:9px}
+  table.d tfoot tr.grp td{font-weight:500;color:var(--ink-2);border-top:0}
+  tr.exp{cursor:pointer}
+  tr.exp td.l::before{content:"\25B8";display:inline-block;width:12px;color:var(--ink-3);font-size:10px}
+  tr.exp[aria-expanded="true"] td.l::before{content:"\25BE"}
+  tr.kid td{background:var(--surf-2);font-size:12px}
+  tr.kid td.l{padding-left:28px}
+  tr.kid.hdr td{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-3);background:var(--surf-3)}
+  /* charts */
+  svg{display:block;max-width:100%;height:auto}
+  .gridline{stroke:var(--grid);stroke-width:1}
+  .axis{stroke:var(--rule-2);stroke-width:1}
+  .tick{fill:var(--ink-3);font-family:var(--mono);font-size:9.5px}
+  .tickb{fill:var(--ink-2);font-family:var(--font);font-size:10px;font-weight:500}
+  .dlab{fill:var(--ink);font-family:var(--font);font-size:10.5px;font-weight:600}
+  .bar-in{fill:var(--s1)} .bar-out{fill:var(--s2)} .bar-sub{fill:var(--sub)}
+  .ln-1{stroke:var(--s1);stroke-width:2;fill:none;stroke-linejoin:round;stroke-linecap:round}
+  .ln-2{stroke:var(--s2);stroke-width:2;fill:none;stroke-linejoin:round;stroke-linecap:round}
+  .ln-3{stroke:var(--s3);stroke-width:2;fill:none;stroke-linejoin:round;stroke-linecap:round}
+  .dot-1{fill:var(--s1)} .dot-2{fill:var(--s2)} .dot-3{fill:var(--s3)}
+  .ring{stroke:var(--surf);stroke-width:2}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--ink-2)}
+  .legend .k{display:inline-flex;align-items:center;gap:6px}
+  .legend .sw{width:11px;height:11px;border-radius:2px;flex:none}
+  .legend .swl{width:14px;height:3px;border-radius:2px;flex:none}
+  /* watchlist */
+  .watch{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .w{background:var(--surf);border:1px solid var(--rule);border-radius:var(--r);box-shadow:var(--shadow-sm);
+    display:flex;flex-direction:column;overflow:hidden}
+  .w .stripe{height:3px;flex:none}
+  .w.crit .stripe{background:var(--crit)} .w.warn .stripe{background:var(--warn)}
+  .w.info .stripe{background:var(--s3)} .w.ok .stripe{background:var(--good)}
+  .w .in{padding:11px 14px 12px;display:flex;flex-direction:column;gap:6px;flex:1}
+  .w .top{display:flex;align-items:center;gap:7px;justify-content:space-between}
+  .w .sev{font-family:var(--mono);font-size:9px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;
+    padding:2px 6px;border-radius:3px}
+  .w.crit .sev{color:var(--crit-ink);background:var(--crit-bg)}
+  .w.warn .sev{color:var(--warn-ink);background:var(--warn-bg)}
+  .w.info .sev{color:var(--s3);background:var(--surf-3)}
+  .w.ok .sev{color:var(--good-ink);background:var(--good-bg)}
+  .w h3{font-size:13px;font-weight:600;letter-spacing:-.01em;line-height:1.3;color:var(--h)}
+  .w .fig{font-family:var(--mono);font-size:15px;font-weight:700;letter-spacing:-.3px;color:var(--ink)}
+  .w.ok .fig{color:var(--good-ink)}
+  .w p{margin:0;font-size:11.5px;color:var(--ink-2);line-height:1.5}
+  .w .rule{margin-top:auto;padding-top:9px;border-top:1px dashed var(--rule-2);display:flex;flex-direction:column;gap:2px}
+  .w .rid{font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--ink-3);text-transform:uppercase}
+  .w .rex{font-family:var(--mono);font-size:10px;color:var(--ink-2);line-height:1.45;
+    background:var(--surf-2);border-radius:3px;padding:4px 6px;white-space:normal}
+  .w .rex em{font-style:normal;color:var(--ink);font-weight:600}
+  /* provenance */
+  .how{display:grid;grid-template-columns:1.35fr 1fr;gap:0}
+  .how .l{padding:15px 17px;border-right:1px solid var(--rule)}
+  .how .r{padding:15px 17px;background:var(--surf-2)}
+  .how p{margin:0 0 9px;font-size:12.5px;color:var(--ink-2);line-height:1.6;max-width:66ch}
+  .how p:last-child{margin-bottom:0}
+  .how strong{color:var(--ink);font-weight:600}
+  .recon{display:flex;flex-direction:column;font-family:var(--mono);font-size:11.5px}
+  .recon div{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-bottom:1px solid var(--rule)}
+  .recon div:last-child{border-bottom:0;font-weight:700;color:var(--ink);padding-top:7px}
+  .recon span:first-child{color:var(--ink-2)}
+  .recon .n{color:var(--ink-2);white-space:nowrap}
+  .notes{font-size:11.5px;color:var(--ink-3);line-height:1.65;display:flex;flex-direction:column;gap:5px}
+  .notes b{color:var(--ink-2);font-weight:600;font-family:var(--mono);font-size:10px;letter-spacing:.05em}
+  .notes code{font-family:var(--mono);font-size:10px}
+  .pending{background:var(--surf);border:1px dashed var(--rule-2);border-radius:var(--r);
+    padding:34px 22px;text-align:center;color:var(--ink-3);font-size:13px}
+  .refresh-pill{display:none;font-family:var(--mono);font-size:10.5px;padding:4px 9px;border-radius:var(--r-sm);
+    background:var(--warn-bg);color:var(--warn-ink);border:1px solid #EBD8B6;align-self:center}
+  .refresh-pill.show{display:inline-flex}
+  @media (max-width:1080px){
+    .tiles{grid-template-columns:repeat(2,1fr)} .watch{grid-template-columns:repeat(2,1fr)}
+    .how{grid-template-columns:1fr} .how .l{border-right:0;border-bottom:1px solid var(--rule)}
+    .pj-grid{grid-template-columns:1fr}
+    .pj-grid>div:first-child{border-right:0;border-bottom:1px solid var(--rule)}
+    .dg{grid-template-columns:1fr}
+  }
+  @media (max-width:640px){
+    .tiles,.watch{grid-template-columns:1fr} main{padding:16px 12px 56px} .mast h1{font-size:20px}
+  }
+  </style>
+</head>
+<body>
+<header id="app-header" data-page="execpl"></header>
+<template data-header-extra>
+  <div class="refresh-pill" id="refreshPill" title=""></div>
+</template>
+<script src="/nav.js"></script>
+
+<main>
+  <header class="mast">
+    <div>
+      <div class="eyebrow">Babyshop group &middot; finance</div>
+      <h1>Executive P&amp;L</h1>
+      <p class="dek">Posted revenue and margin from Business Central, in Finance&rsquo;s own management-report
+      format from Gross Sales down to EBITDA and on to the posted result. One company, all markets,
+      FX-normalised to SEK. The day cards below run on a different basis and say so.</p>
+    </div>
+    <div class="badge"><span class="dot"></span><span id="mastBadge">Business Central &middot; posting date &middot; ex VAT</span></div>
+  </header>
+
+  <nav class="ctx" aria-label="Report scope">
+    <div class="ctx-g"><span class="ctx-l">Period</span>
+      <div class="seg" id="segPeriod" role="group" aria-label="Period">
+        <button type="button" data-v="MTD" aria-pressed="false">MTD</button>
+        <button type="button" data-v="QTD" aria-pressed="false">QTD</button>
+        <button type="button" data-v="YTD" aria-pressed="true">YTD</button>
+        <button type="button" data-v="L12M" aria-pressed="false">L12M</button>
+      </div></div>
+    <div class="ctx-g"><span class="ctx-l">Compare</span>
+      <div class="seg" id="segCmp" role="group" aria-label="Comparison">
+        <button type="button" data-v="FC" aria-pressed="true">Forecast</button>
+        <button type="button" data-v="PY" aria-pressed="false">Last year</button>
+      </div></div>
+    <div class="ctx-g"><span class="ctx-l">Market</span>
+      <select id="selMkt" aria-label="Market"><option value="ALL">All markets</option></select></div>
+    <div class="spacer"></div>
+    <div class="badge" id="rangeBadge">&ndash;</div>
+  </nav>
+
+  <div id="pending" class="pending" hidden>No Executive P&amp;L snapshot yet. The nightly
+    <code>exec-pl-refresh</code> job has not written one.</div>
+
+  <div id="noticeTop"></div>
+  <div id="mktNotice"></div>
+
+  <section class="tiles" id="tiles" aria-label="Pacing versus plan"></section>
+
+  <section class="card" id="projCard" hidden>
+    <div class="card-h">
+      <div><div class="eyebrow">Open period</div><h2 id="pjTitle">Open month projection</h2></div>
+      <div class="sub" id="pjSub">Booked plus estimate &middot; margin first, SEK second</div>
+    </div>
+    <div class="card-b" style="display:flex;flex-direction:column;gap:14px">
+      <div class="pj-hd" id="pjHead"></div>
+      <p class="pj-note" id="pjWhy"></p>
+    </div>
+    <div class="pj-grid">
+      <div>
+        <div class="eyebrow" style="margin-bottom:10px">How the band behaves by day of month</div>
+        <div class="scroll"><div id="pjBand"></div></div>
+        <p class="pj-note" id="pjBandNote" style="margin-top:10px;font-size:11.5px"></p>
+      </div>
+      <div>
+        <div class="eyebrow" style="margin-bottom:10px">Labelled, not modelled</div>
+        <div class="unp" id="pjUnpred"></div>
+      </div>
+    </div>
+    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
+      <div class="legend">
+        <span class="k"><span class="st st-bk">Posted</span>in the general ledger</span>
+        <span class="k"><span class="st st-pj">Projected</span>posted plus estimate</span>
+        <span class="k"><span class="st st-fc">Forecast</span>the client&rsquo;s own plan</span>
+        <span style="color:var(--ink-3)">The three are never blended into one number.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="dayCard">
+    <div class="card-h">
+      <div><div class="eyebrow">Day grain &middot; order date</div><h2 id="dgTitle">Ordered</h2></div>
+      <div class="sub">Live from the Norce API &middot; a different basis from the ladder above &middot; does not follow the period selector</div>
+    </div>
+    <div class="card-b" style="display:flex;flex-direction:column;gap:13px">
+      <div class="dg" id="dgCards"></div>
+      <div class="fresh" id="dgFresh"></div>
+    </div>
+    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
+      <div id="dgSplit"></div>
+    </div>
+    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
+      <p class="dg-note" style="max-width:96ch" id="dgNote"></p>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-h">
+      <div><div class="eyebrow">Scorecard</div><h2 id="scTitle">Margin ladder by time window</h2></div>
+      <div class="sub">Value &middot; % of net sales &middot; delta against the rolling forecast</div>
+    </div>
+    <div class="card-b scroll"><table class="sc" id="scTable"></table></div>
+    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
+      <div class="legend">
+        <span class="k"><span class="sw" style="background:repeating-linear-gradient(45deg,transparent,transparent 3px,var(--rule-2) 3px,var(--rule-2) 6px);border:1px solid var(--rule-2)"></span>Open, window contains an unposted month</span>
+        <span class="k"><span class="mk mk-d">D</span>Directional against plan</span>
+        <span class="k"><span class="mk mk-p">P</span>Projected from the cost estimator</span>
+        <span style="color:var(--ink-3)">Multi-month windows stay posted-only, so the open month enters them at what has actually posted.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-h">
+      <div><div class="eyebrow">The ladder</div><h2 id="ladTitle">Gross Sales to EBITDA</h2></div>
+      <div class="sub" id="ladSub">Finance&rsquo;s management-report format</div>
+    </div>
+    <div class="card-b scroll"><table class="d" id="ladTable" data-export-name="exec-pl-ladder"></table></div>
+    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
+      <div class="legend">
+        <span class="k"><span class="sw" style="background:var(--s1)"></span>Revenue in</span>
+        <span class="k"><span class="sw" style="background:var(--s2)"></span>Deduction</span>
+        <span class="k"><span class="sw" style="background:var(--sub)"></span>Subtotal</span>
+        <span class="k"><span class="mk mk-b">B</span>Basis difference</span>
+        <span class="k"><span class="mk mk-d">D</span>Directional against forecast</span>
+        <span class="k"><span class="mk mk-d">?</span>No forecast counterpart</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-h">
+      <div><div class="eyebrow">Reconciliation</div><h2>Our figures against the client&rsquo;s July 2026 report</h2></div>
+      <div class="sub">Every line, every delta, down to EBITDA &middot; SEK</div>
+    </div>
+    <div class="card-b scroll"><table class="d" id="recTable" data-export-name="exec-pl-july-reconciliation"></table></div>
+    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
+      <p style="margin:0;font-size:12.5px;color:var(--ink-2);line-height:1.65;max-width:92ch" id="recSum"></p>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-h">
+      <div><div class="eyebrow">Variance bridge</div><h2 id="brTitle">Why EBITDA differs from forecast</h2></div>
+      <div class="sub" id="brSub">Like-for-like forecast lines</div>
+    </div>
+    <div class="card-b scroll"><div id="brChart"></div></div>
+    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
+      <div class="legend" style="margin-bottom:9px">
+        <span class="k"><span class="sw" style="background:var(--s1)"></span>Favourable</span>
+        <span class="k"><span class="sw" style="background:var(--s2)"></span>Unfavourable</span>
+        <span class="k"><span class="sw" style="background:var(--sub)"></span>Start / end</span>
+        <span class="k"><span class="sw" style="background:repeating-linear-gradient(45deg,var(--proj),var(--proj) 2px,var(--surf) 2px,var(--surf) 4px);border:1px solid var(--proj-ln)"></span>Entirely estimated, 0% posted</span>
+        <span class="k"><span class="sw" style="background:repeating-linear-gradient(45deg,var(--s1),var(--s1) 2px,var(--surf) 2px,var(--surf) 4px);border:1px solid var(--rule-2)"></span>No forecast counterpart</span>
+      </div>
+      <p style="margin:0;font-size:12px;color:var(--ink-2);line-height:1.6;max-width:88ch" id="brNote"></p>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-h">
+      <div><div class="eyebrow">Markets</div><h2>Contribution after marketing</h2></div>
+      <div class="sub">The ladder stops before logistics here &middot; shipping, fulfilment, transaction fees and overhead have no country dimension</div>
+    </div>
+    <div class="card-b scroll"><table class="d" id="mktTable" data-export-name="exec-pl-markets"></table></div>
+    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
+      <p style="margin:0;font-size:12px;color:var(--ink-2);line-height:1.6;max-width:88ch" id="mktFoot"></p>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-h">
+      <div><div class="eyebrow">Trend</div><h2 id="trTitle">Net sales and margin</h2></div>
+      <div class="sub">Two panels, one shared timeline &middot; SEK and % are never plotted on one axis</div>
+    </div>
+    <div class="card-b scroll">
+      <div class="legend" style="margin-bottom:8px" id="trLegend"></div>
+      <div id="trChart"></div>
+    </div>
+    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
+      <p style="margin:0;font-size:12px;color:var(--ink-2);line-height:1.6;max-width:88ch" id="trNote"></p>
+    </div>
+  </section>
+
+  <section aria-label="Watchlist">
+    <div class="card-h" style="border:0;padding:2px 2px 10px">
+      <div><div class="eyebrow">Watchlist</div><h2 id="wlTitle">Rules, evaluated on this refresh</h2></div>
+      <div class="sub" id="wlSub">Deterministic threshold rules against the live snapshot, not generated commentary</div>
+    </div>
+    <div class="watch" id="watch"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><div><div class="eyebrow">Provenance</div><h2>How to read this</h2></div></div>
+    <div class="how">
+      <div class="l" id="howL"></div>
+      <div class="r">
+        <div class="eyebrow" style="margin-bottom:9px">Ladder EBT to the posted general ledger</div>
+        <div class="recon" id="glBridge"></div>
+        <p style="margin:11px 0 0;font-size:11.5px;color:var(--ink-3);line-height:1.55" id="glBridgeNote"></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="notes" id="notes"></section>
+</main>
+
+<script>
+(function () {
+'use strict';
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Executive P&L tab logic.
+ *
+ * TWO BASES, AND THE RULE THAT GOVERNS THEM
+ * -----------------------------------------
+ * Everything from the tiles down is POSTING DATE, from Business Central, because
+ * that is what reconciles to Finance's own management report. The day cards are
+ * ORDER DATE, live from Norce, because that is what a day means to a reader.
+ *
+ * The client's vocabulary: "booked" means WHEN THE PURCHASE TOOK PLACE. So the
+ * ledger basis is called "posted" or "invoiced" on this page, never "booked",
+ * and the day cards are called "ordered". The two are never summed, differenced,
+ * or placed in one column: on a calendar basis June 2026 reads 18.26 MSEK
+ * ordered against 21.69 MSEK posted, a 19% gap that is pure posting timing.
+ *
+ * ENGINEERING RULES THIS FILE OBEYS
+ * ---------------------------------
+ *  • No `innerHTML +=` inside a row loop. Every table pushes strings into an
+ *    array and joins once. The pattern this replaces is O(N squared) and froze
+ *    the Inventory tab for 60 seconds on production-scale data.
+ *  • No external requests. Charts are inline SVG, so no charting library is
+ *    loaded at all, not even the vendored /chart.umd.js.
+ *  • table-tools.js provides column filters and CSV/XLSX export, as on the
+ *    other seven tabs.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+var D = null;          /* /api/exec-pl snapshot   */
+var N = null;          /* /api/norce-today (live) */
+var S = { period: 'YTD', cmp: 'FC', mkt: 'ALL' };
+var MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+var MA = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+var tools = {};
+
+/* ── Stated facts ────────────────────────────────────────────────────────────
+ * Values that are properties of the client's own reporting rather than of the
+ * snapshot, carried here with their provenance so the page can compute deltas
+ * against them live. If the ledger moves, the delta moves, which is the point.
+ */
+
+/* The client's July 2026 management report, as issued. */
+var THEIRS = {
+  gross:22621000, ret:-1883000, net:20738000, cogs:-13624000, gp1:7114000,
+  nship:-1807000, ful:-1431000, tf:270000, gp2:4146000, mktg:-1830000,
+  gp3:2316000, ebitda:-700000
+};
+var THEIR_PCT = { gp1:34.3, gp2:20.0, gp3:11.2 };
+
+/* A single non-recurring item, GL 3790, January 2026. It sits inside EBITDA but
+ * outside the GP3 ladder, and the forecast contains no such line. */
+var ONE_OFF = { month:'2026-01', gl:'3790', sek:3902000, what:'KPMG settlement' };
+
+/* The published band is deliberately asymmetric. The symmetric backtest band is
+ * in the snapshot; the skew is an editorial judgement with two named reasons,
+ * both of which this page re-evaluates live (see the PROJECTION_QUALITY rule). */
+var SKEW = { dn:6.0, up:4.0 };
+
+var PL = { MTD:'MTD', QTD:'QTD', YTD:'YTD', L12M:'Last 12 months' };
+
+/* ── Formatting ──────────────────────────────────────────────────────────── */
+function esc(s){ return String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function sek(v){ return (v == null || !isFinite(v)) ? '–'
+  : Math.round(v).toLocaleString('en-US').replace(/,/g,' '); }
+function signed(v){ return v == null ? '–' : (v < 0 ? '−' : '') + sek(Math.abs(v)); }
+function msek(v){ return (v == null || !isFinite(v)) ? '–' : (v / 1e6).toFixed(1); }
+function pct(a,b){ return (b && isFinite(a/b)) ? (a/b*100) : null; }
+function pf(v,dp){ return (v == null || !isFinite(v)) ? '–'
+  : (v.toFixed(dp === undefined ? 1 : dp) + '%'); }
+function el(id){ return document.getElementById(id); }
+function lab(m){ var p = m.split('-'); return MN[+p[1]-1] + ' ' + p[0]; }
+function dayName(d){ return new Date(d + 'T12:00:00Z')
+  .toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}); }
+
+/* forward declarations resolved at the bottom of this block */
+
+/* ── Window selection ────────────────────────────────────────────────────── */
+function openMonth(){ return D.open_month; }
+function isOpen(m){ return m === D.open_month; }
+function year(){ return (D.open_month || D.months[D.months.length-1]).slice(0,4); }
+
+function wm(p){
+  var all = D.months;
+  if (p === 'LASTCLOSED') return D.last_closed && all.indexOf(D.last_closed) >= 0 ? [D.last_closed] : [];
+  if (p === 'MTD')  return D.open_month ? [D.open_month] : all.slice(-1);
+  if (p === 'L12M') return all.slice(Math.max(0, all.length - 12));
+  if (p === 'QTD') {
+    var om = D.open_month || all[all.length-1];
+    var mm = +om.slice(5,7), q0 = mm - ((mm - 1) % 3);
+    return all.filter(function (m) {
+      return m.slice(0,4) === om.slice(0,4) && +m.slice(5,7) >= q0 && +m.slice(5,7) <= mm; });
+  }
+  return all.filter(function (m) { return m.slice(0,4) === year(); });   /* YTD */
+}
+function pym(ms){
+  var out = [];
+  for (var i = 0; i < ms.length; i++) {
+    var p = ms[i].split('-'), q = (+p[0]-1) + '-' + p[1];
+    if (D.months.indexOf(q) < 0) return null;
+    out.push(q);
+  }
+  return out;
+}
+function rangeLabel(ms){
+  if (!ms.length) return '–';
+  var a = lab(ms[0]), b = lab(ms[ms.length-1]);
+  var s = (ms.length === 1) ? a : (a + ' – ' + b);
+  var bc = (D.sources && D.sources.bc) || {};
+  if (ms.indexOf(D.open_month) >= 0 && bc.max_posting_date)
+    s += ' · posted to ' + bc.max_posting_date;
+  return s + ' · ' + ms.length + (ms.length === 1 ? ' month' : ' months');
+}
+
+/* ── Aggregation ─────────────────────────────────────────────────────────────
+ * Display convention throughout the ladder: deductions are NEGATIVE, so a rung
+ * reads the way it does on a printed P&L and a delta against the forecast (which
+ * already signs costs negative) needs no translation.
+ *
+ * The snapshot's own convention is the opposite (`cogs`, `nship`, `ful`, `tf`,
+ * `mktg`, `toh` and `da` are positive costs), so each is negated exactly once,
+ * here, and nowhere else.
+ */
+var LKEYS = ['gross','ret','net','cogs','gp1','nship','ful','tf','gp2','mktg',
+             'gp3','oo','toh','ebitda','da','ebit','fin','ebt','ni'];
+
+function agg(ms, mkt){
+  var o = { ms:ms, mkt:mkt, geo:(mkt !== 'ALL') };
+  LKEYS.forEach(function (k) { o[k] = 0; });
+  o.c = { ship_revenue:0, ship_returns:0, return_fee:0, compensation:0,
+          returns_product:0, orders:0, credit_notes:0, cogs_4006:0,
+          cogs_adjustments:0, mktg_ad_5911:0, mktg_other:0,
+          mktg_consultants_5982:0, interest:0, fx:0 };
+  o.ship_cost = {}; o.ful_acc = {}; o.txn = {};
+  o.oh = (D.overhead_groups || []).map(function () { return 0; });
+  o.openM = ms.filter(isOpen);
+  o.allOpen = o.openM.length === ms.length && ms.length > 0;
+
+  if (o.geo) {
+    /* Market mode. COGS switches to the item ledger and marketing to
+     * de-duplicated Funnel spend, because those are the only two bases that
+     * carry a country at all. Everything below contribution is withdrawn. */
+    o.orders = 0; o.mkFunnel = 0; o.ileCogs = 0;
+    ms.forEach(function (m) {
+      var r = (D.markets[m] || {})[mkt];
+      if (!r) return;
+      o.orders += (r.orders || 0);
+      o.gross  += (r.gross || 0);
+      o.ret    += (r.returns || 0);
+      o.ileCogs += (r.cogs_item_ledger || 0);
+      o.mkFunnel += (r.marketing_funnel || 0);
+    });
+    o.net = o.gross - o.ret;
+    o.cogs = o.ileCogs;
+    o.gp1 = o.net - o.cogs;
+    o.mktg = o.mkFunnel;
+    o.contrib = o.gp1 - o.mktg;
+    /* display convention */
+    o.ret = -o.ret; o.cogs = -o.cogs; o.mktg = -o.mktg;
+    ['nship','ful','tf','gp2','gp3','oo','toh','ebitda','da','ebit','fin','ebt','ni']
+      .forEach(function (k) { o[k] = null; });
+    return o;
+  }
+
+  ms.forEach(function (m) {
+    var L = D.ladder[m], C = D.components[m];
+    if (L) LKEYS.forEach(function (k) { o[k] += (L[k] || 0); });
+    if (!C) return;
+    Object.keys(o.c).forEach(function (k) { o.c[k] += (C[k] || 0); });
+    ['ship_cost','fulfillment','txn_fees'].forEach(function (grp) {
+      var dst = grp === 'ship_cost' ? o.ship_cost : grp === 'fulfillment' ? o.ful_acc : o.txn;
+      Object.keys(C[grp] || {}).forEach(function (a) {
+        dst[a] = (dst[a] || 0) + (C[grp][a] || 0); });
+    });
+    (C.overhead || []).forEach(function (v, i) { o.oh[i] += (v || 0); });
+  });
+
+  o.orders = o.c.orders;
+  o.shipRevNet = o.c.ship_revenue - o.c.ship_returns;
+  o.contrib = null;
+  /* one negation, here only */
+  ['ret','cogs','nship','ful','tf','mktg','toh','da','fin'].forEach(function (k) {
+    o[k] = -o[k]; });
+  return o;
+}
+
+function pyAgg(ms, mkt){ var q = pym(ms); return q ? agg(q, mkt) : null; }
+
+/* ── Forecast ────────────────────────────────────────────────────────────────
+ * The forecast file is a single GLOBAL set of P&L lines: no market, shop or
+ * channel key exists anywhere in it. Selecting one market therefore WITHDRAWS
+ * every forecast comparison rather than splitting one that was never there.
+ * It also covers 2026 only, so a window touching 2025 has no counterpart.
+ */
+var FCMAP = {
+  gross:'Gross Sales', ret:'Returns', net:'Net Sales', cogs:'Total COGS',
+  gp1:'Gross profit 1', nship:'Net Shipping', ful:'Total Fulfillment',
+  tf:'Transaction fees', gp2:'GP2', mktg:'Total Marketing', gp3:'GP3',
+  toh:'Total Overhead', ebitda:'EBITDA', da:'Amortization & Depreciation',
+  ebit:'EBIT', fin:'Total Financial Items', ebt:'EBT', ni:'Net Income'
+};
+function fcLine(name, ms){
+  var L = (D.forecast || {}).lines || {};
+  if (!L[name]) return null;
+  var t = 0;
+  for (var i = 0; i < ms.length; i++) {
+    if (ms[i].slice(0,4) !== '2026') return null;
+    var v = L[name][MA[+ms[i].slice(5,7) - 1]];
+    if (v == null) return null;
+    t += v;
+  }
+  return t;
+}
+function fcFor(ms, mkt){
+  if (mkt !== 'ALL') return null;
+  if (!(D.forecast || {}).lines) return null;
+  var out = {}, any = false;
+  Object.keys(FCMAP).forEach(function (k) {
+    var v = fcLine(FCMAP[k], ms);
+    out[k] = v; if (v != null) any = true;
+  });
+  return any && out.net != null ? out : null;
+}
+
+/* ── Projection (open month only) ────────────────────────────────────────────
+ * Only ever the open month, only at group level, only down to GP3, and never
+ * inside a cumulative window. A projection that leaked into YTD would be
+ * indistinguishable from a posted figure a month later.
+ */
+function est(){ return D.estimator || null; }
+function estMonth(){ var e = est(); return e && e.september_2026 ? e.september_2026 : null; }
+function pjOn(ms, mkt){
+  var em = estMonth();
+  return !!(em && mkt === 'ALL' && ms.length === 1 && ms[0] === em.month && isOpen(ms[0]));
+}
+function pjLadder(){
+  var em = estMonth(); if (!em) return null;
+  var by = {};
+  (em.ladder || []).forEach(function (r) { by[r.line] = r; });
+  var g = function (n) { return by[n] || {}; };
+  return {
+    gross:g('Gross Sales'), ret:g('Returns'), net:g('Net Sales'),
+    cogs:g('Total COGS'), gp1:g('GP1'), nship:g('Net Shipping (cost)'),
+    ful:g('Total Fulfillment'), tf:g('Transaction Fees'), gp2:g('GP2'),
+    mktg:g('Total Marketing'), gp3:g('GP3')
+  };
+}
+/* A projected twin of agg(), same shape and same display convention. */
+function projAgg(){
+  var em = estMonth(), P = pjLadder();
+  var o = agg([em.month], 'ALL');
+  o.pj = true;
+  o.posted = agg([em.month], 'ALL');
+  o.gross = P.gross.projected; o.ret = -P.ret.projected; o.net = P.net.projected;
+  o.cogs = -P.cogs.projected; o.gp1 = P.gp1.projected;
+  o.nship = -P.nship.projected; o.ful = -P.ful.projected; o.tf = -P.tf.projected;
+  o.gp2 = P.gp2.projected; o.mktg = -P.mktg.projected; o.gp3 = P.gp3.projected;
+  /* the estimator stops at GP3: below it stays suppressed, not half-estimated */
+  ['oo','toh','ebitda','da','ebit','fin','ebt','ni'].forEach(function (k) { o[k] = null; });
+  return o;
+}
+function pjPct(k){ var P = pjLadder(); return P && P[k] ? P[k].pct_ns : null; }
+function bandPP(){
+  var e = est(), d = (estMonth() || {}).as_of_day || 15;
+  var r = ((e || {}).backtest || {}).recommended_band_pp || {};
+  var hit = null;
+  Object.keys(r).forEach(function (k) {
+    var p = k.split('-');
+    if (d >= +p[0] && d <= +p[1]) hit = r[k];
+  });
+  return hit || { gp2_pp:5, gp3_pp:5 };
+}
+function skewTxt(){ return '−' + SKEW.dn.toFixed(0) + ' / +' + SKEW.up.toFixed(0) + ' pp'; }
+function skewRange(p){
+  var net = (pjLadder() || {}).net;
+  net = net ? net.projected : 0;
+  return [(p - SKEW.dn)/100*net, (p + SKEW.up)/100*net];
+}
+
+/* Observed monthly GP1%, closed months only: the range a projection has to
+ * defend itself against. Computed live rather than transcribed. */
+function gp1Observed(){
+  var vals = D.months.filter(function (m) { return !isOpen(m); })
+    .map(function (m) { return (D.ladder[m].margins || {}).gp1; })
+    .filter(function (v) { return v != null; });
+  var y26 = D.months.filter(function (m) { return !isOpen(m) && m.slice(0,4) === '2026'; })
+    .map(function (m) { return (D.ladder[m].margins || {}).gp1; })
+    .filter(function (v) { return v != null; });
+  return { lo:Math.min.apply(null, y26), hi:Math.max.apply(null, y26),
+           loAll:Math.min.apply(null, vals), hiAll:Math.max.apply(null, vals),
+           last: D.last_closed ? (D.ladder[D.last_closed].margins || {}).gp1 : null };
+}
+
+/* ── Delta chips ─────────────────────────────────────────────────────────── */
+function chip(act, ref, goodUp){
+  if (ref == null || !ref) return '<span class="delta fl">–</span>';
+  var d = (act - ref) / Math.abs(ref) * 100;
+  var good = goodUp ? d >= 0 : d <= 0;
+  var cls = Math.abs(d) < 0.05 ? 'fl' : (good ? 'up' : 'dn');
+  var ar = Math.abs(d) < 0.05 ? '' : (d > 0 ? '▲ ' : '▼ ');
+  return '<span class="delta ' + cls + '">' + ar + (d > 0 ? '+' : '−') +
+         Math.abs(d).toFixed(1) + '%</span>';
+}
+function dcell(v){
+  if (v == null) return '<span class="na">n/a</span>';
+  if (Math.round(v) === 0) return '<span class="na">0</span>';
+  return '<span class="' + (v > 0 ? 'pos' : 'neg') + '">' + (v > 0 ? '+' : '−') +
+         sek(Math.abs(v)) + '</span>';
+}
+/* ── Boot ────────────────────────────────────────────────────────────────────
+ * The snapshot and the live Norce read are fetched independently and on
+ * purpose: /api/exec-pl is one Firestore document and returns in milliseconds,
+ * while /api/norce-today makes ~15 live HTTP calls to Norce. Blocking the whole
+ * tab on the slower of the two would make a finance page feel broken, so the
+ * ladder renders immediately and the day cards fill in when they arrive.
+ */
+function setPill(generatedAt){
+  var pill = el('refreshPill');
+  if (!pill) return;
+  if (!generatedAt) {
+    pill.textContent = 'no snapshot yet';
+    pill.title = 'exec-pl-refresh has not written funnel_cache yet';
+    pill.classList.add('show');
+    return;
+  }
+  var ageH = (Date.now() - new Date(generatedAt).getTime()) / 36e5;
+  if (ageH > 30) {
+    pill.textContent = 'snapshot ' + Math.round(ageH) + 'h old';
+    pill.title = 'the nightly exec-pl-refresh job may have failed';
+    pill.classList.add('show');
+  }
+}
+
+function renderAll(){
+  var R = window.__execplRender;
+  if (!R) return;
+  try {
+    R.notices(); R.tiles(); R.projection(); R.scorecard(); R.ladder();
+    R.reconciliation(); R.bridge(); R.markets(); R.trend(); R.watchlist();
+    R.provenance();
+    el('rangeBadge').innerHTML = esc(rangeLabel(wm(S.period)));
+  } catch (e) {
+    if (window.console) console.error('exec-pl render failed', e);
+  }
+}
+/* The live read arrives after the first paint, and three sections read it: the
+ * day cards themselves, the DAY_GRAIN_LIVE_READ watchlist rule, and the
+ * provenance note. Re-render all three, not just the cards, or the rule sits
+ * permanently absent and the page under-reports how many rules it evaluated. */
+function renderDayOnly(){
+  var R = window.__execplRender;
+  if (!R) return;
+  try {
+    if (R.day) R.day();
+    if (D && (D.months || []).length) { R.watchlist(); R.provenance(); }
+  } catch (e) { if (window.console) console.error('exec-pl day render failed', e); }
+}
+
+/* Prior-year and forecast availability are properties of the window, so the
+ * comparison control has to be re-derived on every change rather than trusted. */
+function syncControls(){
+  var ms = wm(S.period), hasPY = !!pym(ms);
+  var fc = el('segCmp').querySelector('[data-v="FC"]');
+  var ly = el('segCmp').querySelector('[data-v="PY"]');
+  ly.disabled = !hasPY || S.mkt !== 'ALL';
+  ly.innerHTML = 'Last year' + (ly.disabled
+    ? '<span class="hintx">' + (S.mkt !== 'ALL' ? 'group only' : 'no prior year') + '</span>' : '');
+  ly.title = hasPY
+    ? (S.mkt !== 'ALL' ? 'Prior-year comparison is built at group level only.' : '')
+    : 'Business Central history starts mid-June 2025, so this window has no prior year to compare against.';
+  if (ly.disabled && S.cmp === 'PY') S.cmp = 'FC';
+  fc.disabled = (S.mkt !== 'ALL');
+  fc.innerHTML = 'Forecast' + (fc.disabled ? '<span class="hintx">group only</span>' : '');
+  fc.setAttribute('aria-pressed', S.cmp === 'FC' && !fc.disabled ? 'true' : 'false');
+  ly.setAttribute('aria-pressed', S.cmp === 'PY' && !ly.disabled ? 'true' : 'false');
+}
+
+function fillMarkets(){
+  var sel = el('selMkt');
+  var opts = ['<option value="ALL">All markets</option>'];
+  (D.market_countries || []).forEach(function (c) {
+    if (c === 'UNATTRIBUTED') return;      /* reconciliation residue, not a market */
+    opts.push('<option value="' + esc(c) + '">' + esc(c) + '</option>');
+  });
+  sel.innerHTML = opts.join('');
+}
+
+/* Helpers the render module reads. Getters, so it always sees current state. */
+window.__execplHelpers = {
+  esc:esc, sek:sek, signed:signed, msek:msek, pct:pct, pf:pf, el:el, lab:lab,
+  dayName:dayName, chip:chip, dcell:dcell, agg:agg, pyAgg:pyAgg, fcFor:fcFor,
+  fcLine:fcLine, FCMAP:FCMAP, wm:wm, pym:pym, rangeLabel:rangeLabel,
+  isOpen:isOpen, openMonth:openMonth, pjOn:pjOn, projAgg:projAgg,
+  pjLadder:pjLadder, pjPct:pjPct, bandPP:bandPP, skewTxt:skewTxt,
+  skewRange:skewRange, gp1Observed:gp1Observed, est:est, estMonth:estMonth,
+  THEIRS:THEIRS, THEIR_PCT:THEIR_PCT, ONE_OFF:ONE_OFF, SKEW:SKEW, PL:PL,
+  MN:MN, MA:MA, LKEYS:LKEYS,
+  D:function(){ return D; }, N:function(){ return N; }, S:function(){ return S; },
+  tools:tools, renderAll:renderAll
+};
+
+el('segPeriod').addEventListener('click', function (e) {
+  var b = e.target.closest('button'); if (!b || b.disabled) return;
+  [].forEach.call(this.querySelectorAll('button'), function (x) { x.setAttribute('aria-pressed','false'); });
+  b.setAttribute('aria-pressed','true'); S.period = b.dataset.v; syncControls(); renderAll();
+});
+el('segCmp').addEventListener('click', function (e) {
+  var b = e.target.closest('button'); if (!b || b.disabled) return;
+  S.cmp = b.dataset.v; syncControls(); renderAll();
+});
+el('selMkt').addEventListener('change', function () {
+  S.mkt = this.value; syncControls(); renderAll();
+});
+
+fetch('/api/exec-pl', { credentials:'same-origin' })
+  .then(function (r) { return r.json(); })
+  .then(function (data) {
+    D = data;
+    setPill(data.generated_at);
+    if (!data.generated_at || !(data.months || []).length) {
+      el('pending').hidden = false;
+      el('tiles').innerHTML = '';
+      return;
+    }
+    fillMarkets(); syncControls(); renderAll();
+  })
+  .catch(function (e) {
+    el('pending').hidden = false;
+    el('pending').textContent = 'Failed to load /api/exec-pl: ' + e.message;
+  });
+
+/* The live read is allowed to be slow and is allowed to fail. Neither can take
+ * the ladder down with it. */
+fetch('/api/norce-today', { credentials:'same-origin' })
+  .then(function (r) { return r.json(); })
+  .then(function (data) { N = data; renderDayOnly(); })
+  .catch(function (e) {
+    N = { available:false, reason:'The dashboard could not reach its own /api/norce-today (' + e.message + ').' };
+    renderDayOnly();
+  });
+})();
+</script>
+<script src="/exec-pl-render.js"></script>
+</body>
+</html>

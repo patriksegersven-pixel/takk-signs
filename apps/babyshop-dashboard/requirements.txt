@@ -1,6 +1,11 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 httpx==0.28.1
+# norce_today.py resolves the Stockholm trading day with zoneinfo. python:3.12-slim
+# ships no IANA tz database, so ZoneInfo("Europe/Stockholm") raises
+# ZoneInfoNotFoundError in the container even though it works locally on macOS.
+# This is the PyPI fallback database zoneinfo looks for when the system has none.
+tzdata==2025.2
 google-cloud-firestore==2.20.0
 google-cloud-bigquery==3.27.0
 # Google Ads API client for refresh_roas_sims.py (ROAS Simulations collector).

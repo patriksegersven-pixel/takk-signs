@@ -143,10 +143,12 @@ VOYADO_HTML    = STATIC_DIR / "babyshop-voyado-dashboard.html"
 BUNDLES_HTML   = STATIC_DIR / "babyshop-bundles-dashboard.html"
 SOS_HTML       = STATIC_DIR / "babyshop-sos-dashboard.html"
 META_HTML      = STATIC_DIR / "babyshop-meta-dashboard.html"
+EXEC_PL_HTML   = STATIC_DIR / "babyshop-exec-pl.html"
 TABLE_TOOLS_JS = STATIC_DIR / "table-tools.js"
 CHART_JS       = STATIC_DIR / "chart.umd.js"
 BRAND_CSS      = STATIC_DIR / "brand.css"
 NAV_JS         = STATIC_DIR / "nav.js"
+EXEC_PL_JS     = STATIC_DIR / "exec-pl-render.js"
 LOGO_SVG       = STATIC_DIR / "babyshop-logo.svg"
 FAVICON_SVG    = STATIC_DIR / "babyshop-favicon.svg"
 FONTS_DIR      = STATIC_DIR / "fonts"
@@ -347,6 +349,88 @@ def api_customer_insights(_: str = Depends(verify)):
         "norce": None,
         "caveats": ["no customer-insights snapshot yet — the refresh job has not run"],
     }
+
+
+@app.get("/api/exec-pl")
+def api_exec_pl(_: str = Depends(verify)):
+    """Executive P&L snapshot (written to Firestore by refresh_exec_pl.py).
+
+    One Firestore document, `funnel_cache/{workspace}__exec-pl`, built nightly
+    from the Business Central tables in the warehouse project. Same
+    200-with-a-skeleton contract as /api/customer-insights and /api/segments:
+    the page ships before its refresher has run and `generated_at: null` is its
+    signal to render a pending state rather than a fetch error.
+
+    The skeleton mirrors the payload's real top-level shape — `ladder`,
+    `markets` and `forecast` keyed as the job writes them — so the page can bind
+    to the same paths in both states. Keep the two in sync."""
+    from funnel_client import get_cache
+
+    try:
+        data = get_cache().get("exec-pl")
+    except Exception as e:
+        # A Firestore hiccup must not blank the tab — log and serve the skeleton.
+        print(f"ERROR /api/exec-pl: {type(e).__name__}: {e}", flush=True)
+        data = None
+    if data is not None:
+        return data
+    return {
+        "generated_at": None,
+        "sources": {"bc": {"max_posting_date": None, "last_modified": None}},
+        "months": [],
+        "last_closed": None,
+        "open_month": None,
+        "overhead_groups": [],
+        "ladder": {},
+        "components": {},
+        "markets": {},
+        "market_countries": [],
+        "logistics_allocation": None,
+        "forecast": None,
+        "estimator": None,
+        "checks": {},
+        "caveats": ["no exec-pl snapshot yet — the refresh job has not run"],
+    }
+
+
+@app.get("/api/norce-today")
+def api_norce_today(_: str = Depends(verify)):
+    """Live day-grain order intake, queried straight from the Norce API.
+
+    Unlike every other /api route here this one is NOT a Firestore snapshot
+    read. It has to be live, because the whole point of the card is a figure
+    that is current to the minute, and nothing in the warehouse is:
+
+      • the `norce` BigQuery dataset is nightly at best,
+      • Funnel's kv_revenue has no timestamp column and lands twice a day,
+      • BC is a posting batch, so its "today" is legitimately near zero.
+
+    The basis is ORDER DATE, which is the user's "booked" — when the purchase
+    took place. The monthly ladder above it is POSTING date. The two are never
+    summed or differenced; see norce_today.BASIS_WARNING, which ships inside
+    this payload so the page cannot render the number without the caveat.
+
+    norce_today.get() caches in-process and never raises: an unavailable
+    upstream comes back as `available: false` with a printable reason, so a
+    Norce outage greys one card instead of breaking the tab.
+    """
+    import norce_today
+
+    return norce_today.get()
+
+
+@app.get("/babyshop-exec-pl.html")
+def exec_pl_dashboard(_: str = Depends(verify)):
+    return FileResponse(EXEC_PL_HTML, media_type="text/html")
+
+
+@app.get("/exec-pl-render.js")
+def exec_pl_render_js(_: str = Depends(verify)):
+    """Rendering half of the Executive P&L tab, split out of the HTML for size.
+
+    Same `verify` dependency as the page: the browser replays the Basic
+    credentials it already sent for the HTML."""
+    return FileResponse(EXEC_PL_JS, media_type="application/javascript")
 
 
 @app.get("/api/segments")

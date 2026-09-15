@@ -41,6 +41,7 @@
 
   /* ── Page registry ──────────────────────────────────────────────────────── */
   var PAGES = [
+    { id:'execpl',    title:'Executive P&L',     href:'/babyshop-exec-pl.html',             group:'core',     subtitle:'Executive P&L · Business Central' },
     { id:'kv',        title:'KV Overview',       href:'/babyshop-dashboard.html',           group:'core',     subtitle:'KV Performance Dashboard' },
     { id:'products',  title:'Products',          href:'/babyshop-product-dashboard.html',   group:'core',     subtitle:'Product Performance Dashboard' },
     { id:'customers', title:'Customer Insights', href:'/babyshop-customer-dashboard.html',  group:'core',     subtitle:'Customer Insights' },
