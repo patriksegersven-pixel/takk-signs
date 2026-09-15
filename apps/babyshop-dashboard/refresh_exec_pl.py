@@ -637,12 +637,27 @@ def build_payload() -> dict:
     # ── market breakdown, stopping at contribution ───────────────────────────
     # Rank countries on total net sales across the whole window so the set is
     # stable month to month; everything else becomes "Other".
+    # 'XX' means the document carried no country. It must NEVER fold into
+    # "Other": the item-ledger query parks every entry whose document does not
+    # resolve to a sale there (adjustments, transfers, revaluations), and mixing
+    # that into a bucket of real small countries gave "Other" a NEGATIVE COGS of
+    # 11.0 MSEK and a 12.1 MSEK contribution on the first production run — a
+    # market apparently trading at a 1088% margin. It gets its own visible
+    # bucket, so the market table still reconciles to the item-ledger total
+    # without inventing a market.
+    UNATTRIBUTED = "UNATTRIBUTED"
     net_by_country: dict[str, float] = {}
     for r in docs:
+        if r["country"] == "XX":
+            continue
         v = float(r["gross"] or 0) - float(r["ret_product"] or 0) - float(r["compensation"] or 0)
         net_by_country[r["country"]] = net_by_country.get(r["country"], 0) + v
     top = {c for c, _ in sorted(net_by_country.items(), key=lambda kv: -kv[1])[:MARKET_TOP_N]}
-    bucket = lambda c: c if c in top else "Other"  # noqa: E731
+
+    def bucket(c: str) -> str:
+        if c == "XX":
+            return UNATTRIBUTED
+        return c if c in top else "Other"
 
     ile_by = {}
     for r in ile:
@@ -756,9 +771,8 @@ def build_payload() -> dict:
         "forward_posted_note": ("GL entries dated beyond the open month (accruals "
                                 "and prepayments). Cut from the series so the tab "
                                 "never shows a half-empty future column."),
-        "fx": {"currencies_with_rates": None, "note":
-               "SEK has no row in bc_currency_exchange_rates; the join defaults "
-               "to 1.0. An inner join would drop ~57% of invoices."},
+        "fx_note": ("SEK has no row in bc_currency_exchange_rates; the join "
+                    "defaults to 1.0. An inner join would drop ~57% of invoices."),
     }
 
     forecast = _load_json(FORECAST_FILE)
@@ -788,7 +802,9 @@ def build_payload() -> dict:
         "ladder": ladder,
         "components": components,
         "markets": markets,
-        "market_countries": sorted(top) + ["Other"],
+        # UNATTRIBUTED is listed last and named, not hidden: it is reconciliation
+        # residue (item-ledger entries with no sales document), not a market.
+        "market_countries": sorted(top) + ["Other", UNATTRIBUTED],
         "logistics_allocation": logistics,
         "forecast": forecast,
         "estimator": estimator,
