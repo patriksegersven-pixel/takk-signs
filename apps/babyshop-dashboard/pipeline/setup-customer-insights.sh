@@ -122,13 +122,21 @@ for SPEC in "$SYNC_JOB|norce_sync.py|6h|2Gi" "$SNAP_JOB|refresh_customer_insight
   IFS='|' read -r JOB SCRIPT TIMEOUT MEM <<<"$SPEC"
   ACTION=create
   gcloud run jobs describe "$JOB" --project="$PROJECT" --region="$REGION" >/dev/null 2>&1 && ACTION=update
+  # On create the job has no secrets yet, so --set-secrets is the only option.
+  # On UPDATE it must be --update-secrets, which merges: --set-secrets replaces
+  # the whole set and would silently unmount anything not listed here (today
+  # that is CHANNABLE_FEED_URL, mounted by setup-bundles.sh). The mirror image
+  # of this mistake, --set-secrets in setup-bundles.sh, unmounted the two Norce
+  # credentials on 19 Aug 2026 and cost four weeks of silently frozen data.
+  SECRET_ARG="--set-secrets=$SECRET_FLAG"
+  [[ "$ACTION" == "update" ]] && SECRET_ARG="--update-secrets=$SECRET_FLAG"
   gcloud run jobs "$ACTION" "$JOB" \
     --project="$PROJECT" --region="$REGION" \
     --image="$IMAGE" \
     --service-account="$RUNTIME_SA" \
     --command=python3 --args="$SCRIPT" \
     --task-timeout="$TIMEOUT" --memory="$MEM" --max-retries=1 \
-    --set-secrets="$SECRET_FLAG"
+    "$SECRET_ARG"
   echo "   ${ACTION}d $JOB -> python3 $SCRIPT"
 done
 
