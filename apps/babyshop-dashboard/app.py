@@ -349,6 +349,48 @@ def api_customer_insights(_: str = Depends(verify)):
     }
 
 
+@app.get("/api/exec-pl")
+def api_exec_pl(_: str = Depends(verify)):
+    """Executive P&L snapshot (written to Firestore by refresh_exec_pl.py).
+
+    One Firestore document, `funnel_cache/{workspace}__exec-pl`, built nightly
+    from the Business Central tables in the warehouse project. Same
+    200-with-a-skeleton contract as /api/customer-insights and /api/segments:
+    the page ships before its refresher has run and `generated_at: null` is its
+    signal to render a pending state rather than a fetch error.
+
+    The skeleton mirrors the payload's real top-level shape — `ladder`,
+    `markets` and `forecast` keyed as the job writes them — so the page can bind
+    to the same paths in both states. Keep the two in sync."""
+    from funnel_client import get_cache
+
+    try:
+        data = get_cache().get("exec-pl")
+    except Exception as e:
+        # A Firestore hiccup must not blank the tab — log and serve the skeleton.
+        print(f"ERROR /api/exec-pl: {type(e).__name__}: {e}", flush=True)
+        data = None
+    if data is not None:
+        return data
+    return {
+        "generated_at": None,
+        "sources": {"bc": {"max_posting_date": None, "last_modified": None}},
+        "months": [],
+        "last_closed": None,
+        "open_month": None,
+        "overhead_groups": [],
+        "ladder": {},
+        "components": {},
+        "markets": {},
+        "market_countries": [],
+        "logistics_allocation": None,
+        "forecast": None,
+        "estimator": None,
+        "checks": {},
+        "caveats": ["no exec-pl snapshot yet — the refresh job has not run"],
+    }
+
+
 @app.get("/api/segments")
 def api_segments(_: str = Depends(verify)):
     """Customer Segments snapshot (written to Firestore by refresh_segments.py).
