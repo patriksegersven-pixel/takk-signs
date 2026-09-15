@@ -349,7 +349,7 @@
       <div class="legend">
         <span class="k"><span class="st st-bk">Posted</span>in the general ledger</span>
         <span class="k"><span class="st st-pj">Projected</span>posted plus estimate</span>
-        <span class="k"><span class="st st-fc">Forecast</span>the client&rsquo;s own plan</span>
+        <span class="k"><span class="st st-fc">Forecast</span>Babyshop&rsquo;s own plan</span>
         <span style="color:var(--ink-3)">The three are never blended into one number.</span>
       </div>
     </div>
@@ -408,7 +408,7 @@
 
   <section class="card">
     <div class="card-h">
-      <div><div class="eyebrow">Reconciliation</div><h2>Our figures against the client&rsquo;s July 2026 report</h2></div>
+      <div><div class="eyebrow">Reconciliation</div><h2>Our figures against Babyshop&rsquo;s July 2026 report</h2></div>
       <div class="sub">Every line, every delta, down to EBITDA &middot; SEK</div>
     </div>
     <div class="card-b scroll"><table class="d" id="recTable" data-export-name="exec-pl-july-reconciliation"></table></div>
@@ -496,7 +496,7 @@
  * that is what reconciles to Finance's own management report. The day cards are
  * ORDER DATE, live from Norce, because that is what a day means to a reader.
  *
- * The client's vocabulary: "booked" means WHEN THE PURCHASE TOOK PLACE. So the
+ * Babyshop's vocabulary: "booked" means WHEN THE PURCHASE TOOK PLACE. So the
  * ledger basis is called "posted" or "invoiced" on this page, never "booked",
  * and the day cards are called "ordered". The two are never summed, differenced,
  * or placed in one column: on a calendar basis June 2026 reads 18.26 MSEK
@@ -521,12 +521,12 @@ var MA = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec
 var tools = {};
 
 /* ── Stated facts ────────────────────────────────────────────────────────────
- * Values that are properties of the client's own reporting rather than of the
+ * Values that are properties of Babyshop's own reporting rather than of the
  * snapshot, carried here with their provenance so the page can compute deltas
  * against them live. If the ledger moves, the delta moves, which is the point.
  */
 
-/* The client's July 2026 management report, as issued. */
+/* Babyshop's July 2026 management report, as issued. */
 var THEIRS = {
   gross:22621000, ret:-1883000, net:20738000, cogs:-13624000, gp1:7114000,
   nship:-1807000, ful:-1431000, tf:270000, gp2:4146000, mktg:-1830000,

@@ -21,7 +21,7 @@ CROSS-PROJECT READ
 THE LADDER
   Every definition below is reconciled to Finance's own July 2026 management
   report. Do NOT re-derive them; they were tested against every plausible
-  alternative and this is the only set that reproduces the client's figures.
+  alternative and this is the only set that reproduces Babyshop's figures.
 
     Gross Sales     invoice lines, lineType='Item', EXCLUDING the SHIPPING
                     pseudo-SKU, FX-normalised to SEK.
@@ -64,7 +64,7 @@ FX NORMALISATION IS MANDATORY
   Skipping FX understates gross by about 28%.
 
 BELOW GP3
-  Total Overhead is ten GL groups matching the client's own forecast lines.
+  Total Overhead is ten GL groups matching Babyshop's own forecast lines.
   Nine are enumerated; "Personnel costs HQ" is the 7210-7699 block EXCEPT 7213
   (customer service, its own line) and 7640 (interim consultants, which sits in
   Consultants - other). That rule was recovered by subset-sum against the
@@ -151,7 +151,7 @@ FIRESTORE_PROJECT = os.environ.get("FIRESTORE_PROJECT", "project-a7ade44e-e7e3-4
 # posting conventions, so the tab would show a discontinuity rather than history.
 HISTORY_START = os.environ.get("EXEC_PL_HISTORY_START", "2025-06-01")
 
-# Client-supplied inputs, read from disk next to this module (see _load_json).
+# Babyshop-supplied inputs, read from disk next to this module (see _load_json).
 FORECAST_FILE  = os.environ.get("EXEC_PL_FORECAST_FILE", "forecast_2026_rolling.json")
 ESTIMATOR_FILE = os.environ.get("EXEC_PL_ESTIMATOR_FILE", "cost-estimator.json")
 
@@ -187,7 +187,7 @@ GL_FX          = ["7960", "7983", "7984", "8329", "8429"]
 def _is_da(a: str) -> bool:
     return "7800" <= a <= "7899"
 
-# Overhead, in the client's own display order. `None` marks the two rule-based
+# Overhead, in Babyshop's own display order. `None` marks the two rule-based
 # groups, resolved in _overhead_groups().
 OVERHEAD_GROUPS: list[tuple[str, list[str] | None]] = [
     ("Personnel costs HQ",           None),          # 7210-7699 except 7213, 7640
@@ -475,7 +475,7 @@ def bc_freshness() -> dict:
 
 # ── Assembly ─────────────────────────────────────────────────────────────────
 def _overhead_groups(acc: dict[str, float]) -> tuple[list[int], list[str]]:
-    """Ten overhead group totals for one month, plus the names, in client order.
+    """Ten overhead group totals for one month, plus the names, in Babyshop's order.
 
     `acc` is {accountNumber: expense} for that month.
 
@@ -553,7 +553,7 @@ def _month_ladder(acc: dict[str, float], doc: dict) -> dict:
 
 
 def _load_json(filename: str) -> dict | None:
-    """Client inputs live next to this module in the image; fall back to the
+    """Babyshop inputs live next to this module in the image; fall back to the
     repo-relative path so a local run from anywhere still finds them."""
     for base in (os.path.dirname(os.path.abspath(__file__)), os.getcwd()):
         p = os.path.join(base, filename)

@@ -13,7 +13,7 @@
  *
  *   Posted     what Finance has in the general ledger
  *   Projected  posted plus a fitted estimate, always carrying its posted share
- *   Forecast   the client's own plan
+ *   Forecast   Babyshop's own plan
  *
  * A projection exists only for the open month, only at group level, only down
  * to GP3, and never inside a cumulative window.
@@ -73,7 +73,7 @@ function renderNotices(){
   out.push(
     '<div class="notice" style="background:var(--surf-2);color:var(--ink-2);border-color:var(--rule-2)">' +
     '<span style="color:var(--good-ink);font-weight:700">&#9679;</span><span>' +
-    '<b style="color:var(--ink)">Every &ldquo;vs FC&rdquo; on this tab compares against the client&rsquo;s own rolling forecast.</b> ' +
+    '<b style="color:var(--ink)">Every &ldquo;vs FC&rdquo; on this tab compares against Babyshop&rsquo;s own rolling forecast.</b> ' +
     esc(fm.vintage || 'rolling forecast') + (fm.exported ? ', exported ' + esc(fm.exported) : '') +
     ', ' + Object.keys((d.forecast || {}).lines || {}).length + ' P&amp;L lines &times; 12 months' +
     (fyGross ? ', FY gross ' + msek(fyGross) + ' M and FY GP3 ' + msek(fyGp3) + ' M' : '') + '. ' +
@@ -96,7 +96,7 @@ function renderNotices(){
       '<b style="color:var(--ink)">Three states stay visually separate and are never blended:</b> ' +
       '<span class="st st-bk">Posted</span> what is in the general ledger, ' +
       '<span class="st st-pj">Projected</span> posted plus estimate with the posted share always shown, and ' +
-      '<span class="st st-fc">Forecast</span> the client&rsquo;s own plan. ' +
+      '<span class="st st-fc">Forecast</span> Babyshop&rsquo;s own plan. ' +
       'Nothing below GP1 has posted, so those rungs are <b>100% estimated</b>, and the band is deliberately skewed ' +
       '<b>' + skewTxt() + '</b> rather than the symmetric &plusmn;' + bp.gp2_pp.toFixed(1) + ' pp the backtest gives at day ' +
       (em.as_of_day || '–') + '. <b style="color:var(--ink)">EBITDA stays suppressed for the open month</b>: the estimator is fitted on ' +
@@ -154,7 +154,7 @@ function renderTiles(){
 
   function box(lbl, val, unit, vs, ch, vt, mark){
     var m = mark === 'D'
-      ? ' <span class="mk mk-d" title="Directional. Composition is close but not identical between our GL grouping and the client&#39;s forecast line.">D</span>'
+      ? ' <span class="mk mk-d" title="Directional. Composition is close but not identical between our GL grouping and Babyshop&#39;s forecast line.">D</span>'
       : mark === 'O'
       ? ' <span class="mk mk-d" title="Open window. It contains the open month, whose carrier, 3PL and marketing invoices have not posted.">O</span>'
       : mark === 'C'
@@ -1201,7 +1201,7 @@ var esc = H.esc, sek = H.sek, msek = H.msek, pct = H.pct, pf = H.pf, el = H.el,
 function D(){ return H.D(); } function S(){ return H.S(); }
 var mstate = R.mstate;
 
-/* ══ Reconciliation to the client's own July 2026 management report ══════════
+/* ══ Reconciliation to Babyshop's own July 2026 management report ══════════
  * "Ours" is recomputed from the live snapshot every render, so if carrier
  * invoices post into July after their report was issued, the delta MOVES and
  * the panel says so. That is the point: a tie that is asserted once and never
@@ -1245,7 +1245,7 @@ function renderRecon(){
       '<td class="l rung">' + esc(r[1]) + '</td>' +
       '<td>' + (ours < 0 ? '−' : '') + sek(Math.abs(ours)) + '</td>' +
       '<td>' + (theirs < 0 ? '−' : '') + sek(Math.abs(theirs)) +
-      (k === 'ebitda' ? ' <span class="mk mk-b" title="Quoted by the client as about −0.7 M, not to the krona.">&asymp;</span>' : '') + '</td>' +
+      (k === 'ebitda' ? ' <span class="mk mk-b" title="Quoted by Babyshop as about −0.7 M, not to the krona.">&asymp;</span>' : '') + '</td>' +
       '<td class="' + (big ? 'neg' : '') + '">' + (d > 0 ? '+' : '−') + sek(Math.abs(d)) + '</td>' +
       '<td class="l"><span class="sev-pill ' + (ok ? 'ok' : 'open') + '">' + esc(w[0]) + '</span></td>' +
       '<td class="l" style="white-space:normal;font-size:11.5px;line-height:1.5;color:var(--ink-2)">' + esc(w[1]) + '</td></tr>');
@@ -1260,7 +1260,7 @@ function renderRecon(){
   el('recSum').innerHTML =
     '<b>' + (RECON_ROWS.length - openLines.length) + ' of ' + RECON_ROWS.length +
     ' lines agree within ' + (TIE_TSEK/1000) + ' TSEK, and EBITDA lands ' +
-    sek(Math.abs(a.ebitda - THEIRS.ebitda)) + ' from the client&rsquo;s own stated figure.</b> ' +
+    sek(Math.abs(a.ebitda - THEIRS.ebitda)) + ' from Babyshop&rsquo;s own stated figure.</b> ' +
     (openLines.length
       ? 'Open: ' + openLines.map(function (r) {
           return '<b>' + esc(r[1]) + '</b> (' + (a[r[0]] - THEIRS[r[0]] > 0 ? '+' : '−') +
@@ -1392,7 +1392,7 @@ function renderBridge(){
     'shipping, fulfilment, transaction fees and every overhead line separately, so each bar compares a forecast line ' +
     'against the same GL grouping and the walk closes without a pro-rata split. ' +
     '<strong style="color:var(--ink)">One bar has no forecast counterpart:</strong> <em>Other ops</em> is hatched because ' +
-    'the client&rsquo;s P&amp;L has no such line. It carries real movements that sit outside the GP3 ladder but inside EBITDA. ' +
+    'Babyshop&rsquo;s P&amp;L has no such line. It carries real movements that sit outside the GP3 ladder but inside EBITDA. ' +
     'Volume and price are not separated: the forecast budgets money only, with no order or AOV target, so any such split ' +
     'would be invented.';
 }
@@ -1817,7 +1817,7 @@ function renderWatchlist(){
       (hit3 ? 'outside' : 'inside') + ')'), hit3);
   }
 
-  /* 4 · Transaction fees against the client's own reported figure. */
+  /* 4 · Transaction fees against Babyshop's own reported figure. */
   var jul = agg(['2026-07'], 'ALL');
   if (d.months.indexOf('2026-07') >= 0) {
     var tfGap = Math.abs(jul.tf - THEIRS.tf), hit4 = tfGap > 50000;
@@ -1844,12 +1844,12 @@ function renderWatchlist(){
       hit5 ? esc(worst.n) + ' has drifted out of tie' : 'Every direct-cost line ties',
       (worst.g > 0 ? '+' : '−') + (Math.abs(worst.g)/1000).toFixed(1) + ' TSEK',
       hit5
-        ? ('<b>' + esc(worst.n) + '</b> is ' + sek(Math.abs(worst.g)) + ' from the client&rsquo;s July figure. Carrier and ' +
+        ? ('<b>' + esc(worst.n) + '</b> is ' + sek(Math.abs(worst.g)) + ' from Babyshop&rsquo;s July figure. Carrier and ' +
            'freight invoices post into July after their report is issued, so the mapping has not changed: the ledger has. ' +
            'This panel recomputes from the live snapshot every refresh, which is why the number moves.')
-        : 'Every direct-cost line is within 25 TSEK of the client&rsquo;s reported July figure.',
+        : 'Every direct-cost line is within 25 TSEK of Babyshop&rsquo;s reported July figure.',
       'DIRECT_COST_MAPPING',
-      'Rule &middot; each direct-cost line within 25 TSEK of the client&rsquo;s reported figure<br>Evaluated &middot; ' +
+      'Rule &middot; each direct-cost line within 25 TSEK of Babyshop&rsquo;s reported figure<br>Evaluated &middot; ' +
       lines.map(function (L) {
         return esc(L[1]) + ' <em>' + ((jul[L[0]]-THEIRS[L[0]])/1000).toFixed(1) + '</em>'; }).join(' &middot; ') +
       ' (threshold 25)'), hit5);
@@ -2061,7 +2061,7 @@ function renderProvenance(){
     '<p><strong>Two bases live on this page, and they are never mixed.</strong> The ladder, the scorecard, the bridge, ' +
     'the markets and the trend are all <em>posting date</em>, because that is what reconciles to Finance&rsquo;s own ' +
     'management report. The day cards are <em>order date</em>, because that is what a day means to a reader. ' +
-    'The client&rsquo;s word <em>booked</em> means when the purchase took place, so it is reserved for the day cards; ' +
+    'Babyshop&rsquo;s word <em>booked</em> means when the purchase took place, so it is reserved for the day cards; ' +
     'the ledger basis is called <em>posted</em> or <em>invoiced</em> throughout. ' +
     (n && n.basis_warning ? esc(n.basis_warning) : '') + '</p>',
 
@@ -2078,7 +2078,7 @@ function renderProvenance(){
     '<p><strong>Posted, projected and forecast are three different things.</strong> ' +
     '<span class="st st-bk">Posted</span> is what Finance has in the ledger. <span class="st st-pj">Projected</span> is ' +
     'posted plus a fitted estimate, and it always shows the posted share, so a projection can never be mistaken for a ' +
-    'posted figure. <span class="st st-fc">Forecast</span> is the client&rsquo;s own plan. They are never added together ' +
+    'posted figure. <span class="st st-fc">Forecast</span> is Babyshop&rsquo;s own plan. They are never added together ' +
     'or blended. Only the open month is ever projected, only down to GP3, and only at group level: a projection never ' +
     'enters a cumulative window and is never built for a single market.</p>',
 
