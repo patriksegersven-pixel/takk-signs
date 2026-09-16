@@ -56,191 +56,375 @@ function mstate(a){
   return 'ok';
 }
 
-/* ══ 1 · Notices ═════════════════════════════════════════════════════════════
- * Everything a reader needs in order not to misread the figures below, stated
- * before the figures rather than in a footnote after them.
+/* ══ 1 · Notices, and the help the whole page shares ═════════════════════════
+ * What a reader needs in order not to misread the figures is now split in two,
+ * by a rule rather than by taste:
+ *
+ *   A number's CAVEAT stays visible, as its compact marker. It changes how the
+ *   figure should be read, so burying it would be dishonest.
+ *
+ *   The EXPLANATION, the METHOD and the PROVENANCE go behind a "?". They are
+ *   the same words as before, one click away instead of printed above the
+ *   ladder. Nothing is deleted.
+ *
+ * Only two things still print above the ladder: a one-off large enough to
+ * dominate the headline, and the withdrawal notice when a market is selected.
+ * Both change what the numbers below MEAN, which is the test for staying visible.
  */
-function renderNotices(){
-  var d = D(), out = [];
-  var fm = (d.forecast || {})._meta || {};
-  var em = estMonth();
-  var ob = gp1Observed();
+function registerHelp(){
+  var d = D(), fm = (d.forecast || {})._meta || {}, em = estMonth();
+  var bc = (d.sources || {}).bc || {};
 
-  /* Forecast vintage, and the fact that even closed months are forecast. */
+  H.help('basis', 'What this page is measuring',
+    '<p><b>Posted revenue and margin, not attributed revenue.</b> Every figure originates in Business ' +
+    'Central sales invoices, credit memos, item-ledger entries and the general ledger, which is what ' +
+    'Finance has posted. The KV Overview tab reports what marketing attribution assigned; the two answer ' +
+    'different questions and will not match to the krona.</p>' +
+    '<p><b>One company, all markets, FX-normalised to SEK</b> at Business Central&rsquo;s own daily rate ' +
+    'for each posting date. Skipping that would understate gross sales by roughly 28%.</p>' +
+    '<p><b>Two bases live on this page and are never mixed.</b> The ladder, the scorecard, the bridge, ' +
+    'the markets and the trend are <em>posting date</em>, because that is what reconciles to Finance&rsquo;s ' +
+    'own management report. The day cards are <em>order date</em>, because that is what a day means to a ' +
+    'reader. Babyshop&rsquo;s word <em>booked</em> means when the purchase took place, so it is reserved ' +
+    'for the day cards and the ledger basis is called <em>posted</em> throughout.</p>' +
+    '<p class="num">Business Central <code>bc_*</code> &middot; max posting date ' +
+    esc(bc.max_posting_date || '&ndash;') + ' &middot; snapshot ' +
+    esc((d.generated_at || '').replace('T', ' ').slice(0, 16)) + '</p>');
+
   var fy = [];
   for (var i = 1; i <= 12; i++) fy.push('2026-' + (i < 10 ? '0' : '') + i);
   var fyGross = H.fcLine('Gross Sales', fy), fyGp3 = H.fcLine('GP3', fy);
-  out.push(
-    '<div class="notice" style="background:var(--surf-2);color:var(--ink-2);border-color:var(--rule-2)">' +
-    '<span style="color:var(--good-ink);font-weight:700">&#9679;</span><span>' +
-    '<b style="color:var(--ink)">Every &ldquo;vs FC&rdquo; on this tab compares against Babyshop&rsquo;s own rolling forecast.</b> ' +
-    esc(fm.vintage || 'rolling forecast') + (fm.exported ? ', exported ' + esc(fm.exported) : '') +
-    ', ' + Object.keys((d.forecast || {}).lines || {}).length + ' P&amp;L lines &times; 12 months' +
-    (fyGross ? ', FY gross ' + msek(fyGross) + ' M and FY GP3 ' + msek(fyGp3) + ' M' : '') + '. ' +
-    '<b style="color:var(--ink)">All twelve months are labelled <em>prognos</em></b>, so even closed months are forecast rather than restated actuals: ' +
-    'a &ldquo;vs FC&rdquo; on January is actual against forecast, not actual against actual. ' +
-    'The forecast is <b>global only</b> (no market, shop or channel key exists in it), so selecting a single market ' +
-    'withdraws every comparison rather than splitting one.' +
-    '</span></div>');
+  H.help('fc', 'The forecast this page compares against',
+    '<p>Babyshop&rsquo;s own <b>' + esc(fm.vintage || 'rolling forecast') + '</b>' +
+    (fm.exported ? ', exported ' + esc(fm.exported) : '') + ', ' +
+    Object.keys((d.forecast || {}).lines || {}).length + ' P&amp;L lines across 12 months' +
+    (fyGross ? ', FY gross ' + msek(fyGross) + ' M and FY GP3 ' + msek(fyGp3) + ' M' : '') + '.</p>' +
+    '<p><b>All twelve months are labelled <em>prognos</em></b>, so even closed months are forecast rather ' +
+    'than restated actuals: a forecast comparison on January is actual against plan, not actual against ' +
+    'actual.</p>' +
+    '<p><b>It is global only.</b> No market, shop or channel key exists anywhere in the file, so selecting ' +
+    'a single market withdraws every forecast comparison rather than splitting one that was never there. ' +
+    '<b>It covers 2026 only</b>, so a window reaching back into 2025 has no counterpart at all.</p>' +
+    '<p><b>In the open month this comparison runs against the projected full month</b>, not against ' +
+    'what has posted so far: a part month set against a whole-month plan would be arithmetic without ' +
+    'meaning. Those rows carry the <span class="mk mk-p">P</span> marker, and the projected column ' +
+    'shows how much of each rung is already fact.</p>');
 
-  /* The open month, and what is and is not published for it. */
+  /* Every figure quoted here is computed from this snapshot on this render. An
+   * earlier draft of this page quoted a Babyshop "implied" prior-year GP1 of
+   * 16.9% and a revenue tie "within 0.7%". Neither number has a recorded source:
+   * no Babyshop artefact in the repo carries a 2025 P&L column, and the only
+   * client figures we hold are the July 2026 report and the 2026 forecast. They
+   * are therefore not repeated. 28.3% below IS computable and is computed. */
+  var pyRows = [], pyLo = null, pyHi = null, y6Lo = null, y6Hi = null;
+  (d.months || []).forEach(function (m) {
+    var L = (d.ladder || {})[m] || {};
+    if (!L.net || isOpen(m)) return;
+    var g = L.gp1 / L.net * 100;
+    if (m.slice(0,4) === '2025' && m !== (d.months || [])[0]) {
+      pyLo = (pyLo == null || g < pyLo) ? g : pyLo;
+      pyHi = (pyHi == null || g > pyHi) ? g : pyHi;
+    }
+    if (m.slice(0,4) === '2026') {
+      y6Lo = (y6Lo == null || g < y6Lo) ? g : y6Lo;
+      y6Hi = (y6Hi == null || g > y6Hi) ? g : y6Hi;
+    }
+  });
+  var jul25 = (d.ladder || {})['2025-07'], jul26 = (d.ladder || {})['2026-07'];
+
+  H.help('py', 'Last year, and how far to trust it',
+    '<p><b>Business Central went live in mid-June 2025.</b> Nothing before that is in the system, so ' +
+    'January to June 2026 has no prior year and those comparisons are withdrawn rather than computed. ' +
+    'June 2025 itself is a <b>part month</b>, roughly a fortnight of revenue sitting on a full month of ' +
+    'cost. It books no returns and no credit notes at all, which is how this page detects it without ' +
+    'hard-coding a go-live date, and it is never read as a full month.</p>' +
+    '<p><b>Prior-year revenue is the trustworthy part.</b> Gross Sales is per-transaction invoice lines, ' +
+    'FX-normalised, with no structural break across the two years. It is the one line that carries a firm ' +
+    'year-on-year.</p>' +
+    '<p><b>Prior-year cost lines do not reconcile.</b> BC went live with cost migration still in progress. ' +
+    'Our reconstructed July 2025 GP1 is <span class="num">' +
+    (jul25 ? (jul25.gp1 / jul25.net * 100).toFixed(1) + '%' : '&ndash;') + '</span> against <span class="num">' +
+    (jul26 ? (jul26.gp1 / jul26.net * 100).toFixed(1) + '%' : '&ndash;') + '</span> for July 2026, and the 2025 ' +
+    'series swings <span class="num">' + (pyLo != null ? (pyHi - pyLo).toFixed(1) : '&ndash;') + ' pp</span> ' +
+    'against <span class="num">' + (y6Lo != null ? (y6Hi - y6Lo).toFixed(1) : '&ndash;') + ' pp</span> for ' +
+    '2026. Both 2025 tails are cut-over entries, not trading: the price, sample and stock-adjustment block ' +
+    'runs &minus;5.7 M in June 2025 and +4.6 M in December 2025.</p>' +
+    '<p>So every year-on-year on a cost or margin line is marked <span class="mk mk-i">~</span> ' +
+    '<b>indicative</b>: readable in direction, not firm in level.</p>' +
+    '<p><b>Some lines are worse than indicative and are not published at all.</b> Where the underlying ' +
+    'accounts differ between the two years rather than merely the amounts, a delta would compare two ' +
+    'different measurements wearing the same name. Those cells say so and give the reason, and the raw ' +
+    'prior-year figure is still one click away on the cell itself.</p>' +
+    '<p>No Babyshop-issued 2025 P&amp;L exists in this pipeline, so none of the above is a comparison ' +
+    '<p><b>In the open month this comparison runs against the projected full month</b>, not against ' +
+    'what has posted so far: a part month set against a whole-month prior year would be arithmetic without ' +
+    'meaning. Those rows carry the <span class="mk mk-p">P</span> marker, and the projected column ' +
+    'shows how much of each rung is already fact.</p>' +
+    'against their own prior-year report. It is our reconstruction, assessed against itself.</p>');
+
+  H.help('states', 'Posted, Projected and Forecast',
+    '<p>Three different things, never blended into one number.</p>' +
+    '<dl><dt>Posted</dt><dd>what Finance has in the general ledger</dd>' +
+    '<dt>Projected</dt><dd>posted plus a fitted estimate, always carrying its posted share</dd>' +
+    '<dt>Forecast</dt><dd>Babyshop&rsquo;s own plan</dd></dl>' +
+    '<p style="margin-top:9px">A projection exists only for the <b>open month</b>, only at <b>group ' +
+    'level</b>, only down to <b>GP3</b>, and <b>never inside a cumulative window</b>. A projection that ' +
+    'leaked into year to date would be indistinguishable from a posted figure a month later.</p>');
+
   if (em && isOpen(em.month)) {
-    var bp = bandPP();
-    out.push(
-      '<div class="notice" style="background:var(--proj-bg);color:var(--ink-2);border-color:var(--proj-ln)">' +
-      '<span style="color:var(--proj-ink);font-weight:700">&#9679;</span><span>' +
-      '<b style="color:var(--ink)">' + esc(lab(em.month)) + ' is the open month and publishes a projection below GP1.</b> ' +
-      'It carries a projected <b>GP2 of ' + pf(pjPct('gp2')) + ' and GP3 of ' + pf(pjPct('gp3')) + '</b> from a cost estimator ' +
-      'fitted per line and backtested over six closed months, led by the margin percentage rather than the SEK figure ' +
-      'because revenue and cost errors partly cancel in a ratio and do not in an absolute. ' +
-      '<b style="color:var(--ink)">Three states stay visually separate and are never blended:</b> ' +
-      '<span class="st st-bk">Posted</span> what is in the general ledger, ' +
-      '<span class="st st-pj">Projected</span> posted plus estimate with the posted share always shown, and ' +
-      '<span class="st st-fc">Forecast</span> Babyshop&rsquo;s own plan. ' +
-      'Nothing below GP1 has posted, so those rungs are <b>100% estimated</b>, and the band is deliberately skewed ' +
-      '<b>' + skewTxt() + '</b> rather than the symmetric &plusmn;' + bp.gp2_pp.toFixed(1) + ' pp the backtest gives at day ' +
-      (em.as_of_day || '–') + '. <b style="color:var(--ink)">EBITDA stays suppressed for the open month</b>: the estimator is fitted on ' +
-      'direct costs and stops at GP3. Multi-month windows stay posted-only, so ' + esc(lab(em.month)) +
-      ' enters YTD and L12M at what has actually posted.' +
-      '</span></div>');
+    var bp = bandPP(), ob = gp1Observed();
+    H.help('proj', esc(lab(em.month)) + ' projected, standing at day ' + (em.as_of_day || '&ndash;'),
+      '<p>Per line: <code>estimate = posted_to_date + (1 &minus; maturity) &times; rate &times; driver</code>. ' +
+      'Posting maturity comes from closed months and uses <code>lastModifiedDateTime</code> rather than ' +
+      'posting date, because BC backdates. Rates are medians over the closed months before the open one, ' +
+      'so a single inventory revaluation cannot reprice a line. Backtested out of sample over six closed ' +
+      'months.</p>' +
+      '<p><b>Read the margin percentage, not the krona.</b> Revenue error and cost error partly cancel in ' +
+      'a ratio and do not in an absolute: over-project revenue and the driver-scaled cost lines scale with ' +
+      'it, so the margin is self-stabilising in a way the SEK figure is not.</p>' +
+      '<p><b>The band is deliberately skewed ' + skewTxt() + '</b> rather than the symmetric &plusmn;' +
+      bp.gp2_pp.toFixed(1) + ' pp the backtest gives at day ' + (em.as_of_day || '&ndash;') + '. Projected ' +
+      'GP1 of ' + pf(pjPct('gp1')) + ' sits ' + (pjPct('gp1') > ob.hi ? 'above every month observed this year'
+        : 'inside the observed 2026 range') + ' (' + ob.lo.toFixed(1) + ' to ' + ob.hi.toFixed(1) + '%), and ' +
+      'the COGS rate embeds an average stock adjustment that has not yet posted. Treat the figures as the ' +
+      'optimistic edge.</p>' +
+      '<p><b>The band narrows to about day 15 and then stops.</b> It does not converge to zero: at month ' +
+      'end revenue is fully known, so what is left is pure cost-rate error, and a band that tightened to ' +
+      'nothing would be a lie. <b>EBITDA stays unprojected</b>, because the estimator is fitted on direct ' +
+      'costs and stops at GP3.</p>' +
+      '<p>The full method, the band by day of month and the two lines that are labelled rather than ' +
+      'modelled are in <em>Projection method</em> below.</p>');
   }
 
-  /* A one-off large enough to dominate the headline has to be named up front. */
-  var ytd = wm('YTD'), a = agg(ytd, 'ALL');
-  if (ytd.indexOf(ONE_OFF.month) >= 0 && a.ebitda && Math.abs(ONE_OFF.sek / a.ebitda) > 0.25) {
-    out.push(
-      '<div class="notice"><span>&#9888;</span><span>' +
-      '<b>YTD EBITDA is dominated by a one-off.</b> A single ' + esc(ONE_OFF.what) + ' posted to GL ' + esc(ONE_OFF.gl) +
-      ' in ' + esc(lab(ONE_OFF.month)) + ' carries <b>' + sek(ONE_OFF.sek) + '</b> of income. It sits inside EBITDA but outside the ' +
-      'GP3 ladder, in <em>Other operating items</em>. YTD EBITDA is ' + sek(a.ebitda) + '; strip the settlement and ' +
-      '<b>underlying EBITDA is ' + sek(a.ebitda - ONE_OFF.sek) + '</b>. The forecast contains no such line, so any read of ' +
-      'EBITDA against forecast that does not name this item is misleading.' +
-      '</span></div>');
-  }
+  H.help('todate', 'What the open month has actually posted',
+    '<p>Everything Business Central has posted for the open month so far, on posting date. It is a real ' +
+    'figure, not an estimate, and it is the number the cumulative windows use: the open month enters year ' +
+    'to date and last twelve months here, never at a projection.</p>' +
+    '<p><b>The margin rungs on this column are distorted, and are marked <span class="mk mk-c">!</span>.</b> ' +
+    'Cost posts behind the revenue it belongs to: carrier, 3PL and marketing invoices arrive in batches ' +
+    'after month end. So a posted-to-date GP2 or GP3 reads high, sometimes higher than the projected full ' +
+    'month, because the revenue has landed and the costs against it have not. Read the projected column ' +
+    'for the month&rsquo;s likely shape and this one for what is banked.</p>' +
+    '<p>The flow lines carry their <b>posted share</b> in the projected column beside them, so you can see ' +
+    'at a glance how much of each rung is fact.</p>');
 
+  H.help('openwd', 'Why this rung is not available for an open window',
+    '<p>The open month&rsquo;s <b>carrier, 3PL and marketing invoices have not posted</b>. They arrive in ' +
+    'batches after month end, so a figure here would be revenue that has landed against costs that have ' +
+    'not, and it would flatter the result by construction.</p>' +
+    '<p>Multi-month windows stay <b>posted-only</b>: the open month enters year to date and last twelve ' +
+    'months at what has actually posted, never at a projection. A projection that leaked into a cumulative ' +
+    'window would be indistinguishable from a posted figure a month later.</p>');
+
+  H.help('ebitdawd', 'Why EBITDA is not projected',
+    '<p>The cost estimator is fitted on the <b>direct cost lines</b> and stops at GP3. Overhead, other ' +
+    'operating items, depreciation and financial items have no fitted driver.</p>' +
+    '<p>So EBITDA stays unprojected for the open month rather than being half-estimated. A number built ' +
+    'from three projected rungs and four guessed ones would carry an error nobody could size.</p>' +
+    '<p>The posted-to-date EBITDA is in the ladder below, marked as the partial figure it is.</p>');
+
+  H.help('marker', 'What the markers mean',
+    '<dl><dt><span class="mk mk-b">B</span></dt><dd>a basis difference rather than performance</dd>' +
+    '<dt><span class="mk mk-d">D</span></dt><dd>directional: comparable in level, not in composition</dd>' +
+    '<dt><span class="mk mk-c">!</span></dt><dd>contaminated, or known to be incomplete</dd>' +
+    '<dt><span class="mk mk-d">?</span></dt><dd>a mapping that cannot be made clean</dd>' +
+    '<dt><span class="mk mk-d">O</span></dt><dd>window contains an unposted month</dd>' +
+    '<dt><span class="mk mk-p">P</span></dt><dd>projected, not posted</dd>' +
+    '<dt><span class="mk mk-i">~</span></dt><dd>indicative prior year: direction only, not level</dd></dl>' +
+    '<p style="margin-top:9px">Nothing on this page is allocated silently.</p>');
+}
+
+function renderNotices(){
+  var d = D(), out = [];
+  registerHelp();
+
+  el('mastHelp').innerHTML = H.hlp('basis');
+
+  /* A one-off large enough to dominate the headline changes what EBITDA MEANS,
+   * so it stays visible. The arithmetic behind it goes behind the "?".
+   *
+   * It is tested against the SELECTED window, not always against year to date.
+   * Warning that year-to-date EBITDA is distorted while the reader is looking at
+   * a single open month, where EBITDA is not even published, is exactly the kind
+   * of always-on notice this redesign is removing. */
+  var win = wm(S().period), a = agg(win, S().mkt);
+  if (S().mkt === 'ALL' && win.indexOf(ONE_OFF.month) >= 0 && a.ebitda &&
+      Math.abs(ONE_OFF.sek / a.ebitda) > 0.25) {
+    H.help('oneoff', 'The one-off inside ' + esc(PL[S().period]) + ' EBITDA',
+      '<p>A single <b>' + esc(ONE_OFF.what) + '</b> posted to GL ' + esc(ONE_OFF.gl) + ' in ' +
+      esc(lab(ONE_OFF.month)) + ' carries <span class="num">' + sek(ONE_OFF.sek) + '</span> of income.</p>' +
+      '<p>It sits <em>inside</em> EBITDA but <em>outside</em> the GP3 ladder, in Other operating items, so ' +
+      'the margin rungs above EBITDA are unaffected by it.</p>' +
+      '<dl><dt>' + esc(PL[S().period]) + ' EBITDA</dt><dd>' + sek(a.ebitda) + '</dd>' +
+      '<dt>the one-off</dt><dd>&minus;' + sek(ONE_OFF.sek) + '</dd>' +
+      '<dt>underlying</dt><dd><b>' + sek(a.ebitda - ONE_OFF.sek) + '</b></dd></dl>' +
+      '<p style="margin-top:9px">Babyshop&rsquo;s forecast contains no such line, so any read of EBITDA ' +
+      'against forecast that does not name this item is misleading.</p>');
+    out.push('<div class="notice"><span>&#9888;</span><span>' +
+      '<b>' + esc(PL[S().period]) + ' EBITDA is dominated by a one-off.</b> Strip the ' + esc(ONE_OFF.what) +
+      ' and underlying EBITDA is <b>' + sek(a.ebitda - ONE_OFF.sek) + '</b>, not ' + sek(a.ebitda) + '. ' +
+      H.hlp('oneoff') + '</span></div>');
+  }
   el('noticeTop').innerHTML = out.join('');
 
-  /* Market selection withdraws two whole classes of figure. */
+  /* Market selection withdraws two whole classes of figure, which changes what
+   * the ladder below is, so the fact stays visible and the detail moves. */
   var n = el('mktNotice');
   if (S().mkt !== 'ALL') {
     var gap = (d.checks || {}).item_ledger_vs_gl_cogs || {};
     var ms = wm(S().period);
     var gp = ms.map(function (m) { return gap[m] && gap[m].pct; })
                .filter(function (v) { return v != null; });
-    n.innerHTML =
-      '<div class="notice"><span>&#9888;</span><span>' +
-      '<b>' + esc(S().mkt) + ' selected. Two things stop being available.</b> ' +
-      'Net Shipping, Fulfillment, Transaction Fees and the whole overhead stack post to the general ledger at carrier, ' +
-      'settlement and company granularity with <b>no country dimension at any grain</b>, so the ladder stops at contribution ' +
-      'after marketing and GP2, GP3 and EBITDA cannot be built. ' +
-      'And the forecast is global only, so <b>every forecast comparison is withdrawn</b> rather than split. ' +
-      'COGS switches to the item-ledger basis and marketing to de-duplicated Funnel spend, the only two that carry a country' +
-      (gp.length ? '; the item ledger runs ' + (gp.length === 1 ? (gp[0] > 0 ? '+' : '') + gp[0].toFixed(1) + '%'
-        : (Math.min.apply(null, gp)).toFixed(1) + '% to ' + (Math.max.apply(null, gp) > 0 ? '+' : '') + (Math.max.apply(null, gp)).toFixed(1) + '%') +
-        ' against the general ledger over this window on posting cut-off, which is why market rows do not foot to the ladder' : '') +
-      '.</span></div>';
+    H.help('mktwd', esc(S().mkt) + ' selected: what stops being available',
+      '<p><b>The ladder stops at contribution after marketing.</b> Net Shipping, Fulfillment, Transaction ' +
+      'Fees and the whole overhead stack post to the general ledger at carrier, settlement and company ' +
+      'granularity with <b>no country dimension at any grain</b>, so GP2, GP3 and EBITDA cannot be built ' +
+      'for one market. They are withdrawn rather than allocated silently.</p>' +
+      '<p><b>Every forecast comparison is withdrawn.</b> Babyshop&rsquo;s forecast is global only, so there ' +
+      'is no market counterpart to split.</p>' +
+      '<p><b>Two bases change.</b> COGS switches to the item ledger and marketing to de-duplicated Funnel ' +
+      'spend, the only two bases that carry a country at all' +
+      (gp.length ? '. The item ledger runs <span class="num">' + (gp.length === 1
+        ? (gp[0] > 0 ? '+' : '') + gp[0].toFixed(1) + '%'
+        : (Math.min.apply(null, gp)).toFixed(1) + '% to ' + (Math.max.apply(null, gp) > 0 ? '+' : '') +
+          (Math.max.apply(null, gp)).toFixed(1) + '%') + '</span> against the general ledger over this ' +
+        'window on posting cut-off, which is why market rows do not foot to the ladder' : '') + '.</p>' +
+      '<p>Year-on-year is still built, on those same two bases, and carries the same prior-year caveats.</p>');
+    n.innerHTML = '<div class="notice"><span>&#9888;</span><span><b>' + esc(S().mkt) +
+      ' selected.</b> The ladder stops at contribution after marketing, and every forecast comparison is ' +
+      'withdrawn. ' + H.hlp('mktwd') + '</span></div>';
   } else {
     n.innerHTML = '';
   }
 }
 
-/* ══ 2 · Pacing tiles ════════════════════════════════════════════════════════ */
+/* ══ 2 · The headline strip ══════════════════════════════════════════════════
+ * The margin ladder in five cards, each against BOTH comparisons, sitting above
+ * the ladder and above any prose. This is the ten-second read: what the month
+ * did, against plan and against last year, before a reader scrolls at all.
+ *
+ * Margin rungs lead with the PERCENTAGE and compare in PERCENTAGE POINTS, which
+ * is how a finance reader holds them. Net Sales leads with the krona, because a
+ * percentage of itself would be meaningless.
+ */
+function ppdelta(actP, refP, goodUp){
+  if (actP == null || refP == null) return '<span class="delta fl">&ndash;</span>';
+  var dd = actP - refP;
+  var good = goodUp ? dd >= 0 : dd <= 0;
+  var cls = Math.abs(dd) < 0.05 ? 'fl' : (good ? 'up' : 'dn');
+  var ar = Math.abs(dd) < 0.05 ? '' : (dd > 0 ? '▲ ' : '▼ ');
+  return '<span class="delta ' + cls + '">' + ar + (dd > 0 ? '+' : '−') +
+         Math.abs(dd).toFixed(1) + ' pp</span>';
+}
+
 function renderTiles(){
   var s = S(), ms = wm(s.period), a = agg(ms, s.mkt);
-  var b = fcFor(ms, s.mkt), p = (s.cmp === 'PY') ? pyAgg(ms, s.mkt) : null;
-  var st = mstate(a), PJ = pjOn(ms, s.mkt), pa = PJ ? projAgg() : null;
-  var refn = (s.cmp === 'PY') ? 'last year' : 'forecast';
+  var PJ = pjOn(ms, s.mkt), pa = PJ ? projAgg() : null;
+  var st = mstate(a);
+  var fcA = H.fcAvail(ms, s.mkt), pyA = H.pyAvail(ms, s.mkt);
+  var b = fcA.ok ? fcFor(ms, s.mkt) : null;
+  var p = pyA.ok ? pyAgg(ms, s.mkt) : null;
+  /* In the open month both comparisons run against the PROJECTED full month:
+   * a part month against a whole-month plan or a whole prior month would be
+   * arithmetic without meaning. */
+  var cmpA = PJ ? pa : a;
   var t = [];
 
-  function box(lbl, val, unit, vs, ch, vt, mark){
-    var m = mark === 'D'
-      ? ' <span class="mk mk-d" title="Directional. Composition is close but not identical between our GL grouping and Babyshop&#39;s forecast line.">D</span>'
-      : mark === 'O'
-      ? ' <span class="mk mk-d" title="Open window. It contains the open month, whose carrier, 3PL and marketing invoices have not posted.">O</span>'
-      : mark === 'C'
-      ? ' <span class="mk mk-c" title="Posted-to-date GP1% reads high intra-month: cost posts behind the revenue it belongs to, so the ratio is distorted until the month closes. Read the projected figure below.">!</span>'
-      : '';
-    return '<div class="tile"><div class="lab">' + lbl + m + '</div>' +
-           '<div class="val">' + val + '<span class="u">' + unit + '</span></div>' +
-           '<div class="vs">' + vs + '</div>' +
-           (ch ? '<div style="margin-top:7px">' + ch + ' <span class="vs" style="margin-left:5px">' + vt + '</span></div>' : '') +
-           '</div>';
-  }
-  function sup(name, why){
-    return '<div class="tile"><div class="lab">' + name +
-      ' <span class="mk mk-c" title="Not computable for this selection.">&#10005;</span></div>' +
-      '<div class="val" style="font-size:17px;color:var(--ink-3);font-weight:500">Not available</div>' +
-      '<div class="vs" style="white-space:normal;line-height:1.45;margin-top:4px;font-family:var(--font)">' + why + '</div></div>';
-  }
-  function pjbox(name, pctv, sekv, bpp, fcpct){
-    var rg = skewRange(pctv);
-    return '<div class="tile" style="border-color:var(--proj-ln)"><div class="lab">' + name +
-      ' <span class="st st-pj">Projected</span></div>' +
-      '<div class="val">' + pctv.toFixed(1) + '<span class="u">% of net sales</span></div>' +
-      '<div class="vs">' + sek(sekv) + ' SEK, secondary</div>' +
-      '<div style="margin-top:7px"><span class="delta" style="color:var(--proj-ink);background:var(--proj-bg)">' +
-      skewTxt() + '</span> <span class="vs" style="margin-left:5px">' + msek(rg[0]) + 'M to ' + msek(rg[1]) + 'M</span></div>' +
-      '<div class="vs" style="margin-top:4px">forecast ' + pf(fcpct) + ' &middot; backtest band &plusmn;' + bpp.toFixed(1) + ' pp</div></div>';
+  function row(nm, key, actV, actP, refO, goodUp, avail, usePP){
+    var lbl = '<span class="n">' + nm + '</span>';
+    if (!avail.ok)
+      return '<div class="hd-r">' + lbl + '<span class="z">' + esc(H.WD[avail.why]) + '</span></div>';
+    var q = (key && avail === pyA) ? H.pyQuality(key, ms, pyA.months) : null;
+    if (q && (q.lvl === 'basis' || q.lvl === 'nocomp'))
+      return '<div class="hd-r">' + lbl + '<span class="z">not comparable</span></div>';
+    var refV = refO ? refO[key] : null;
+    if (refV == null || actV == null)
+      return '<div class="hd-r">' + lbl + '<span class="z">no line</span></div>';
+    var mark = (q && q.lvl === 'ind')
+      ? ' <span class="mk mk-i" title="Indicative prior year: direction, not level.">~</span>' : '';
+    var body = usePP
+      ? ppdelta(actP, pct(refV, refO.net), goodUp)
+      : chip(actV, refV, goodUp) + ' <span class="hd-x">' +
+        (actV > refV ? '+' : '−') + msek(Math.abs(actV - refV)) + 'M</span>';
+    return '<div class="hd-r"><span class="n">' + nm + mark + '</span><span>' + body + '</span></div>';
   }
 
-  var ref = p || b;
-  var rn = ref ? ref.net : null;
-  t.push(box('Net Sales &middot; ' + esc(PL[s.period]), msek(a.net), 'M SEK',
-    PJ ? ('posted &middot; projected ' + msek(pa.net) + 'M')
-       : (rn ? ('vs ' + refn + ' ' + sek(rn)) : 'no ' + refn + ' for this window'),
-    rn ? chip(a.net, rn, true) : '',
-    rn ? ((a.net > rn ? '+' : '−') + msek(Math.abs(a.net - rn)) + 'M') : ''));
-
-  var r1 = ref ? ref.gp1 : null;
-  t.push(box('GP1 &middot; ' + pf(pct(a.gp1, a.net)) + (PJ ? ' posted' : ''), msek(a.gp1), 'M SEK',
-    PJ ? ('posted &middot; projected ' + pf(pjPct('gp1')) + ', ' + msek(pa.gp1) + 'M')
-       : (r1 ? ('vs ' + refn + ' ' + sek(r1)) : 'no ' + refn + ' for this window'),
-    r1 ? chip(a.gp1, r1, true) : '',
-    r1 ? ((a.gp1 > r1 ? '+' : '−') + msek(Math.abs(a.gp1 - r1)) + 'M') : '', PJ ? 'C' : null));
-
-  if (PJ) {
-    var bp = bandPP(), fc = fcFor([estMonth().month], 'ALL');
-    t.push(pjbox('GP2', pjPct('gp2'), pa.gp2, bp.gp2_pp, fc ? pct(fc.gp2, fc.net) : null));
-    t.push(pjbox('GP3', pjPct('gp3'), pa.gp3, bp.gp3_pp, fc ? pct(fc.gp3, fc.net) : null));
-    t.push(sup('EBITDA', 'The estimator covers the ladder down to GP3. Overhead and other operating items are not modelled, ' +
-      'so EBITDA stays suppressed for the open month rather than being half-estimated.'));
-    t.push(box('Marketing &middot; ' + pf(pct(-a.mktg, a.net)) + ' of net', msek(-a.mktg), 'M SEK',
-      'posted GL &middot; projected ' + msek(-pa.mktg) + 'M', ''));
-    el('tiles').innerHTML = t.join('');
-    return;
+  function card(key, name, cls, big, xtra, goodUp, actP, usePP){
+    return '<div class="hd-c' + (cls ? ' ' + cls : '') + '">' +
+      '<div class="hd-k">' + name + '</div>' +
+      '<div class="hd-v">' + big + '</div>' +
+      (xtra ? '<div class="hd-x">' + xtra + '</div>' : '') +
+      '<div class="hd-cmp">' +
+        row('vs FC', key, cmpA[key], actP, b, goodUp, fcA, usePP) +
+        row('vs LY', key, cmpA[key], actP, p, goodUp, pyA, usePP) +
+      '</div></div>';
+  }
+  function dead(name, whyKey){
+    return '<div class="hd-c na"><div class="hd-k">' + name + ' ' + H.hlp(whyKey) + '</div>' +
+      '<div class="hd-v small">Not available</div>' +
+      '<div class="hd-cmp"><div class="hd-r"><span class="n">vs FC</span><span class="z">withdrawn</span></div>' +
+      '<div class="hd-r"><span class="n">vs LY</span><span class="z">withdrawn</span></div></div></div>';
+  }
+  /* Posted share, shown wherever a projected figure appears. */
+  function shareLine(bk, tot){
+    var sh = tot ? Math.max(0, Math.min(100, Math.abs(bk) / Math.abs(tot) * 100)) : 0;
+    return '<span class="minisplit"><i class="bk" style="width:' + sh.toFixed(1) + '%"></i>' +
+      '<i class="es" style="width:' + (100 - sh).toFixed(1) + '%"></i></span>' +
+      sh.toFixed(0) + '% posted';
   }
 
-  if (st === 'ok' || st === 'open') {
-    var r3 = ref ? ref.gp3 : null;
-    t.push(box('GP3 &middot; ' + pf(pct(a.gp3, a.net)) + (st === 'open' ? ' &middot; open' : ''), msek(a.gp3), 'M SEK',
-      r3 ? ('vs ' + refn + ' ' + sek(r3)) : 'no ' + refn + ' for this window',
-      r3 ? chip(a.gp3, r3, true) : '',
-      r3 ? ((a.gp3 > r3 ? '+' : '−') + msek(Math.abs(a.gp3 - r3)) + 'M') : '', st === 'open' ? 'O' : null));
-    var re = ref ? ref.ebitda : null;
-    t.push(box('EBITDA &middot; ' + pf(pct(a.ebitda, a.net)) + (st === 'open' ? ' &middot; open' : ''), msek(a.ebitda), 'M SEK',
-      re ? ('vs ' + refn + ' ' + sek(re)) : 'no ' + refn + ' for this window',
-      re ? chip(a.ebitda, re, true) : '',
-      re ? ((a.ebitda > re ? '+' : '−') + msek(Math.abs(a.ebitda - re)) + 'M') : '', st === 'open' ? 'O' : null));
-  } else if (st === 'geo') {
-    t.push(sup('GP3', 'Shipping, fulfilment, transaction fees and overhead post to the general ledger with no country dimension, ' +
-      'so GP3 and EBITDA cannot be built for one market.'));
-    t.push(sup('EBITDA', 'Overhead posts at company level. There is no market key to split it on.'));
-  } else {
-    t.push(sup('GP3', 'The open month&rsquo;s carrier, 3PL and marketing invoices have not posted. A figure here would overstate the result.'));
-    t.push(sup('EBITDA', 'Same reason, and the estimator stops at GP3.'));
-  }
+  var pjBadge = ' <span class="st st-pj">Projected</span> ' + H.hlp('proj');
 
-  t.push(box(a.geo ? 'Marketing &middot; Funnel de-duplicated' : ('Marketing &middot; ' + pf(pct(-a.mktg, a.net)) + ' of net'),
-    msek(-a.mktg), 'M SEK',
-    a.geo ? 'de-duplicated Funnel &middot; no market forecast' : 'GL 5911&ndash;5990 media',
-    (!a.geo && b && s.cmp === 'FC') ? chip(a.mktg, b.mktg, true) : '',
-    (!a.geo && b && s.cmp === 'FC') ? ((a.mktg > b.mktg ? '+' : '−') + msek(Math.abs(a.mktg - b.mktg)) + 'M') : ''));
+  /* ── Net Sales ── */
+  t.push(card('net', 'Net Sales' + (PJ ? pjBadge : ''), PJ ? 'pj' : '',
+    msek(cmpA.net) + '<span class="u">M SEK</span>',
+    PJ ? shareLine(a.net, pa.net) : esc(PL[s.period]), true, null, false));
+
+  /* ── GP1 ── */
+  var g1p = PJ ? pjPct('gp1') : pct(a.gp1, a.net);
+  t.push(card('gp1', 'GP1' + (PJ ? pjBadge : ''), PJ ? 'pj' : '',
+    pf(g1p) + '<span class="u">of net sales</span>',
+    (PJ ? shareLine(a.cogs, pa.cogs) + ' of COGS &middot; ' : '') + msek(cmpA.gp1) + 'M SEK',
+    true, g1p, true));
+
+  /* ── GP2 and GP3 ── */
+  ['gp2', 'gp3'].forEach(function (k) {
+    var nm = k.toUpperCase();
+    if (st === 'geo') { t.push(dead(nm, 'mktwd')); return; }
+    if (PJ) {
+      var pp = pjPct(k), rg = skewRange(pp);
+      t.push(card(k, nm + pjBadge, 'pj',
+        pf(pp) + '<span class="u">' + skewTxt() + '</span>',
+        sek(cmpA[k]) + ' SEK &middot; ' + msek(rg[0]) + 'M to ' + msek(rg[1]) + 'M', true, pp, true));
+      return;
+    }
+    if (st === 'sup') { t.push(dead(nm, 'openwd')); return; }
+    var pp2 = pct(a[k], a.net);
+    t.push(card(k, nm + (st === 'open'
+      ? ' <span class="mk mk-d" title="Open window: it contains the open month, whose carrier, 3PL and marketing invoices have not fully posted.">O</span>'
+      : ''), '',
+      pf(pp2) + '<span class="u">of net sales</span>', msek(a[k]) + 'M SEK', true, pp2, true));
+  });
+
+  /* ── EBITDA ── */
+  if (PJ) t.push(dead('EBITDA', 'ebitdawd'));
+  else if (st === 'geo') t.push(dead('EBITDA', 'mktwd'));
+  else if (st === 'sup') t.push(dead('EBITDA', 'openwd'));
+  else {
+    var ep = pct(a.ebitda, a.net);
+    t.push(card('ebitda', 'EBITDA' + (st === 'open'
+      ? ' <span class="mk mk-d" title="Open window: it contains the open month, whose invoices have not fully posted.">O</span>'
+      : ''), '', pf(ep) + '<span class="u">of net sales</span>',
+      msek(a.ebitda) + 'M SEK', true, ep, true));
+  }
 
   el('tiles').innerHTML = t.join('');
 }
 
 R.notices = renderNotices;
 R.tiles = renderTiles;
+R.registerHelp = registerHelp;
+R.ppdelta = ppdelta;
 R.mstate = mstate;
 R.RSN = RSN;
 })();
@@ -348,10 +532,14 @@ function renderProjection(){
   renderBandChart();
   renderUnpredictable();
 
-  el('pjTitle').innerHTML = esc(lab(em.month)) + ' projected, standing at day ' + (em.as_of_day || '–') + ' of the month';
-  var src = (e || {}).source || {};
-  el('pjSub').innerHTML = 'Posted plus estimate &middot; margin first, SEK second' +
-    (src.bc_last_sync ? ' &middot; last BC sync ' + esc(src.bc_last_sync) : '');
+  /* The panel is closed by default, so its summary has to carry the verdict:
+   * what is projected, how wide the band is, and where the estimator stops. */
+  var bt = (e || {}).backtest || {};
+  el('pjVerdict').innerHTML =
+    esc(lab(em.month)) + ' at day <b>' + (em.as_of_day || '&ndash;') + '</b> &middot; GP2 <b>' +
+    pf(pjPct('gp2')) + '</b> and GP3 <b>' + pf(pjPct('gp3')) + '</b>, band ' + skewTxt() +
+    ' &middot; backtested on ' + ((bt.months || []).length || 'six') +
+    ' closed months &middot; stops at GP3';
 }
 
 /* The backtest band, by day of month. It narrows and then STOPS: at month end
@@ -508,7 +696,7 @@ R.splitBar = splitBar;
  * trade today": a BC posting day is a shipment-and-invoicing batch, so a
  * Saturday posts almost nothing and a Monday carries the backlog.
  *
- * THE VOCABULARY IS THE CLIENT'S. "Booked" means when the purchase took place.
+ * THE VOCABULARY IS BABYSHOP'S. "Booked" means when the purchase took place.
  * So these cards say ORDERED, the ladder says POSTED, and the page never uses
  * "booked" for either.
  *
@@ -556,7 +744,8 @@ function renderDay(){
       '<span style="color:var(--crit-ink)">&#9679; unavailable</span>';
     el('dgSplit').innerHTML = '';
     el('dgNote').innerHTML = esc(n.basis_warning || '');
-    el('dgTitle').innerHTML = 'Ordered';
+    el('dgVerdict').innerHTML = '<span style="color:var(--crit-ink)">live read unavailable</span> ' +
+      '&middot; order date, a different basis from the ladder';
     return;
   }
 
@@ -613,7 +802,10 @@ function renderDay(){
     '</div></article>');
 
   el('dgCards').innerHTML = out.join('');
-  el('dgTitle').innerHTML = 'Ordered &middot; latest complete day and today so far';
+  /* Closed by default: the summary names the basis, because the single most
+   * likely misreading of this page is adding an ordered figure to a posted one. */
+  el('dgVerdict').innerHTML = 'Live from Norce on <b>order date</b>, not the ladder&rsquo;s posting date ' +
+    '&middot; latest complete day and today so far &middot; does not follow the period selector';
 
   var dg = n.diagnostics || {};
   el('dgFresh').innerHTML =
@@ -825,6 +1017,21 @@ function renderScore(){
   el('scTitle').innerHTML = s.mkt === 'ALL'
     ? 'Finance&rsquo;s margin ladder by time window'
     : 'Margin ladder by time window &middot; ' + esc(s.mkt) + ' only';
+  el('scSub').innerHTML = 'The same rungs read across four windows at once, so a month is never read alone';
+  el('scLegend').innerHTML =
+    '<span class="k"><span class="sw" style="background:repeating-linear-gradient(45deg,transparent,transparent 3px,var(--rule-2) 3px,var(--rule-2) 6px);border:1px solid var(--rule-2)"></span>window contains the open month</span>' +
+    '<span class="k"><span class="mk mk-p">P</span>projected</span>' +
+    '<span class="k">' + H.hlp('scwin') + 'why the columns differ</span>';
+  H.help('scwin', 'Reading the four windows',
+    '<p>Only the <b>open month&rsquo;s own column</b> is ever projected. The cumulative columns are ' +
+    '<b>posted-only</b>: the open month enters year to date and last twelve months at what has actually ' +
+    'posted, never at a projection, so a cumulative figure never changes meaning once the month closes.</p>' +
+    '<p>That is why the open month can show a healthy projected GP3 while year to date, which contains it ' +
+    'at its partial posted value, looks weaker. They are answering different questions.</p>' +
+    '<p>The delta on each cell is against Babyshop&rsquo;s rolling forecast. Year on year is not repeated ' +
+    'here because it is not available on the cumulative windows at all: Business Central history starts ' +
+    'mid-June 2025, so no window reaching back past July 2025 has a prior year. It is on every line of ' +
+    'the ladder above, where a window is narrow enough for it to exist.</p>');
 }
 
 /* ══ The ladder ══════════════════════════════════════════════════════════════
@@ -984,10 +1191,11 @@ R.ladderOpenState = open;
 'use strict';
 var H = window.__execplHelpers;
 var R = window.__execplRender;
-var esc = H.esc, sek = H.sek, pct = H.pct, pf = H.pf, el = H.el, lab = H.lab,
-    dcell = H.dcell, agg = H.agg, pyAgg = H.pyAgg, fcFor = H.fcFor, fcLine = H.fcLine,
-    wm = H.wm, pjOn = H.pjOn, projAgg = H.projAgg, pjPct = H.pjPct,
-    estMonth = H.estMonth, est = H.est;
+var esc = H.esc, sek = H.sek, msek = H.msek, pct = H.pct, pf = H.pf, el = H.el,
+    lab = H.lab, dcell = H.dcell, agg = H.agg, pyAgg = H.pyAgg, fcFor = H.fcFor,
+    fcLine = H.fcLine, wm = H.wm, pjOn = H.pjOn, projAgg = H.projAgg, pjPct = H.pjPct,
+    estMonth = H.estMonth, est = H.est, skewTxt = H.skewTxt, skewRange = H.skewRange,
+    bandPP = H.bandPP, isOpen = H.isOpen;
 function D(){ return H.D(); } function S(){ return H.S(); }
 var mstate = R.mstate, open = R.ladderOpenState;
 
@@ -1004,17 +1212,129 @@ var RUNG_LINES = {
 function renderLadder(){
   var s = S(), ms = wm(s.period), PJ = pjOn(ms, s.mkt);
   var a = PJ ? projAgg() : agg(ms, s.mkt);
-  var b = fcFor(ms, s.mkt);
-  var p = (s.cmp === 'PY') ? pyAgg(ms, s.mkt) : null;
+  var fcA = H.fcAvail(ms, s.mkt), pyA = H.pyAvail(ms, s.mkt);
+  var b = fcA.ok ? fcFor(ms, s.mkt) : null;
+  var p = pyA.ok ? pyAgg(ms, s.mkt) : null;
   var st = PJ ? 'pj' : mstate(a);
   var rows = R.ladderRows(a, st, b);
+  var NC = PJ ? 7 : 6;      /* column count, for the unavailable rows' colspan */
 
   /* prior-year comparison, built through the same row model so keys line up */
   var PY = null;
   if (p) { PY = {}; R.ladderRows(p, mstate(p), null).forEach(function (r) { PY[r.k] = r; }); }
 
+  /* ── The two comparison columns ────────────────────────────────────────────
+   * Both are on every line now, which makes handling their ABSENCE the real
+   * work. A withdrawn comparison is never blank and never zero: it says what it
+   * is and carries its reason one click away.
+   */
+  H.help('nofc', 'No forecast counterpart',
+    '<p>Babyshop&rsquo;s forecast does not contain a line matching this rung, so there is nothing to ' +
+    'compare against. <b>It is not planned at zero; it is absent from the plan.</b></p>' +
+    '<p>The rung is still shown, at its posted value, because dropping it would break the ladder&rsquo;s ' +
+    'arithmetic and hide a real movement.</p>');
+
+  /* A withdrawal that applies to the WHOLE column is stated once, in the column
+   * heading, and the cells carry a muted dash. Repeating the same clause down
+   * nineteen rows is the noise this redesign exists to remove. A withdrawal that
+   * applies to ONE LINE is stated in that line's own cell, where it belongs. */
+  var COLWD = '<span class="wd" title="Stated in the column heading above.">&ndash;</span>';
+
+  function fcCell(r){
+    if (!fcA.ok) return COLWD;
+    if (H.NOFC[r.k]) {
+      H.help('nofc-' + r.k, 'No forecast counterpart: ' + esc(r.n), '<p>' + H.NOFC[r.k] + '</p>');
+      return '<span class="wd">no plan line</span> ' + H.hlp('nofc-' + r.k);
+    }
+    var fv = (b && b[r.k] != null) ? b[r.k] : null;
+    if (fv == null || r.v == null)
+      return '<span class="wd">no plan line</span> ' + H.hlp('nofc');
+    return dcell(r.v - fv);
+  }
+
+  function pyCell(r){
+    if (!pyA.ok) return COLWD;
+    var q = H.pyQuality(r.k, ms, pyA.months);
+    var pv = (PY && PY[r.k]) ? PY[r.k].v : null;
+    if (q.lvl === 'basis' || q.lvl === 'nocomp') {
+      /* Not published as a delta, but the raw prior-year figure is still one
+       * click away, which is the whole point of relocating rather than deleting. */
+      H.help('py-' + r.k, 'Year on year withheld: ' + esc(r.n),
+        '<p>' + H.pyWhy(r.k, q) + '</p>' +
+        (pv != null ? '<dl><dt>this window</dt><dd>' + (r.v < 0 ? '−' : '') + sek(Math.abs(r.v)) +
+          '</dd><dt>' + esc(pyA.months.map(lab).join(', ')) + '</dt><dd>' +
+          (pv < 0 ? '−' : '') + sek(Math.abs(pv)) + '</dd></dl>' +
+          '<p style="margin-top:9px">Both figures are shown so the movement is reachable. The delta is ' +
+          'not published because the two are not measuring the same thing.</p>' : ''));
+      return '<span class="wd">not comparable</span> ' + H.hlp('py-' + r.k);
+    }
+    if (pv == null || r.v == null)
+      return '<span class="wd">no prior line</span>';
+    var mark = (q.lvl === 'ind')
+      ? ' <span class="mk mk-i" title="Indicative: Business Central went live mid-June 2025 with cost migration in progress, so read the direction, not the level.">~</span>'
+      : '';
+    return dcell(r.v - pv) + mark;
+  }
+
+  /* ── The posted share ──────────────────────────────────────────────────────
+   * Shown wherever a projected figure appears, so an estimate can never be read
+   * as a posted figure. It is only meaningful on a FLOW: a subtotal like GP2 is
+   * a difference between flows, and its "share posted" would read 88% while
+   * nothing below GP1 has posted at all, because the un-posted costs are exactly
+   * what is missing from the numerator. Subtotals therefore say "derived", and
+   * the share is read off the rungs they are derived from.
+   *
+   * The posted side comes from the estimator's own figures, which are the ones
+   * the projection was actually built against.
+   */
+  var SH = null;
+  if (PJ) {
+    var P = H.pjLadder(), po = a.posted;
+    SH = {
+      gross:[po.gross, a.gross], ret:[po.ret, a.ret], net:[po.net, a.net],
+      cogs: [po.cogs, a.cogs],   mktg:[po.mktg, a.mktg],
+      nship:[-P.nship.posted, a.nship], ful:[-P.ful.posted, a.ful], tf:[-P.tf.posted, a.tf]
+    };
+  }
+  function shareOf(k){
+    var s0 = SH[k];
+    /* A missing estimator line yields undefined rather than a number, and an
+     * unguarded percentage of it renders the string "NaN% posted" into a finance
+     * table. Anything not finite is reported as derived, not as a figure. */
+    if (!s0 || !isFinite(s0[1]) || !s0[1] || !isFinite(s0[0]))
+      return ' <span class="shr">derived</span>';
+    /* A sign flip means the posted side is not a partial version of the
+     * projected one, it is a different thing (net shipping runs as a credit
+     * until the freight invoices post). Claiming a percentage there would be
+     * arithmetic on two unlike numbers. */
+    if ((s0[0] < 0) !== (s0[1] < 0) && s0[0])
+      return ' <span class="shr">posted side still a credit</span>';
+    var sh = Math.max(0, Math.min(100, Math.abs(s0[0] || 0) / Math.abs(s0[1]) * 100));
+    /* The leading space matters: table-tools exports cell textContent, and
+     * without it a CSV reads "28 883 81751% posted" as one run of digits. */
+    return ' <span class="shr"><span class="minisplit"><i class="bk" style="width:' + sh.toFixed(1) +
+      '%"></i><i class="es" style="width:' + (100 - sh).toFixed(1) + '%"></i></span>' +
+      sh.toFixed(0) + '% posted</span>';
+  }
+
+  /* The projected column leads with the margin percentage, because revenue and
+   * cost errors partly cancel in a ratio and do not in an absolute. */
+  function pjCell(r){
+    if (r.v == null) return '<span class="wd">not projected</span>';
+    var sh = shareOf(r.k);
+    if (r.k === 'gp1' || r.k === 'gp2' || r.k === 'gp3') {
+      return '<span class="pjc"><span class="pc">' + pf(pjPct(r.k)) + '</span>' +
+        '<span class="bd">' + (r.v < 0 ? '−' : '') + sek(Math.abs(r.v)) + ' SEK' +
+        (r.k === 'gp2' || r.k === 'gp3' ? ' &middot; ' + skewTxt() : '') + '</span></span>' + sh;
+    }
+    return '<span class="pjc">' + (r.v < 0 ? '−' : '') + sek(Math.abs(r.v)) + '</span>' + sh;
+  }
+
   /* Waterfall geometry: each deduction draws from the running total down. */
-  var mx = Math.max(Math.abs(a.gross), 1), BW = 290, run = 0, geo = [];
+  /* The waterfall narrows when the projected column needs the room. It carries
+   * structure, not sentiment, so it is drawn in one neutral family and the
+   * green and red on this page are spent only on variance direction. */
+  var mx = Math.max(Math.abs(a.gross), 1), BW = PJ ? 160 : 242, run = 0, geo = [];
   function cl(v){ return Math.max(0, Math.min(BW, v)); }
   rows.forEach(function (r) {
     if (r.v == null) { geo.push(null); return; }
@@ -1023,79 +1343,81 @@ function renderLadder(){
     else { geo.push([cl((run + r.v) / mx * BW), cl(run / mx * BW)]); run += r.v; }
   });
 
-  /* In projection mode the last column carries the POSTED share of each rung,
-   * so an estimate can never be read as a posted figure. */
-  var SH = null;
-  if (PJ) {
-    var posted = a.posted, em = estMonth();
-    var P = H.pjLadder();
-    SH = {
-      gross:[posted.gross, a.gross, 'of gross sales'],
-      ret:  [posted.ret,   a.ret,   'of returns'],
-      net:  [posted.net,   a.net,   'of net sales'],
-      cogs: [posted.cogs,  a.cogs,  'of COGS'],
-      nship:[P.nship.posted, P.nship.projected, 'of freight and packaging'],
-      ful:  [P.ful.posted,   P.ful.projected,   'of fulfilment'],
-      tf:   [P.tf.posted,    P.tf.projected,    'nothing added'],
-      mktg: [posted.mktg,  a.mktg,  'of marketing']
-    };
-  }
-  function shareCell(k, kind){
-    var sh = SH[k];
-    if (!sh) return (kind === 'sub') ? '<span class="na">derived</span>' : '';
-    var tot = Math.abs(sh[1]), bk = Math.abs(sh[0] || 0);
-    var p0 = tot ? Math.max(0, Math.min(100, bk / tot * 100)) : 0;
-    return '<div style="min-width:96px">' +
-      '<div class="split" style="min-width:96px" role="img" aria-label="' + p0.toFixed(0) + ' per cent posted">' +
-      '<i class="bk" style="width:' + p0.toFixed(1) + '%"></i>' +
-      '<i class="es" style="width:' + (100-p0).toFixed(1) + '%"></i></div>' +
-      '<div class="split-l"><span>' + p0.toFixed(0) + '% posted</span></div>' +
-      '<div class="split-l" style="margin-top:0"><span>' + esc(sh[2]) + '</span></div></div>';
-  }
+  /* ── Column heads ──────────────────────────────────────────────────────────
+   * Each comparison column states its own availability in its heading, so a
+   * withdrawn comparison is explained ONCE rather than repeated down nineteen
+   * rows, and the "?" carries the full reason.
+   */
+  var bc = (D().sources || {}).bc || {};
+  var em = estMonth();
+  var fcSt = fcA.ok ? esc(((D().forecast || {})._meta || {}).vintage || 'rolling forecast')
+    : (fcA.why === 'market' ? 'withdrawn &middot; global only'
+    : fcA.why === 'year' ? 'withdrawn &middot; 2026 only' : 'withdrawn');
+  var pySt = pyA.ok ? esc(pyA.months.map(lab).join(', '))
+    : (pyA.why === 'part' ? 'withdrawn &middot; ' + esc(pyA.months.map(lab).join(', ')) + ' is a part month'
+    : 'withdrawn &middot; no prior year in Business Central');
 
-  var out = ['<thead><tr><th class="l" style="width:236px">Line</th>' +
-    '<th class="l" style="width:290px">Waterfall</th>' +
-    '<th>' + (PJ ? 'Projected' : 'Actual') + '</th><th>% of Net Sales</th><th>vs FC</th>' +
-    '<th>' + (PJ ? 'Posted share' : (p ? 'vs PY' : 'vs PY')) + '</th></tr></thead><tbody>'];
+  var out = ['<thead><tr>' +
+    '<th class="l" style="width:230px"><div class="hcol">Line ' + H.hlp('marker') + '</div></th>' +
+    '<th class="l" style="width:' + (PJ ? 168 : 250) + 'px">Waterfall</th>' +
+    (PJ
+      ? '<th><div class="hcol">To date ' + H.hlp('todate') + '</div><small class="st2">posted to ' +
+        esc(bc.max_posting_date || '&ndash;') + '</small></th>' +
+        '<th><div class="hcol">Projected full month ' + H.hlp('proj') + '</div>' +
+        '<small class="st2">' + esc(em ? lab(em.month) : '') + ' &middot; margin first</small></th>'
+      : '<th><div class="hcol">Actual</div><small class="st2">SEK, posted</small></th>') +
+    '<th>% of Net Sales</th>' +
+    '<th><div class="hcol">vs Forecast ' + H.hlp('fc') + '</div><small class="st2">' + fcSt + '</small></th>' +
+    '<th><div class="hcol">vs Last year ' + H.hlp('py') + '</div><small class="st2">' + pySt + '</small></th>' +
+    '</tr></thead><tbody>'];
 
   rows.forEach(function (r, i) {
     if (r.t === 'una') {
+      /* Unavailable rungs keep their name and their reason, but the reason is
+       * now one short clause plus a "?" rather than a paragraph per row. */
+      var wkey = a.geo ? 'mktwd' : (PJ ? 'ebitdawd' : 'openwd');
       out.push('<tr class="una"><td class="l rung">' + esc(r.n) +
         ' <span class="mk mk-c" title="Not computable for this selection.">&#10005;</span></td>' +
-        '<td class="wf"></td><td colspan="3" class="l" style="text-align:left;font-size:11.5px;white-space:normal">' +
-        (a.geo
-          ? 'Unavailable by market. Shipping, fulfilment, transaction fees and overhead post to the general ledger at carrier, settlement and company granularity, with no country dimension at any grain.'
-          : (PJ
-            ? 'Not projected. The estimator is fitted on the direct-cost lines and stops at GP3; overhead, other operating items, D&amp;A and financial items have no fitted driver, so these rungs stay suppressed rather than being half-estimated.'
-            : 'Unavailable. The open month&rsquo;s carrier, 3PL and marketing invoices have not posted, and these rungs are never estimated from a partial month.')) +
-        '</td><td><span class="na">n/a</span></td></tr>');
+        '<td class="wf"></td><td colspan="' + (NC - 3) +
+        '" class="l" style="text-align:left;font-size:11.5px;white-space:normal;color:var(--ink-3)">' +
+        (a.geo ? 'No country dimension in the ledger'
+               : (PJ ? 'Not projected: the estimator stops at GP3'
+                     : 'Not posted yet for the open month')) +
+        ' ' + H.hlp(wkey) + '</td>' +
+        '<td><span class="wd">&ndash;</span></td></tr>');
       return;
     }
 
     var g = geo[i];
     var cls = r.t === 'sub' ? 'bar-sub' : (r.v >= 0 ? 'bar-in' : 'bar-out');
-    var bar = '<svg viewBox="0 0 290 20" width="290" height="20" role="img" aria-label="' + esc(r.n) + '">' +
+    var bar = '<svg viewBox="0 0 ' + BW + ' 20" width="' + BW + '" height="20" role="img" aria-label="' +
+      esc(r.n) + '">' +
       '<rect x="' + Math.min(g[0], g[1]).toFixed(2) + '" y="4" width="' +
       Math.max(Math.abs(g[1] - g[0]), 1.5).toFixed(2) + '" height="12" rx="2" class="' + cls + '">' +
       '<title>' + esc(r.n) + ': ' + sek(Math.abs(r.v)) + ' SEK</title></rect></svg>';
 
     var isSub = r.t === 'sub';
     var hero = (r.k === 'gp3' || r.k === 'ebitda' || r.k === 'contrib');
+    /* Markers ACCUMULATE. A line can carry more than one caveat, and the one
+     * that happens to be tested last is not the one that matters most: before
+     * this, a projected Transaction Fees row showed "P" and silently dropped the
+     * "D" that says the line does not agree with Finance's own definition. */
     var mark = '';
-    if (r.k === 'tf') mark = ' <span class="mk mk-d" title="Definitional gap against Finance. For July they reported +270 TSEK where our GL grouping gives +167 TSEK; no other GL account carries the difference, so it is a presentation or accrual difference rather than a missing cost.">D</span>';
-    if (r.k === 'cogs' && !a.geo) mark = ' <span class="mk mk-b" title="General-ledger basis, matching Finance. The item ledger is the market-attributable basis and differs month to month on the posting cut-off.">B</span>';
-    if (r.k === 'oo') mark = ' <span class="mk mk-d" title="No forecast counterpart. These are real P&amp;L movements the GP3 ladder does not carry; they are shown explicitly so EBITDA ties to the general ledger rather than being forced.">?</span>';
-    if (r.k === 'fin') mark = ' <span class="mk mk-d" title="Interest posts on accrual dates, not monthly, and FX swings either way. Read EBITDA monthly and the tail annually.">D</span>';
-    if (r.part) mark = ' <span class="mk mk-d" title="Partial. The open month&#39;s carrier, 3PL and marketing invoices have not fully posted, so this line is incomplete.">P</span>';
+    if (r.k === 'tf') mark += ' <span class="mk mk-d" title="Definitional gap against Finance. For July they reported +270 TSEK where our GL grouping gives +167 TSEK; no other GL account carries the difference, so it is a presentation or accrual difference rather than a missing cost.">D</span>';
+    if (r.k === 'cogs' && !a.geo) mark += ' <span class="mk mk-b" title="General-ledger basis, matching Finance. The item ledger is the market-attributable basis and differs month to month on the posting cut-off.">B</span>';
+    if (r.k === 'oo') mark += ' <span class="mk mk-d" title="No forecast counterpart. These are real P&amp;L movements the GP3 ladder does not carry; they are shown explicitly so EBITDA ties to the general ledger rather than being forced.">?</span>';
+    if (r.k === 'fin') mark += ' <span class="mk mk-d" title="Interest posts on accrual dates, not monthly, and FX swings either way. Read EBITDA monthly and the tail annually.">D</span>';
+    if (r.part) mark += ' <span class="mk mk-d" title="Partial. The open month&#39;s carrier, 3PL and marketing invoices have not fully posted, so this line is incomplete.">P</span>';
     if ((r.k === 'gp2' || r.k === 'gp3' || r.k === 'ebitda') && st === 'open')
-      mark = ' <span class="mk mk-d" title="Open window. It contains the open month, whose carrier, 3PL and marketing invoices have not fully posted.">O</span>';
-    if (PJ && SH[r.k]) mark = ' <span class="mk mk-p" title="Projected: posted to date plus a fitted estimate for what has not posted. The posted share is in the last column.">P</span>';
+      mark += ' <span class="mk mk-d" title="Open window. It contains the open month, whose carrier, 3PL and marketing invoices have not fully posted.">O</span>';
     if (PJ && (r.k === 'gp2' || r.k === 'gp3'))
-      mark = ' <span class="mk mk-p" title="Projected. Read the margin percentage rather than the SEK figure: revenue and cost errors partly cancel in the ratio and do not in the absolute.">P</span>';
+      mark += ' <span class="mk mk-p" title="Projected. Read the margin percentage rather than the SEK figure: revenue and cost errors partly cancel in the ratio and do not in the absolute.">P</span>';
+    else if (PJ && SH && SH[r.k])
+      mark += ' <span class="mk mk-p" title="Projected: posted to date plus a fitted estimate for what has not posted. The posted share is shown in the projected column.">P</span>';
 
     var canExp = !!r.d;
-    var fcv = (b && b[r.k] != null) ? b[r.k] : null;
-
+    /* The hint under a line name is the one piece of prose that stays visible:
+     * it names the GL accounts, which is identification rather than explanation. */
     out.push('<tr' + (hero ? ' class="hero' + (canExp ? ' exp' : '') + '"'
                            : (isSub ? ' class="sub' + (canExp ? ' exp' : '') + '"'
                                     : (canExp ? ' class="exp"' : ''))) +
@@ -1104,12 +1426,21 @@ function renderLadder(){
       '<td class="l rung">' + esc(r.n) + mark +
       (r.h ? '<span class="hint">' + r.h + '</span>' : '') + '</td>' +
       '<td class="wf">' + bar + '</td>' +
-      '<td>' + (r.v < 0 ? '−' : '') + sek(Math.abs(r.v)) + '</td>' +
+      (PJ
+        ? '<td>' + (a.posted && a.posted[r.k] != null
+            ? ((a.posted[r.k] < 0 ? '−' : '') + sek(Math.abs(a.posted[r.k])) +
+               /* A margin rung read on a part month is distorted by construction:
+                * cost posts behind the revenue it belongs to, so the ratio runs
+                * high until the month closes. The caveat stays visible. */
+               (r.k === 'gp1' || r.k === 'gp2' || r.k === 'gp3'
+                 ? ' <span class="mk mk-c" title="Distorted intra-month: cost posts behind the revenue it belongs to, so a posted-to-date margin reads high until the month closes. Read the projected column.">!</span>'
+                 : ''))
+            : '<span class="wd">&ndash;</span>') + '</td>' +
+          '<td>' + pjCell(r) + '</td>'
+        : '<td>' + (r.v < 0 ? '−' : '') + sek(Math.abs(r.v)) + '</td>') +
       '<td>' + (r.p ? ((r.v < 0 ? '−' : '') + pf(Math.abs(pct(r.v, a.net)))) : '') + '</td>' +
-      '<td>' + (fcv != null ? dcell(r.v - fcv) : '<span class="na">n/a</span>') + '</td>' +
-      '<td>' + (PJ ? shareCell(r.k, r.t)
-                   : (PY && PY[r.k] && PY[r.k].v != null ? dcell(r.v - PY[r.k].v) : '<span class="na">n/a</span>')) +
-      '</td></tr>');
+      '<td>' + fcCell(r) + '</td>' +
+      '<td>' + pyCell(r) + '</td></tr>');
 
     if (!canExp || !open[r.k]) return;
 
@@ -1119,10 +1450,9 @@ function renderLadder(){
       var any = RUNG_LINES[r.k].filter(function (k) { return lines[k]; });
       if (any.length) {
         out.push('<tr class="kid hdr"><td class="l">Estimator &middot; driver, fitted rate, backtest error</td>' +
-          '<td></td><td>Projected</td><td></td><td>Posted</td><td>Share</td></tr>');
+          '<td></td><td></td><td>Projected</td><td></td><td></td><td></td></tr>');
         any.forEach(function (k) {
           var L = lines[k], tot = parts[k] || 0;
-          var bk = 0;   /* posted share of a fitted line comes from the rung total */
           var relm = L.reliable ? '' : ' <span class="mk mk-c" title="Not driver-predictable. See the note.">!</span>';
           out.push('<tr class="kid"><td class="l" style="padding-left:28px">' +
             '<span style="color:var(--proj-ink);font-weight:600">' + esc(L.label || k) + '</span>' + relm +
@@ -1130,14 +1460,15 @@ function renderLadder(){
             (L.rate ? ' at <b>' + (L.rate > 100 ? sek(L.rate) : L.rate.toFixed(4)) + '</b>' : '') +
             (L.prior_month_weight ? ', with ' + (L.prior_month_weight*100).toFixed(0) + '% of the prior month blended in' : '') +
             ' &middot; backtest MAPE <b>' + L.backtest_mape_pct + '%</b>, median error ' +
-            sek(L.backtest_median_abs_err_sek) + ' SEK</span></td><td></td>' +
+            sek(L.backtest_median_abs_err_sek) + ' SEK</span></td><td></td><td></td>' +
             '<td style="color:var(--proj-ink)">' + sek(tot) + '</td><td></td><td></td><td></td></tr>');
         });
       }
     }
 
     out.push('<tr class="kid hdr"><td class="l">Line detail &middot; named GL accounts, each against its own forecast sub-line</td>' +
-      '<td></td><td>' + (PJ ? 'Projected' : 'Actual') + '</td><td></td><td>vs FC</td><td></td></tr>');
+      '<td></td>' + (PJ ? '<td></td>' : '') + '<td>' + (PJ ? 'Projected' : 'Actual') +
+      '</td><td></td><td>vs Forecast</td><td></td></tr>');
 
     r.d.forEach(function (x) {
       var fv = (x.fname != null) ? fcLine(x.fname, ms) : (x.f !== undefined ? x.f : null);
@@ -1147,9 +1478,11 @@ function renderLadder(){
       out.push('<tr class="kid"><td class="l">' +
         (x.mut ? '<span style="color:var(--ink-3)">' + esc(x.n) + '</span>' : esc(x.n)) + fm +
         (x.h ? '<span class="hint" style="max-width:52ch">' + x.h + '</span>' : '') + '</td><td></td>' +
+        (PJ ? '<td></td>' : '') +
         '<td' + (x.mut ? ' style="color:var(--ink-3)"' : '') + '>' +
         (x.v == null ? '<span class="na">n/a</span>' : ((x.v < 0 ? '−' : '') + sek(Math.abs(x.v)))) + '</td>' +
-        '<td></td><td>' + ((fv != null && x.v != null && !x.mut) ? dcell(x.v - fv) : '<span class="na">–</span>') +
+        '<td></td><td>' + ((fv != null && x.v != null && !x.mut && fcA.ok)
+          ? dcell(x.v - fv) : '<span class="wd">&ndash;</span>') +
         '</td><td></td></tr>');
     });
   });
@@ -1170,10 +1503,18 @@ function renderLadder(){
   el('ladTitle').innerHTML = 'Gross Sales to ' + endRung + ' &middot; ' + esc(H.PL[s.period]) +
     (s.mkt === 'ALL' ? '' : ' &middot; ' + esc(s.mkt));
   el('ladSub').innerHTML = PJ
-    ? ('<span class="st st-pj">Projected</span> posted plus estimate, standing at day ' +
-       ((estMonth() || {}).as_of_day || '–') +
-       ' &middot; the last column is the posted share of each rung &middot; click a line for its estimator: driver, fitted rate and that line&rsquo;s own backtest error')
-    : 'Finance&rsquo;s management-report format and their own sub-line names &middot; SEK, ex VAT, posting date &middot; click a line for its named GL accounts and their forecast deltas';
+    ? ('<span class="st st-pj">Projected</span> standing at day ' +
+       ((estMonth() || {}).as_of_day || '&ndash;') + ' &middot; click any line for its detail')
+    : 'SEK, ex VAT, posting date &middot; click any line for its named GL accounts';
+
+  /* The legend is markers and states only. Every word of method behind a "?". */
+  el('ladLegend').innerHTML =
+    '<span class="k"><span class="st st-bk">Posted</span>in the ledger</span>' +
+    '<span class="k"><span class="st st-pj">Projected</span>posted plus estimate</span>' +
+    '<span class="k"><span class="st st-fc">Forecast</span>Babyshop&rsquo;s plan</span>' +
+    '<span class="k">' + H.hlp('states') + 'never blended</span>' +
+    '<span class="k"><span class="mk mk-i">~</span>indicative prior year</span>' +
+    '<span class="k">' + H.hlp('marker') + 'all markers</span>';
 
   /* Export only: a column filter on a P&L ladder is nonsense, but finance
    * readers do want the thing in a spreadsheet. */
@@ -1257,6 +1598,20 @@ function renderRecon(){
     var d = a[r[0]] - THEIRS[r[0]];
     return Math.abs(d) > TIE_TSEK;
   });
+
+  /* This panel is a trust asset, so its verdict stays visible with the panel
+   * closed: how many lines tie, against whose report, and what is still open.
+   * The method prose and the per-line reasons are inside. */
+  var nTied = RECON_ROWS.length - openLines.length;
+  el('recVerdict').innerHTML =
+    '<span class="sev-pill ' + (openLines.length ? 'open' : 'ok') + '">' + nTied + ' of ' +
+    RECON_ROWS.length + ' tie</span> against Babyshop&rsquo;s own ' + esc(lab(RECON_MONTH)) +
+    ' report, within ' + (TIE_TSEK / 1000) + ' TSEK' +
+    (openLines.length
+      ? ' &middot; open: ' + openLines.map(function (r) { return esc(r[1]); }).join(', ')
+      : '') +
+    ' &middot; recomputed every refresh, not transcribed';
+
   el('recSum').innerHTML =
     '<b>' + (RECON_ROWS.length - openLines.length) + ' of ' + RECON_ROWS.length +
     ' lines agree within ' + (TIE_TSEK/1000) + ' TSEK, and EBITDA lands ' +
@@ -1708,10 +2063,10 @@ function renderTrend(){
 
   el('trTitle').innerHTML = 'Net Sales and margin &middot; ' + months.length + ' months' +
     (mkt === 'ALL' ? '' : ' &middot; ' + esc(mkt));
-  el('trNote').innerHTML = months[0] === D().months[0]
+  var trn = months[0] === D().months[0]
     ? ('History opens at ' + esc(lab(months[0])) + ', when Business Central went live, so that month is a part month. ')
     : '';
-  el('trNote').innerHTML += (pa
+  trn += (pa
     ? ('<strong style="color:var(--ink)">The open month is drawn as projected.</strong> Its net-sales bar is split: the ' +
        'solid part is ' + sek(per[lastI].net) + ' posted to date, the hatched part is the projected remainder to ' +
        sek(pa.net) + '. Both margin lines run dashed into it because that point is projected, and the GP3 point carries ' +
@@ -1721,6 +2076,7 @@ function renderTrend(){
        'revenue it belongs to, and plotting that against closed months would show a spike that is purely a cut-off artefact.')
     : ('<strong style="color:var(--ink)">GP3% is not plotted for a single market</strong>: shipping, fulfilment and ' +
        'transaction fees have no country dimension, and the open month is not projected per market either.'));
+  el('trNote').innerHTML = trn;
 }
 
 R.markets = renderMarkets;
@@ -2027,10 +2383,11 @@ function renderWatchlist(){
   }
 
   el('watch').innerHTML = out.join('');
-  el('wlTitle').innerHTML = total + ' rules, evaluated on this refresh';
-  el('wlSub').innerHTML = 'Deterministic thresholds against the live snapshot, not generated commentary &middot; <b>' +
-    fired + ' firing</b>, ' + (total - fired) + ' passing &middot; snapshot generated ' +
-    esc((d.generated_at || '').replace('T',' ').replace('+00:00',' UTC'));
+  /* Closed by default, so the count of what FIRED has to be visible unopened. */
+  el('wlVerdict').innerHTML =
+    '<span class="sev-pill ' + (fired ? 'open' : 'ok') + '">' + fired + ' firing</span> ' +
+    'of ' + total + ' deterministic rules &middot; ' + (total - fired) + ' passing ' +
+    '&middot; thresholds against the live snapshot, not generated commentary';
 }
 
 R.watchlist = renderWatchlist;
@@ -2192,6 +2549,13 @@ function renderProvenance(){
   });
 
   el('notes').innerHTML = notes.join('');
+
+  /* Closed by default. The summary states what is in here and, more usefully,
+   * the one number that says whether the ladder closes to the ledger. */
+  el('provVerdict').innerHTML =
+    'Sources, bases, markers and method &middot; ladder EBT sits <b>' + sek(Math.abs(gapSum)) +
+    '</b> from the posted general-ledger result on this window, and the accounts responsible are named ' +
+    '&middot; ' + notes.length + ' notes and caveats';
 }
 
 R.provenance = renderProvenance;

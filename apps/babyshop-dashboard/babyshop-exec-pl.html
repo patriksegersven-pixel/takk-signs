@@ -267,6 +267,128 @@
   .refresh-pill{display:none;font-family:var(--mono);font-size:10.5px;padding:4px 9px;border-radius:var(--r-sm);
     background:var(--warn-bg);color:var(--warn-ink);border:1px solid #EBD8B6;align-self:center}
   .refresh-pill.show{display:inline-flex}
+  /* ── The "?" affordance ─────────────────────────────────────────────────────
+   * Explanation, method and provenance live behind this and nowhere else. A
+   * number's CAVEAT stays visible as its compact marker (B/D/!/?/P/~), because a
+   * caveat changes how the figure should be read; the prose behind it does not.
+   * One control, one behaviour, everywhere on the page.
+   */
+  .hlp{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;padding:0;
+    border-radius:50%;border:1px solid var(--rule-2);background:var(--surf-2);color:var(--ink-3);
+    font-family:var(--mono);font-size:9.5px;font-weight:700;line-height:1;cursor:pointer;flex:none;
+    vertical-align:1px}
+  .hlp:hover{background:var(--ink);color:var(--surf);border-color:var(--ink)}
+  .hlp[aria-expanded="true"]{background:var(--ink);color:var(--surf);border-color:var(--ink)}
+  .hlp:focus-visible{outline:2px solid var(--s1);outline-offset:1px}
+  /* Capped, because the longest explanation on this page runs past 700px and a
+   * popover taller than the viewport can be placed neither below nor above its
+   * button. It scrolls inside itself instead. */
+  .pop{position:absolute;z-index:180;width:430px;max-width:calc(100vw - 28px);background:var(--surf);
+    border:1px solid var(--rule-2);border-radius:var(--r);box-shadow:var(--shadow-pop);
+    padding:14px 16px 15px;font-size:12px;line-height:1.62;color:var(--ink-2);
+    max-height:min(66vh,540px);overflow-y:auto;overscroll-behavior:contain}
+  .pop[hidden]{display:none}
+  .pop h4{margin:0 0 8px;font-size:12.5px;font-weight:700;color:var(--ink);padding-right:18px}
+  .pop p{margin:0 0 9px} .pop p:last-child{margin-bottom:0}
+  .pop b,.pop strong{color:var(--ink);font-weight:600}
+  .pop em{font-style:italic}
+  .pop code{font-family:var(--mono);font-size:10.5px;background:var(--surf-2);padding:1px 4px;
+    border-radius:3px;color:var(--ink-2)}
+  .pop .num{font-family:var(--mono);font-size:11px;color:var(--ink)}
+  .pop dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:11.5px}
+  .pop dt{font-family:var(--mono);color:var(--ink);font-weight:600;white-space:nowrap}
+  .pop dd{margin:0;color:var(--ink-2)}
+  .pop .x{position:absolute;top:7px;right:9px;width:18px;height:18px;border:0;background:none;
+    color:var(--ink-3);font-size:14px;line-height:1;cursor:pointer;padding:0;border-radius:3px}
+  .pop .x:hover{background:var(--surf-3);color:var(--ink)}
+  /* ── Disclosure sections ────────────────────────────────────────────────────
+   * Closed by default, but the one-line summary is always visible so the panel's
+   * existence and its verdict are obvious without opening it. Nothing is deleted
+   * from this page; it is relocated to one click away.
+   */
+  details.disc{background:var(--surf);border:1px solid var(--rule);border-radius:var(--r);
+    box-shadow:var(--shadow-sm)}
+  details.disc>summary{list-style:none;cursor:pointer;padding:12px 17px;display:flex;
+    align-items:baseline;gap:11px;flex-wrap:wrap}
+  details.disc>summary::-webkit-details-marker{display:none}
+  details.disc>summary::before{content:"\25B8";color:var(--ink-3);font-size:10px;flex:none;
+    align-self:center;width:11px}
+  details.disc[open]>summary::before{content:"\25BE"}
+  details.disc>summary:hover{background:var(--surf-2);border-radius:var(--r)}
+  details.disc[open]>summary{border-bottom:1px solid var(--rule);border-radius:var(--r) var(--r) 0 0}
+  details.disc>summary:focus-visible{outline:2px solid var(--s1);outline-offset:-2px;border-radius:var(--r)}
+  .disc-t{font-size:13.5px;font-weight:600;letter-spacing:-.01em;color:var(--h);flex:none}
+  .disc-s{font-size:12px;color:var(--ink-2);flex:1 1 auto;min-width:0;line-height:1.5}
+  .disc-s b{color:var(--ink);font-weight:600}
+  .disc-s .num{font-family:var(--mono)}
+  summary .sev-pill{flex:none}
+  /* ── Numeric rhythm ─────────────────────────────────────────────────────────
+   * Every figure on the page is right-aligned and tabular, so digits line up
+   * down a column and a reader compares magnitudes by eye rather than by reading.
+   */
+  table.d td,table.d th,.sc td,.sc th,table.dgl td,.recon,.delta,.tile .val,.tile .vs,
+  .pj-m .big,.pj-m .sekline,.pj-m .rng,.hd-v,.hd-x{font-variant-numeric:tabular-nums}
+  /* ── Sticky ladder header ───────────────────────────────────────────────────
+   * The app header is sticky at 60px (brand.css), so the ladder's column heads
+   * pin directly beneath it and column meaning survives a 19-rung scroll. The
+   * wrapper cannot be a horizontal scroll container on wide screens or it would
+   * become the scrollport and the header would never pin; below 1100px it
+   * becomes one and stickiness is traded for horizontal reach.
+   */
+  .lad-wrap{overflow:visible}
+  #ladTable thead th{position:sticky;top:60px;z-index:3;background:var(--surf);
+    box-shadow:inset 0 -1px 0 var(--rule-2)}
+  #ladTable thead th.l{z-index:4}
+  @media (max-width:1100px){
+    .lad-wrap{overflow-x:auto}
+    #ladTable thead th{position:static;box-shadow:none}
+  }
+  /* ── Headline strip ─────────────────────────────────────────────────────────
+   * What a finance reader needs in the first ten seconds: the margin ladder's
+   * four rungs, each against both comparisons, above the fold and above any prose.
+   */
+  .hd{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px}
+  .hd-c{background:var(--surf);border:1px solid var(--rule);border-radius:var(--r);
+    box-shadow:var(--shadow-sm);padding:12px 14px 13px;display:flex;flex-direction:column;min-width:0}
+  .hd-c.pj{border-color:var(--proj-ln);background:var(--proj-bg)}
+  .hd-c.na{background:var(--surf-2)}
+  .hd-k{font-size:11.5px;font-weight:600;color:var(--ink-2);display:flex;align-items:center;
+    gap:5px;flex-wrap:wrap;min-height:16px}
+  .hd-v{font-size:27px;font-weight:700;letter-spacing:-.6px;line-height:1.08;margin-top:6px;color:var(--h)}
+  .hd-v .u{font-size:12.5px;font-weight:500;color:var(--ink-3);letter-spacing:0;margin-left:3px}
+  .hd-v.small{font-size:16px;font-weight:600;color:var(--ink-3);letter-spacing:-.2px}
+  .hd-x{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:4px;line-height:1.45}
+  .hd-cmp{margin-top:9px;padding-top:9px;border-top:1px dashed var(--rule-2);display:flex;
+    flex-direction:column;gap:5px}
+  .hd-r{display:flex;align-items:center;gap:7px;justify-content:space-between;font-size:11px}
+  .hd-r .n{color:var(--ink-3);font-family:var(--mono);font-size:10px;letter-spacing:.05em;
+    text-transform:uppercase;white-space:nowrap}
+  .hd-r .z{color:var(--ink-3);font-size:10.5px;font-style:italic;text-align:right;line-height:1.35}
+  /* ── Comparison cells ───────────────────────────────────────────────────────
+   * Colour on this page means variance direction and nothing else. A withdrawn
+   * comparison is never a blank and never a zero: it states that it is withdrawn
+   * and carries its reason behind the "?".
+   */
+  .wd{color:var(--ink-3);font-size:10.5px;font-style:italic;white-space:nowrap}
+  .mk-i{color:var(--ink-2);background:var(--surf-3);border-color:var(--rule-2)}
+  th .hcol{display:flex;align-items:center;gap:5px;justify-content:flex-end}
+  th.l .hcol{justify-content:flex-start}
+  th small.st2{display:block;font-size:9px;letter-spacing:.03em;text-transform:none;
+    color:var(--ink-3);font-weight:400;margin-top:2px}
+  /* Projected cells lead with the margin percentage; the krona sits under it. */
+  .pjc{color:var(--proj-ink)}
+  .pjc .pc{font-size:14px;font-weight:700;letter-spacing:-.2px;display:block}
+  .pjc .bd{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);display:block;margin-top:1px}
+  .shr{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);display:block;margin-top:2px}
+  .minisplit{display:inline-flex;height:4px;width:54px;border-radius:2px;overflow:hidden;
+    background:var(--surf-3);border:1px solid var(--rule);vertical-align:1px;margin-right:5px}
+  .minisplit i{display:block;height:100%}
+  .minisplit .bk{background:var(--s1)}
+  .minisplit .es{background:var(--proj);
+    background-image:repeating-linear-gradient(45deg,transparent,transparent 2px,var(--surf) 2px,var(--surf) 3.5px)}
+  /* Waterfall bars carry structure, not sentiment, so they are one neutral
+   * family. Green and red are spent only on variance direction. */
+  .bar-in{fill:#7A8595} .bar-out{fill:#B6BCC5} .bar-sub{fill:var(--sub)}
   @media (max-width:1080px){
     .tiles{grid-template-columns:repeat(2,1fr)} .watch{grid-template-columns:repeat(2,1fr)}
     .how{grid-template-columns:1fr} .how .l{border-right:0;border-bottom:1px solid var(--rule)}
@@ -275,7 +397,8 @@
     .dg{grid-template-columns:1fr}
   }
   @media (max-width:640px){
-    .tiles,.watch{grid-template-columns:1fr} main{padding:16px 12px 56px} .mast h1{font-size:20px}
+    .tiles,.watch,.hd{grid-template-columns:1fr} main{padding:16px 12px 56px} .mast h1{font-size:20px}
+    .pop{width:calc(100vw - 28px)}
   }
   </style>
 </head>
@@ -291,9 +414,9 @@
     <div>
       <div class="eyebrow">Babyshop group &middot; finance</div>
       <h1>Executive P&amp;L WIP</h1>
-      <p class="dek">Posted revenue and margin from Business Central, in Finance&rsquo;s own management-report
-      format from Gross Sales down to EBITDA and on to the posted result. One company, all markets,
-      FX-normalised to SEK. The day cards below run on a different basis and say so.</p>
+      <p class="dek">Posted revenue and margin from Business Central, in Finance&rsquo;s own
+      management-report format, against Babyshop&rsquo;s rolling forecast and against last year.
+      <span id="mastHelp"></span></p>
     </div>
     <div class="badge"><span class="dot"></span><span id="mastBadge">Business Central &middot; posting date &middot; ex VAT</span></div>
   </header>
@@ -306,13 +429,10 @@
         <button type="button" data-v="YTD" aria-pressed="true">YTD</button>
         <button type="button" data-v="L12M" aria-pressed="false">L12M</button>
       </div></div>
-    <div class="ctx-g"><span class="ctx-l">Compare</span>
-      <div class="seg" id="segCmp" role="group" aria-label="Comparison">
-        <button type="button" data-v="FC" aria-pressed="true">Forecast</button>
-        <button type="button" data-v="PY" aria-pressed="false">Last year</button>
-      </div></div>
     <div class="ctx-g"><span class="ctx-l">Market</span>
       <select id="selMkt" aria-label="Market"><option value="ALL">All markets</option></select></div>
+    <div class="ctx-g"><span class="ctx-l">Compare</span>
+      <span class="badge" id="cmpBadge">&ndash;</span></div>
     <div class="spacer"></div>
     <div class="badge" id="rangeBadge">&ndash;</div>
   </nav>
@@ -323,13 +443,33 @@
   <div id="noticeTop"></div>
   <div id="mktNotice"></div>
 
-  <section class="tiles" id="tiles" aria-label="Pacing versus plan"></section>
+  <section class="hd" id="tiles" aria-label="Headline margin ladder"></section>
 
-  <section class="card" id="projCard" hidden>
+  <!-- ══ THE HERO ════════════════════════════════════════════════════════════
+       The ladder is what this page is for, so it sits directly under the
+       headline strip with nothing but a one-line dek between them. Every
+       explanation that used to be printed above it is now behind a "?". -->
+  <section class="card">
     <div class="card-h">
-      <div><div class="eyebrow">Open period</div><h2 id="pjTitle">Open month projection</h2></div>
-      <div class="sub" id="pjSub">Booked plus estimate &middot; margin first, SEK second</div>
+      <div><div class="eyebrow">The ladder</div><h2 id="ladTitle">Gross Sales to EBITDA</h2></div>
+      <div class="sub" id="ladSub">Finance&rsquo;s management-report format</div>
     </div>
+    <div class="card-b lad-wrap"><table class="d" id="ladTable" data-export-name="exec-pl-ladder"></table></div>
+    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
+      <div class="legend" id="ladLegend"></div>
+    </div>
+  </section>
+
+  <details class="disc" id="recDisc">
+    <summary><span class="disc-t">Reconciliation</span><span class="disc-s" id="recVerdict">&ndash;</span></summary>
+    <div class="card-b scroll"><table class="d" id="recTable" data-export-name="exec-pl-july-reconciliation"></table></div>
+    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
+      <p style="margin:0;font-size:12.5px;color:var(--ink-2);line-height:1.65;max-width:92ch" id="recSum"></p>
+    </div>
+  </details>
+
+  <details class="disc" id="projCard" hidden>
+    <summary><span class="disc-t">Projection method</span><span class="disc-s" id="pjVerdict">&ndash;</span></summary>
     <div class="card-b" style="display:flex;flex-direction:column;gap:14px">
       <div class="pj-hd" id="pjHead"></div>
       <p class="pj-note" id="pjWhy"></p>
@@ -353,67 +493,16 @@
         <span style="color:var(--ink-3)">The three are never blended into one number.</span>
       </div>
     </div>
-  </section>
-
-  <section class="card" id="dayCard">
-    <div class="card-h">
-      <div><div class="eyebrow">Day grain &middot; order date</div><h2 id="dgTitle">Ordered</h2></div>
-      <div class="sub">Live from the Norce API &middot; a different basis from the ladder above &middot; does not follow the period selector</div>
-    </div>
-    <div class="card-b" style="display:flex;flex-direction:column;gap:13px">
-      <div class="dg" id="dgCards"></div>
-      <div class="fresh" id="dgFresh"></div>
-    </div>
-    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
-      <div id="dgSplit"></div>
-    </div>
-    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
-      <p class="dg-note" style="max-width:96ch" id="dgNote"></p>
-    </div>
-  </section>
+  </details>
 
   <section class="card">
     <div class="card-h">
       <div><div class="eyebrow">Scorecard</div><h2 id="scTitle">Margin ladder by time window</h2></div>
-      <div class="sub">Value &middot; % of net sales &middot; delta against the rolling forecast</div>
+      <div class="sub" id="scSub">Value &middot; % of net sales &middot; both comparisons</div>
     </div>
     <div class="card-b scroll"><table class="sc" id="scTable"></table></div>
     <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
-      <div class="legend">
-        <span class="k"><span class="sw" style="background:repeating-linear-gradient(45deg,transparent,transparent 3px,var(--rule-2) 3px,var(--rule-2) 6px);border:1px solid var(--rule-2)"></span>Open, window contains an unposted month</span>
-        <span class="k"><span class="mk mk-d">D</span>Directional against plan</span>
-        <span class="k"><span class="mk mk-p">P</span>Projected from the cost estimator</span>
-        <span style="color:var(--ink-3)">Multi-month windows stay posted-only, so the open month enters them at what has actually posted.</span>
-      </div>
-    </div>
-  </section>
-
-  <section class="card">
-    <div class="card-h">
-      <div><div class="eyebrow">The ladder</div><h2 id="ladTitle">Gross Sales to EBITDA</h2></div>
-      <div class="sub" id="ladSub">Finance&rsquo;s management-report format</div>
-    </div>
-    <div class="card-b scroll"><table class="d" id="ladTable" data-export-name="exec-pl-ladder"></table></div>
-    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
-      <div class="legend">
-        <span class="k"><span class="sw" style="background:var(--s1)"></span>Revenue in</span>
-        <span class="k"><span class="sw" style="background:var(--s2)"></span>Deduction</span>
-        <span class="k"><span class="sw" style="background:var(--sub)"></span>Subtotal</span>
-        <span class="k"><span class="mk mk-b">B</span>Basis difference</span>
-        <span class="k"><span class="mk mk-d">D</span>Directional against forecast</span>
-        <span class="k"><span class="mk mk-d">?</span>No forecast counterpart</span>
-      </div>
-    </div>
-  </section>
-
-  <section class="card">
-    <div class="card-h">
-      <div><div class="eyebrow">Reconciliation</div><h2>Our figures against Babyshop&rsquo;s July 2026 report</h2></div>
-      <div class="sub">Every line, every delta, down to EBITDA &middot; SEK</div>
-    </div>
-    <div class="card-b scroll"><table class="d" id="recTable" data-export-name="exec-pl-july-reconciliation"></table></div>
-    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
-      <p style="margin:0;font-size:12.5px;color:var(--ink-2);line-height:1.65;max-width:92ch" id="recSum"></p>
+      <div class="legend" id="scLegend"></div>
     </div>
   </section>
 
@@ -460,16 +549,27 @@
     </div>
   </section>
 
-  <section aria-label="Watchlist">
-    <div class="card-h" style="border:0;padding:2px 2px 10px">
-      <div><div class="eyebrow">Watchlist</div><h2 id="wlTitle">Rules, evaluated on this refresh</h2></div>
-      <div class="sub" id="wlSub">Deterministic threshold rules against the live snapshot, not generated commentary</div>
+  <details class="disc" id="dayCard">
+    <summary><span class="disc-t">Ordered, by day</span><span class="disc-s" id="dgVerdict">&ndash;</span></summary>
+    <div class="card-b" style="display:flex;flex-direction:column;gap:13px">
+      <div class="dg" id="dgCards"></div>
+      <div class="fresh" id="dgFresh"></div>
     </div>
-    <div class="watch" id="watch"></div>
-  </section>
+    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
+      <div id="dgSplit"></div>
+    </div>
+    <div class="card-b" style="border-top:1px solid var(--rule);padding-top:11px">
+      <p class="dg-note" style="max-width:96ch" id="dgNote"></p>
+    </div>
+  </details>
 
-  <section class="card">
-    <div class="card-h"><div><div class="eyebrow">Provenance</div><h2>How to read this</h2></div></div>
+  <details class="disc" id="wlDisc">
+    <summary><span class="disc-t">Watchlist</span><span class="disc-s" id="wlVerdict">&ndash;</span></summary>
+    <div class="card-b"><div class="watch" id="watch"></div></div>
+  </details>
+
+  <details class="disc" id="provDisc">
+    <summary><span class="disc-t">Provenance and method</span><span class="disc-s" id="provVerdict">&ndash;</span></summary>
     <div class="how">
       <div class="l" id="howL"></div>
       <div class="r">
@@ -478,10 +578,12 @@
         <p style="margin:11px 0 0;font-size:11.5px;color:var(--ink-3);line-height:1.55" id="glBridgeNote"></p>
       </div>
     </div>
-  </section>
-
-  <section class="notes" id="notes"></section>
+    <div class="card-b" style="border-top:1px solid var(--rule)">
+      <section class="notes" id="notes"></section>
+    </div>
+  </details>
 </main>
+<div class="pop" id="pop" hidden role="dialog" aria-label="Explanation"></div>
 
 <script>
 (function () {
@@ -515,7 +617,9 @@
 
 var D = null;          /* /api/exec-pl snapshot   */
 var N = null;          /* /api/norce-today (live) */
-var S = { period: 'YTD', cmp: 'FC', mkt: 'ALL' };
+/* No `cmp` any more: both comparisons are on every line, so there is nothing to
+ * choose between. What varies is which of the two a window SUPPORTS. */
+var S = { period: 'YTD', mkt: 'ALL' };
 var MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 var MA = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
 var tools = {};
@@ -795,6 +899,276 @@ function dcell(v){
   return '<span class="' + (v > 0 ? 'pos' : 'neg') + '">' + (v > 0 ? '+' : '−') +
          sek(Math.abs(v)) + '</span>';
 }
+
+/* ── The "?" affordance ──────────────────────────────────────────────────────
+ * One control for every explanation on this page. Callers register content
+ * under a key and emit a button; the popover is a single element reused for all
+ * of them, so a page with two hundred "?" buttons carries one popover in the DOM.
+ *
+ * The rule this implements: a number's CAVEAT stays visible as its compact
+ * marker, because it changes how the figure should be read. The prose that
+ * explains the caveat comes here. Nothing is deleted, only moved one click away.
+ */
+var HELP = {};
+function help(key, title, body){ HELP[key] = { t:title, b:body }; return key; }
+function hlp(key){
+  return '<button type="button" class="hlp" data-help="' + esc(key) +
+         '" aria-expanded="false" aria-label="Explain: ' + esc((HELP[key] || {}).t || key) +
+         '" title="What is this?">?</button>';
+}
+(function popover(){
+  var pop = el('pop'), cur = null;
+  function close(){
+    if (!cur) return;
+    cur.setAttribute('aria-expanded', 'false');
+    cur = null; pop.hidden = true;
+  }
+  function openFor(btn){
+    var h = HELP[btn.dataset.help];
+    if (!h) return;
+    if (cur === btn) { close(); return; }
+    close();
+    pop.innerHTML = '<button type="button" class="x" aria-label="Close">&times;</button>' +
+                    '<h4>' + h.t + '</h4>' + h.b;
+    pop.hidden = false;
+    /* Measure after paint, then clamp into the viewport on both axes. */
+    var r = btn.getBoundingClientRect(), pr = pop.getBoundingClientRect();
+    var left = r.left + window.scrollX - 10;
+    var maxL = window.scrollX + document.documentElement.clientWidth - pr.width - 12;
+    if (left > maxL) left = maxL;
+    if (left < window.scrollX + 12) left = window.scrollX + 12;
+    var top = r.bottom + window.scrollY + 7;
+    /* Flip above when it would fall off the bottom and there is room up top. */
+    if (r.bottom + pr.height + 16 > document.documentElement.clientHeight &&
+        r.top > pr.height + 16) top = r.top + window.scrollY - pr.height - 7;
+    pop.style.left = Math.round(left) + 'px';
+    pop.style.top = Math.round(top) + 'px';
+    btn.setAttribute('aria-expanded', 'true');
+    cur = btn;
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('.hlp');
+    if (b) { e.preventDefault(); e.stopPropagation(); openFor(b); return; }
+    if (e.target.closest('#pop')) {
+      if (e.target.closest('.x')) close();
+      return;
+    }
+    close();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && cur) { var b = cur; close(); b.focus(); }
+  });
+  window.addEventListener('resize', close);
+  /* Opening or closing a disclosure moves everything below it, which would leave
+   * the popover floating beside the wrong thing (or beside a button that is now
+   * inside a collapsed section). Capture phase, because <details> toggle does
+   * not bubble. */
+  document.addEventListener('toggle', close, true);
+  /* A re-render replaces the button the popover was anchored to, so drop it. */
+  window.__execplPopClose = close;
+})();
+
+/* ── Comparison availability ─────────────────────────────────────────────────
+ * Both comparisons are now on every line, which makes their AVAILABILITY the
+ * thing that has to be handled honestly. Neither is uniformly present:
+ *
+ *   FORECAST  global only, and 2026 only. A single market withdraws it; a window
+ *             touching 2025 has no counterpart at all.
+ *   PRIOR YEAR Business Central history starts mid-June 2025. Every 2026 month
+ *             before July therefore has no prior year, and June 2025 itself is a
+ *             PART month that must never be read as a full one.
+ *
+ * A withdrawn comparison states that it is withdrawn and carries its reason. It
+ * is never a blank and never a zero.
+ */
+
+/* The first month of BC history is a part month. Nothing in the payload states
+ * the go-live date, so this is TESTED rather than assumed: a full trading month
+ * always books returns and credit notes, and that month books neither. If BC is
+ * ever backfilled, the flag clears itself on the next refresh. */
+function partMonths(){
+  var out = {};
+  (D.months || []).forEach(function (m) {
+    var c = (D.components || {})[m] || {};
+    var L = (D.ladder || {})[m] || {};
+    if (!L.gross) return;
+    if (!c.credit_notes && !c.returns_product && !L.ret) out[m] = true;
+  });
+  return out;
+}
+
+function fcAvail(ms, mkt){
+  if (!(D.forecast || {}).lines) return { ok:false, why:'none' };
+  if (mkt !== 'ALL') return { ok:false, why:'market' };
+  var off = ms.filter(function (m) { return m.slice(0,4) !== '2026'; });
+  if (off.length) return { ok:false, why:'year', months:off };
+  return { ok:true };
+}
+function pyAvail(ms, mkt){
+  var q = pym(ms);
+  if (!q) return { ok:false, why:'nohist' };
+  var part = partMonths();
+  var bad = q.filter(function (m) { return part[m]; });
+  if (bad.length) return { ok:false, why:'part', months:bad };
+  return { ok:true, months:q };
+}
+/* Short label for a withdrawn comparison, for the cell itself. The sentence
+ * behind it lives in the column header's "?". */
+var WD = {
+  none:'no forecast', market:'group only', year:'2026 only',
+  nohist:'no prior year', part:'part month'
+};
+
+/* ── Per-line prior-year quality ─────────────────────────────────────────────
+ * Verified against the snapshot, not asserted:
+ *
+ *   REVENUE is the sound part. Gross Sales is per-transaction invoice lines,
+ *   FX-normalised, with no structural break across the two years.
+ *   COST LINES ARE NOT. BC went live mid-June 2025 with cost migration still in
+ *   progress: July 2025 GP1 reconstructs to 28.3% against 34.4% for July 2026,
+ *   and the 2025 series swings 33.4 pp against 14.9 pp for 2026. Every YoY on a
+ *   cost or margin line is therefore INDICATIVE.
+ *
+ *   NOTE, deliberately: no Babyshop-issued 2025 P&L exists anywhere in this
+ *   pipeline. Earlier drafts quoted a Babyshop "implied" prior-year GP1 of 16.9%
+ *   and a revenue tie "within 0.7%". Neither has a recorded source, so neither is
+ *   published. Every figure this page states about 2025 is computed from the
+ *   snapshot on render and can be re-derived from it.
+ *   FULFILMENT is worse than indicative and the page proves it live: the six
+ *   fulfilment accounts do not all exist in 2025, so the comparison is between
+ *   different account sets rather than between two levels of the same cost.
+ */
+var PY_FIRM = { gross:1, net:1 };
+
+/* Which GL accounts a cost block actually used. If the two years used different
+ * sets, a delta compares two different measurements wearing the same name, which
+ * is a change of basis and not a change in performance. This is the live test
+ * behind the strongest withdrawal on the page.
+ *
+ * The test runs over a WHOLE YEAR, not over the selected window, and that matters.
+ * A single month proves nothing: packaging (GL 4450) simply did not post in
+ * September 2025, and the open month has posted nothing at all yet, so a
+ * window-level set comparison flags both as basis changes when neither is one.
+ * Across a year the signal is unambiguous: GL 4480, 4497 and 4498 never post in
+ * 2025 at all, and 4372 stops posting in 2026.
+ */
+var ACCT_GRP = { ful:'fulfillment', nship:'ship_cost', tf:'txn_fees' };
+function acctSet(grp, ms){
+  var seen = {};
+  ms.forEach(function (m) {
+    var f = ((D.components || {})[m] || {})[grp] || {};
+    Object.keys(f).forEach(function (a) { if (f[a]) seen[a] = 1; });
+  });
+  return Object.keys(seen).sort();
+}
+/* Every settled month of one year: the open month is excluded because nothing
+ * has posted in it, and a part month is excluded because its accounts are a
+ * migration artefact rather than a chart of accounts. */
+function yearMonths(y){
+  var part = partMonths();
+  return (D.months || []).filter(function (m) {
+    return m.slice(0, 4) === y && !isOpen(m) && !part[m];
+  });
+}
+function yearAcctSet(grp, y){ return acctSet(grp, yearMonths(y)); }
+function fulAccounts(ms){ return acctSet('fulfillment', ms); }
+
+/* A month whose credit-note density sits far below the series norm has returns
+ * that have not matured or not migrated, so its net sales is overstated. Tested
+ * live rather than asserted, so it follows the data instead of a comment. */
+function retImmature(ms){
+  var dens = [], out = [];
+  (D.months || []).forEach(function (m) {
+    var c = (D.components || {})[m] || {};
+    if (c.orders) dens.push(c.credit_notes / c.orders * 1000);
+  });
+  if (dens.length < 4) return out;
+  dens.sort(function (a, b) { return a - b; });
+  var med = dens[Math.floor(dens.length / 2)];
+  ms.forEach(function (m) {
+    var c = (D.components || {})[m] || {};
+    if (c.orders && (c.credit_notes / c.orders * 1000) < med * 0.5) out.push(m);
+  });
+  return out;
+}
+
+/* The structural verdict per rung. Three states, because two would force a
+ * genuinely incomparable line into "indicative" and publish it anyway.
+ *
+ *   firm    publish the delta
+ *   ind     publish the delta, marked ~ : direction only, not level
+ *   nocomp  do NOT publish a delta. State the reason; the raw prior-year figure
+ *           stays reachable behind the cell's own "?".
+ */
+var PY_LINE = {
+  gross:  'firm',  ret:'ind',   net:'firm', cogs:'ind', gp1:'ind',
+  nship:  'ind',   ful:'ind',   tf:'ind',   gp2:'ind',  mktg:'ind',
+  gp3:    'ind',   contrib:'ind', toh:'ind',
+  oo:     'nocomp', ebitda:'nocomp', da:'nocomp', ebit:'nocomp',
+  fin:    'nocomp', ebt:'nocomp',    ni:'nocomp'
+};
+var PY_WHY = {
+  ind: 'Business Central went live in mid-June 2025 with cost migration still in progress, so every ' +
+       'prior-year cost and margin level is reconstructed rather than reconciled. Read the direction, ' +
+       'not the level.',
+  oo: 'Other operating items is a residual by construction: it is whatever makes the ladder meet the ' +
+      'swept EBITDA. In 2025 it ranges from &minus;1.5 M to +15.6 M, so a year-on-year on it measures ' +
+      'the movement of a plug rather than of a cost.',
+  ebitda: 'EBITDA is swept from the general ledger. The snapshot&rsquo;s own caveat records that 2026 ' +
+      'months agree to single SEK while <b>2025 months differ by up to 4.5 M</b>, mostly in the ' +
+      'purchase-to-inventory flow. A delta against that is a delta against a known 4.5 M uncertainty.',
+  da: 'Depreciation and amortisation is not a run rate in 2025. One month carries a single write-off ' +
+      'larger than that month&rsquo;s entire net sales, while 2026 is a flat monthly accrual. The two ' +
+      'years are not the same kind of number.',
+  fin: 'Interest posts on accrual dates rather than monthly, and one 2025 month carries a credit ' +
+       'reversal of several million. The line is lumpy by construction; annually it is readable, ' +
+       'month against month it is not.',
+  tail: 'This rung sits below EBITDA and inherits every reason above it, so a year-on-year here would ' +
+        'compound them rather than resolve them.'
+};
+function pyQuality(k, ms, pms){
+  var grp = ACCT_GRP[k];
+  if (grp && ms.length && pms.length) {
+    var yNow = ms[ms.length - 1].slice(0, 4), yThen = pms[pms.length - 1].slice(0, 4);
+    var now = yearAcctSet(grp, yNow), then = yearAcctSet(grp, yThen);
+    if (now.length && then.length && now.join() !== then.join())
+      return { lvl:'basis', now:now, then:then, grp:grp, yNow:yNow, yThen:yThen };
+  }
+  if (k === 'ret' || k === 'net') {
+    var imm = retImmature(pms);
+    if (imm.length) return { lvl:'ind', imm:imm };
+  }
+  var lvl = PY_LINE[k] || 'ind';
+  if (PY_FIRM[k]) lvl = 'firm';
+  return { lvl:lvl };
+}
+function pyWhy(k, q){
+  if (q.lvl === 'basis')
+    return 'The accounts behind this line are not the same in the two years. Across ' + esc(q.yNow) +
+      ' it posts to <span class="num">' + q.now.map(function (a) { return 'GL ' + a; }).join(', ') +
+      '</span>; across ' + esc(q.yThen) + ' it posted to <span class="num">' +
+      q.then.map(function (a) { return 'GL ' + a; }).join(', ') + '</span>. A delta between those two ' +
+      'totals would compare different measurements wearing the same name, so none is published. ' +
+      'The comparison is made over whole years rather than over the selected window, so that a month ' +
+      'where one account simply did not post is not mistaken for a change of basis.';
+  if (q.lvl === 'nocomp') return PY_WHY[k] || PY_WHY.tail;
+  if (q.imm)
+    return 'Prior-year returns have not matured on this window: ' + q.imm.map(lab).join(', ') +
+      ' books credit notes at well under half the density of a normal month, so prior-year returns are ' +
+      'understated and prior-year net sales correspondingly overstated. ' + PY_WHY.ind;
+  return PY_WHY.ind;
+}
+
+/* Lines Babyshop's forecast has no counterpart for. Stated, never left blank
+ * and never implied to be zero: the plan does not contain these rungs at all. */
+var NOFC = {
+  oo: 'Babyshop&rsquo;s forecast runs Gross Sales to Net Income with no residual rung, so ' +
+      '<b>Other operating items has no counterpart in the plan</b>. It is not planned at zero; it is ' +
+      'absent from the plan. The line exists here because EBITDA is swept from the ledger rather than ' +
+      'built up, and this is the visible difference that makes the ladder meet it.',
+  contrib: 'Contribution after marketing is a market-level rung that Babyshop&rsquo;s forecast does not ' +
+      'carry, and the forecast has no market key in any case.'
+};
 /* ── Boot ────────────────────────────────────────────────────────────────────
  * The snapshot and the live Norce read are fetched independently and on
  * purpose: /api/exec-pl is one Firestore document and returns in milliseconds,
@@ -822,6 +1196,13 @@ function setPill(generatedAt){
 function renderAll(){
   var R = window.__execplRender;
   if (!R) return;
+  /* A render replaces every "?" button, including whichever one the popover is
+   * anchored to, so it is closed first rather than left pointing at a dead node. */
+  if (window.__execplPopClose) window.__execplPopClose();
+  /* The compare badge and the ladder's column headings are two readings of the
+   * same availability. Deriving them at different moments is how they drift, so
+   * the badge is refreshed here rather than only on a control change. */
+  syncControls();
   try {
     R.notices(); R.tiles(); R.projection(); R.scorecard(); R.ladder();
     R.reconciliation(); R.bridge(); R.markets(); R.trend(); R.watchlist();
@@ -844,23 +1225,23 @@ function renderDayOnly(){
   } catch (e) { if (window.console) console.error('exec-pl day render failed', e); }
 }
 
-/* Prior-year and forecast availability are properties of the window, so the
- * comparison control has to be re-derived on every change rather than trusted. */
+/* Both comparisons now sit on every line, so there is no comparison to CHOOSE
+ * any more. What is left to report is which of the two this window actually
+ * supports, which the badge states and the column headers explain in full. */
 function syncControls(){
-  var ms = wm(S.period), hasPY = !!pym(ms);
-  var fc = el('segCmp').querySelector('[data-v="FC"]');
-  var ly = el('segCmp').querySelector('[data-v="PY"]');
-  ly.disabled = !hasPY || S.mkt !== 'ALL';
-  ly.innerHTML = 'Last year' + (ly.disabled
-    ? '<span class="hintx">' + (S.mkt !== 'ALL' ? 'group only' : 'no prior year') + '</span>' : '');
-  ly.title = hasPY
-    ? (S.mkt !== 'ALL' ? 'Prior-year comparison is built at group level only.' : '')
-    : 'Business Central history starts mid-June 2025, so this window has no prior year to compare against.';
-  if (ly.disabled && S.cmp === 'PY') S.cmp = 'FC';
-  fc.disabled = (S.mkt !== 'ALL');
-  fc.innerHTML = 'Forecast' + (fc.disabled ? '<span class="hintx">group only</span>' : '');
-  fc.setAttribute('aria-pressed', S.cmp === 'FC' && !fc.disabled ? 'true' : 'false');
-  ly.setAttribute('aria-pressed', S.cmp === 'PY' && !ly.disabled ? 'true' : 'false');
+  var ms = wm(S.period);
+  var f = fcAvail(ms, S.mkt), y = pyAvail(ms, S.mkt);
+  var on = [];
+  if (f.ok) on.push('forecast');
+  if (y.ok) on.push('last year');
+  var b = el('cmpBadge');
+  b.innerHTML = on.length === 2 ? 'forecast and last year'
+    : on.length === 1 ? (esc(on[0]) + ' only')
+    : 'neither available';
+  b.style.color = on.length ? '' : 'var(--warn-ink)';
+  b.title = on.length === 2
+    ? 'Both comparisons are available for this window and appear on every line.'
+    : 'Withdrawn comparisons state their reason in the ladder column heading.';
 }
 
 function fillMarkets(){
@@ -883,6 +1264,10 @@ window.__execplHelpers = {
   skewRange:skewRange, gp1Observed:gp1Observed, est:est, estMonth:estMonth,
   THEIRS:THEIRS, THEIR_PCT:THEIR_PCT, ONE_OFF:ONE_OFF, SKEW:SKEW, PL:PL,
   MN:MN, MA:MA, LKEYS:LKEYS,
+  help:help, hlp:hlp, fcAvail:fcAvail, pyAvail:pyAvail, pyQuality:pyQuality,
+  pyWhy:pyWhy, partMonths:partMonths, fulAccounts:fulAccounts, acctSet:acctSet,
+  yearAcctSet:yearAcctSet, yearMonths:yearMonths,
+  retImmature:retImmature, WD:WD, NOFC:NOFC, PY_FIRM:PY_FIRM, PY_LINE:PY_LINE,
   D:function(){ return D; }, N:function(){ return N; }, S:function(){ return S; },
   tools:tools, renderAll:renderAll
 };
@@ -891,10 +1276,6 @@ el('segPeriod').addEventListener('click', function (e) {
   var b = e.target.closest('button'); if (!b || b.disabled) return;
   [].forEach.call(this.querySelectorAll('button'), function (x) { x.setAttribute('aria-pressed','false'); });
   b.setAttribute('aria-pressed','true'); S.period = b.dataset.v; syncControls(); renderAll();
-});
-el('segCmp').addEventListener('click', function (e) {
-  var b = e.target.closest('button'); if (!b || b.disabled) return;
-  S.cmp = b.dataset.v; syncControls(); renderAll();
 });
 el('selMkt').addEventListener('change', function () {
   S.mkt = this.value; syncControls(); renderAll();
