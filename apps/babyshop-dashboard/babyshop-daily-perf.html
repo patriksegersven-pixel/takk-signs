@@ -283,7 +283,7 @@
  *   /api/norce-today   live Norce, ~14 calls   -> today so far, and yesterday
  *   /api/daily-perf    nightly BigQuery copy   -> every comparison and window
  *
- * The seam is at yesterday, because the 01:00 norce-sync CLOSES the previous
+ * The seam is at yesterday, because the 03:00 norce-sync CLOSES the previous
  * day. Yesterday exists on both sides and they were verified equal to the krona
  * (884 orders / 788,327 SEK on 2026-09-16), so the hero takes the live figure
  * and the snapshot supplies its baselines.
@@ -298,7 +298,7 @@
  *
  * DEGRADATION. If the live read fails, yesterday falls back to the BigQuery
  * copy of the SAME measure, labelled as such. Today has no fallback at all and
- * says so: BigQuery holds only the sliver of orders placed before the 01:00
+ * says so: BigQuery holds only the sliver of orders placed before the 03:00
  * sync, and there is a standing lesson here about a "today" figure once being
  * rendered as 1/30th of the last 30 days. Nothing on this page is ever scaled,
  * grossed up, or seeded with a placeholder.
@@ -433,7 +433,7 @@ function renderToday(){
       '<div class="mid" style="color:var(--ink-3);font-size:21px">No figure</div>' +
       '<p class="quiet"><b>Stated reason:</b> ' + esc(N.reason || 'the live API did not answer') + '</p>' +
       '<p class="quiet">Nothing is substituted. Today cannot fall back to BigQuery: the nightly ' +
-      'copy holds only the orders placed between midnight and the 01:00 sync, so a figure from ' +
+      'copy holds only the orders placed between midnight and the 03:00 sync, so a figure from ' +
       'there would be a fraction of a day wearing a whole day&rsquo;s label.</p></div>';
     return;
   }
@@ -812,7 +812,7 @@ function renderMethod(){
     '<p class="prose"><b>Why the two sources.</b> Today and yesterday come from the Norce API, ' +
     'read live. Every comparison, window and market split comes from the nightly BigQuery copy, ' +
     'because a sixty-day history cannot be pulled through an API that allows three token requests ' +
-    'a minute. The seam sits at yesterday because the 01:00 sync closes the previous day, and ' +
+    'a minute. The seam sits at yesterday because the 03:00 sync closes the previous day, and ' +
     'yesterday exists on both sides so the two can be checked against each other. Today is ' +
     'live-only and has no fallback.</p>' +
     '<p class="prose"><b>' + esc(h.note) + '</b></p>' +

@@ -431,7 +431,7 @@ def api_daily_perf(_: str = Depends(verify)):
     market split, the month-to-date pacing and the daily series.
 
     It deliberately does NOT carry today, or yesterday's headline. Those are
-    live, from /api/norce-today: the nightly BigQuery copy closes at the 01:00
+    live, from /api/norce-today: the nightly BigQuery copy closes at the 03:00
     sync, so its "today" is only the orders placed after midnight. The page
     joins the two and shows their agreement on yesterday, which is the day they
     overlap. See refresh_daily_perf.py's docstring for why the seam is there.

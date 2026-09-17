@@ -33,10 +33,11 @@ So the boundary is:
                                         60-day series, the market split
 
 The boundary sits exactly at yesterday, and it sits there because the nightly
-`norce-sync` runs at 01:00 Stockholm and therefore CLOSES the previous day: the
+`norce-sync` runs at 03:00 Stockholm (01:00 UTC) and therefore CLOSES the
+previous day: the
 moment that run finishes, BigQuery's copy of yesterday is final. Today, by the
 same token, is worthless in BigQuery (it holds only the sliver of orders placed
-between midnight and 01:00), which is why today is live-only and has no
+between midnight and 03:00), which is why today is live-only and has no
 fallback.
 
 Yesterday deliberately lands in BOTH halves. That overlap was verified, not
@@ -499,7 +500,7 @@ def build() -> dict:
     min_d, max_d = rng["min_d"], rng["max_d"]
 
     # The latest day BigQuery can speak for is the last COMPLETE one. Today's
-    # partition holds only the orders placed between midnight and the 01:00
+    # partition holds only the orders placed between midnight and the 03:00
     # sync, so it is dropped outright rather than shown as a collapse. Today is
     # the live API's job and has no fallback here.
     today = datetime.datetime.now(ZoneInfo(TZ)).date()
@@ -521,7 +522,7 @@ def build() -> dict:
 
     if latest not in by_day:
         raise RuntimeError(
-            f"no rows for {latest}, the day BigQuery should have closed at 01:00 "
+            f"no rows for {latest}, the day BigQuery should have closed at 03:00 "
             f"— norce-sync may have stopped again")
 
     usable_from = datetime.date.fromisoformat(USABLE_FROM)

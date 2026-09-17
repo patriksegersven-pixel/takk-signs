@@ -76,8 +76,9 @@ gcloud run jobs "$ACTION" "$JOB" \
 echo "   ${ACTION}d $JOB -> python3 refresh_daily_perf.py"
 
 echo "== 2. Daily Cloud Scheduler job =="
-# 05:45 Stockholm. It must run AFTER norce-sync (01:00), which is what closes
-# yesterday in BigQuery, and the earlier slots are taken: 04:00 segments,
+# 05:45 Stockholm. It must run AFTER norce-sync (03:00 Stockholm / 01:00 UTC),
+# which is what closes yesterday in BigQuery, and the earlier slots are taken:
+# 03:30 customer-insights, 04:00 segments,
 # 04:15 bundles, 04:30 meta, 05:00 exec-pl, 05:15 voyado-refresh,
 # 05:30 roas-sims. 05:45 is clear and still lands before anyone reads the tab.
 ACTION=create
