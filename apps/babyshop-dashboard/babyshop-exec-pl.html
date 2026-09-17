@@ -400,6 +400,33 @@
     .tiles,.watch,.hd{grid-template-columns:1fr} main{padding:16px 12px 56px} .mast h1{font-size:20px}
     .pop{width:calc(100vw - 28px)}
   }
+
+  /* ── The daily strip ──────────────────────────────────────────────────────
+   * One line, always visible, never a disclosure. A previous declutter pass
+   * folded the day figures into the closed "Ordered, by day" section; that was
+   * wrong, because this is the number people check every morning and burying it
+   * behind a click defeats the point of having it. The detail stays where the
+   * declutter put it — this strip is only the headline, and it links onward.
+   *
+   * It is tinted green rather than neutral so it reads as a DIFFERENT BASIS
+   * from the posted ladder immediately below it, which is the one confusion
+   * that matters on this page. */
+  .daystrip{display:flex;flex-wrap:wrap;align-items:baseline;gap:7px 15px;
+    background:#EAF2EC;border:1px solid #CFE0D4;border-radius:var(--r);padding:9px 13px;
+    font-size:12.5px;color:#2B4636}
+  .daystrip .ds-k{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+    color:#5C7A66}
+  .daystrip .ds-v{font-family:var(--mono);font-size:17px;font-weight:600;color:#17351F;
+    letter-spacing:-.01em}
+  .daystrip .ds-u{font-size:10.5px;color:#5C7A66;margin-left:3px}
+  .daystrip .ds-m{font-family:var(--mono);font-size:12px;color:#3D5B47}
+  .daystrip .ds-sep{color:#9BB3A2}
+  .daystrip a{margin-left:auto;color:#235837;font-weight:600;text-decoration:none;
+    border-bottom:1px solid rgba(35,88,55,.35);font-size:12px;white-space:nowrap}
+  .daystrip a:hover{border-bottom-color:#235837}
+  .daystrip.dead{background:var(--crit-bg);border-color:#EBC3B6;color:var(--crit-ink)}
+  .daystrip.dead .ds-k{color:var(--crit-ink)}
+  @media (max-width:640px){ .daystrip a{margin-left:0} }
   </style>
 </head>
 <body>
@@ -442,6 +469,13 @@
 
   <div id="noticeTop"></div>
   <div id="mktNotice"></div>
+
+  <!-- Always visible, above the posted ladder, on a different basis and tinted
+       to say so. Detail stays in "Ordered, by day" further down. -->
+  <div class="daystrip" id="dayStrip">
+    <span class="ds-k">Ordered yesterday</span>
+    <span class="ds-m">reading&hellip;</span>
+  </div>
 
   <section class="hd" id="tiles" aria-label="Headline margin ladder"></section>
 
@@ -617,6 +651,11 @@
 
 var D = null;          /* /api/exec-pl snapshot   */
 var N = null;          /* /api/norce-today (live) */
+/* /api/daily-perf, fetched only for the strip's weekday-aware comparison. The
+ * live read knows yesterday's number but has no baseline to judge it against;
+ * the Daily performance snapshot has the baselines. One extra Firestore read,
+ * and the strip degrades to the bare figure if it does not arrive. */
+var P = null;
 /* No `cmp` any more: both comparisons are on every line, so there is nothing to
  * choose between. What varies is which of the two a window SUPPORTS. */
 var S = { period: 'YTD', mkt: 'ALL' };
@@ -1217,12 +1256,79 @@ function renderAll(){
  * provenance note. Re-render all three, not just the cards, or the rule sits
  * permanently absent and the page under-reports how many rules it evaluated. */
 function renderDayOnly(){
+  /* The strip is plain markup off N and P; it must not be gated on the
+   * renderer registry, or a slow exec-pl-render.js would leave the one number
+   * people came for stuck on "reading…". */
+  renderStrip();
   var R = window.__execplRender;
   if (!R) return;
   try {
     if (R.day) R.day();
     if (D && (D.months || []).length) { R.watchlist(); R.provenance(); }
   } catch (e) { if (window.console) console.error('exec-pl day render failed', e); }
+}
+
+/* ── The daily strip ─────────────────────────────────────────────────────────
+ * Yesterday's ORDERED revenue with a weekday-aware comparison, and today so far
+ * marked provisional. One line, above the ladder, always visible.
+ *
+ * Two sources, same rule the Daily performance tab uses: the figure is live
+ * from Norce, the comparison comes from the daily snapshot, and the comparison
+ * is used ONLY when the snapshot is talking about the same date the live read
+ * is. If the snapshot is a day behind, the number still shows and the
+ * comparison is dropped rather than silently attached to the wrong day.
+ *
+ * Saturday is compared against Saturday. A day-on-day comparison here would
+ * report the ordinary weekly shape as a collapse every Saturday morning. */
+function renderStrip(){
+  var host = el('dayStrip');
+  if (!host) return;
+
+  if (!N) {
+    host.className = 'daystrip';
+    host.innerHTML = '<span class="ds-k">Ordered yesterday</span>' +
+      '<span class="ds-m">reading live from Norce&hellip;</span>';
+    return;
+  }
+  if (!N.available) {
+    host.className = 'daystrip dead';
+    host.innerHTML = '<span class="ds-k">Ordered yesterday</span>' +
+      '<span class="ds-m">no figure &mdash; ' + esc(N.reason || 'the live Norce read did not answer') +
+      '. Nothing is substituted.</span>' +
+      '<a href="/babyshop-daily-perf.html">Daily performance &rarr;</a>';
+    return;
+  }
+
+  var c = N.complete_day, p = N.partial_day, lfl = N.like_for_like;
+  /* Same-date guard: see the comment above. */
+  var vs = (P && P.yesterday && P.yesterday.d === c.date) ? P.yesterday.vs : null;
+  var ref = vs && (vs.avg4 || vs.last_week);
+
+  var out = [];
+  out.push('<span class="ds-k">Ordered yesterday</span>');
+  out.push('<span class="ds-v">' + sek(c.revenue_sek) + '<span class="ds-u">SEK</span></span>');
+  out.push('<span class="ds-m">' + esc(dayName(c.date)) + ' &middot; ' + sek(c.orders) + ' orders</span>');
+  out.push('<span class="ds-sep">|</span>');
+  if (ref && ref.d_rev != null) {
+    out.push('<span class="ds-k">vs ' + esc(ref.label.toLowerCase()) + '</span>');
+    out.push(chip(c.revenue_sek, ref.rev, true));
+  } else {
+    out.push('<span class="ds-m">no weekday-aware baseline available' +
+             (P && P.yesterday && P.yesterday.d !== c.date
+               ? ' (the daily snapshot is on ' + esc(P.yesterday.d) + ')' : '') + '</span>');
+  }
+  out.push('<span class="ds-sep">|</span>');
+  out.push('<span class="ds-k">Today so far</span>');
+  out.push('<span class="ds-m"><b>' + sek(p.revenue_sek) + ' SEK</b> to ' +
+           esc((N.fetched_at_local || '').slice(11)) + ', provisional' +
+           (lfl && lfl.prev.revenue_sek
+             ? ' &middot; like for like against the same point yesterday ' +
+               chip(lfl.today.revenue_sek, lfl.prev.revenue_sek, true)
+             : '') + '</span>');
+  out.push('<a href="/babyshop-daily-perf.html">Daily performance &rarr;</a>');
+
+  host.className = 'daystrip';
+  host.innerHTML = out.join('');
 }
 
 /* Both comparisons now sit on every line, so there is no comparison to CHOOSE
@@ -1307,6 +1413,14 @@ fetch('/api/norce-today', { credentials:'same-origin' })
     N = { available:false, reason:'The dashboard could not reach its own /api/norce-today (' + e.message + ').' };
     renderDayOnly();
   });
+
+/* The strip's weekday-aware baseline. Failing to load it costs the comparison
+ * and nothing else, so it is deliberately silent: the strip still prints
+ * yesterday's figure and says the baseline is unavailable. */
+fetch('/api/daily-perf', { credentials:'same-origin' })
+  .then(function (r) { return r.json(); })
+  .then(function (data) { P = (data && data.yesterday) ? data : null; renderStrip(); })
+  .catch(function () { P = null; renderStrip(); });
 })();
 </script>
 <script src="/exec-pl-render.js"></script>

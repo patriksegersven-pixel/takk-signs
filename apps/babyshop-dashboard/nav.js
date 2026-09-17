@@ -42,6 +42,7 @@
   /* ── Page registry ──────────────────────────────────────────────────────── */
   var PAGES = [
     { id:'execpl',    title:'Executive P&L WIP', href:'/babyshop-exec-pl.html',             group:'archived', subtitle:'Executive P&L WIP · Business Central' },
+    { id:'dailyperf', title:'Daily performance', href:'/babyshop-daily-perf.html',          group:'archived', subtitle:'Daily performance WIP · Ordered, Norce' },
     { id:'kv',        title:'KV Overview',       href:'/babyshop-dashboard.html',           group:'core',     subtitle:'KV Performance Dashboard' },
     { id:'products',  title:'Products',          href:'/babyshop-product-dashboard.html',   group:'core',     subtitle:'Product Performance Dashboard' },
     { id:'customers', title:'Customer Insights', href:'/babyshop-customer-dashboard.html',  group:'core',     subtitle:'Customer Insights' },

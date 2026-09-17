@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Daily performance · Babyshop</title>
+  <link rel="icon" type="image/svg+xml" href="/babyshop-favicon.svg">
+  <link rel="stylesheet" href="/brand.css">
+  <!-- Shared column filters + CSV/XLSX export, as on the other tabs. -->
+  <script src="/table-tools.js"></script>
+  <style>
+  /* ── Palette bridge ───────────────────────────────────────────────────────
+   * Same local token names the Executive P&L tab uses, resolving to brand.css
+   * values, so rules port between the two tabs unchanged. Light only, like the
+   * rest of the dashboard. */
+  :root{
+    --plane:var(--bg); --surf:var(--card); --surf-2:#F5F3F0; --surf-3:#ECE8E3;
+    --ink:var(--h); --ink-2:var(--body); --ink-3:var(--muted);
+    --rule:var(--border); --rule-2:#D9D3CB; --grid:var(--border-lt);
+    --good:#1E7A45; --warn:#A9621A; --crit:#B93A22;
+    --good-ink:#1A6038; --warn-ink:#8A5416; --crit-ink:#9E3018;
+    --good-bg:#EAF4EC; --warn-bg:#FBF3E7; --crit-bg:#FBEDE8;
+    --ord:#235837; --ord-bg:#EAF2EC;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  body{ background:var(--plane); color:var(--ink-2); }
+  main{ max-width:1320px; margin:0 auto; padding:18px 22px 60px;
+        display:flex; flex-direction:column; gap:15px; }
+
+  /* ── The basis bar ────────────────────────────────────────────────────────
+   * First thing on the page and never collapsible. The single most expensive
+   * misreading available here is treating an ordered figure as a P&L figure,
+   * so the basis is stated before any number is shown. */
+  .basis{ display:flex; flex-wrap:wrap; align-items:center; gap:9px 16px;
+          background:var(--ord-bg); border:1px solid #CFE0D4; border-radius:var(--r);
+          padding:9px 13px; font-size:12px; color:#2B4636; }
+  .basis b{ color:#17351F; }
+  .basis .sep{ color:#9BB3A2; }
+  .basis a{ color:var(--ord); font-weight:600; text-decoration:none;
+            border-bottom:1px solid rgba(35,88,55,.35); }
+  .basis a:hover{ border-bottom-color:var(--ord); }
+
+  .pending,.notice{ border-radius:var(--r); padding:11px 14px; font-size:12.5px;
+                    line-height:1.6; border:1px solid var(--rule); background:var(--surf); }
+  .notice.warn{ background:var(--warn-bg); border-color:#E6CFA8; color:var(--warn-ink); }
+  .notice.crit{ background:var(--crit-bg); border-color:#EBC3B6; color:var(--crit-ink); }
+
+  .card{ background:var(--surf); border:1px solid var(--rule); border-radius:var(--r);
+         box-shadow:var(--shadow-sm); }
+  .card-h{ display:flex; justify-content:space-between; align-items:flex-end; gap:14px;
+           padding:13px 16px 11px; border-bottom:1px solid var(--rule); flex-wrap:wrap; }
+  .card-h h2{ margin:0; font-size:15.5px; font-weight:600; color:var(--ink); letter-spacing:-.01em; }
+  .card-b{ padding:14px 16px; }
+  .eyebrow{ font-size:10px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+            color:var(--ink-3); }
+  .sub{ font-size:11.5px; color:var(--ink-3); }
+
+  /* ── Hero band ────────────────────────────────────────────────────────────
+   * Yesterday dominates. Today sits beside it, deliberately smaller and
+   * visually quieter, because a partial day must never read as the headline. */
+  .band{ display:grid; grid-template-columns:1.62fr 1fr; gap:15px; }
+  @media (max-width:980px){ .band{ grid-template-columns:1fr; } }
+
+  .hero{ background:var(--surf); border:1px solid var(--rule); border-radius:var(--r);
+         box-shadow:var(--shadow); overflow:hidden; position:relative; }
+  .hero::before{ content:''; position:absolute; inset:0 auto 0 0; width:3px; background:var(--ord); }
+  .hero .hd{ display:flex; justify-content:space-between; align-items:baseline; gap:12px;
+             padding:13px 16px 0 19px; flex-wrap:wrap; }
+  .hero h2{ margin:0; font-size:16px; font-weight:600; color:var(--ink); }
+  .hero .dt{ font-family:var(--mono); font-size:11px; color:var(--ink-3); }
+  .hero .bd{ padding:8px 16px 15px 19px; }
+  .big{ font-size:46px; line-height:1.04; font-weight:600; color:var(--ink);
+        letter-spacing:-.025em; font-variant-numeric:tabular-nums; }
+  .big .u{ font-size:15px; font-weight:500; color:var(--ink-3); margin-left:8px;
+           letter-spacing:0; }
+  .verdict{ margin:9px 0 0; font-size:13.5px; line-height:1.5; max-width:62ch; color:var(--ink-2); }
+  .verdict b{ color:var(--ink); }
+  .vsub{ font-family:var(--mono); font-size:11.5px; color:var(--ink-3); margin-top:7px; }
+
+  /* Comparison chips: three baselines, always all three, never just the
+   * flattering one. */
+  .cmps{ display:grid; grid-template-columns:repeat(3,1fr); gap:9px; margin-top:14px; }
+  @media (max-width:620px){ .cmps{ grid-template-columns:1fr; } }
+  .cmp{ border:1px solid var(--rule); border-radius:var(--r-sm); padding:9px 11px;
+        background:var(--surf-2); }
+  .cmp .k{ font-size:10.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase;
+           color:var(--ink-3); }
+  .cmp .d{ font-size:20px; font-weight:600; margin-top:4px; letter-spacing:-.02em; }
+  .cmp .b{ font-family:var(--mono); font-size:10.5px; color:var(--ink-3); margin-top:3px; }
+  .cmp.up .d{ color:var(--good-ink); } .cmp.dn .d{ color:var(--crit-ink); }
+  .cmp.fl .d{ color:var(--ink-2); } .cmp.na .d{ color:var(--ink-3); font-size:15px; }
+
+  .sec{ display:flex; flex-wrap:wrap; gap:8px 22px; margin-top:13px; padding-top:11px;
+        border-top:1px solid var(--rule); }
+  /* Deliberately NOT scoped to .sec: the plan grid reuses these three, and
+   * scoping them is what left "Actual, merchandise15.29 MSEK" running together. */
+  .it{ display:flex; flex-direction:column; gap:2px; }
+  .lb{ font-size:10px; font-weight:600; letter-spacing:.07em; text-transform:uppercase;
+       color:var(--ink-3); }
+  .vl{ font-family:var(--mono); font-size:13px; color:var(--ink); }
+
+  /* Today: same shape, lower contrast, and a hatched stripe that says partial. */
+  .prov{ background:var(--surf); border:1px solid var(--rule); border-radius:var(--r);
+         box-shadow:var(--shadow-sm); overflow:hidden; position:relative; }
+  .prov::before{ content:''; position:absolute; inset:0 auto 0 0; width:3px;
+                 background:repeating-linear-gradient(180deg,var(--ink-3) 0 4px,transparent 4px 8px); }
+  .prov .hd{ display:flex; justify-content:space-between; align-items:baseline; gap:10px;
+             padding:13px 15px 0 18px; flex-wrap:wrap; }
+  .prov h2{ margin:0; font-size:14px; font-weight:600; color:var(--ink-2); }
+  .prov .bd{ padding:7px 15px 15px 18px; }
+  .mid{ font-size:30px; line-height:1.06; font-weight:600; color:var(--ink-2);
+        letter-spacing:-.02em; }
+  .mid .u{ font-size:12px; font-weight:500; color:var(--ink-3); margin-left:6px; }
+  .tag{ display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.08em;
+        text-transform:uppercase; padding:2px 6px; border-radius:3px;
+        background:var(--surf-3); color:var(--ink-2); vertical-align:2px; }
+  .tag.ord{ background:var(--ord-bg); color:#1F4A2E; }
+  .matbar{ height:5px; border-radius:3px; background:var(--surf-3); overflow:hidden; margin-top:11px; }
+  .matbar i{ display:block; height:100%; background:var(--ink-3); }
+
+  /* ── Rolling windows ──────────────────────────────────────────────────── */
+  .rolls{ display:grid; grid-template-columns:1fr 1fr; gap:15px; }
+  @media (max-width:820px){ .rolls{ grid-template-columns:1fr; } }
+  .roll .v{ font-size:27px; font-weight:600; color:var(--ink); letter-spacing:-.02em; }
+  .roll .v .u{ font-size:12px; font-weight:500; color:var(--ink-3); margin-left:6px; }
+
+  .delta{ display:inline-block; font-family:var(--mono); font-size:11px; font-weight:600;
+          padding:2px 6px; border-radius:3px; }
+  .delta.up{ color:var(--good-ink); background:var(--good-bg); }
+  .delta.dn{ color:var(--crit-ink); background:var(--crit-bg); }
+  .delta.fl{ color:var(--ink-3); background:var(--surf-3); }
+
+  /* ── Chart ────────────────────────────────────────────────────────────── */
+  #chart svg{ display:block; width:100%; height:auto; }
+  .chips{ display:flex; gap:6px; flex-wrap:wrap; }
+  .chips button{ font:inherit; font-size:11.5px; padding:4px 10px; border-radius:20px;
+                 border:1px solid var(--rule-2); background:var(--surf); color:var(--ink-2);
+                 cursor:pointer; }
+  .chips button[aria-pressed="true"]{ background:var(--ord); border-color:var(--ord); color:#fff; }
+  .legend{ display:flex; flex-wrap:wrap; gap:7px 18px; font-size:11.5px; color:var(--ink-3);
+           align-items:center; }
+  .legend i{ width:11px; height:11px; border-radius:2px; display:inline-block;
+             vertical-align:-1px; margin-right:6px; }
+
+  /* ── Plan pacing ──────────────────────────────────────────────────────── */
+  .pace{ position:relative; height:26px; border-radius:var(--r-sm); background:var(--surf-3);
+         overflow:hidden; }
+  .pace i{ display:block; height:100%; background:var(--ord); opacity:.82; }
+  .pace .mark{ position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--ink); }
+  .paceg{ display:grid; grid-template-columns:repeat(auto-fit,minmax(168px,1fr)); gap:11px 20px; }
+
+  /* ── Tables ───────────────────────────────────────────────────────────── */
+  table.d{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  table.d th,table.d td{ padding:7px 9px; border-bottom:1px solid var(--grid); text-align:right;
+                         white-space:nowrap; }
+  table.d th:first-child,table.d td:first-child{ text-align:left; }
+  table.d thead th{ font-size:10px; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+                    color:var(--ink-3); border-bottom:1px solid var(--rule-2); }
+  table.d tbody tr:hover{ background:var(--surf-2); }
+  table.d tfoot td{ font-weight:600; color:var(--ink); border-top:1px solid var(--rule-2);
+                    border-bottom:none; }
+  .num{ font-family:var(--mono); }
+  .na{ color:var(--ink-3); }
+  .scroll{ overflow-x:auto; }
+
+  /* ── Disclosure ───────────────────────────────────────────────────────── */
+  details.disc{ background:var(--surf); border:1px solid var(--rule); border-radius:var(--r); }
+  details.disc>summary{ list-style:none; cursor:pointer; padding:12px 16px;
+                        display:flex; justify-content:space-between; gap:14px; align-items:center;
+                        flex-wrap:wrap; }
+  details.disc>summary::-webkit-details-marker{ display:none; }
+  .disc-t{ font-size:13.5px; font-weight:600; color:var(--ink); }
+  .disc-s{ font-size:11.5px; color:var(--ink-3); }
+  .prose{ font-size:12.5px; line-height:1.68; color:var(--ink-2); max-width:96ch; margin:0; }
+  .prose+.prose{ margin-top:11px; }
+  .fresh{ display:flex; flex-wrap:wrap; gap:6px 18px; font-family:var(--mono); font-size:11px;
+          color:var(--ink-3); }
+  .fresh b{ color:var(--ink-2); font-weight:600; }
+  .quiet{ font-size:11.5px; color:var(--ink-3); line-height:1.6; margin:10px 0 0; max-width:90ch; }
+  </style>
+</head>
+<body>
+<header id="app-header" data-page="dailyperf"></header>
+<template data-header-extra>
+  <span class="badge" id="readPill">reading&hellip;</span>
+</template>
+<script src="/nav.js"></script>
+
+<main>
+  <!-- The basis, before any number. -->
+  <div class="basis">
+    <span><b>Basis</b> order date &mdash; when the purchase took place</span>
+    <span class="sep">|</span>
+    <span><b>Source</b> Norce, live for today and yesterday, BigQuery for history</span>
+    <span class="sep">|</span>
+    <span><b>Scope</b> ex VAT, gross of returns, merchandise plus freight</span>
+    <span class="sep">|</span>
+    <span><b>This is not the P&amp;L.</b> The posted, invoiced view is on
+      <a href="/babyshop-exec-pl.html">Executive P&amp;L</a>.</span>
+  </div>
+
+  <div id="pending" class="pending" hidden>No Daily performance snapshot yet. The nightly
+    <code>daily-perf-refresh</code> job has not written one.</div>
+  <div id="notices"></div>
+
+  <section class="band">
+    <article class="hero" id="heroY"></article>
+    <article class="prov" id="heroT"></article>
+  </section>
+
+  <section class="rolls">
+    <article class="card roll" id="roll7"></article>
+    <article class="card roll" id="roll28"></article>
+  </section>
+
+  <section class="card">
+    <div class="card-h">
+      <div><div class="eyebrow">Daily series</div>
+        <h2 id="chTitle">Ordered revenue by day</h2></div>
+      <div class="chips" id="chChips">
+        <button type="button" data-n="60"  aria-pressed="true">60 days</button>
+        <button type="button" data-n="120" aria-pressed="false">120 days</button>
+        <button type="button" data-ly="1"  aria-pressed="false">Last year</button>
+      </div>
+    </div>
+    <div class="card-b">
+      <div class="legend" id="chLegend" style="margin-bottom:9px"></div>
+      <div id="chart"></div>
+      <p class="quiet" id="chNote"></p>
+    </div>
+  </section>
+
+  <section class="card" id="mtdCard">
+    <div class="card-h">
+      <div><div class="eyebrow">Month to date</div><h2 id="mtdTitle">Against plan</h2></div>
+      <div class="sub" id="mtdSub">&ndash;</div>
+    </div>
+    <div class="card-b" id="mtdBody"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-h">
+      <div><div class="eyebrow">By market</div><h2>Where it came from</h2></div>
+      <div class="chips" id="mktChips">
+        <button type="button" data-w="yesterday" aria-pressed="true">Yesterday</button>
+        <button type="button" data-w="r7" aria-pressed="false">Rolling 7 days</button>
+      </div>
+    </div>
+    <div class="card-b scroll">
+      <table class="d" id="mktTable" data-export-name="daily-performance-markets"></table>
+    </div>
+    <div class="card-b" style="border-top:1px solid var(--rule)">
+      <p class="quiet" id="mktNote" style="margin:0"></p>
+    </div>
+  </section>
+
+  <details class="disc" id="methodDisc">
+    <summary><span class="disc-t">Basis, method and freshness</span>
+      <span class="disc-s" id="methodVerdict">&ndash;</span></summary>
+    <div class="card-b"><div class="fresh" id="freshRow"></div></div>
+    <div class="card-b" style="border-top:1px solid var(--rule)">
+      <div id="methodProse"></div>
+    </div>
+  </details>
+</main>
+
+<script>
+(function () {
+'use strict';
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Daily performance tab.
+ *
+ * THE QUESTION THIS TAB ANSWERS
+ * -----------------------------
+ * "How did we do yesterday, and is that good?" A number with no comparison
+ * cannot answer the second half, and a comparison that is not WEEKDAY-AWARE
+ * answers it wrongly: a Saturday measured against a Friday reports the weekly
+ * shape as a collapse. So every comparison here is Saturday against Saturday.
+ *
+ * TWO SOURCES, ONE MEASURE, AND WHERE THE SEAM IS
+ * -----------------------------------------------
+ *   /api/norce-today   live Norce, ~14 calls   -> today so far, and yesterday
+ *   /api/daily-perf    nightly BigQuery copy   -> every comparison and window
+ *
+ * The seam is at yesterday, because the 01:00 norce-sync CLOSES the previous
+ * day. Yesterday exists on both sides and they were verified equal to the krona
+ * (884 orders / 788,327 SEK on 2026-09-16), so the hero takes the live figure
+ * and the snapshot supplies its baselines.
+ *
+ * THE ALIGNMENT RULE. The hero day is the day the SNAPSHOT can compare, and the
+ * live figure is used for it only when the live API is talking about that same
+ * date. If the snapshot falls a day behind, the comparisons would otherwise be
+ * silently attached to the wrong day. Instead the page keeps the snapshot's day
+ * as the hero, states that the snapshot is stale, and names the newer live
+ * figure separately. A comparison is never re-pointed at a day it was not
+ * computed for.
+ *
+ * DEGRADATION. If the live read fails, yesterday falls back to the BigQuery
+ * copy of the SAME measure, labelled as such. Today has no fallback at all and
+ * says so: BigQuery holds only the sliver of orders placed before the 01:00
+ * sync, and there is a standing lesson here about a "today" figure once being
+ * rendered as 1/30th of the last 30 days. Nothing on this page is ever scaled,
+ * grossed up, or seeded with a placeholder.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+var D = null;   /* /api/daily-perf  (snapshot) */
+var N = null;   /* /api/norce-today (live)     */
+var CH = { days:60, ly:false };
+var MKT = 'yesterday';
+var tools = {};   /* live TableTools instances, kept so a re-render can reuse them */
+
+/* ── Formatting (same helpers, same behaviour, as the Executive P&L tab) ──── */
+function esc(s){ return String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function sek(v){ return (v == null || !isFinite(v)) ? '–'
+  : Math.round(v).toLocaleString('en-US').replace(/,/g,' '); }
+function msek(v){ return (v == null || !isFinite(v)) ? '–' : (v / 1e6).toFixed(2); }
+function pf(v,dp){ return (v == null || !isFinite(v)) ? '–'
+  : ((v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(dp === undefined ? 1 : dp) + '%'); }
+function el(id){ return document.getElementById(id); }
+function dayName(d){ return new Date(d + 'T12:00:00Z')
+  .toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'}); }
+function shortDay(d){ return new Date(d + 'T12:00:00Z')
+  .toLocaleDateString('en-GB',{day:'numeric',month:'short'}); }
+function cls(d){ return d == null ? 'na' : (Math.abs(d) < 0.05 ? 'fl' : (d > 0 ? 'up' : 'dn')); }
+function delta(d){ return '<span class="delta ' + cls(d) + '">' + pf(d) + '</span>'; }
+
+/* ── The comparison block under the hero ──────────────────────────────────── */
+function cmpCard(c){
+  if (!c) {
+    return '<div class="cmp na"><div class="k">Not available</div>' +
+           '<div class="d">–</div><div class="b">no comparable history</div></div>';
+  }
+  return '<div class="cmp ' + cls(c.d_rev) + '">' +
+         '<div class="k">' + esc(c.label) + '</div>' +
+         '<div class="d">' + pf(c.d_rev) + '</div>' +
+         '<div class="b">' + sek(c.rev) + ' SEK &middot; ' + esc(c.detail) + '</div></div>';
+}
+
+/* ── The five-second read ─────────────────────────────────────────────────────
+ * One sentence, banded off the four-week same-weekday average because that is
+ * the most stable of the three baselines: last week alone can be a campaign and
+ * last year alone can be a different business. When year-on-year disagrees with
+ * it in direction, the sentence says so rather than picking the flattering one:
+ * "soft against recent weeks but ahead of last year" is the actual answer on a
+ * day like that, and hiding half of it would be the lie. */
+function verdictFor(vs){
+  var a = vs && vs.avg4, y = vs && vs.last_year, w = vs && vs.last_week;
+  var ref = a || w;
+  if (!ref || ref.d_rev == null) {
+    return { tone:'fl', text:'No weekday-aware baseline is available for this day, so this ' +
+             'figure is reported without a verdict rather than against a baseline that does not fit.' };
+  }
+  var d = ref.d_rev, tone, word;
+  if (d >= 10)      { tone='up'; word='well ahead of'; }
+  else if (d >= 3)  { tone='up'; word='ahead of'; }
+  else if (d > -3)  { tone='fl'; word='in line with'; }
+  else if (d > -10) { tone='dn'; word='below'; }
+  else if (d > -20) { tone='dn'; word='well below'; }
+  else              { tone='dn'; word='sharply below'; }
+
+  var t = '<b>' + pf(d) + '</b>, ' + word + ' ' + esc(ref.detail) + '.';
+  if (y && y.d_rev != null && (y.d_rev > 0) !== (d > 0) && Math.abs(y.d_rev) >= 3) {
+    t += ' Against the same weekday a year ago it is <b>' + pf(y.d_rev) + '</b>, so the two ' +
+         'baselines disagree: read the rolling windows below before concluding anything.';
+  }
+  return { tone:tone, text:t };
+}
+
+/* ── Hero: yesterday ─────────────────────────────────────────────────────── */
+function renderYesterday(){
+  var host = el('heroY');
+  if (!D) { host.innerHTML = '<div class="bd" style="padding:20px 19px">' +
+    '<div class="eyebrow">Yesterday</div><div class="verdict">Loading the daily snapshot&hellip;</div></div>'; return; }
+
+  var snap = D.yesterday, day = snap.d;
+  /* Live only counts for the hero when it is talking about the SAME day the
+   * snapshot computed baselines for. See the alignment rule at the top. */
+  var live = (N && N.available && N.complete_day && N.complete_day.date === day)
+             ? N.complete_day : null;
+  var rev    = live ? live.revenue_sek : snap.rev;
+  var orders = live ? live.orders      : snap.orders;
+  var units  = live ? live.units       : snap.units;
+  var aov    = orders ? rev / orders : null;
+  var src    = live
+    ? 'live from Norce'
+    : 'from the nightly BigQuery copy' + (N && !N.available ? ', the live read being unavailable' : '');
+
+  var v = verdictFor(snap.vs);
+  var out =
+    '<div class="hd"><h2>Yesterday &middot; ' + esc(dayName(day)) + '</h2>' +
+    '<span class="dt">' + esc(day) + ' &middot; complete day &middot; ' + esc(src) + '</span></div>' +
+    '<div class="bd">' +
+    '<div class="eyebrow">Ordered revenue <span class="tag ord">Order date</span></div>' +
+    '<div class="big">' + sek(rev) + '<span class="u">SEK</span></div>' +
+    '<p class="verdict">' + v.text + '</p>' +
+    '<div class="cmps">' +
+      cmpCard(snap.vs.last_week) + cmpCard(snap.vs.avg4) + cmpCard(snap.vs.last_year) +
+    '</div>' +
+    '<div class="sec">' +
+      '<div class="it"><span class="lb">Orders</span><span class="vl">' + sek(orders) + '</span></div>' +
+      '<div class="it"><span class="lb">AOV</span><span class="vl">' + sek(aov) + ' SEK</span></div>' +
+      '<div class="it"><span class="lb">Units</span><span class="vl">' + sek(units) + '</span></div>' +
+      '<div class="it"><span class="lb">Of which freight</span><span class="vl">' + sek(snap.freight) + ' SEK</span></div>' +
+      '<div class="it"><span class="lb">Orders vs ' + esc(snap.vs.avg4 ? '4-wk avg' : 'last week') + '</span><span class="vl">' +
+        delta((snap.vs.avg4 || snap.vs.last_week || {}).d_orders) + '</span></div>' +
+      '<div class="it"><span class="lb">AOV vs same</span><span class="vl">' +
+        delta((snap.vs.avg4 || snap.vs.last_week || {}).d_aov) + '</span></div>' +
+    '</div>' +
+    '<p class="quiet">Ordered intake runs about <b>0.84%</b> above what eventually posts to the ' +
+    'ledger; that wedge is cancellation and shrinkage between order and invoice. It is stated ' +
+    'here once and applied nowhere: no figure on this tab is scaled down by it.</p>' +
+    '</div>';
+  host.innerHTML = out;
+}
+
+/* ── Today so far ────────────────────────────────────────────────────────── */
+function renderToday(){
+  var host = el('heroT');
+  if (!N) {
+    host.innerHTML = '<div class="hd"><h2>Today so far</h2></div><div class="bd">' +
+      '<div class="verdict" style="font-size:12.5px;color:var(--ink-3)">Reading live from Norce&hellip; ' +
+      'The rest of this tab does not wait for it: everything else is one snapshot read, while ' +
+      'this is about fourteen live API calls.</div></div>';
+    return;
+  }
+  if (!N.available) {
+    host.innerHTML = '<div class="hd"><h2>Today so far</h2>' +
+      '<span class="dt">unavailable</span></div><div class="bd">' +
+      '<div class="eyebrow">Live Norce read</div>' +
+      '<div class="mid" style="color:var(--ink-3);font-size:21px">No figure</div>' +
+      '<p class="quiet"><b>Stated reason:</b> ' + esc(N.reason || 'the live API did not answer') + '</p>' +
+      '<p class="quiet">Nothing is substituted. Today cannot fall back to BigQuery: the nightly ' +
+      'copy holds only the orders placed between midnight and the 01:00 sync, so a figure from ' +
+      'there would be a fraction of a day wearing a whole day&rsquo;s label.</p></div>';
+    return;
+  }
+  var p = N.partial_day, lfl = N.like_for_like, share = p.elapsed_share_of_prev_day;
+  var dRev = (lfl && lfl.prev.revenue_sek)
+    ? (100 * (lfl.today.revenue_sek - lfl.prev.revenue_sek) / lfl.prev.revenue_sek) : null;
+  var dOrd = (lfl && lfl.prev.orders)
+    ? (100 * (lfl.today.orders - lfl.prev.orders) / lfl.prev.orders) : null;
+
+  host.innerHTML =
+    '<div class="hd"><h2>Today so far &middot; ' + esc(dayName(p.date)) + '</h2>' +
+    '<span class="dt">to ' + esc((N.fetched_at_local || '').slice(11)) + '</span></div>' +
+    '<div class="bd">' +
+    '<div class="eyebrow">Ordered revenue <span class="tag">Provisional</span></div>' +
+    '<div class="mid">' + sek(p.revenue_sek) + '<span class="u">SEK so far</span></div>' +
+    '<div class="vsub">' + sek(p.orders) + ' orders &middot; AOV ' + sek(p.aov_sek) + ' SEK</div>' +
+    (share != null
+      ? '<div class="matbar" role="img" aria-label="' + (share*100).toFixed(0) +
+        ' per cent of the previous day had arrived by this time">' +
+        '<i style="width:' + Math.max(0, Math.min(100, share*100)).toFixed(1) + '%"></i></div>' +
+        '<div class="vsub">' + (share*100).toFixed(0) + '% of ' + esc(N.complete_day.date) +
+        ' had arrived by this clock time</div>'
+      : '') +
+    '<div class="sec" style="flex-direction:column;align-items:stretch;gap:7px">' +
+      '<span class="lb">Like for like, both sides truncated at ' + esc(lfl ? lfl.cutoff_local : '') +
+      ' &mdash; the only comparison a maturing day may drive</span>' +
+      '<div><span class="vl">' + delta(dRev) + '</span> ' +
+        '<span class="vsub" style="display:inline">revenue, against ' +
+        sek(lfl ? lfl.prev.revenue_sek : null) + ' at the same point yesterday</span></div>' +
+      '<div><span class="vl">' + delta(dOrd) + '</span> ' +
+        '<span class="vsub" style="display:inline">orders, against ' +
+        sek(lfl ? lfl.prev.orders : null) + '</span></div>' +
+    '</div>' +
+    '<p class="quiet"><b>Not a forecast of the day.</b> Nothing here is grossed up. Today never ' +
+    'drives a headline comparison on its own, because it is still accruing and every baseline ' +
+    'it could be measured against is complete.</p>' +
+    '</div>';
+}
+
+/* ── Rolling windows ─────────────────────────────────────────────────────── */
+function renderRolling(){
+  ['7','28'].forEach(function (n) {
+    var host = el('roll' + n), r = D && D.rolling && D.rolling['r' + n];
+    if (!r) {
+      host.innerHTML = '<div class="card-h"><div><div class="eyebrow">Rolling ' + n +
+        ' days</div><h2>Not available</h2></div></div><div class="card-b">' +
+        '<p class="quiet" style="margin:0">A ' + n + '-day window needs ' + n +
+        ' consecutive complete days. One or more is missing from the snapshot, so no total is ' +
+        'shown rather than a short one, which would read as a fall.</p></div>';
+      return;
+    }
+    var prev = r.vs.prev, ly = r.vs.last_year;
+    host.innerHTML =
+      '<div class="card-h"><div><div class="eyebrow">Rolling ' + n + ' days</div>' +
+      '<h2>' + esc(shortDay(r.from)) + ' &ndash; ' + esc(shortDay(r.to)) + '</h2></div>' +
+      '<div class="sub">whole weeks, so the weekday effect cancels</div></div>' +
+      '<div class="card-b">' +
+      '<div class="v">' + msek(r.rev) + '<span class="u">MSEK ordered</span></div>' +
+      '<div class="vsub">' + sek(r.orders) + ' orders &middot; AOV ' + sek(r.aov) +
+      ' SEK &middot; ' + sek(r.units) + ' units</div>' +
+      '<div class="cmps" style="grid-template-columns:1fr 1fr">' +
+        cmpCard(prev) + cmpCard(ly) +
+      '</div></div>';
+  });
+}
+
+/* ── Daily series chart ───────────────────────────────────────────────────────
+ * Inline SVG, no library: the CDNs are unreachable from the networks this is
+ * read on, and this shape does not need one.
+ *
+ * Weekends are shaded AND drawn in a lighter fill, because the single most
+ * likely misreading of a daily revenue series is treating its weekly sawtooth
+ * as instability. The 7-day mean is drawn over the top for the same reason: it
+ * is the line that actually shows trend.
+ *
+ * Built into an array and joined once. Never innerHTML += in a row loop — that
+ * is O(N squared) and froze the Inventory tab for sixty seconds once. */
+function renderChart(){
+  var host = el('chart');
+  if (!D || !D.series || !D.series.length) { host.innerHTML = ''; return; }
+
+  var all = D.series, n = Math.min(CH.days, all.length);
+  var rows = all.slice(all.length - n);
+  var byDate = {}; all.forEach(function (s) { byDate[s.d] = s; });
+
+  /* Seven-day trailing mean, computed over the FULL series so the first days of
+   * the visible window are not left without one. */
+  var idx = {}; all.forEach(function (s, i) { idx[s.d] = i; });
+  function ma(d){
+    var i = idx[d]; if (i == null || i < 6) return null;
+    var t = 0; for (var k = 0; k < 7; k++) t += all[i-k].r;
+    return t / 7;
+  }
+  function lastYear(d){
+    var t = new Date(d + 'T12:00:00Z');
+    t.setUTCDate(t.getUTCDate() - (D.history.yoy_shift_days || 364));
+    var key = t.toISOString().slice(0,10);
+    return byDate[key] ? byDate[key].r : null;
+  }
+
+  var W = 1060, H = 280, L = 66, R = 14, T = 12, B = 34;
+  var iw = W - L - R, ih = H - T - B;
+  var maxV = 0;
+  rows.forEach(function (s) {
+    maxV = Math.max(maxV, s.r);
+    if (CH.ly) { var l = lastYear(s.d); if (l) maxV = Math.max(maxV, l); }
+  });
+  if (!maxV) { host.innerHTML = ''; return; }
+  /* A "nice" axis step, so the gridlines read 0.5 / 1.0 / 1.5 rather than
+   * 0.4 / 0.8 / 1.1. Take the smallest of 1, 2, 2.5, 5, 10 x a power of ten
+   * that still fits the target tick count. */
+  var raw = maxV / 4, mag = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10));
+  var step = mag * 10;
+  [1, 2, 2.5, 5, 10].some(function (m) { if (mag * m >= raw) { step = mag * m; return true; } return false; });
+  var top = Math.ceil(maxV / step) * step, ticks = Math.round(top / step);
+  var dp = step >= 1e6 ? 1 : (step >= 1e5 ? 1 : 2);
+  var bw = iw / rows.length, bar = Math.max(1, bw * 0.72);
+  function x(i){ return L + i * bw + (bw - bar) / 2; }
+  function y(v){ return T + ih - (v / top) * ih; }
+
+  var o = [];
+  o.push('<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Ordered revenue by day, last ' +
+         n + ' days">');
+
+  /* Weekend bands first, so everything else sits on top of them. */
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].wd >= 5) {
+      o.push('<rect x="' + (L + i*bw).toFixed(1) + '" y="' + T + '" width="' + bw.toFixed(1) +
+             '" height="' + ih + '" fill="#F1EEE9"/>');
+    }
+  }
+  /* Gridlines + y labels. */
+  for (var g = 0; g <= ticks; g++) {
+    var vv = top * g / ticks, yy = y(vv);
+    o.push('<line x1="' + L + '" x2="' + (W-R) + '" y1="' + yy.toFixed(1) + '" y2="' + yy.toFixed(1) +
+           '" stroke="#E8E4DE" stroke-width="1"/>');
+    o.push('<text x="' + (L-9) + '" y="' + (yy+3.5).toFixed(1) + '" text-anchor="end" font-size="10.5" ' +
+           'fill="#8C9098" font-family="ui-monospace,Menlo,monospace">' + (vv/1e6).toFixed(dp) + 'M</text>');
+  }
+  /* Bars. A native <title> gives a tooltip with no JS and no library. */
+  for (i = 0; i < rows.length; i++) {
+    var s = rows[i], h = Math.max(0, y(0) - y(s.r));
+    o.push('<rect x="' + x(i).toFixed(1) + '" y="' + y(s.r).toFixed(1) + '" width="' + bar.toFixed(1) +
+           '" height="' + h.toFixed(1) + '" fill="' + (s.wd >= 5 ? '#9FBCA9' : '#235837') +
+           '" rx="1"><title>' + esc(dayName(s.d)) + ': ' + sek(s.r) + ' SEK, ' + sek(s.o) +
+           ' orders</title></rect>');
+  }
+  /* Last year, weekday aligned, drawn behind the mean line. */
+  if (CH.ly) {
+    var lp = [];
+    for (i = 0; i < rows.length; i++) {
+      var lv = lastYear(rows[i].d);
+      lp.push(lv == null ? null : [(x(i) + bar/2).toFixed(1), y(lv).toFixed(1)]);
+    }
+    o.push(path(lp, '#A9621A', 1.4, '4 3'));
+  }
+  /* Seven-day mean. */
+  var mp = [];
+  for (i = 0; i < rows.length; i++) {
+    var mv = ma(rows[i].d);
+    mp.push(mv == null ? null : [(x(i) + bar/2).toFixed(1), y(mv).toFixed(1)]);
+  }
+  o.push(path(mp, '#1B2839', 1.9, null));
+
+  /* X labels: every seventh bar, plus the last one, so the axis never crowds. */
+  for (i = 0; i < rows.length; i++) {
+    if (i % 7 !== 0 && i !== rows.length - 1) continue;
+    o.push('<text x="' + (x(i) + bar/2).toFixed(1) + '" y="' + (H - B + 16) +
+           '" text-anchor="middle" font-size="10" fill="#8C9098">' + esc(shortDay(rows[i].d)) + '</text>');
+  }
+  o.push('<line x1="' + L + '" x2="' + (W-R) + '" y1="' + y(0) + '" y2="' + y(0) +
+         '" stroke="#D9D3CB" stroke-width="1"/>');
+  o.push('</svg>');
+  host.innerHTML = o.join('');
+
+  el('chLegend').innerHTML =
+    '<span><i style="background:#235837"></i>Weekday</span>' +
+    '<span><i style="background:#9FBCA9"></i>Weekend</span>' +
+    '<span><i style="background:#1B2839;height:3px;border-radius:0"></i>7-day mean</span>' +
+    (CH.ly ? '<span><i style="background:#A9621A;height:3px;border-radius:0"></i>Same weekday last year</span>' : '');
+  el('chNote').innerHTML =
+    'Weekends are shaded and drawn lighter. The weekly sawtooth in this series is the normal ' +
+    'shape of the business, not instability, which is why the 7-day mean is drawn over it: that ' +
+    'is the line to read for trend. Last year is aligned by weekday at &minus;' +
+    esc(D.history.yoy_shift_days) + ' days, not by calendar date.';
+}
+
+function path(pts, colour, w, dash){
+  var d = '', pen = false, out = [];
+  for (var i = 0; i < pts.length; i++) {
+    if (!pts[i]) { pen = false; continue; }
+    d += (pen ? 'L' : 'M') + pts[i][0] + ' ' + pts[i][1] + ' ';
+    pen = true;
+  }
+  if (!d) return '';
+  out.push('<path d="' + d.trim() + '" fill="none" stroke="' + colour + '" stroke-width="' + w +
+           '" stroke-linejoin="round" stroke-linecap="round"' +
+           (dash ? ' stroke-dasharray="' + dash + '"' : '') + '/>');
+  return out.join('');
+}
+
+/* ── Month to date ───────────────────────────────────────────────────────── */
+function renderMtd(){
+  var m = D && D.mtd;
+  if (!m) { el('mtdBody').innerHTML = ''; return; }
+  el('mtdTitle').textContent = m.month_label;
+  el('mtdSub').textContent = 'day ' + m.days_elapsed + ' of ' + m.days_in_month +
+                             ' · ordered, order date';
+
+  var p = m.plan;
+  var o = [];
+  o.push('<div class="paceg">' +
+    '<div class="it"><span class="lb">Ordered, month to date</span>' +
+      '<span class="v" style="font-size:24px">' + msek(m.rev) + '<span class="u">MSEK</span></span></div>' +
+    '<div class="it"><span class="lb">Orders</span><span class="v" style="font-size:24px">' +
+      sek(m.orders) + '</span></div>' +
+    (m.ly
+      ? '<div class="it"><span class="lb">Same days last year</span>' +
+        '<span class="v" style="font-size:24px">' + msek(m.ly.rev) + '<span class="u">MSEK</span> ' +
+        delta(m.ly.d_rev) + '</span></div>'
+      : '') +
+    '</div>');
+
+  if (m.ly) {
+    o.push('<p class="quiet" style="margin-top:12px"><b>The clean comparison first.</b> ' +
+      'Month to date against the same days last year is ' + pf(m.ly.d_rev) + ', and both sides of ' +
+      'that are ordered intake, so it is a like-for-like reading. The plan comparison below is ' +
+      'not: the plan is a P&amp;L line.</p>');
+  }
+
+  if (p) {
+    /* Share of the WHOLE month's plan already ordered. Deliberately not
+     * actual/plan-to-date, which is just the pace percentage wearing a
+     * different label. */
+    var pctOfPlan = p.month_sek ? (100 * p.actual_to_date_sek / p.month_sek) : null;
+    var fill = Math.max(0, Math.min(100, 100 * p.actual_to_date_sek / (p.month_sek || 1)));
+    var mark = Math.max(0, Math.min(100, p.share_to_date_pct));
+    var flatMark = Math.max(0, Math.min(100, p.flat_share_to_date_pct));
+    o.push(
+      '<div style="margin-top:16px">' +
+      '<div class="lb" style="margin-bottom:6px">Against the monthly plan &mdash; ' +
+      msek(p.month_sek) + ' MSEK for the whole month, merchandise only</div>' +
+      '<div class="pace"><i style="width:' + fill.toFixed(1) + '%"></i>' +
+        '<span class="mark" style="left:' + mark.toFixed(1) + '%" title="Plan to date, shaped"></span>' +
+        '<span class="mark" style="left:' + flatMark.toFixed(1) + '%;background:var(--ink-3);opacity:.55" ' +
+        'title="Plan to date, flat calendar"></span>' +
+      '</div>' +
+      '<div class="vsub" style="margin-top:7px">Bar is actual merchandise ordered. Solid mark is ' +
+      'plan to date on the shaped pro-rating (' + pf(p.share_to_date_pct, 1).replace('+','') +
+      ' of the month); grey mark is a flat calendar share (' +
+      pf(p.flat_share_to_date_pct, 1).replace('+','') + ').</div>' +
+      '<div class="paceg" style="margin-top:14px">' +
+        '<div class="it"><span class="lb">Actual, merchandise</span><span class="vl">' +
+          msek(p.actual_to_date_sek) + ' MSEK</span></div>' +
+        '<div class="it"><span class="lb">Plan to date, shaped</span><span class="vl">' +
+          msek(p.to_date_sek) + ' MSEK &nbsp;' + delta(p.pace_pct) + '</span></div>' +
+        '<div class="it"><span class="lb">Plan to date, flat</span><span class="vl">' +
+          msek(p.flat_to_date_sek) + ' MSEK &nbsp;' + delta(p.flat_pace_pct) + '</span></div>' +
+        '<div class="it"><span class="lb">Share of the month&rsquo;s plan ordered</span><span class="vl">' +
+          (pctOfPlan == null ? '–' : pctOfPlan.toFixed(0) + '%') + '</span></div>' +
+      '</div></div>');
+    o.push('<p class="quiet" style="margin-top:13px">' + esc(m.plan_note) + '</p>');
+    o.push('<p class="quiet">Pro-rating method: ' + esc(p.shape_method) + '. ' +
+      'Where the shaped and flat marks disagree, the honest reading sits between them.</p>');
+  } else {
+    o.push('<p class="quiet" style="margin-top:12px">No plan is loaded for this month, so no ' +
+      'pacing is shown. ' + esc((m.plan_meta && m.plan_meta.reason) || '') + '</p>');
+  }
+  el('mtdBody').innerHTML = o.join('');
+}
+
+/* ── Markets ─────────────────────────────────────────────────────────────── */
+function renderMarkets(){
+  var t = el('mktTable');
+  var rowsIn = D && D.markets && D.markets[MKT];
+  if (!rowsIn || !rowsIn.length) { t.innerHTML = ''; return; }
+  var isDay = MKT === 'yesterday';
+  var prevLabel = isDay ? 'vs same weekday last week' : 'vs previous 7 days';
+  /* Below this much revenue on the comparison side, a percentage is noise: a
+   * long-tail market moving from 900 SEK to 6 500 reads as +568% and means
+   * nothing. The absolute columns are still there to be read. */
+  var FLOOR = isDay ? 25000 : 175000;
+  function mdelta(d, base){
+    if (d == null) return '<span class="na">–</span>';
+    if (base != null && Math.abs(base) < FLOOR) {
+      return '<span class="na" title="Base ' + sek(base) + ' SEK is too small to carry a ' +
+             'percentage, so none is shown.">–</span>';
+    }
+    return delta(d);
+  }
+
+  var o = [];
+  o.push('<thead><tr><th>Market</th><th>Ordered SEK</th><th>Share</th><th>Orders</th>' +
+         '<th>AOV</th><th>Units</th><th>' + esc(prevLabel) + '</th><th>vs last year</th></tr></thead><tbody>');
+  var tot = { rev:0, orders:0, units:0 };
+  for (var i = 0; i < rowsIn.length; i++) {
+    var r = rowsIn[i];
+    tot.rev += r.rev; tot.orders += r.orders; tot.units += r.units;
+    o.push('<tr><td>' + esc(r.name) + '</td>' +
+      '<td class="num">' + sek(r.rev) + '</td>' +
+      '<td class="num">' + (r.share == null ? '–' : r.share.toFixed(1) + '%') + '</td>' +
+      '<td class="num">' + sek(r.orders) + '</td>' +
+      '<td class="num">' + sek(r.aov) + '</td>' +
+      '<td class="num">' + sek(r.units) + '</td>' +
+      '<td class="num">' + mdelta(r.d_prev, r.prev_rev) + '</td>' +
+      '<td class="num">' + mdelta(r.d_yoy, r.yoy_rev) + '</td></tr>');
+  }
+  o.push('</tbody><tfoot><tr><td>All markets</td><td class="num">' + sek(tot.rev) +
+    '</td><td class="num">100.0%</td><td class="num">' + sek(tot.orders) +
+    '</td><td class="num">' + sek(tot.orders ? tot.rev / tot.orders : null) +
+    '</td><td class="num">' + sek(tot.units) + '</td><td></td><td></td></tr></tfoot>');
+  t.innerHTML = o.join('');
+  el('mktNote').innerHTML = esc(D.markets.note) +
+    ' There is no market-level plan: the rolling forecast is global only, so no target column ' +
+    'is shown here and none should be inferred. A dash in a percentage column means the ' +
+    'comparison base was under ' + sek(FLOOR) + ' SEK, too small for a percentage to say ' +
+    'anything; read the absolute columns instead.';
+  /* enhance(), not attach(): the shared API is enhance/enhanceAll/refresh, and
+   * it is safe to re-call on the same table after a re-render. */
+  if (window.TableTools) {
+    tools.markets = window.TableTools.enhance(t,
+      { scroll:false, exportName:'daily-performance-markets', exportFooter:true });
+    if (tools.markets && tools.markets.clearFilters) tools.markets.clearFilters();
+  }
+}
+
+/* ── Notices, method, freshness ──────────────────────────────────────────── */
+function renderNotices(){
+  var o = [];
+  if (D && N && N.available && N.complete_day && N.complete_day.date !== D.yesterday.d) {
+    o.push('<div class="notice warn">The nightly snapshot is behind the live read. Comparisons ' +
+      'on this page are computed for <b>' + esc(D.yesterday.d) + '</b> and are shown for that day. ' +
+      'The live API reports <b>' + sek(N.complete_day.revenue_sek) + ' SEK</b> on ' +
+      esc(N.complete_day.date) + ', which has no baselines yet. No comparison has been ' +
+      're-pointed at a day it was not computed for.</div>');
+  }
+  if (D && N && N.available && N.complete_day && N.complete_day.date === D.yesterday.d) {
+    var gap = Math.abs(N.complete_day.revenue_sek - D.yesterday.rev);
+    var rel = D.yesterday.rev ? 100 * gap / D.yesterday.rev : 0;
+    if (rel > 0.5) {
+      o.push('<div class="notice crit">The live Norce read and the nightly BigQuery copy disagree ' +
+        'about ' + esc(D.yesterday.d) + ' by ' + sek(gap) + ' SEK (' + rel.toFixed(2) + '%). They ' +
+        'are the same measure and should agree to the krona, so treat the comparisons below as ' +
+        'suspect and check whether <code>norce-sync</code> is still running.</div>');
+    }
+  }
+  el('notices').innerHTML = o.join('');
+}
+
+function renderMethod(){
+  if (!D) return;
+  var h = D.history, m = D.measure || {}, dg = D.diagnostics || {};
+  var liveOk = N && N.available;
+  el('methodVerdict').innerHTML =
+    'Order date &middot; Norce &middot; history from ' + esc(h.usable_from) + ' &middot; ' +
+    (h.yoy_available ? 'year-on-year available' : 'no year-on-year yet');
+
+  el('freshRow').innerHTML =
+    '<span><b>Basis</b> order date, not posting date</span>' +
+    '<span><b>Snapshot</b> ' + esc((D.generated_at || '').replace('T',' ').replace('+00:00','Z')) + '</span>' +
+    '<span><b>Latest complete day</b> ' + esc(D.latest_complete_day) + '</span>' +
+    '<span><b>History</b> ' + esc(h.min_day) + ' to ' + esc(h.max_day) + '</span>' +
+    '<span><b>Series</b> ' + esc(h.days_in_window) + ' days, ' + esc(h.days_missing_in_window) + ' missing</span>' +
+    '<span><b>Live read</b> ' + (liveOk
+      ? esc(N.fetched_at_local || '') + ', ' + esc((N.diagnostics || {}).http_calls) + ' calls'
+      : '<span style="color:var(--crit-ink)">unavailable</span>') + '</span>' +
+    (D && N && liveOk && N.complete_day && N.complete_day.date === D.yesterday.d
+      && Math.abs(N.complete_day.revenue_sek - D.yesterday.rev) < 1
+      ? '<span style="color:var(--good-ink)">&#9679; live and BigQuery agree to the krona on ' +
+        esc(D.yesterday.d) + '</span>'
+      : '');
+
+  el('methodProse').innerHTML =
+    '<p class="prose"><b>This tab is ordered, the Executive P&amp;L is posted.</b> ' +
+    esc(D.basis_warning) + '</p>' +
+    '<p class="prose"><b>Why the two sources.</b> Today and yesterday come from the Norce API, ' +
+    'read live. Every comparison, window and market split comes from the nightly BigQuery copy, ' +
+    'because a sixty-day history cannot be pulled through an API that allows three token requests ' +
+    'a minute. The seam sits at yesterday because the 01:00 sync closes the previous day, and ' +
+    'yesterday exists on both sides so the two can be checked against each other. Today is ' +
+    'live-only and has no fallback.</p>' +
+    '<p class="prose"><b>' + esc(h.note) + '</b></p>' +
+    '<p class="prose"><b>No margin at day grain.</b> ' + esc(m.no_margin || '') + '</p>' +
+    '<p class="prose"><b>Currency.</b> ' + esc(m.fx_note || '') + '</p>' +
+    '<p class="prose"><b>Trading day.</b> ' + esc(m.tz_note || '') + '</p>' +
+    '<p class="prose"><b>What counts as an order.</b> ' + esc(m.scope || '') +
+    ' Orders are born at status 2 and move to 4 in about two days, so filtering to "confirmed" ' +
+    'would zero a fresh day; status 6 is the only state that never invoices.</p>' +
+    '<p class="prose"><b>Cost of this page.</b> One Firestore read for the snapshot ' +
+    '(' + esc(dg.rows_read) + ' rows aggregated nightly), plus about fourteen live Norce calls ' +
+    'for today, cached ' + esc(N && N.cache_ttl_s ? N.cache_ttl_s : '120') + 's.</p>';
+}
+
+function renderAll(){
+  renderNotices(); renderYesterday(); renderToday(); renderRolling();
+  renderChart(); renderMtd(); renderMarkets(); renderMethod();
+}
+
+/* ── Controls ────────────────────────────────────────────────────────────── */
+el('chChips').addEventListener('click', function (e) {
+  var b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.ly) { CH.ly = !CH.ly; b.setAttribute('aria-pressed', CH.ly ? 'true' : 'false'); }
+  else {
+    CH.days = +b.dataset.n;
+    Array.prototype.forEach.call(this.querySelectorAll('button[data-n]'), function (x) {
+      x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+  }
+  renderChart();
+});
+el('mktChips').addEventListener('click', function (e) {
+  var b = e.target.closest('button'); if (!b) return;
+  MKT = b.dataset.w;
+  Array.prototype.forEach.call(this.querySelectorAll('button'), function (x) {
+    x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+  renderMarkets();
+});
+
+/* ── Load ─────────────────────────────────────────────────────────────────────
+ * The two sources are fetched independently and neither blocks the other: the
+ * snapshot is one Firestore read while the live call is ~14 HTTP round trips to
+ * Norce, and holding the whole page for the slower one would make the tab feel
+ * broken every morning. */
+function pill(t, bad){
+  var p = el('readPill'); if (!p) return;
+  p.textContent = t;
+  p.style.color = bad ? 'var(--crit-ink)' : '';
+}
+
+fetch('/api/daily-perf', { credentials:'same-origin' })
+  .then(function (r) { return r.json(); })
+  .then(function (j) {
+    if (!j || j.pending || !j.yesterday) { el('pending').hidden = false; pill('no snapshot', true); return; }
+    D = j;
+    el('pending').hidden = true;
+    pill(D.latest_complete_day);
+    renderAll();
+  })
+  .catch(function (e) {
+    el('pending').hidden = false;
+    el('pending').textContent = 'Could not load /api/daily-perf: ' + e.message;
+    pill('snapshot failed', true);
+  });
+
+fetch('/api/norce-today', { credentials:'same-origin' })
+  .then(function (r) { return r.json(); })
+  .then(function (j) { N = j; renderAll(); })
+  .catch(function (e) {
+    N = { available:false,
+          reason:'The dashboard could not reach its own /api/norce-today (' + e.message + ').' };
+    renderAll();
+  });
+
+renderYesterday(); renderToday();
+})();
+</script>
+</body>
+</html>

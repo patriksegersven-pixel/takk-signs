@@ -144,6 +144,7 @@ BUNDLES_HTML   = STATIC_DIR / "babyshop-bundles-dashboard.html"
 SOS_HTML       = STATIC_DIR / "babyshop-sos-dashboard.html"
 META_HTML      = STATIC_DIR / "babyshop-meta-dashboard.html"
 EXEC_PL_HTML   = STATIC_DIR / "babyshop-exec-pl.html"
+DAILY_PERF_HTML = STATIC_DIR / "babyshop-daily-perf.html"
 TABLE_TOOLS_JS = STATIC_DIR / "table-tools.js"
 CHART_JS       = STATIC_DIR / "chart.umd.js"
 BRAND_CSS      = STATIC_DIR / "brand.css"
@@ -417,6 +418,54 @@ def api_norce_today(_: str = Depends(verify)):
     import norce_today
 
     return norce_today.get()
+
+
+@app.get("/api/daily-perf")
+def api_daily_perf(_: str = Depends(verify)):
+    """Daily performance HISTORY snapshot (written by refresh_daily_perf.py).
+
+    One Firestore document, `funnel_cache/{workspace}__daily-perf`, built nightly
+    from the `norce` BigQuery dataset on ORDER DATE. It carries every comparison
+    the tab makes: same weekday last week, the trailing four-week same-weekday
+    average, year-on-year at -364 days, the rolling 7 and 28 day windows, the
+    market split, the month-to-date pacing and the daily series.
+
+    It deliberately does NOT carry today, or yesterday's headline. Those are
+    live, from /api/norce-today: the nightly BigQuery copy closes at the 01:00
+    sync, so its "today" is only the orders placed after midnight. The page
+    joins the two and shows their agreement on yesterday, which is the day they
+    overlap. See refresh_daily_perf.py's docstring for why the seam is there.
+
+    Same 200-with-a-skeleton contract as /api/exec-pl: the page ships before its
+    refresher has run, and a null `generated_at` with no `yesterday` is the
+    signal to render the pending state rather than a fetch error."""
+    from funnel_client import get_cache
+
+    try:
+        data = get_cache().get("daily-perf")
+    except Exception as e:
+        # A Firestore hiccup must not blank the tab — log and serve the skeleton.
+        print(f"ERROR /api/daily-perf: {type(e).__name__}: {e}", flush=True)
+        data = None
+    if data is not None:
+        return data
+    return {
+        "generated_at": None,
+        "pending": True,
+        "latest_complete_day": None,
+        "yesterday": None,
+        "rolling": {},
+        "markets": {},
+        "mtd": None,
+        "series": [],
+        "history": {},
+        "caveats": ["no daily-perf snapshot yet — the refresh job has not run"],
+    }
+
+
+@app.get("/babyshop-daily-perf.html")
+def daily_perf_dashboard(_: str = Depends(verify)):
+    return FileResponse(DAILY_PERF_HTML, media_type="text/html")
 
 
 @app.get("/babyshop-exec-pl.html")
