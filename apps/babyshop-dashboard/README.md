@@ -70,9 +70,12 @@ Simulations page was originally developed is archived and read-only.)
     (`--force-cooldown`) or steps over ±20 % (`--uncapped`), runs every mutate
     with `validate_only` first, and on `--apply --source <tag>` mutates, reads
     back, and appends one `target_changes` row per campaign with the κ-deflated
-    curve's predicted Δcost/ΔGP3. Creds: export the five `GOOGLE_ADS_*` secrets
-    inline (never to a file); an older local `google-ads` needs
-    `GOOGLE_ADS_API_VERSION=v23`. Never write a one-off mutate script instead.
+    curve's predicted Δcost/ΔGP3. `--from-recs` builds the plan itself from
+    `v_calibrated_recs` (generic class, not in cooldown, ≥1000/wk spend, rec ≥5 %
+    away, κ inside 0.5–2.0, step clipped to ±20 %) — the weekly optimisation
+    routine's path. Creds: export the five `GOOGLE_ADS_*` secrets inline (never
+    to a file); an older local `google-ads` needs `GOOGLE_ADS_API_VERSION=v23`.
+    Never write a one-off mutate script instead.
   - `gp3-simulations.js` — **legacy/fallback** MCC script writing the same three
     datasets to a Google Sheet ("Raw", "Shares", "Actuals" tabs)
   - `webapp.gs` — **legacy/fallback** Apps Script web app serving that sheet as a

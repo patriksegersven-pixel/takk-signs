@@ -28,9 +28,19 @@ USAGE
            GOOGLE_ADS_REFRESH_TOKEN GOOGLE_ADS_LOGIN_CUSTOMER_ID; do
     export $k="$(gcloud secrets versions access latest --secret=$k --project=$P)"; done
 
-  # 2. plan: JSON list of {"customer_id", "campaign_id", "new_target"}; names optional
+  # 2a. plan: JSON list of {"customer_id", "campaign_id", "new_target"}; names optional
   python3 pipeline/apply_troas.py --plan plan.json                     # dry run: validateOnly
   python3 pipeline/apply_troas.py --plan plan.json --apply --source rec-final-capped-2026-09-21
+
+  # 2b. or let the calibrated view write the plan (the weekly routine's path):
+  python3 pipeline/apply_troas.py --from-recs --write-plan plan.json   # dry run
+  python3 pipeline/apply_troas.py --from-recs --apply --source rec-final-weekly-2026-09-29
+     --from-recs selects generic-class campaigns (1:1 incrementality; brand and
+     private-label recs are directional only) that are NOT in cooldown, spend at
+     least --min-spend (1000/week, account currency) and whose rec_final differs
+     from the live target by at least --min-move (5 %). Each step is clipped to the
+     ±20 % cap and rounded to 2 dp. The result is an ordinary plan, so every guard
+     below still runs on it.
 
   Dry run prints the full table (live target, calibrated rec, cooldown, step %, the
   predicted Δcost/ΔGP3 that would be logged) and runs every mutate with
@@ -54,7 +64,67 @@ import roas_sims_bq as rsb  # noqa: E402
 from refresh_roas_sims import ACCOUNTS, ads_client, missing_credentials  # noqa: E402
 
 STEP_CAP_PCT = 20.0
+KAPPA_SANE = (0.5, 2.0)   # --from-recs: skip campaigns whose κ says the sim is off by >2x
 ACCOUNT_BY_CID = {a["cid"]: a for a in ACCOUNTS}
+CID_BY_LABEL = {a["label"]: a["cid"] for a in ACCOUNTS}
+
+
+def plan_from_recs(min_spend: float, min_move_pct: float, classes: tuple[str, ...]) -> list[dict]:
+    """Build a capped plan from v_calibrated_recs — the weekly routine's input.
+
+    Selection: inc_class in `classes`, not in cooldown, avg 7-day spend ≥ min_spend,
+    |rec_final − current| ≥ min_move_pct of current, and BOTH κ factors inside
+    KAPPA_SANE — a κ of 3 means Google's curve and the measured actuals disagree by
+    3x, which is a handful of conversions in a tiny market (ROW), not a level to
+    optimise on. Step clipped to ±STEP_CAP_PCT. Campaigns whose live target is 0
+    (MCV without a target) never appear in the view (current_target > 0 filter), so
+    setting a FIRST target stays a manual decision.
+    """
+    from google.cloud import bigquery
+
+    sql = f"""
+        SELECT r.customer_name, r.strategy_id, r.strategy_name, r.current_target,
+               r.rec_final, r.gate, r.cooldown, r.days_since_change, k.avg_7d_cost,
+               r.k_cost, r.k_value
+        FROM `{rsb.T("v_calibrated_recs")}` r
+        LEFT JOIN `{rsb.T("v_kappa_calibrated")}` k USING (customer_name, strategy_id)
+        WHERE r.inc_class IN UNNEST(@classes) AND r.current_target > 0
+        ORDER BY r.customer_name, k.avg_7d_cost DESC
+    """
+    job = rsb.bq().query(sql, job_config=bigquery.QueryJobConfig(query_parameters=[
+        bigquery.ArrayQueryParameter("classes", "STRING", list(classes))]))
+    plan, why_not = [], []
+    for r in job.result():
+        cur, rec = float(r.current_target), float(r.rec_final)
+        spend = float(r.avg_7d_cost or 0)
+        move_pct = 100 * (rec / cur - 1)
+        cid = CID_BY_LABEL.get(r.customer_name)
+        skip = None
+        if not cid:
+            skip = "unknown account"
+        elif r.cooldown:
+            skip = f"cooldown {r.days_since_change}d"
+        elif spend < min_spend:
+            skip = f"spend {spend:,.0f}/wk < {min_spend:,.0f}"
+        elif abs(move_pct) < min_move_pct:
+            skip = f"rec within {min_move_pct:g}% ({move_pct:+.1f}%)"
+        elif not (KAPPA_SANE[0] <= float(r.k_cost or 1) <= KAPPA_SANE[1]
+                  and KAPPA_SANE[0] <= float(r.k_value or 1) <= KAPPA_SANE[1]):
+            skip = (f"κ unreliable (cost {float(r.k_cost or 1):.2f}, value "
+                    f"{float(r.k_value or 1):.2f}; sane band {KAPPA_SANE[0]}–{KAPPA_SANE[1]})")
+        if skip:
+            why_not.append((r.customer_name, r.strategy_name, skip))
+            continue
+        capped = max(-STEP_CAP_PCT, min(STEP_CAP_PCT, move_pct))
+        plan.append({"customer_id": cid, "campaign_id": str(r.strategy_id),
+                     "name": f"{r.customer_name} {r.strategy_name}",
+                     "new_target": round(cur * (1 + capped / 100), 2),
+                     "rec_final": rec, "clipped": abs(capped) < abs(move_pct) - 1e-9})
+    if why_not:
+        print(f"--from-recs skipped {len(why_not)} campaign(s):")
+        for a, n, w in why_not:
+            print(f"  {a:<12} {n[:40]:<40} {w}")
+    return plan
 
 
 def _live_campaigns(svc, plan: list[dict]) -> dict[tuple[str, str], dict]:
@@ -124,7 +194,16 @@ def _operation(client, cid: str, campaign_id: str, field: str, value: float):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    ap.add_argument("--plan", required=True, help="JSON: [{customer_id, campaign_id, new_target}]")
+    ap.add_argument("--plan", help="JSON: [{customer_id, campaign_id, new_target}]")
+    ap.add_argument("--from-recs", action="store_true",
+                    help="build the plan from v_calibrated_recs instead of --plan")
+    ap.add_argument("--write-plan", help="with --from-recs: also save the generated plan here")
+    ap.add_argument("--min-spend", type=float, default=1000.0,
+                    help="--from-recs: min avg 7-day spend, account currency (default 1000)")
+    ap.add_argument("--min-move", type=float, default=5.0,
+                    help="--from-recs: min |rec_final - live| in %% to act (default 5)")
+    ap.add_argument("--classes", default="generic",
+                    help="--from-recs: comma list of inc_class values (default generic)")
     ap.add_argument("--apply", action="store_true", help="mutate for real (default: validateOnly)")
     ap.add_argument("--source", default=None,
                     help="target_changes.source tag, e.g. rec-final-capped-2026-09-21")
@@ -137,12 +216,24 @@ def main() -> int:
 
     if args.apply and not args.source:
         ap.error("--apply requires --source (what recommended these changes)")
+    if bool(args.plan) == bool(args.from_recs):
+        ap.error("give exactly one of --plan or --from-recs")
     missing = missing_credentials()
     if missing:
         print("missing env: " + ", ".join(missing) + "\n" + __doc__.split("USAGE")[1].split("# 2.")[0])
         return 2
 
-    plan = json.load(open(args.plan))
+    if args.from_recs:
+        plan = plan_from_recs(args.min_spend, args.min_move,
+                              tuple(c.strip() for c in args.classes.split(",") if c.strip()))
+        if args.write_plan:
+            json.dump(plan, open(args.write_plan, "w"), indent=1)
+            print(f"wrote {len(plan)} row(s) to {args.write_plan}")
+        if not plan:
+            print("--from-recs: nothing to do this run.")
+            return 0
+    else:
+        plan = json.load(open(args.plan))
     for p in plan:
         p["customer_id"] = str(p["customer_id"]).replace("-", "")
         p["campaign_id"] = str(p["campaign_id"])
@@ -176,7 +267,9 @@ def main() -> int:
                 why.append("already at target")
         step_pct = (100 * (p["new_target"] / lv["current"] - 1)
                     if lv and lv["current"] else None)
-        if step_pct is not None and abs(step_pct) > STEP_CAP_PCT and not args.uncapped:
+        # +0.05: a step clipped to exactly the cap by --from-recs and rounded to 2 dp
+        # can land at 20.0000001 % — that is the cap, not a breach of it.
+        if step_pct is not None and abs(step_pct) > STEP_CAP_PCT + 0.05 and not args.uncapped:
             why.append(f"step {step_pct:+.0f}% exceeds ±{STEP_CAP_PCT:g}% cap (--uncapped)")
         if c.get("cooldown") and not args.force_cooldown:
             why.append(f"cooldown: changed {c.get('days_since_change')}d ago on "
