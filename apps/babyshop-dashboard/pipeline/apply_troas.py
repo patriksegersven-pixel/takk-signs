@@ -322,9 +322,18 @@ def main() -> int:
         return 0
 
     # ── live mutate + read-back ─────────────────────────────────────────────
+    # One account per request. A failure on one account must not stop the others
+    # and, above all, must not stop the read-back and the log for the accounts
+    # that DID change: on 2026-09-21 the 4th of 6 accounts raised, the loop
+    # aborted, five campaigns were live at new targets and nothing was logged.
     applied_at = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)
+    errors: dict[str, str] = {}
     for cid, ops in by_cid.items():
-        _mutate(client, cid, ops, validate_only=False)
+        try:
+            _mutate(client, cid, ops, validate_only=False)
+        except Exception as e:  # noqa: BLE001 - reported below, never swallowed
+            errors[cid] = _ads_error(e)
+            print(f"  ERROR {ACCOUNT_BY_CID[cid]['label']}: {errors[cid]}")
     after = _live_campaigns(ga, rows)
     mismatches = [r for r in rows
                   if abs((after.get((r["customer_id"], r["campaign_id"]), {}).get("current") or 0)
@@ -370,11 +379,26 @@ def main() -> int:
                                      write_disposition="WRITE_APPEND")
         rsb.bq().load_table_from_json(log_rows, rsb.T("target_changes"), job_config=cfg).result()
         print(f"logged {len(log_rows)} row(s) to {rsb.T('target_changes')} (source {args.source})")
-    if mismatches:
+    if errors or mismatches:
         print(f"WARNING: {len(mismatches)} campaign(s) did not read back at the new target "
-              "and were NOT logged — investigate before re-running.")
+              "and were NOT logged. Fix the cause and re-run the same plan: campaigns "
+              "already at target are skipped, the rest are applied and logged.")
+        for cid, msg in errors.items():
+            print(f"  {ACCOUNT_BY_CID[cid]['label']}: {msg}")
         return 1
     return 0
+
+
+def _ads_error(e: Exception) -> str:
+    """GoogleAdsException → the actual failure reasons, not the gRPC wrapper."""
+    fail = getattr(e, "failure", None)
+    if fail is not None:
+        return "; ".join(
+            f"{err.error_code} {err.message}"
+            + (f" [{'.'.join(p.field_name for p in err.location.field_path_elements)}]"
+               if err.location.field_path_elements else "")
+            for err in fail.errors) or str(e)
+    return f"{type(e).__name__}: {e}"
 
 
 if __name__ == "__main__":
