@@ -30,12 +30,31 @@ TABLES (dataset `roas_sims`, EU, day-partitioned on run_date)
                       predicted Δcost/ΔGP3 at apply time. Outcomes are NOT stored —
                       they are derived by joining actuals pre/post windows, so a late
                       conversion can never make a logged prediction stale.
+                      Two writers: pipeline/apply_troas.py logs at apply time (the
+                      model's own calibrated prediction), and reconcile_target_changes()
+                      — run by every daily refresh — reads the Google Ads change_event
+                      history and logs any target change made by ANY other path
+                      (UI, ad-hoc script, Google recommendation) with a prediction
+                      reconstructed from that day's raw curve. Rows carry `source`
+                      so the two are never confused. WHY: on 2026-09-15 twenty-two
+                      changes were applied by an ad-hoc script in another session
+                      and none reached the log; the scoring/λ layer was blind to
+                      them for six days. The log must not depend on an operator
+                      remembering a rule.
 
 IDEMPOTENCY
   Grids load into the run_date partition decorator (table$YYYYMMDD) with
   WRITE_TRUNCATE: a re-run of the same day replaces that day atomically and can never
-  duplicate or touch any other day. `target_changes` is append-only and written by
-  operators/tools, never by the refresh.
+  duplicate or touch any other day. `target_changes` is append-only; the reconciler
+  keys on (campaign_id, change_date) and never inserts a pair that already exists,
+  so re-running it is safe.
+
+COOLDOWN
+  v_calibrated_recs exposes `days_since_change` / `cooldown` (any logged change in
+  the last COOLDOWN_DAYS). A campaign in cooldown is still recommended on, but the
+  apply tool refuses to move it without --force-cooldown: Google's bidder re-learns
+  for 1–2 weeks after a step, and a second step inside that window destroys the
+  clean post-window the scoring needs — the change can never be graded.
 
 FAILURE ISOLATION
   The dashboard must keep serving even if BigQuery is down: refresh() calls
@@ -46,6 +65,10 @@ Run locally:
   python3 roas_sims_bq.py --ensure           create dataset/tables/views only
   python3 roas_sims_bq.py --backfill         export every snapshot still in Firestore
   python3 roas_sims_bq.py --date 2026-08-25  export one snapshot from Firestore
+  python3 roas_sims_bq.py --reconcile [--dry-run] [--days 28]
+                                             log target changes found in the Ads
+                                             change history but missing from
+                                             target_changes (needs GOOGLE_ADS_* env)
 """
 from __future__ import annotations
 
@@ -63,6 +86,14 @@ BQ_DATASET = os.environ.get("ROAS_SIMS_BQ_DATASET", "roas_sims")
 # EU (multi-region), matching `norce` and babyshop-funnel-data.bs_funnel_export so
 # training queries can join covariates without a cross-region copy.
 BQ_LOCATION = os.environ.get("ROAS_SIMS_BQ_LOCATION", "EU")
+# A campaign changed within this many days is flagged `cooldown` in v_calibrated_recs
+# and refused by pipeline/apply_troas.py without --force-cooldown. 14 = Google's own
+# "allow 1–2 weeks of re-learning" guidance, and the minimum for a clean 7-day post
+# window plus the ~3-day actuals trail before the next step.
+COOLDOWN_DAYS = int(os.environ.get("ROAS_SIMS_COOLDOWN_DAYS", "14"))
+# change_event is queryable ~30 days back; keep a margin under that.
+RECONCILE_LOOKBACK_DAYS = 28
+RECONCILED_SOURCE = "reconciled-change-event"
 
 
 def _credentials():
@@ -551,16 +582,28 @@ _VIEWS = {
                  END AS gate
           FROM base b
           LEFT JOIN `{v_lambda}` l ON l.campaign_id = b.strategy_id
+        ),
+        recent AS (
+          -- ANY logged change (applied by us or reconciled from the Ads change
+          -- history), not just the scored ones v_lambda knows about.
+          SELECT campaign_id, MAX(change_date) AS last_any_change_date
+          FROM `{target_changes}`
+          GROUP BY 1
         )
-        SELECT * EXCEPT(gate), gate,
-               CASE gate
+        SELECT g.* EXCEPT(gate), g.gate,
+               CASE g.gate
                  WHEN 'revert-spend-increase'
-                   THEN GREATEST(rec_calibrated, last_old_target)
+                   THEN GREATEST(g.rec_calibrated, g.last_old_target)
                  WHEN 'restore-profitable-spend'
-                   THEN LEAST(rec_calibrated, last_old_target)
-                 ELSE rec_calibrated
-               END AS rec_final
-        FROM gated
+                   THEN LEAST(g.rec_calibrated, g.last_old_target)
+                 ELSE g.rec_calibrated
+               END AS rec_final,
+               r.last_any_change_date,
+               DATE_DIFF(g.run_date, r.last_any_change_date, DAY) AS days_since_change,
+               IFNULL(DATE_DIFF(g.run_date, r.last_any_change_date, DAY) < {cooldown_days},
+                      FALSE) AS cooldown
+        FROM gated g
+        LEFT JOIN recent r ON r.campaign_id = g.strategy_id
     """,
 }
 
@@ -599,7 +642,8 @@ def ensure_tables() -> None:
                                   v_change_scoring=T("v_change_scoring"),
                                   v_marginal_scoring=T("v_marginal_scoring"),
                                   v_lambda=T("v_lambda"),
-                                  marginal_observations=T("marginal_observations"))
+                                  marginal_observations=T("marginal_observations"),
+                                  cooldown_days=COOLDOWN_DAYS)
         bq().delete_table(v, not_found_ok=True)   # views have no data; recreate freely
         bq().create_table(v)
 
@@ -751,7 +795,8 @@ def calibration_payload() -> dict:
                kappa_days, k_cost, k_value, current_target,
                rec_google, rec_calibrated, rec_final, gate,
                last_change_date, last_old_target, last_marginal,
-               last_sim_marginal, gp3_cal_at_current, gp3_cal_at_rec
+               last_sim_marginal, gp3_cal_at_current, gp3_cal_at_rec,
+               last_any_change_date, days_since_change, cooldown
         FROM `{T("v_calibrated_recs")}`
     """
     rows = []
@@ -777,11 +822,17 @@ def calibration_payload() -> dict:
             "lastSimMarginal": round(r.last_sim_marginal, 4) if r.last_sim_marginal is not None else None,
             "gp3CalAtCurrent": r.gp3_cal_at_current,
             "gp3CalAtRec": r.gp3_cal_at_rec,
+            # Cooldown: any logged change (ours or reconciled) inside COOLDOWN_DAYS.
+            "lastAnyChangeDate": (r.last_any_change_date.isoformat()
+                                  if r.last_any_change_date else None),
+            "daysSinceChange": r.days_since_change,
+            "cooldown": bool(r.cooldown),
         })
     return {
         "run_date": run_date,
         "generated_at": (_dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)
                          .isoformat().replace("+00:00", "Z")),
+        "cooldown_days": COOLDOWN_DAYS,
         "rows": rows,
     }
 
@@ -808,6 +859,233 @@ def backfill(dates: list[str] | None = None) -> list[dict]:
     return out
 
 
+# ── Curve predictions + target-change reconciliation ─────────────────────────
+#
+# The prediction a target_changes row carries is what makes the change scoreable:
+# v_change_scoring compares its sign with the realized Δcost/ΔGP3. apply_troas.py
+# writes the calibrated model's prediction at apply time; the reconciler below
+# reconstructs one from the raw Google curve of the change date for changes that
+# arrived by any other route, and says so in `notes`.
+
+def _interp(points: list[tuple[float, float, float]], t: float) -> tuple[float, float]:
+    """Linear interpolation of (cost, value) at target t on an anchor-free curve.
+
+    `points` is sorted by target. Outside the simulated range the nearest end point
+    is used unchanged — Google's simulator does not extrapolate and neither do we.
+    """
+    if not points:
+        raise ValueError("empty curve")
+    if t <= points[0][0]:
+        return points[0][1], points[0][2]
+    if t >= points[-1][0]:
+        return points[-1][1], points[-1][2]
+    for (t1, c1, v1), (t2, c2, v2) in zip(points, points[1:]):
+        if t1 <= t <= t2:
+            w = 0.0 if t2 == t1 else (t - t1) / (t2 - t1)
+            return c1 + w * (c2 - c1), v1 + w * (v2 - v1)
+    return points[-1][1], points[-1][2]
+
+
+def curve_points(customer_name: str, strategy_id: str, on_or_before: str,
+                 max_age_days: int = 3) -> tuple[str | None, list[tuple[float, float, float]]]:
+    """The latest anchor-free curve for a strategy at or before `on_or_before`.
+
+    Returns (run_date used, [(target, cost, value), ...]) — or (None, []) when no
+    snapshot within `max_age_days` carries the strategy (new campaign, dropped
+    dataset day).
+    """
+    sql = f"""
+        SELECT run_date, target_roas, cost, conversions_value
+        FROM `{T("sim_points")}`
+        WHERE customer_name = @cn AND strategy_id = @sid AND NOT is_anchor
+          AND run_date BETWEEN DATE_SUB(@d, INTERVAL @age DAY) AND @d
+          AND run_date = (
+            SELECT MAX(run_date) FROM `{T("sim_points")}`
+            WHERE customer_name = @cn AND strategy_id = @sid AND NOT is_anchor
+              AND run_date BETWEEN DATE_SUB(@d, INTERVAL @age DAY) AND @d)
+        ORDER BY target_roas
+    """
+    job = bq().query(sql, job_config=bigquery.QueryJobConfig(query_parameters=[
+        bigquery.ScalarQueryParameter("cn", "STRING", customer_name),
+        bigquery.ScalarQueryParameter("sid", "STRING", str(strategy_id)),
+        bigquery.ScalarQueryParameter("d", "DATE", on_or_before),
+        bigquery.ScalarQueryParameter("age", "INT64", max_age_days),
+    ]))
+    used, pts = None, []
+    for r in job.result():
+        used = r.run_date.isoformat()
+        if r.cost is None or r.conversions_value is None:
+            continue
+        pts.append((float(r.target_roas), float(r.cost), float(r.conversions_value)))
+    return used, pts
+
+
+def predict_change(points: list[tuple[float, float, float]], old: float, new: float,
+                   k_cost: float = 1.0, k_value: float = 1.0) -> dict:
+    """Δcost/ΔGP3 of moving old→new on `points`, both axes deflated by κ.
+
+    κ = 1 gives Google's raw curve (what the reconciler logs); apply_troas.py
+    passes the campaign's shrunk κ so the logged prediction is the calibrated
+    model's own claim. GP3 here is value − cost, matching v_change_scoring.
+    Simulation windows are 7 days, so the deltas are per week.
+    """
+    c_old, v_old = _interp(points, old)
+    c_new, v_new = _interp(points, new)
+    c_old, c_new = k_cost * c_old, k_cost * c_new
+    g_old, g_new = k_value * v_old - c_old, k_value * v_new - c_new
+    return {
+        "predicted_cost_delta_7d": round(c_new - c_old, 2),
+        "predicted_gp3_delta_7d": round(g_new - g_old, 2),
+        "predicted_cost_pct": round(100 * (c_new - c_old) / c_old, 2) if c_old else None,
+        "predicted_gp3_pct": round(100 * (g_new - g_old) / abs(g_old), 2) if g_old else None,
+    }
+
+
+_TARGET_FIELDS = {
+    "target_roas.target_roas": "target_roas",
+    "maximize_conversion_value.target_roas": "maximize_conversion_value.target_roas",
+}
+
+
+def _fetch_target_change_events(days: int) -> list[dict]:
+    """Every campaign-level tROAS change in the Ads change history, all accounts."""
+    from refresh_roas_sims import ACCOUNTS, ads_client
+
+    client = ads_client()
+    svc = client.get_service("GoogleAdsService")
+    since = (_dt.date.today() - _dt.timedelta(days=days)).isoformat()
+    until = (_dt.date.today() + _dt.timedelta(days=1)).isoformat()
+    # change_event REQUIRES a date filter (≤30 days back) and a LIMIT.
+    q = f"""
+        SELECT change_event.change_date_time, change_event.changed_fields,
+               change_event.old_resource, change_event.new_resource,
+               change_event.user_email, change_event.client_type,
+               change_event.campaign
+        FROM change_event
+        WHERE change_event.change_date_time >= '{since}'
+          AND change_event.change_date_time <= '{until}'
+          AND change_event.change_resource_type = 'CAMPAIGN'
+        ORDER BY change_event.change_date_time
+        LIMIT 10000
+    """
+    events: list[dict] = []
+    for acct in ACCOUNTS:
+        cid = acct["cid"]
+        for batch in svc.search_stream(customer_id=cid, query=q):
+            for row in batch.results:
+                ce = row.change_event
+                for path in ce.changed_fields.paths:
+                    field = _TARGET_FIELDS.get(path)
+                    if not field:
+                        continue
+
+                    def _get(res):
+                        obj = res.campaign
+                        for part in path.split("."):
+                            obj = getattr(obj, part, None)
+                            if obj is None:
+                                return None
+                        return obj
+
+                    old, new = _get(ce.old_resource), _get(ce.new_resource)
+                    if old is None and new is None:
+                        continue
+                    events.append({
+                        "customer_id": cid,
+                        "customer_name": acct["label"],
+                        "currency": acct["currency"],
+                        "campaign_id": ce.campaign.split("/")[-1],
+                        "field": field,
+                        # change_date_time is in the account's time zone, 'YYYY-MM-DD HH:MM:SS'
+                        "when": str(ce.change_date_time),
+                        "change_date": str(ce.change_date_time)[:10],
+                        "old": None if old is None else float(old),
+                        "new": None if new is None else float(new),
+                        "user": ce.user_email,
+                        "client": ce.client_type.name,
+                    })
+    # Campaign names — the change history carries resource names only.
+    by_cid: dict[str, set[str]] = {}
+    for e in events:
+        by_cid.setdefault(e["customer_id"], set()).add(e["campaign_id"])
+    names: dict[tuple[str, str], str] = {}
+    for cid, ids in by_cid.items():
+        rows = svc.search(customer_id=cid, query=(
+            "SELECT campaign.id, campaign.name FROM campaign "
+            f"WHERE campaign.id IN ({','.join(sorted(ids))})"))
+        for r in rows:
+            names[(cid, str(r.campaign.id))] = r.campaign.name
+    for e in events:
+        e["campaign_name"] = names.get((e["customer_id"], e["campaign_id"]), "")
+    return events
+
+
+def reconcile_target_changes(days: int = RECONCILE_LOOKBACK_DAYS,
+                             dry_run: bool = False) -> dict:
+    """
+    Log every tROAS change in the Ads change history that target_changes lacks.
+
+    One row per (campaign, day): several edits on the same day collapse into the
+    net move first-old → last-new (a 50-minute intermediate value is noise to a
+    7-day scoring window; it is kept in `notes`). Predictions come from the raw
+    curve on the change date (anchor dropped, nearest earlier snapshot within 3
+    days), exactly how the 2026-08-18 rows were reconstructed. Existing
+    (campaign_id, change_date) pairs — apply_troas.py rows, hand-loaded rows — are
+    left alone, so the calibrated prediction logged at apply time always wins.
+    """
+    events = _fetch_target_change_events(days)
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for e in events:
+        groups.setdefault((e["campaign_id"], e["change_date"]), []).append(e)
+
+    since = (_dt.date.today() - _dt.timedelta(days=days + 1)).isoformat()
+    have = {(str(r.campaign_id), r.change_date.isoformat()) for r in bq().query(
+        f"SELECT campaign_id, change_date FROM `{T('target_changes')}` "
+        f"WHERE change_date >= '{since}'").result()}
+
+    rows, skipped = [], []
+    for (camp, day), evs in sorted(groups.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+        evs.sort(key=lambda e: e["when"])
+        first, last = evs[0], evs[-1]
+        old, new = first["old"], last["new"]
+        if (camp, day) in have:
+            skipped.append({"campaign_id": camp, "change_date": day, "why": "already logged"})
+            continue
+        if old is None or new is None or abs(old - new) < 1e-9:
+            skipped.append({"campaign_id": camp, "change_date": day,
+                            "why": f"net zero ({old} -> {new})"})
+            continue
+        used, pts = curve_points(first["customer_name"], camp, day)
+        pred = predict_change(pts, old, new) if pts else {}
+        steps = " → ".join([f"{first['old']:g}"] + [f"{e['new']:g}" for e in evs])
+        notes = (f"Auto-reconciled from Google Ads change_event ({len(evs)} edit(s) "
+                 f"{evs[0]['when'][11:16]}–{evs[-1]['when'][11:16]} account time: {steps}) by "
+                 f"{first['user'] or '?'} via {first['client']}. Not logged at apply time. "
+                 + (f"predicted_* from the raw sim curve of {used} (anchor dropped)."
+                    if pts else "No sim curve within 3 days — predicted_* left NULL."))
+        rows.append({
+            "change_date": day,
+            "applied_at": last["when"].replace(" ", "T"),
+            "customer_id": first["customer_id"],
+            "customer_name": first["customer_name"],
+            "campaign_id": camp,
+            "campaign_name": first["campaign_name"],
+            "field": last["field"],
+            "old_target": old,
+            "new_target": new,
+            "source": RECONCILED_SOURCE,
+            **pred,
+            "currency": first["currency"],
+            "notes": notes,
+        })
+    if rows and not dry_run:
+        cfg = bigquery.LoadJobConfig(schema=SCHEMAS["target_changes"],
+                                     write_disposition="WRITE_APPEND")
+        bq().load_table_from_json(rows, T("target_changes"), job_config=cfg).result()
+    return {"events": len(events), "inserted": 0 if dry_run else len(rows),
+            "would_insert": len(rows) if dry_run else 0, "rows": rows, "skipped": skipped}
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -815,8 +1093,23 @@ if __name__ == "__main__":
     ap.add_argument("--ensure", action="store_true", help="create dataset/tables/views only")
     ap.add_argument("--backfill", action="store_true", help="export every Firestore snapshot")
     ap.add_argument("--date", help="export one snapshot (YYYY-MM-DD) from Firestore")
+    ap.add_argument("--reconcile", action="store_true",
+                    help="log target changes from the Ads change history that are missing")
+    ap.add_argument("--dry-run", action="store_true", help="with --reconcile: report only")
+    ap.add_argument("--days", type=int, default=RECONCILE_LOOKBACK_DAYS,
+                    help="with --reconcile: lookback window (max ~30)")
     args = ap.parse_args()
-    if args.ensure:
+    if args.reconcile:
+        import json as _json
+        res = reconcile_target_changes(days=args.days, dry_run=args.dry_run)
+        for r in res["rows"]:
+            print(f"  {r['change_date']} {r['customer_name']:<12} {r['campaign_name']:<40} "
+                  f"{r['old_target']:g} -> {r['new_target']:g}  "
+                  f"cost {r.get('predicted_cost_pct')}%  gp3 {r.get('predicted_gp3_pct')}%")
+        for sk in res["skipped"]:
+            print(f"  skip {sk['change_date']} {sk['campaign_id']}: {sk['why']}")
+        print(_json.dumps({k: v for k, v in res.items() if k not in ("rows", "skipped")}))
+    elif args.ensure:
         ensure_tables()
         print(f"ensured {BQ_PROJECT}.{BQ_DATASET}")
     elif args.backfill:

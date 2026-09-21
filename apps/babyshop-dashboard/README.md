@@ -50,11 +50,29 @@ Simulations page was originally developed is archived and read-only.)
   Missed days: `python3 roas_sims_bq.py --backfill`. Every applied tROAS change
   MUST be logged to `target_changes` with its predicted Δcost/ΔGP3 at apply
   time — unlogged changes cannot be scored and the calibration never learns.
+  Two mechanisms enforce that: `pipeline/apply_troas.py` (below) logs as a side
+  effect of applying, and `reconcile_target_changes()` — run by every daily
+  refresh, or `python3 roas_sims_bq.py --reconcile` — reads the Google Ads
+  `change_event` history and logs any target change that arrived by another
+  route (source `reconciled-change-event`, raw-curve prediction). WHY: 20
+  campaigns were changed on 2026-09-15 by an ad-hoc script and none reached
+  the log for six days. `v_calibrated_recs` also exposes `days_since_change`
+  / `cooldown` (any logged change inside `COOLDOWN_DAYS` = 14) so a campaign
+  is not stepped again before its post-change window is clean; the page shows
+  it as a "hold" badge next to the calibrated rec.
 - `requirements.txt`, `Dockerfile` — runtime (uvicorn on `python:3.12-slim`)
 - `pipeline/` — docs + operator tooling (dockerignored, not deployed):
   - `PIPELINE.md` — full pipeline documentation, data semantics and setup
   - `setup-roas-sims.sh` — the one-time Google Ads API setup (secrets, IAM,
     `--update-secrets`, Cloud Scheduler); idempotent
+  - `apply_troas.py` — **the only sanctioned way to change a tROAS target.**
+    Takes a JSON plan, reads the live targets, refuses campaigns in cooldown
+    (`--force-cooldown`) or steps over ±20 % (`--uncapped`), runs every mutate
+    with `validate_only` first, and on `--apply --source <tag>` mutates, reads
+    back, and appends one `target_changes` row per campaign with the κ-deflated
+    curve's predicted Δcost/ΔGP3. Creds: export the five `GOOGLE_ADS_*` secrets
+    inline (never to a file); an older local `google-ads` needs
+    `GOOGLE_ADS_API_VERSION=v23`. Never write a one-off mutate script instead.
   - `gp3-simulations.js` — **legacy/fallback** MCC script writing the same three
     datasets to a Google Sheet ("Raw", "Shares", "Actuals" tabs)
   - `webapp.gs` — **legacy/fallback** Apps Script web app serving that sheet as a

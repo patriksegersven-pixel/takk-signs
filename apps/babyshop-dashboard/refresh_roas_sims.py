@@ -125,7 +125,10 @@ MAX_ROWS = 20000
 DATASET_BUDGET_BYTES = 950_000
 
 SOURCE      = "google-ads-api"
-API_VERSION = "v25"          # google-ads 31.x default; see requirements.txt
+# google-ads 31.x (requirements.txt) ships v25. Overridable so an operator whose local
+# client is older (29.x → v22) can run roas_sims_bq.py --reconcile / apply_troas.py:
+#   GOOGLE_ADS_API_VERSION=v22 python3 ...
+API_VERSION = os.environ.get("GOOGLE_ADS_API_VERSION", "v25")
 
 # ── Google Ads ───────────────────────────────────────────────────────────────
 # Child accounts, from CONFIG.ACCOUNT_IDS in pipeline/gp3-simulations.js. `currency`
@@ -1104,6 +1107,25 @@ def refresh(run_date: str | None = None, db=None) -> dict:
             except Exception as e:
                 bq_export = f"error: {_error_text(e)[:500]}"
                 print(f"WARN roas_sims_bq export failed: {bq_export}", flush=True)
+            # Reconcile the prediction log against the Ads change history BEFORE the
+            # calibrated recs are computed, so a target changed by any route (UI,
+            # ad-hoc script, Google recommendation) is logged, enters the cooldown
+            # flag and becomes scoreable the same day. Best-effort like the export.
+            # WHY: 22 changes applied 2026-09-15 outside the apply tool never reached
+            # target_changes and the model was blind to them for six days.
+            try:
+                import roas_sims_bq
+                rec = roas_sims_bq.reconcile_target_changes()
+                if rec["inserted"]:
+                    print(f"roas_sims reconcile: logged {rec['inserted']} unlogged target "
+                          f"change(s): " + ", ".join(
+                              f"{r['customer_name']}/{r['campaign_name']} "
+                              f"{r['old_target']:g}->{r['new_target']:g} ({r['change_date']})"
+                              for r in rec["rows"]), flush=True)
+                if isinstance(bq_export, dict):
+                    bq_export = {**bq_export, "reconciled_changes": rec["inserted"]}
+            except Exception as e:
+                print(f"WARN roas_sims reconcile failed: {_error_text(e)[:500]}", flush=True)
             # Calibrated recs come FROM BigQuery (κ needs 28 days of history and
             # the marginal-evidence tables), so this runs after the export and is
             # equally best-effort: on failure the previous doc keeps serving and

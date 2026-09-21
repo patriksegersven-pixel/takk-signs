@@ -152,6 +152,7 @@ In FastMCP projects, always create `mcp_server` in a separate `app.py` module â€
 - When updating Google Sheets, use `batchUpdate` to update only changed cells, preserving other data
 - When appending rows to Sheets, read the actual row number from `appendRes.data.updates.updatedRange` â€” never count rows
 - Service accounts have NO Drive storage quota. Always copy into a Shared Drive folder where the SA has `canAddChildren=true`.
+- **Babyshop/Lekmer Google Ads tROAS targets are changed ONLY with `apps/babyshop-dashboard/pipeline/apply_troas.py`** (dry run, then `--apply --source <tag>`). It logs every change to BigQuery `roas_sims.target_changes` with the model's prediction, refuses campaigns changed <14 days ago and steps >20 % unless overridden. Never write a one-off mutate script: on 2026-09-15 one applied 20 changes that never reached the log. The daily refresh reconciles the log from the Ads `change_event` history as a safety net, not as the path.
 
 ## Pre-push checklist (steel-man)
 

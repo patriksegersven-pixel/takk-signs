@@ -1004,12 +1004,24 @@ function calGateTitle(c) {
     ' GP2 per krona (simulation said ' + sim + '), so the recommendation restores at most the pre-change target.';
 }
 
+/* Cooldown: any logged target change (ours, or one the daily reconciler found in
+   the Ads change history) inside the last cooldownDays. The rec is still shown —
+   the flag says "do not act on it yet": the bidder is re-learning and a second
+   step inside the window makes the first one unscoreable. */
+function calCooldownTitle(c) {
+  if (!c || !c.cooldown) return '';
+  var d = c.daysSinceChange !== null && c.daysSinceChange !== undefined ? c.daysSinceChange : '?';
+  return 'Target changed ' + d + ' day(s) ago (' + (c.lastAnyChangeDate || '?') +
+    '). In cooldown: hold until the post-change window is clean before moving it again.';
+}
+
 function calRecTitle(c) {
   if (!c) return '';
   var bits = ['Google\u2019s latest curve deflated by this campaign\u2019s measured optimism factors ' +
     '\u03baC ' + Number(c.kCost).toFixed(2) + ' / \u03baV ' + Number(c.kValue).toFixed(2) +
     ' (' + (c.kappaDays || 0) + 'd, shrunk toward the ' + (c.incClass || 'class') + ' median), optimum re-derived'];
   if (c.gate) bits.push(calGateTitle(c));
+  if (c.cooldown) bits.push(calCooldownTitle(c));
   bits.push('BigQuery roas_sims.v_calibrated_recs, run ' + (c.runDate || ''));
   return bits.join(' \u00b7 ');
 }
@@ -2619,7 +2631,8 @@ function renderSummaryTable(){
       ${cal ? (c => c
         ? `<td title="${esc(calRecTitle(c))}"><b style="color:${c.gate ? 'var(--warn, #b45309)' : 'var(--accent)'}">${fmtPct(c.recFinal)}</b>${
             c.gate ? `<div class="assumption">${esc(CAL_GATE_LABEL[c.gate] || 'gated')} · m ${c.lastMarginal !== null && c.lastMarginal !== undefined ? Number(c.lastMarginal).toFixed(2) : '?'}</div>`
-                   : `<div class="assumption">\u03baV ${Number(c.kValue).toFixed(2)}</div>`}</td>`
+                   : `<div class="assumption">\u03baV ${Number(c.kValue).toFixed(2)}</div>`}${
+            c.cooldown ? `<div class="assumption" title="${esc(calCooldownTitle(c))}" style="color:var(--warn, #b45309)">hold · changed ${c.daysSinceChange}d ago</div>` : ''}</td>`
         : '<td class="cell-muted">\u2014</td>')(calFor(state.calIndex, s.account, s.name, s.id)) : ''}
       <td class="cell-muted mono">${be}</td>
       ${actCells}
@@ -2804,7 +2817,8 @@ function renderStrategy(){
     <div><span class="k">Recommended</span><span class="v" style="color:var(--accent)">${fmtPct(s.opt.target)}</span></div>
     ${(c => c ? `
     <div><span class="k">Calibrated rec</span><span class="v" title="${esc(calRecTitle(c))}" style="color:${c.gate ? 'var(--warn, #b45309)' : 'var(--accent)'}">${fmtPct(c.recFinal)}${
-      c.gate ? ` <span class="pill pill-warn" title="${esc(calGateTitle(c))}">${esc(CAL_GATE_LABEL[c.gate] || 'gated')}</span>` : ''}</span></div>
+      c.gate ? ` <span class="pill pill-warn" title="${esc(calGateTitle(c))}">${esc(CAL_GATE_LABEL[c.gate] || 'gated')}</span>` : ''}${
+      c.cooldown ? ` <span class="pill pill-warn" title="${esc(calCooldownTitle(c))}">hold · ${c.daysSinceChange}d</span>` : ''}</span></div>
     <div><span class="k">\u03ba cost / value</span><span class="v" title="Measured optimism at the operating point over ${c.kappaDays || 0} days: actual \u00f7 simulated, shrunk toward the ${esc(c.incClass || 'class')} median. Below 1.0 = the simulation over-promises.">${Number(c.kCost).toFixed(2)} / ${Number(c.kValue).toFixed(2)}</span></div>${
       c.lastMarginal !== null && c.lastMarginal !== undefined ? `
     <div><span class="k">Last measured marginal</span><span class="v" title="Realized marginal GP2 per krona across the ${esc(c.lastChangeDate || 'last')} target change vs the simulation\u2019s claim over the same segment.">${Number(c.lastMarginal).toFixed(2)} <span class="assumption">sim said ${c.lastSimMarginal !== null && c.lastSimMarginal !== undefined ? Number(c.lastSimMarginal).toFixed(2) : '?'}</span></span></div>` : ''}` : '')(calFor(state.calIndex, s.account, s.name, s.id))}
