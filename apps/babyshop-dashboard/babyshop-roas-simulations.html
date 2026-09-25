@@ -613,6 +613,49 @@
            data-tools-toolbar="#alloc-tools"></table></div>
   </div>
 
+  <!-- ── Simulated vs actual ───────────────────────── -->
+  <div class="section-label">simulated vs actual</div>
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <div class="chart-title">Simulated vs actual, day by day</div>
+        <div class="chart-sub" id="sva-sub">—</div>
+      </div>
+      <div class="hdr-tools">
+        <span class="chart-badge" id="sva-badge">—</span>
+      </div>
+    </div>
+    <div class="card-body" id="sva-body">
+      <div class="lt-controls">
+        <div class="lt-group">
+          <span class="lt-label">Scope</span>
+          <div class="seg-tabs" id="sva-scope">
+            <button class="seg" data-v="all">All campaigns</button>
+            <button class="seg" data-v="one">Selected campaign</button>
+          </div>
+        </div>
+        <div class="lt-group">
+          <span class="lt-label">Actuals</span>
+          <div class="seg-tabs" id="sva-scheme">
+            <button class="seg" data-v="convTime">Conv. time</button>
+            <button class="seg" data-v="clickTime">Click time</button>
+          </div>
+        </div>
+        <div class="lt-group">
+          <span class="lt-label">Metrics</span>
+          <div class="seg-tabs" id="sva-metrics">
+            <button class="seg" data-v="gp3">GP3</button>
+            <button class="seg" data-v="gp2">GP2</button>
+            <button class="seg" data-v="cost">Cost</button>
+            <button class="seg" data-v="conversions">Conversions</button>
+          </div>
+        </div>
+      </div>
+      <div class="chart-wrap tall"><canvas id="c-sva"></canvas></div>
+      <div class="note" id="sva-changes" style="margin-top:12px"></div>
+    </div>
+  </div>
+
   <!-- ── Run history ───────────────────────────────── -->
   <div class="section-label">snapshot history</div>
   <div class="card">
@@ -2373,6 +2416,7 @@ function renderAll(){
   renderSummaryTable();
   renderStrategy();
   renderPortfolio();
+  renderSimVsActual();
   renderHistory();
   renderTrustFlags();
   document.getElementById('foot-note').textContent =
@@ -2692,7 +2736,7 @@ function renderSummaryTable(){
     ttClear('#point-table');
     state.strategyKey = tr.dataset.strategy; savePrefs();
     document.getElementById('f-strategy').value = state.strategyKey;
-    renderSummaryTable(); renderStrategy(); renderHistory();
+    renderSummaryTable(); renderStrategy(); renderHistory(); renderSimVsActual();
     document.getElementById('drill-title').scrollIntoView({ behavior:'smooth', block:'center' });
   }));
 }
@@ -3230,6 +3274,228 @@ function renderHistory(){
   });
 }
 
+/* ============================== RENDER: SIMULATED VS ACTUAL ============================== */
+/* One point per run date. Each snapshot's simulation covers a trailing window (normally 7 days):
+   "simulated" is the campaign's curve interpolated at the target in force on that run date,
+   "actual" is what Google reports for the same campaign over the same window. Both are divided
+   by the window length, so the axis reads as per-day figures. Only campaigns carrying BOTH a
+   current point and an actuals row enter a day's sums, so the two lines always cover the same set.
+
+   Right after a target change the simulated line jumps to the NEW target while the actual window
+   still mostly reflects the old one — that gap is the predicted impact, and it should close over
+   the following ~7 runs if the simulator was right. Raw GP2/GP3 on both sides, never
+   incrementality-adjusted: the point is to grade Google's curve against Google's own reporting.
+
+   Target changes are derived from the snapshots themselves: a campaign whose current target
+   differs from its previous run's is annotated on the first run date that shows the new target. */
+
+const SVA_PREFS_KEY = 'bs_roassim_sva_v1';
+const SVA_METRICS = {
+  gp3:         { label:'GP3',         color:C.gp3,  money:true  },
+  gp2:         { label:'GP2',         color:C.gp2,  money:true  },
+  cost:        { label:'Cost',        color:C.marg, money:true  },
+  conversions: { label:'Conversions', color:C.cur,  money:false }
+};
+const sva = (() => {
+  const def = { scope:'all', scheme:'convTime', metrics:['gp3'] };
+  try {
+    const p = JSON.parse(localStorage.getItem(SVA_PREFS_KEY)) || {};
+    const metrics = Array.isArray(p.metrics) ? p.metrics.filter(k => SVA_METRICS[k]) : [];
+    return {
+      scope: p.scope === 'one' ? 'one' : 'all',
+      scheme: p.scheme === 'clickTime' ? 'clickTime' : 'convTime',
+      metrics: metrics.length ? metrics : def.metrics
+    };
+  } catch(e){ return def; }
+})();
+function saveSvaPrefs(){ try { localStorage.setItem(SVA_PREFS_KEY, JSON.stringify(sva)); } catch(e){} }
+
+/** Vertical dashed marker per target-change date, with ▲/▼ counts (raised / lowered targets). */
+const svaAnnotationPlugin = {
+  id: 'svaAnnotations',
+  afterDatasetsDraw(chart, args, opts){
+    const marks = (opts && opts.marks) || [];
+    if (!marks.length) return;
+    const { ctx, chartArea, scales } = chart;
+    ctx.save();
+    marks.forEach(mk => {
+      const px = scales.x.getPixelForValue(mk.index);
+      ctx.strokeStyle = 'rgba(27,40,57,.4)'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+      ctx.beginPath(); ctx.moveTo(px, chartArea.top); ctx.lineTo(px, chartArea.bottom); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#1B2839'; ctx.font = '600 10px Jost, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(mk.label, px, chartArea.top - 6);
+    });
+    ctx.restore();
+  }
+};
+
+function svaWindowDays(a){
+  if (a && a.startDate && a.endDate){
+    const n = daysBetween(a.startDate, a.endDate) + 1;
+    if (n > 0 && n < 400) return n;
+  }
+  return 7;
+}
+
+/** Per-run sums (per-day averages) and the target changes, for the current account + scope. */
+function svaData(){
+  const inAcct = inAccountRows();
+  const runs = runDates(inAcct);
+  const m = gp2Multipliers(), ic = incrementalityCfg();
+  const all = state.account === '__all';
+  const prevTarget = {};
+  const changes = [];
+  const days = runs.map(d => {
+    let ss = buildStrategies(inAcct.filter(r => r.runDate === d), m.map, m.def, ic, null, state.actualIndex);
+    ss.forEach(s => s.key = s.account + ' · ' + s.name);
+    if (sva.scope === 'one') ss = ss.filter(s => s.key === state.strategyKey);
+
+    ss.forEach(s => {
+      const id = s.account + '|' + (s.id || s.name);
+      const t = s.currentTarget;
+      if (t != null && prevTarget[id] != null && Math.abs(t - prevTarget[id]) > 1e-6)
+        changes.push({ date:d, name: all ? s.key : s.name, from: prevTarget[id], to: t });
+      if (t != null) prevTarget[id] = t;
+    });
+
+    const row = { date:d, n:0, convN:0, currencies:new Set(),
+      sim:{ gp3:0, gp2:0, cost:0, conversions:0 }, act:{ gp3:0, gp2:0, cost:0, conversions:0 } };
+    ss.forEach(s => {
+      const a = s.actual;
+      if (!a || !s.current || s.currentTarget == null) return;
+      const b = a[sva.scheme];
+      if (!b || b.value == null) return;
+      const len = svaWindowDays(a);
+      row.n++; row.currencies.add(s.currency);
+      row.sim.cost += s.current.cost / len;  row.act.cost += a.cost / len;
+      row.sim.gp2  += s.current.gp2 / len;   row.act.gp2  += b.gp2 / len;
+      row.sim.gp3  += s.current.gp3 / len;   row.act.gp3  += b.gp3 / len;
+      const simConv = interpAt(s.points, 'target', s.currentTarget, ['conversions']);
+      if (b.conversions != null && simConv && simConv.conversions != null){
+        row.convN++;
+        row.sim.conversions += simConv.conversions / len;
+        row.act.conversions += b.conversions / len;
+      }
+    });
+    return row;
+  });
+  return { runs, days, changes };
+}
+
+function renderSimVsActual(){
+  document.querySelectorAll('#sva-scope .seg').forEach(b => b.classList.toggle('active', b.dataset.v === sva.scope));
+  document.querySelectorAll('#sva-scheme .seg').forEach(b => b.classList.toggle('active', b.dataset.v === sva.scheme));
+  document.querySelectorAll('#sva-metrics .seg').forEach(b => b.classList.toggle('active', sva.metrics.includes(b.dataset.v)));
+
+  killChart('sva');
+  const body = document.getElementById('c-sva').parentElement;
+  const sub = document.getElementById('sva-sub');
+  const badge = document.getElementById('sva-badge');
+  const chNote = document.getElementById('sva-changes');
+  const { runs, days, changes } = svaData();
+  const withData = days.filter(r => r.n > 0);
+  const scopeLabel = sva.scope === 'one' ? (state.strategyKey || 'selected campaign') : 'all campaigns';
+
+  if (!anyActualsLoaded() || withData.length < 2){
+    body.style.display = 'none'; chNote.innerHTML = ''; badge.textContent = '—';
+    sub.textContent = !anyActualsLoaded()
+      ? 'No measured actuals in this payload — the comparison needs the Actuals block.'
+      : 'Needs at least two run dates with both a simulation and actuals for ' + scopeLabel +
+        ' (' + withData.length + ' so far). One point is added per daily refresh.';
+    return;
+  }
+  body.style.display = '';
+
+  const curs = new Set(); withData.forEach(r => r.currencies.forEach(c => curs.add(c)));
+  const cur = curs.size === 1 ? [...curs][0] : null;
+  const moneyOk = !!cur;
+  const metrics = sva.metrics.filter(k => SVA_METRICS[k].money ? moneyOk : true);
+  const nMax = Math.max(...withData.map(r => r.n));
+
+  sub.textContent = 'Per-day average over each run\'s simulation window (normally 7 days) · ' +
+    scopeLabel + ' · ' + nMax + ' campaign' + (nMax === 1 ? '' : 's') + ' with both simulation and actuals · ' +
+    'dashed = simulated at the target in force, solid = actual (' + ACTUAL_SCHEME_LABEL[sva.scheme] + ')' +
+    (moneyOk ? '' : ' · money metrics hidden: mixed currencies, pick one account');
+
+  /* badge: actual − simulated GP3 per day, averaged over the visible runs */
+  if (moneyOk){
+    const gap = withData.reduce((a, r) => a + (r.act.gp3 - r.sim.gp3), 0) / withData.length;
+    badge.textContent = 'Actual − sim GP3: ' + signedMoney(gap, cur) + '/day';
+  } else badge.textContent = 'mixed currency';
+
+  const datasets = [];
+  metrics.forEach(k => {
+    const def = SVA_METRICS[k];
+    const axisId = def.money ? 'y' : 'y2';
+    const val = (r, side) => r.n === 0 || (k === 'conversions' && r.convN === 0) ? null : r[side][k];
+    datasets.push({ label: 'Simulated ' + def.label, yAxisID: axisId, data: days.map(r => val(r, 'sim')),
+      // hollow points: the bottom legend draws point styles, so this is what tells the two apart there
+      borderColor: def.color, backgroundColor: '#fff', borderWidth: 2, borderDash: [6,4],
+      tension: .25, pointRadius: 2, spanGaps: true, _metric: k });
+    datasets.push({ label: 'Actual ' + def.label, yAxisID: axisId, data: days.map(r => val(r, 'act')),
+      borderColor: def.color, backgroundColor: def.color, borderWidth: 2.5,
+      tension: .25, pointRadius: 3, spanGaps: true, _metric: k });
+  });
+
+  const byDate = {};
+  changes.forEach(c => (byDate[c.date] = byDate[c.date] || []).push(c));
+  const marks = Object.keys(byDate).map(d => {
+    const up = byDate[d].filter(c => c.to > c.from).length, dn = byDate[d].length - up;
+    return { index: runs.indexOf(d), label: [up ? '▲' + up : '', dn ? '▼' + dn : ''].filter(Boolean).join(' ') };
+  }).filter(mk => mk.index >= 0);
+  const chgText = c => c.name + ' ' + fmtPct(c.from) + ' → ' + fmtPct(c.to);
+
+  const hasMoney = metrics.some(k => SVA_METRICS[k].money);
+  const hasConv = metrics.includes('conversions');
+  state.charts.sva = new Chart(document.getElementById('c-sva'), {
+    type: 'line',
+    data: { labels: runs, datasets },
+    plugins: [svaAnnotationPlugin],
+    options: { responsive:true, maintainAspectRatio:false, interaction:{ mode:'index', intersect:false },
+      layout: { padding: { top: 16 } },
+      plugins: { legend: LEGEND_BOTTOM,
+        svaAnnotations: { marks },
+        tooltip: { callbacks: {
+          label: c => c.parsed.y == null ? null : ' ' + c.dataset.label + ': ' +
+            (c.dataset.yAxisID === 'y' ? money(c.parsed.y, cur) : num(c.parsed.y, 1)),
+          footer: items => {
+            const d = items.length ? runs[items[0].dataIndex] : null;
+            const list = d ? byDate[d] || [] : [];
+            if (!list.length) return '';
+            const lines = list.slice(0, 8).map(chgText);
+            if (list.length > 8) lines.push('… and ' + (list.length - 8) + ' more');
+            return ['Target changes:'].concat(lines);
+          } } } },
+      scales: { x: { grid:{ display:false }, border:{ display:false },
+                     ticks:{ font:{ family:'Jost', size:10 }, color:'#8C9098' } },
+        y:  { display: hasMoney, position:'left', ...axis(cur ? 'Per day (' + cur + ')' : '', v => fmtMoney(v, cur)) },
+        y2: { display: hasConv, position:'right', ...axis('Conversions / day', v => num(v, 0)), grid:{ display:false } } } }
+  });
+
+  chNote.innerHTML = changes.length
+    ? '<b>Target changes</b> (first run date showing the new target):<br>' +
+      Object.keys(byDate).sort().reverse().map(d =>
+        '<span class="mono">' + d + '</span> — ' + byDate[d].map(c => esc(chgText(c))).join(' · ')).join('<br>')
+    : 'No target changes detected across the loaded run dates for ' + esc(scopeLabel) + '.';
+}
+
+document.getElementById('sva-scope').addEventListener('click', e => {
+  const b = e.target.closest('.seg'); if (!b) return;
+  sva.scope = b.dataset.v; saveSvaPrefs(); renderSimVsActual();
+});
+document.getElementById('sva-scheme').addEventListener('click', e => {
+  const b = e.target.closest('.seg'); if (!b) return;
+  sva.scheme = b.dataset.v; saveSvaPrefs(); renderSimVsActual();
+});
+document.getElementById('sva-metrics').addEventListener('click', e => {
+  const b = e.target.closest('.seg'); if (!b) return;
+  const k = b.dataset.v;
+  if (sva.metrics.includes(k)){ if (sva.metrics.length > 1) sva.metrics = sva.metrics.filter(x => x !== k); }
+  else sva.metrics = sva.metrics.concat(k);
+  saveSvaPrefs(); renderSimVsActual();
+});
+
 /* ============================== RENDER: TRUST PANEL ============================== */
 
 function renderTrustFlags(){
@@ -3413,7 +3679,7 @@ document.getElementById('f-run').addEventListener('change', e => {
 document.getElementById('f-strategy').addEventListener('change', e => {
   ttClear('#point-table');   // only the drill-down changes shape with the campaign
   state.strategyKey = e.target.value; savePrefs();
-  renderSummaryTable(); renderStrategy(); renderHistory();
+  renderSummaryTable(); renderStrategy(); renderHistory(); renderSimVsActual();
 });
 document.getElementById('filter-reset').addEventListener('click', () => {
   ttClear('#summary-table', '#point-table', '#alloc-table', '#run-table');
