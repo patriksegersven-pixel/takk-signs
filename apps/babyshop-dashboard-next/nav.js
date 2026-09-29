@@ -49,6 +49,7 @@
     { id:'bundles',   title:'Bundles',           href:'/babyshop-bundles-dashboard.html',   group:'core',     subtitle:'Product Bundles' },
     { id:'voyado',    title:'Email (Voyado)',    href:'/babyshop-voyado-dashboard.html',    group:'channels', subtitle:'Email · Voyado Engage' },
     { id:'stoy',      title:'Stoy Test',         href:'/babyshop-stoy-dashboard.html',      group:'tests',    subtitle:'Stoy Funnel-Shift Test' },
+    { id:'fiship',    title:'FI Shipping Test',  href:'/babyshop-fi-shipping-test.html',    group:'tests',    subtitle:'FI Free-Shipping Threshold Test' },
     { id:'roas',      title:'ROAS Impact',       href:'/babyshop-roas-impact.html',         group:'adhoc',    subtitle:'ROAS Impact Monitor' },
     { id:'sims',      title:'ROAS Simulations',  href:'/babyshop-roas-simulations.html',    group:'adhoc',    subtitle:'ROAS Simulations' }
   ];
