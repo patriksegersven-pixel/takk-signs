@@ -137,6 +137,7 @@ CUSTOMER_HTML  = STATIC_DIR / "babyshop-customer-dashboard.html"
 SEGMENTS_HTML  = STATIC_DIR / "babyshop-segments-dashboard.html"
 INVENTORY_HTML = STATIC_DIR / "babyshop-inventory-dashboard.html"
 STOY_HTML      = STATIC_DIR / "babyshop-stoy-dashboard.html"
+FISHIP_HTML    = STATIC_DIR / "babyshop-fi-shipping-test.html"
 ROAS_HTML      = STATIC_DIR / "babyshop-roas-impact.html"
 SIM_HTML       = STATIC_DIR / "babyshop-roas-simulations.html"
 VOYADO_HTML    = STATIC_DIR / "babyshop-voyado-dashboard.html"
@@ -191,6 +192,11 @@ def inventory_dashboard(_: str = Depends(verify)):
 @app.get("/babyshop-stoy-dashboard.html")
 def stoy_dashboard(_: str = Depends(verify)):
     return FileResponse(STOY_HTML, media_type="text/html")
+
+
+@app.get("/babyshop-fi-shipping-test.html")
+def fi_shipping_test_dashboard(_: str = Depends(verify)):
+    return FileResponse(FISHIP_HTML, media_type="text/html")
 
 
 @app.get("/babyshop-roas-impact.html")
@@ -313,6 +319,18 @@ def api_stoy_data(_: str = Depends(verify)):
     if data is None:
         return JSONResponse({"error": "no stoy snapshot yet"}, status_code=503)
     return data
+
+
+@app.get("/api/fi-shipping-test")
+def api_fi_shipping_test(_: str = Depends(verify)):
+    """FI free-shipping threshold test (69 € vs 129 €): nightly Norce tables +
+    Funnel export, computed on demand through the read-through cache (30 min TTL)."""
+    import fi_shipping_test
+
+    try:
+        return fi_shipping_test.get_payload()
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=503)
 
 
 @app.get("/api/customer-insights")
