@@ -176,12 +176,21 @@ MARKET_CFG: dict[str, dict] = {
 # The "normal" regime is regularly interrupted by other free-shipping promos
 # (all four markets in sync: free shipping until ~11 Aug and again 4–15 Sep
 # 2026). A plain "last 28 days" window would mix those in, so a market's
-# baseline is the last BASELINE_DAYS local days before its campaign day on
-# which the normal policy verifiably applied: ≤ NORMAL_MAX_FREE_SMALL of orders
-# with goods below the TEST threshold shipped free (normal days sit at 0–2 %,
-# promo days at 90 %+).
-BASELINE_DAYS  = 28
-BASELINE_LOOKBACK_DAYS = 120     # how far back to search for normal days
+# baseline is the clean local days within BASELINE_WINDOW_DAYS calendar days
+# before its campaign day: days on which the normal policy verifiably applied
+# (≤ NORMAL_MAX_FREE_SMALL of orders with goods below the TEST threshold shipped
+# free — normal days sit at 0–2 %, promo days at 90 %+), minus BASELINE_EXCLUDE.
+# At most the latest BASELINE_DAYS of them are used. The window is short on
+# purpose: a longer one reaches into summer (SE ran free shipping until 31 Aug,
+# so a "last 28 clean days" rule landed on 25 Jun–16 Jul). If it holds fewer than
+# BASELINE_MIN_DAYS clean days, the window grows in BASELINE_EXTEND_STEP-day
+# steps up to BASELINE_MAX_WINDOW_DAYS and the page flags the extension.
+BASELINE_DAYS  = 28              # cap: latest N clean days (FI's 28 fall inside 45 days)
+BASELINE_WINDOW_DAYS = 45
+BASELINE_MIN_DAYS = 7
+BASELINE_EXTEND_STEP = 7
+BASELINE_MAX_WINDOW_DAYS = 90
+BASELINE_LOOKBACK_DAYS = 120     # query/day-classification range (≥ the max window)
 NORMAL_MAX_FREE_SMALL  = 0.10
 PROMO_MIN_FREE_SMALL   = 0.50    # days above this are shaded as promo on the trend
 BASELINE_EXCLUDE: set[dt.date] = set()   # manual exclusions, e.g. {dt.date(2026, 9, 1)}
@@ -468,9 +477,17 @@ def _build_market(m, cfg, orders_all, lym, sess, now):
             return "unknown"
         return "normal" if fs <= NORMAL_MAX_FREE_SMALL else "promo" if fs >= PROMO_MIN_FREE_SMALL else "mixed"
 
-    candidates = [d for d in reversed(_days(d0, camp_day - dt.timedelta(days=1)))
-                  if day_class(d) == "normal" and d not in BASELINE_EXCLUDE]
+    win = BASELINE_WINDOW_DAYS
+    while True:
+        w0 = camp_day - dt.timedelta(days=win)
+        candidates = [d for d in reversed(_days(max(d0, w0), camp_day - dt.timedelta(days=1)))
+                      if day_class(d) == "normal" and d not in BASELINE_EXCLUDE]
+        if len(candidates) >= BASELINE_MIN_DAYS or win >= BASELINE_MAX_WINDOW_DAYS:
+            break
+        win = min(BASELINE_MAX_WINDOW_DAYS, win + BASELINE_EXTEND_STEP)
     base_days = sorted(candidates[:BASELINE_DAYS])
+    base_extended = win > BASELINE_WINDOW_DAYS
+    base_short = len(base_days) < BASELINE_MIN_DAYS
     base_set = set(base_days)
 
     has_interim = CE < TS
@@ -715,7 +732,10 @@ def _build_market(m, cfg, orders_all, lym, sess, now):
         },
         "detection": det_out, "detection_warnings": warn,
         "baseline": {"days": [d.isoformat() for d in base_days], "n_days": len(base_days),
-                     "target_days": BASELINE_DAYS, "max_free_small": NORMAL_MAX_FREE_SMALL},
+                     "target_days": BASELINE_DAYS, "max_free_small": NORMAL_MAX_FREE_SMALL,
+                     "window_days": win, "window_default": BASELINE_WINDOW_DAYS,
+                     "window_start": w0.isoformat(), "min_days": BASELINE_MIN_DAYS,
+                     "extended": base_extended, "short": base_short},
         "test_days": test_days, "test_full_days": len(tfd),
         "min_test_days": MIN_TEST_DAYS, "too_early": test_days < MIN_TEST_DAYS,
         "periods": periods, "welch_aov": welch,

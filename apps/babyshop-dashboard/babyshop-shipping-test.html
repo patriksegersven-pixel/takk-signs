@@ -250,7 +250,7 @@ function render(){
 
   const bd=d.baseline;
   const reg=[
-    `<div><span class="sw" style="background:var(--base)"></span><span><b>Normal · free above ${thr(R.normal.threshold)}</b>, ${fee(R.normal.fee)} below — baseline = the last ${bd.n_days} normal days before the campaign (${bd.days.length?fmtDay(bd.days[0])+'–'+fmtDay(bd.days[bd.days.length-1]):'—'}; free-shipping promo days skipped)</span></div>`,
+    `<div><span class="sw" style="background:var(--base)"></span><span><b>Normal · free above ${thr(R.normal.threshold)}</b>, ${fee(R.normal.fee)} below — baseline = <b>${bd.n_days} clean days</b>, ${bd.days.length?fmtDay(bd.days[0])+'–'+fmtDay(bd.days[bd.days.length-1]):'—'} (the normal-policy days within ${bd.window_days} days before the campaign; free-shipping promo days skipped)${bd.extended?` <b style="color:#7A4E18">· window extended from ${bd.window_default} to ${bd.window_days} days: fewer than ${bd.min_days} clean days</b>`:''}${bd.short?` <b style="color:#7A4E18">· only ${bd.n_days} clean days even at ${bd.window_days} days — weak baseline</b>`:''}</span></div>`,
     `<div><span class="sw" style="background:var(--camp)"></span><span><b>Campaign · free above ${thr(R.campaign.threshold)}</b> — ${R.campaign.start_local} → ${R.campaign.end_local}. Nordic campaign: <b>excluded from the comparison</b>, shown as context</span></div>`];
   if(R.interim) reg.push(`<div><span class="sw" style="background:var(--base);opacity:.5"></span><span><b>Back to normal (interim)</b> — ${R.interim.start_local} → ${started?R.interim.end_local:'now'}; context only</span></div>`);
   reg.push(`<div><span class="sw" style="background:var(--test)"></span><span><b>Test · free above ${thr(R.test.threshold)}</b>, ${fee(R.test.fee)} below — ${started?R.test.start_local+' → '+(R.test.end_local||'ongoing'):'announced '+R.test.announced+', <b>waiting for data</b>'}</span></div>`);
@@ -306,7 +306,7 @@ function render(){
     `<td>${x.orders_day==null?'—':x.orders_day.toFixed(1)}</td><td>${x.n?money(x.aov,1):'—'}</td><td>${x.n?money(Math.sqrt(x.aov_var),0):'—'}</td><td>${pc(x.free_share,0)}</td>`+
     `<td>${x.conv==null?'—':pc(x.conv,2)}</td><td>${x.gp2_days}</td></tr>`;
   document.querySelector('#n-tbl tbody').innerHTML =
-    row(`Baseline (normal ${thr(R.normal.threshold)})`,b,`${bd.n_days} normal days, ${b.start_local} → ${b.end_local}`)+
+    row(`Baseline (normal ${thr(R.normal.threshold)})`,b,`${bd.n_days} clean days within ${bd.window_days} d, ${b.start_local} → ${b.end_local}`)+
     row(`Campaign (${thr(R.campaign.threshold)}, context)`,c,`${c.start_local} → ${c.end_local}`)+
     (I?row(`Interim (normal, context)`,I,`${I.start_local} → ${I.end_local}`):'')+
     row(`Test (${thr(R.test.threshold)})`,t,started?`${t.start_local} → ${t.end_local}`:'waiting for data');
