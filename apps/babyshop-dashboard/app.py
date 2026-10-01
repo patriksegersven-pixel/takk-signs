@@ -137,7 +137,7 @@ CUSTOMER_HTML  = STATIC_DIR / "babyshop-customer-dashboard.html"
 SEGMENTS_HTML  = STATIC_DIR / "babyshop-segments-dashboard.html"
 INVENTORY_HTML = STATIC_DIR / "babyshop-inventory-dashboard.html"
 STOY_HTML      = STATIC_DIR / "babyshop-stoy-dashboard.html"
-FISHIP_HTML    = STATIC_DIR / "babyshop-fi-shipping-test.html"
+SHIPTEST_HTML  = STATIC_DIR / "babyshop-shipping-test.html"
 ROAS_HTML      = STATIC_DIR / "babyshop-roas-impact.html"
 SIM_HTML       = STATIC_DIR / "babyshop-roas-simulations.html"
 VOYADO_HTML    = STATIC_DIR / "babyshop-voyado-dashboard.html"
@@ -194,9 +194,15 @@ def stoy_dashboard(_: str = Depends(verify)):
     return FileResponse(STOY_HTML, media_type="text/html")
 
 
+@app.get("/babyshop-shipping-test.html")
+def shipping_test_dashboard(_: str = Depends(verify)):
+    return FileResponse(SHIPTEST_HTML, media_type="text/html")
+
+
 @app.get("/babyshop-fi-shipping-test.html")
 def fi_shipping_test_dashboard(_: str = Depends(verify)):
-    return FileResponse(FISHIP_HTML, media_type="text/html")
+    """Old FI-only URL — the page now covers FI/SE/NO/DK; open it on FI."""
+    return RedirectResponse(url="/babyshop-shipping-test.html?market=FI", status_code=302)
 
 
 @app.get("/babyshop-roas-impact.html")
@@ -321,14 +327,34 @@ def api_stoy_data(_: str = Depends(verify)):
     return data
 
 
-@app.get("/api/fi-shipping-test")
-def api_fi_shipping_test(_: str = Depends(verify)):
-    """FI free-shipping threshold test (69 € vs 129 €): nightly Norce tables +
-    Funnel export, computed on demand through the read-through cache (30 min TTL)."""
-    import fi_shipping_test
+@app.get("/api/shipping-test")
+def api_shipping_test(market: str | None = None, _: str = Depends(verify)):
+    """Nordic free-shipping threshold test (FI/SE/NO/DK): nightly Norce tables +
+    Funnel export, computed on demand through the read-through cache (30 min TTL,
+    one document for all markets). Without ?market= returns every market plus
+    the Nordic summary; with ?market=SE only that market (+ the summary)."""
+    import shipping_test
 
     try:
-        return fi_shipping_test.get_payload()
+        p = shipping_test.get_payload()
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=503)
+    if market is None:
+        return p
+    m = market.upper()
+    if m not in p.get("markets", {}):
+        return JSONResponse({"error": f"unknown market {market!r}; one of {p.get('markets_order')}"},
+                            status_code=400)
+    return {**{k: v for k, v in p.items() if k != "markets"}, "market": m, "data": p["markets"][m]}
+
+
+@app.get("/api/fi-shipping-test")
+def api_fi_shipping_test(_: str = Depends(verify)):
+    """FI slice of /api/shipping-test, kept for the old FI-only page/URL."""
+    import shipping_test
+
+    try:
+        return shipping_test.get_market("FI")
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=503)
 

@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shipping Threshold Test · Babyshop</title>
+  <link rel="icon" type="image/svg+xml" href="/babyshop-favicon.svg">
+  <link rel="stylesheet" href="/brand.css">
+<script src="/chart.umd.js"></script>
+<script src="/table-tools.js"></script>
+<style>
+  /* Same design system as the other tabs; only the accent differs. Steel blue is
+     this test's signature (Stoy is purple, Products teal, Inventory orange). */
+  :root {
+    --accent:#2F6690; --accent-bg:#EDF3F8;
+    --base:#8C9098; --camp:#C9A227; --test:#2F6690;
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html{font-size:16px}
+  body{font-family:'Jost',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--body);min-height:100vh;-webkit-font-smoothing:antialiased}
+
+  .wrap{max-width:1380px;margin:0 auto;padding:26px 32px 56px}
+  h1{font-size:21px;font-weight:700;color:var(--h);letter-spacing:-.3px}
+  .sub{color:var(--muted);font-size:12px;margin-top:3px;line-height:1.5}
+  .toprow{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap}
+
+  .seg{display:inline-flex;background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:3px;gap:2px;box-shadow:var(--shadow-sm)}
+  .seg button{font:inherit;font-size:12.5px;font-weight:600;border:0;background:transparent;color:var(--muted);padding:6px 14px;border-radius:var(--r-sm);cursor:pointer}
+  .seg button:hover{color:var(--h)}
+  .seg button.on{background:var(--accent);color:#fff}
+
+  .nordic{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}
+  .nm{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:11px 13px;cursor:pointer;text-align:left;font:inherit;color:inherit}
+  .nm:hover{border-color:var(--accent)}
+  .nm.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .nm .t{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px;font-weight:700;color:var(--h)}
+  .nm .t .st{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:2px 6px;border-radius:var(--r-sm);background:var(--accent-bg);color:var(--accent)}
+  .nm .t .st.wait{background:var(--warn-bg);color:#7A4E18}
+  .nm .r{font-size:11px;color:var(--muted);margin-top:3px}
+  .nm .m{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
+  .nm .m div{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .nm .m b .na{color:var(--muted)}
+  .nm .m b{display:block;font-size:13.5px;font-weight:700;letter-spacing:0;text-transform:none;font-variant-numeric:tabular-nums;margin-top:2px}
+
+  .ctx{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:16px 20px;margin:18px 0;display:grid;grid-template-columns:1fr 300px;gap:24px;align-items:start}
+  .ctx .hyp{font-size:12.5px;line-height:1.6}
+  .ctx .hyp b{color:var(--h);font-weight:600}
+  .regimes{margin-top:10px;display:grid;gap:4px;font-size:12px}
+  .regimes div{display:flex;gap:8px;align-items:baseline}
+  .sw{display:inline-block;width:10px;height:10px;border-radius:2px;flex:none;transform:translateY(1px)}
+  .prog .bar{height:8px;background:var(--accent-bg);border-radius:4px;overflow:hidden;margin:6px 0}
+  .prog .bar > i{display:block;height:100%;background:var(--accent)}
+  .prog .lab{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+  .verdict{margin-top:12px;font-size:12px;font-weight:600;padding:6px 10px;border-radius:var(--r-sm);background:var(--warn-bg);color:#7A4E18}
+  .verdict.ok{background:var(--accent-bg);color:var(--accent)}
+  .evid{margin-top:10px;font-size:11px;color:var(--muted);line-height:1.5}
+
+  .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
+  .kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:15px 14px}
+  .kpi.spot{border-color:var(--accent);position:relative;overflow:hidden}
+  .kpi.spot::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent)}
+  .kpi .k{font-size:10px;font-weight:600;letter-spacing:.07em;color:var(--muted);text-transform:uppercase;margin-bottom:8px}
+  .kpi .v{font-size:23px;font-weight:700;color:var(--h);letter-spacing:-.5px;line-height:1.1;margin-bottom:9px;font-variant-numeric:tabular-nums}
+  .kpi .d{display:inline-flex;align-items:center;font-size:11.5px;font-weight:600;padding:3px 7px;border-radius:var(--r-sm);white-space:nowrap}
+  .kpi .d.na{color:var(--muted);background:var(--bg)}
+  .kpi .n{font-size:10px;color:var(--muted);margin-top:7px;line-height:1.45}
+  .up{color:var(--up)} .down{color:var(--down)}
+  .kpi .d.up{background:var(--up-bg)} .kpi .d.down{background:var(--down-bg)}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:20px 22px;margin-top:20px}
+  .card h3{font-size:14px;font-weight:600;color:var(--h)}
+  .card .csub{color:var(--muted);font-size:11px;margin-top:2px;margin-bottom:12px;line-height:1.5}
+  .card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  .card-head .csub{margin-bottom:0}
+  .card-head > :last-child:not(:first-child){margin-left:auto}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:right;padding:10px 12px;font-size:13px;font-variant-numeric:tabular-nums}
+  th:first-child,td:first-child{text-align:left;padding-left:0}
+  thead th{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap}
+  tbody td{font-weight:500;color:var(--body);border-bottom:1px solid var(--border-lt)}
+  tbody td:first-child{font-weight:600;color:var(--h)}
+  tbody tr:last-child td{border-bottom:none}
+  tr.hl td{background:var(--accent-bg)}
+  td .s{color:var(--muted);font-size:11px;font-weight:500}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .note{background:var(--warn-bg);border:1px solid #EDD7B0;border-radius:var(--r);padding:12px 16px;font-size:11.5px;color:#7A4E18;margin-top:20px;line-height:1.55}
+  .loading{padding:60px 0;text-align:center;color:var(--muted);font-size:13px}
+  .tblwrap{overflow-x:auto}
+  @media(max-width:1240px){.grid{grid-template-columns:repeat(4,1fr)}}
+  @media(max-width:980px){.grid{grid-template-columns:repeat(3,1fr)}.nordic{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:900px){.two{grid-template-columns:1fr}.ctx{grid-template-columns:1fr}}
+  @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:20px 16px 48px}}
+</style>
+</head>
+<body>
+<header id="app-header" data-page="shiptest"></header>
+<template data-header-extra>
+  <div class="live-dot" id="live-src">BigQuery · nightly Norce</div>
+</template>
+<script src="/nav.js"></script>
+
+<div class="wrap">
+  <div class="toprow">
+    <div>
+      <h1 id="title">Shipping Threshold Test</h1>
+      <div class="sub" id="period-sub">Loading…</div>
+    </div>
+    <div class="seg" id="mkt-seg" role="tablist" aria-label="Market"></div>
+  </div>
+  <div id="status-banner" class="note" style="display:none"></div>
+  <div class="nordic" id="nordic"></div>
+
+  <div id="content" style="display:none">
+  <div class="ctx">
+    <div class="hyp">
+      <b>Hypothesis:</b> <span id="hyp-text"></span>
+      Read on <b>orders/day, GP2/day and the basket-value distribution</b> — not AOV alone.
+      <div class="regimes" id="regimes"></div>
+    </div>
+    <div class="prog">
+      <div class="lab"><span>Test data collected</span><span id="pg-pct">—</span></div>
+      <div class="bar"><i id="pg-fill" style="width:0%"></i></div>
+      <div class="lab"><span id="pg-days">—</span><span id="pg-min">—</span></div>
+      <div class="verdict" id="verdict">—</div>
+      <div class="evid" id="evid"></div>
+    </div>
+  </div>
+
+  <div class="grid" id="kpis"></div>
+
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h3>Basket-value distribution — baseline vs test</h3>
+        <div class="csub" id="hist-sub">—</div>
+      </div>
+    </div>
+    <div style="position:relative;height:320px"><canvas id="c-hist"></canvas></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h3>Basket bands</h3>
+        <div class="csub" id="band-sub">—</div>
+      </div>
+      <div id="band-tools"></div>
+    </div>
+    <div class="tblwrap">
+    <table id="band-tbl" data-tools data-no-filters data-export-name="shipping-test-bands" data-tools-toolbar="#band-tools">
+      <thead><tr><th>Band</th><th>Baseline share</th><th>Campaign share</th><th>Test share</th><th>Test Δ vs base</th>
+        <th>AOV base</th><th>AOV test</th><th>Free ship (test)</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="two">
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3 id="trend-h">Daily — orders &amp; AOV</h3>
+          <div class="csub" id="trend-sub">—</div>
+        </div>
+      </div>
+      <div style="position:relative;height:300px"><canvas id="c-trend"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3 id="ctrl-h">Seasonality control</h3>
+          <div class="csub" id="ctrl-sub">—</div>
+        </div>
+      </div>
+      <div style="position:relative;height:300px"><canvas id="c-ctrl"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h3>Sample size &amp; uncertainty</h3>
+        <div class="csub" id="welch-sub">—</div>
+      </div>
+      <div id="n-tools"></div>
+    </div>
+    <div class="tblwrap">
+    <table id="n-tbl" data-tools data-no-filters data-export-name="shipping-test-sample" data-tools-toolbar="#n-tools">
+      <thead><tr><th>Period</th><th>Window (local time)</th><th>Orders</th><th>Days</th><th>Orders/day</th><th>AOV</th><th>SD</th>
+        <th>Free ship</th><th>Conv.</th><th>GP2 days</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="note" id="note"></div>
+  </div>
+</div>
+
+<script>
+let ALL=null, MK='FI', DATA=null;
+const MKT_LABEL={FI:'Finland',SE:'Sweden',NO:'Norway',DK:'Denmark'};
+const nf=(v,d=0)=>v.toLocaleString('sv-SE',{minimumFractionDigits:d,maximumFractionDigits:d});
+// Money in the selected market's currency (€ for FI, kr for SE/NO/DK).
+const money=(v,d=0)=>v==null?'—':nf(v,d)+' '+(DATA?DATA.unit:'€');
+const thr=v=>DATA.unit==='€'?v+' €':nf(v)+' kr';
+const kr=v=>v==null?'—':Math.round(v).toLocaleString('sv-SE')+' kr';
+const pc=(v,d=1)=>v==null?'—':(v*100).toFixed(d)+'%';
+const rel=(a,b)=>(a==null||b==null||!b)?null:(a-b)/b*100;
+const sgn=(x,d=1)=>(x>=0?'+':'')+x.toFixed(d);
+const cls=(x,goodUp=true)=>x==null?'na':((goodUp?x>=0:x<=0)?'up':'down');
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtDay=iso=>{const [y,m,d]=iso.split('-').map(Number);return d+'/'+m;};
+const fee=v=>DATA.unit==='€'?v.toFixed(2).replace('.',',')+' €':nf(v)+' kr';
+const dpc=v=>v==null?'<span class="na">n/a</span>':`<span class="${v>=0?'up':'down'}">${sgn(v*100)}%</span>`;
+
+function renderSeg(){
+  document.getElementById('mkt-seg').innerHTML=ALL.markets_order.map(m=>
+    `<button role="tab" aria-selected="${m===MK}" class="${m===MK?'on':''}" data-m="${m}">${m}</button>`).join('');
+  document.querySelectorAll('#mkt-seg button').forEach(b=>b.onclick=()=>select(b.dataset.m));
+}
+
+function renderNordic(){
+  document.getElementById('nordic').innerHTML=ALL.summary.map(s=>{
+    const unit=s.unit==='€'?' €':' kr';
+    const st=s.test_started?`test · ${s.test_days.toFixed(1)} d`:'waiting for data';
+    return `<button class="nm${s.market===MK?' on':''}" data-m="${s.market}">
+      <div class="t"><span>${s.market} · ${esc(s.name)}</span><span class="st${s.test_started?'':' wait'}">${st}</span></div>
+      <div class="r">free from ${nf(s.test_threshold)}${unit} (normal ${nf(s.normal_threshold)}${unit})${s.test_start_local?' · since '+esc(s.test_start_local.slice(5)):''}</div>
+      <div class="m"><div>Orders/day<b>${dpc(s.d_orders)}</b></div><div>AOV<b>${dpc(s.d_aov)}</b></div><div>GP2/day<b>${dpc(s.d_gp2)}</b></div></div>
+    </button>`;}).join('');
+  document.querySelectorAll('#nordic .nm').forEach(b=>b.onclick=()=>select(b.dataset.m));
+}
+
+function select(m){
+  if(!ALL||!ALL.markets[m]) return;
+  MK=m; DATA=ALL.markets[m];
+  try{const u=new URL(location.href);u.searchParams.set('market',m);history.replaceState(null,'',u);}catch(e){}
+  renderSeg(); renderNordic(); render();
+}
+
+function render(){
+  const d=DATA, P=d.periods, b=P.baseline, c=P.campaign, t=P.test, I=P.interim, R=d.regimes;
+  const started=d.test_started;
+  document.title=`Shipping Threshold Test · ${d.market} · Babyshop`;
+  document.getElementById('title').textContent=`${d.name} — Free-Shipping Threshold Test`;
+  document.getElementById('period-sub').textContent = started
+    ? `Test since ${R.test.start_local} (local) · ${d.test_days.toFixed(1)} equivalent days · data through ${d.max_order_local} (latest Norce order) · market ${d.market}`
+    : `Test announced ${R.test.announced} — waiting for data: no order in the nightly Norce sync shows the new threshold yet · data through ${d.max_order_local} · market ${d.market}`;
+
+  const feeChange = R.normal.fee!==R.test.fee ? ` and the ${R.normal.fee_label} fee from <b>${fee(R.normal.fee)}</b> to <b>${fee(R.test.fee)}</b>` : ` (${fee(R.test.fee)} ${esc(R.normal.fee_label)} fee still charged below)`;
+  document.getElementById('hyp-text').innerHTML =
+    `lowering the ${d.market} free-shipping threshold from <b>${thr(R.normal.threshold)}</b> to <b>${thr(R.test.threshold)}</b>${feeChange} lifts conversion and pulls baskets just under ${thr(R.test.threshold)} over the line, and the extra orders and larger small baskets outweigh the lost shipping-fee income and the fewer baskets stretched to ${thr(R.normal.threshold)}.`;
+
+  const bd=d.baseline;
+  const reg=[
+    `<div><span class="sw" style="background:var(--base)"></span><span><b>Normal · free above ${thr(R.normal.threshold)}</b>, ${fee(R.normal.fee)} below — baseline = the last ${bd.n_days} normal days before the campaign (${bd.days.length?fmtDay(bd.days[0])+'–'+fmtDay(bd.days[bd.days.length-1]):'—'}; free-shipping promo days skipped)</span></div>`,
+    `<div><span class="sw" style="background:var(--camp)"></span><span><b>Campaign · free above ${thr(R.campaign.threshold)}</b> — ${R.campaign.start_local} → ${R.campaign.end_local}. Nordic campaign: <b>excluded from the comparison</b>, shown as context</span></div>`];
+  if(R.interim) reg.push(`<div><span class="sw" style="background:var(--base);opacity:.5"></span><span><b>Back to normal (interim)</b> — ${R.interim.start_local} → ${started?R.interim.end_local:'now'}; context only</span></div>`);
+  reg.push(`<div><span class="sw" style="background:var(--test)"></span><span><b>Test · free above ${thr(R.test.threshold)}</b>, ${fee(R.test.fee)} below — ${started?R.test.start_local+' → '+(R.test.end_local||'ongoing'):'announced '+R.test.announced+', <b>waiting for data</b>'}</span></div>`);
+  document.getElementById('regimes').innerHTML=reg.join('');
+
+  const p=Math.min(100,d.test_days/d.min_test_days*100);
+  document.getElementById('pg-pct').textContent=p.toFixed(0)+'%';
+  document.getElementById('pg-fill').style.width=p+'%';
+  document.getElementById('pg-days').textContent=`${d.test_days.toFixed(1)} days · ${t.n} orders`;
+  document.getElementById('pg-min').textContent=`min ${d.min_test_days} days`;
+  const v=document.getElementById('verdict');
+  v.className='verdict'+(d.too_early?'':' ok');
+  v.textContent=!started?'Waiting for data — the switch is not in the order data yet'
+    :d.too_early?`Too early to call — ${Math.max(0,d.min_test_days-d.test_days).toFixed(1)} more days needed`:'Enough days to read the direction (check the CI below)';
+  const ev=d.detection&&d.detection.test_start;
+  let evid = ev ? `Switch seen in the orders (UTC): last ${ev.to==='free'?'paid':'free'} ${esc(ev.band)} order ${esc(ev.last_before.ts_utc.slice(5,16))} (${money(ev.last_before.goods)}, fee ${money(ev.last_before.fee)}), first ${ev.to} ${esc(ev.first_after.ts_utc.slice(5,16))} (${money(ev.first_after.goods)}). `
+                : (started?'':'No order shows the new threshold yet. ');
+  if(d.detection_warnings&&d.detection_warnings.length) evid+='<b>Check the regime constants:</b> '+d.detection_warnings.map(esc).join('; ');
+  document.getElementById('evid').innerHTML=evid;
+
+  // KPI tiles: test vs baseline
+  const tv=x=>started&&t.n?x:null;
+  const gp2Note = t.gp2_days? `${t.gp2_days} whole days · GP2 margin ${pc(t.gp2_margin)} vs ${pc(b.gp2_margin)}`
+                            : `no whole test day in the Funnel export yet (daily grain, ~2-day lag) · base ${kr(b.gp2_day_sek)}`;
+  const tiles=[
+    {k:'Orders / day',v:tv(t.orders_day)==null?'—':t.orders_day.toFixed(1),dv:rel(tv(t.orders_day),b.orders_day),n:`base ${b.orders_day==null?'—':b.orders_day.toFixed(1)} · partial days hour-weighted`,spot:true},
+    {k:'Goods revenue / day',v:money(tv(t.goods_day)),dv:rel(tv(t.goods_day),b.goods_day),n:`incl. VAT, excl. shipping · base ${money(b.goods_day)}`},
+    {k:'AOV (goods)',v:money(tv(t.aov),1),dv:rel(tv(t.aov),b.aov),n:`base ${money(b.aov,1)} · see CI below`},
+    {k:'Free-shipping share',v:pc(tv(t.free_share),0),dv:tv(t.free_share)==null?null:(t.free_share-b.free_share)*100,unit:' pp',neutral:true,n:`share of orders shipped free · base ${pc(b.free_share,0)}`},
+    {k:'Shipping fee / order',v:money(tv(t.ship_per_order),2),dv:rel(tv(t.ship_per_order),b.ship_per_order),n:`fee income incl. VAT · base ${money(b.ship_per_order,2)}`},
+    {k:'GP2 / day',v:t.gp2_day_sek==null?'n/a':kr(t.gp2_day_sek),dv:rel(t.gp2_day_sek,b.gp2_day_sek),n:gp2Note,spot:true},
+    {k:'Conversion rate',v:t.conv==null?'n/a':pc(t.conv,2),dv:rel(t.conv,b.conv),n:t.conv==null?`whole days only · base ${pc(b.conv,2)} · campaign ${pc(c.conv,2)}`:`Norce orders ÷ Funnel sessions · base ${pc(b.conv,2)}`},
+  ];
+  document.getElementById('kpis').innerHTML=tiles.map(x=>{
+    const dtxt=x.dv==null?'n/a':sgn(x.dv)+(x.unit||'%');
+    const dc=x.dv==null?'na':(x.neutral?'na':cls(x.dv));
+    return `<div class="kpi${x.spot?' spot':''}"><div class="k">${x.k}</div><div class="v">${x.v}</div>
+      <div class="d ${dc}">${dtxt}</div><div class="n">${x.n}</div></div>`;}).join('');
+
+  // Band table
+  const B=d.bands, hl=new Set(B.hl||[]);
+  const below=B.labels[(B.hl||[])[0]], above=B.labels[(B.hl||[])[1]];
+  document.getElementById('band-sub').textContent=`Share of orders and AOV by goods value (incl. VAT). The ${below||'band below the threshold'} band is the one the ${thr(R.test.threshold)} threshold should empty into ${above||'the band above'}.`;
+  document.getElementById('hist-sub').innerHTML=`Share of orders per ${thr(d.hist.bin)} goods-value bin (incl. VAT, excl. shipping). The key read is <b>bunching just above ${thr(R.test.threshold)}</b> and <b>fewer orders just above ${thr(R.normal.threshold)}</b>. The campaign is hidden by default — click its legend entry to show it.`;
+  document.querySelector('#band-tbl tbody').innerHTML=B.labels.map((lbl,i)=>{
+    const bb=B.baseline[i], cc=B.campaign[i], tt=B.test[i], dd=started&&t.n?sgn((tt.share-bb.share)*100)+' pp':'—';
+    return `<tr${hl.has(i)?' class="hl"':''}><td>${esc(lbl)}</td><td>${pc(bb.share)} <span class="s">(${bb.n})</span></td><td>${pc(cc.share)} <span class="s">(${cc.n})</span></td>`+
+      `<td>${t.n?pc(tt.share):'—'} <span class="s">(${tt.n})</span></td><td>${dd}</td><td>${money(bb.aov,1)}</td><td>${money(tt.aov,1)}</td><td>${pc(tt.free_share,0)}</td></tr>`;
+  }).join('');
+
+  // Sample table + Welch
+  const row=(name,x,win)=>`<tr${name.startsWith('Test')?' class="hl"':''}><td>${name}</td><td>${win}</td><td>${x.n.toLocaleString('sv-SE')}</td><td>${x.eq_days.toFixed(1)}</td>`+
+    `<td>${x.orders_day==null?'—':x.orders_day.toFixed(1)}</td><td>${x.n?money(x.aov,1):'—'}</td><td>${x.n?money(Math.sqrt(x.aov_var),0):'—'}</td><td>${pc(x.free_share,0)}</td>`+
+    `<td>${x.conv==null?'—':pc(x.conv,2)}</td><td>${x.gp2_days}</td></tr>`;
+  document.querySelector('#n-tbl tbody').innerHTML =
+    row(`Baseline (normal ${thr(R.normal.threshold)})`,b,`${bd.n_days} normal days, ${b.start_local} → ${b.end_local}`)+
+    row(`Campaign (${thr(R.campaign.threshold)}, context)`,c,`${c.start_local} → ${c.end_local}`)+
+    (I?row(`Interim (normal, context)`,I,`${I.start_local} → ${I.end_local}`):'')+
+    row(`Test (${thr(R.test.threshold)})`,t,started?`${t.start_local} → ${t.end_local}`:'waiting for data');
+  const w=d.welch_aov, cu=d.unit;
+  document.getElementById('welch-sub').innerHTML = w
+    ? `AOV difference test − baseline: <b>${sgn(w.diff,1)} ${cu}</b>, 95 % CI <b>${sgn(w.lo,1)} … ${sgn(w.hi,1)} ${cu}</b> (Welch, per-order goods value) — `+
+      (w.significant?'<span class="up" style="font-weight:700">CI excludes zero</span>':'<span style="font-weight:700">CI spans zero: not distinguishable from noise yet</span>')+
+      `. Days are equivalent days: a partial day is weighted by the baseline's hour-of-day order profile.`
+    : 'Not enough test orders for a confidence interval yet.';
+
+  document.getElementById('trend-h').textContent=`${d.market} daily — orders & AOV`;
+  document.getElementById('trend-sub').innerHTML=`Local dates (${esc(d.tz)}). Shading: <span class="sw" style="background:rgba(201,162,39,.22)"></span> free-shipping promo/campaign, `+
+    `<span class="sw" style="background:rgba(47,102,144,.18)"></span> test. Pale bar = latest day (partial); grey bars = baseline days.`;
+
+  document.getElementById('note').innerHTML =
+    `<b>Reading this page.</b> Orders are ${d.market} Norce orders with a revenue status, plus not-yet-processed (status 2) orders from the last few days — every order placed today is still status 2. `+
+    `Goods value = order lines incl. VAT, excl. the shipping line. ${esc(d.notes.gp2)} ${esc(d.notes.conv)} ${esc(d.notes.freshness||'')} `+
+    `The first test hours skew towards daytime and a single day is dominated by noise — wait for ${d.min_test_days}+ days and read orders/day against the control before judging. `+
+    `Regime timestamps are pinned in shipping_test.py and re-checked against the orders on every refresh.`;
+
+  renderHist(); renderTrend(); renderCtrl();
+}
+
+// Vertical threshold markers on the category-axis histogram: bin i spans [bw·i, bw·(i+1)).
+function thresholdPlugin(vals){
+  return {id:'thr',afterDraw(ch){
+    const x=ch.scales.x, a=ch.chartArea, g=ch.ctx, bw=DATA.hist.bin;
+    const p0=x.getPixelForValue(0), p1=x.getPixelForValue(1);
+    vals.forEach(([v,col,lbl])=>{
+      const px=p0+(v/bw-0.5)*(p1-p0);
+      g.save();g.strokeStyle=col;g.setLineDash([5,4]);g.lineWidth=1.5;g.beginPath();g.moveTo(px,a.top);g.lineTo(px,a.bottom);g.stroke();
+      g.setLineDash([]);g.fillStyle=col;g.font='700 10px sans-serif';g.fillText(lbl,px+4,a.top+11);g.restore();});
+  }};
+}
+function renderHist(){
+  const h=DATA.hist, R=DATA.regimes, u=DATA.unit, el=document.getElementById('c-hist'), ex=Chart.getChart(el); if(ex) ex.destroy();
+  const every=Math.max(1,Math.round(h.labels.length/10));
+  new Chart(el,{type:'bar',
+    data:{labels:h.labels.map(l=>l.endsWith('+')?l+' '+u:l),datasets:[
+      {label:`Baseline (${thr(R.normal.threshold)})`,data:h.baseline.map(v=>v*100),backgroundColor:'rgba(140,144,152,.55)',barPercentage:1,categoryPercentage:.9},
+      {label:`Test (${thr(R.test.threshold)})`,data:h.test.map(v=>v*100),backgroundColor:'rgba(47,102,144,.85)',barPercentage:1,categoryPercentage:.9},
+      {label:`Campaign (${thr(R.campaign.threshold)})`,data:h.campaign.map(v=>v*100),type:'line',borderColor:'#C9A227',borderWidth:1.5,pointRadius:0,tension:.25,hidden:true},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{position:'top',labels:{boxWidth:12,font:{size:11}}},
+        tooltip:{callbacks:{title:it=>{const i=it[0].dataIndex;return i===h.labels.length-1?h.labels[i]+' '+u:`${h.labels[i]}–${+h.labels[i]+h.bin} ${u}`;},
+          label:c=>' '+c.dataset.label+': '+c.parsed.y.toFixed(1)+'%'}}},
+      scales:{y:{grid:{color:'rgba(0,0,0,.05)'},ticks:{callback:v=>v+'%',font:{size:10}},title:{display:true,text:'share of orders',font:{size:10}}},
+        x:{grid:{display:false},ticks:{font:{size:10},autoSkip:false,callback:function(v,i){return i%every===0?this.getLabelForValue(v):'';}}}}},
+    plugins:[thresholdPlugin([[R.test.threshold,'#2F6690',thr(R.test.threshold)],[R.normal.threshold,'#8C9098',thr(R.normal.threshold)]])]});
+}
+
+// Background shading per day class (promo/campaign vs test).
+function shadePlugin(days){
+  return {id:'shade',beforeDatasetsDraw(ch){
+    const x=ch.scales.x, a=ch.chartArea, g=ch.ctx;
+    const step=days.length>1? x.getPixelForValue(1)-x.getPixelForValue(0) : a.right-a.left;
+    days.forEach((d,i)=>{
+      const col= d.cls==='test'?'rgba(47,102,144,.14)': (d.cls==='campaign'||d.cls==='promo')?'rgba(201,162,39,.18)': d.cls==='mixed'?'rgba(201,162,39,.08)':null;
+      if(!col) return;
+      const px=x.getPixelForValue(i);
+      g.save();g.fillStyle=col;g.fillRect(px-step/2,a.top,step,a.bottom-a.top);g.restore();});
+  }};
+}
+function renderTrend(){
+  const s=DATA.daily, el=document.getElementById('c-trend'), ex=Chart.getChart(el); if(ex) ex.destroy();
+  const thrT=DATA.regimes.test.threshold;
+  new Chart(el,{
+    data:{labels:s.map(x=>x.d),datasets:[
+      {type:'bar',label:'Orders',yAxisID:'y',data:s.map(x=>x.orders),
+        backgroundColor:s.map(x=>x.partial?'rgba(47,102,144,.25)':x.baseline?'rgba(140,144,152,.7)':'rgba(47,102,144,.55)'),barPercentage:.85},
+      {type:'line',label:`AOV (goods, ${DATA.unit})`,yAxisID:'y2',data:s.map(x=>x.aov),borderColor:'#1B2839',borderWidth:1.8,pointRadius:0,tension:.3,spanGaps:true},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{position:'top',labels:{boxWidth:12,font:{size:11}}},
+        tooltip:{callbacks:{afterTitle:it=>{const x=s[it[0].dataIndex];return x.cls+(x.baseline?' · baseline day':'')+(x.partial?' · partial day':'')+(x.free_small!=null?` · free <${thr(thrT)}: ${(x.free_small*100).toFixed(0)}%`:'');},
+          label:c=>' '+c.dataset.label+': '+(c.dataset.yAxisID==='y2'?money(c.parsed.y,1):c.parsed.y)}}},
+      scales:{y:{position:'left',grid:{color:'rgba(0,0,0,.05)'},ticks:{font:{size:10}},title:{display:true,text:'orders',font:{size:10}}},
+        y2:{position:'right',grid:{display:false},ticks:{callback:v=>nf(v)+' '+DATA.unit,font:{size:10}}},
+        x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:12}}}},
+    plugins:[shadePlugin(s)]});
+}
+function renderCtrl(){
+  const s=DATA.daily, C=DATA.control, el=document.getElementById('c-ctrl'), ex=Chart.getChart(el); if(ex) ex.destroy();
+  const cm=C.markets.join('+');
+  document.getElementById('ctrl-h').textContent=`Seasonality control — ${DATA.market} vs ${cm} and last year`;
+  const method={nordic:`Control used: <b>${esc(C.clean_markets.join('+'))}</b> (not in a test during ${DATA.market}'s test window).`,
+    last_year:`Control used: <b>${DATA.market} last year</b>.`,
+    pending:'Control: n/a until the test shows up in the data.',
+    none:'<b>No control available</b> — the trend is shown without one.'}[C.method]||'';
+  const adj=C.adj_orders_change==null?` Control-adjusted orders/day change: n/a (needs ≥ 3 whole test days; ${C.adj_full_days} so far).`
+    :` Control-adjusted orders/day change over ${C.adj_full_days} whole test days: <b>${sgn(C.adj_orders_change*100)}%</b>.`;
+  document.getElementById('ctrl-sub').innerHTML =
+    `Orders/day indexed to each series' baseline average (=100; ${cm} base ${C.baseline_avg_orders==null?'—':Math.round(C.baseline_avg_orders)} orders/day`+
+    `${C.ly_baseline_avg_orders!=null?`, ${DATA.market} last year ${Math.round(C.ly_baseline_avg_orders)}`:''}). `+
+    `The ${cm} line stops on days when any of them is in its own threshold test. ${method} ${esc(C.note)}${adj} Latest day is partial.`;
+  new Chart(el,{type:'line',
+    data:{labels:s.map(x=>x.d),datasets:[
+      {label:DATA.market,data:s.map(x=>x.idx),borderColor:'#2F6690',borderWidth:2.2,pointRadius:0,tension:.3},
+      {label:cm+' (other Nordics)',data:s.map(x=>x.ctrl_idx),borderColor:'#8C9098',borderWidth:1.8,borderDash:[5,4],pointRadius:0,tension:.3},
+      {label:DATA.market+' last year (−364 d)',data:s.map(x=>x.ly_idx),borderColor:'#C9A227',borderWidth:1.6,borderDash:[2,3],pointRadius:0,tension:.3},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{position:'top',labels:{boxWidth:12,font:{size:11}}},
+        tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+(c.parsed.y==null?'—':c.parsed.y.toFixed(0))}}},
+      scales:{y:{grid:{color:'rgba(0,0,0,.05)'},ticks:{font:{size:10}},title:{display:true,text:'index (baseline = 100)',font:{size:10}}},
+        x:{grid:{display:false},ticks:{font:{size:10},maxTicksLimit:12}}}},
+    plugins:[shadePlugin(s)]});
+}
+
+async function load(){
+  const sb=document.getElementById('status-banner');
+  try{
+    const r=await fetch('/api/shipping-test',{cache:'no-store'});
+    const j=await r.json();
+    if(!r.ok||!j.markets) throw new Error(j.error||('HTTP '+r.status));
+    ALL=j;
+    let want='FI';
+    try{want=(new URL(location.href).searchParams.get('market')||'FI').toUpperCase();}catch(e){}
+    if(!j.markets[want]) want=j.markets_order[0];
+    document.getElementById('content').style.display='';
+    sb.style.display='none';
+    select(want);
+    document.getElementById('live-src').title='Source: '+(j.source||'')+' · generated '+(j.generated_at||'');
+  }catch(e){
+    sb.style.display='block';
+    sb.innerHTML='<b>Could not load test data.</b> '+esc(e.message||e);
+    document.getElementById('period-sub').textContent='—';
+  }
+}
+load();
+</script>
+</body>
+</html>
