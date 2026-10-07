@@ -144,6 +144,7 @@ VOYADO_HTML    = STATIC_DIR / "babyshop-voyado-dashboard.html"
 BUNDLES_HTML   = STATIC_DIR / "babyshop-bundles-dashboard.html"
 SOS_HTML       = STATIC_DIR / "babyshop-sos-dashboard.html"
 META_HTML      = STATIC_DIR / "babyshop-meta-dashboard.html"
+ECOM_HTML      = STATIC_DIR / "babyshop-ecom-dashboard.html"
 EXEC_PL_HTML   = STATIC_DIR / "babyshop-exec-pl.html"
 DAILY_PERF_HTML = STATIC_DIR / "babyshop-daily-perf.html"
 TABLE_TOOLS_JS = STATIC_DIR / "table-tools.js"
@@ -233,6 +234,11 @@ def sos_dashboard(_: str = Depends(verify)):
 @app.get("/babyshop-meta-dashboard.html")
 def meta_dashboard(_: str = Depends(verify)):
     return FileResponse(META_HTML, media_type="text/html")
+
+
+@app.get("/babyshop-ecom-dashboard.html")
+def ecom_dashboard(_: str = Depends(verify)):
+    return FileResponse(ECOM_HTML, media_type="text/html")
 
 
 # Shared table filtering + export module, used by <script src="/table-tools.js">
@@ -896,6 +902,177 @@ def api_meta(market: str = META_DEFAULT_MARKET, days: str = str(META_DEFAULT_DAY
         "top_creatives": {"SE": [], "NO": []}, "recent": [],
         "caveats": ["no Meta snapshot yet — refresh_meta.py has not run"],
     }
+
+
+# ── E-com Funnel tab ─────────────────────────────────────────────────────────
+# Same two paths as /api/meta: a PRESET (market × days) is one Firestore
+# document written nightly by refresh_ecom.py; a CUSTOM range (?from=&to=) is
+# computed live by refresh_ecom.build_custom(), the function the job's presets
+# are assembled with, so both answer with one payload shape.
+#
+# The live cache below is the Meta one's design (TTL + LRU + a per-key lock so
+# two identical requests run ONE scan) as its own instance: sharing Meta's
+# dicts would let an E-com range evict a Meta range, and this tab must not
+# change how that one behaves.
+ECOM_MARKETS = ("all", "SE", "NO", "DK", "FI")
+ECOM_DAYS = (7, 28, 90)
+ECOM_DEFAULT_MARKET = "all"
+ECOM_DEFAULT_DAYS = 28
+ECOM_LIVE_TTL = int(os.environ.get("ECOM_LIVE_TTL", "600"))
+ECOM_LIVE_CACHE_MAX = int(os.environ.get("ECOM_LIVE_CACHE_MAX", "12"))
+
+
+class _LiveCache:
+    """TTL + LRU cache of live payloads, with one lock per key."""
+
+    def __init__(self, ttl: int, max_entries: int):
+        self.ttl, self.max = ttl, max_entries
+        self._data: "OrderedDict[tuple, tuple[float, dict]]" = OrderedDict()
+        self._guard = threading.Lock()       # guards the dicts, never a query
+        self._locks: dict = {}
+
+    def get(self, key: tuple):
+        """(payload, age in seconds) or None. Expiry is checked on read."""
+        with self._guard:
+            hit = self._data.get(key)
+            if hit is None:
+                return None
+            born, payload = hit
+            if time.time() - born > self.ttl:
+                self._data.pop(key, None)
+                return None
+            self._data.move_to_end(key)
+            return payload, round(time.time() - born)
+
+    def put(self, key: tuple, payload: dict) -> None:
+        with self._guard:
+            self._data[key] = (time.time(), payload)
+            self._data.move_to_end(key)
+            while len(self._data) > self.max:
+                self._data.popitem(last=False)
+            if len(self._locks) > 4 * self.max:
+                for k in [k for k in self._locks
+                          if k not in self._data and not self._locks[k].locked()]:
+                    self._locks.pop(k, None)
+
+    def lock(self, key: tuple):
+        with self._guard:
+            lk = self._locks.get(key)
+            if lk is None:
+                lk = self._locks[key] = threading.Lock()
+            return lk
+
+
+_ecom_live = _LiveCache(ECOM_LIVE_TTL, ECOM_LIVE_CACHE_MAX)
+
+
+def _ecom_range(date_from: str, date_to: str):
+    """Validate a custom range. Returns (start, end) or raises ValueError with a
+    message written for the reader — the page prints it next to the date inputs.
+    The bounds live in refresh_ecom so the job and the API cannot disagree."""
+    import datetime as _dt
+    import refresh_ecom as re_
+
+    if not (date_from and date_to):
+        raise ValueError("a custom range needs both from and to")
+    try:
+        start = _dt.date.fromisoformat(date_from)
+        end = _dt.date.fromisoformat(date_to)
+    except ValueError:
+        raise ValueError("dates must be YYYY-MM-DD")
+    if start > end:
+        raise ValueError("the start date is after the end date")
+    last = re_.last_complete_day()
+    if end > last:
+        raise ValueError(f"the last complete GA4 day is {last.isoformat()}")
+    if start < _dt.date.fromisoformat(re_.DATA_START):
+        raise ValueError(f"the earliest selectable date is {re_.DATA_START}")
+    span = (end - start).days + 1
+    if span > re_.MAX_SPAN_DAYS:
+        raise ValueError(f"{span} days is over the {re_.MAX_SPAN_DAYS}-day limit")
+    return start, end
+
+
+def _api_ecom_live(market: str, date_from: str, date_to: str):
+    """One custom range, computed live from BigQuery (same identity and IAM as
+    the nightly job — see refresh_meta._credentials)."""
+    import refresh_ecom as re_
+
+    try:
+        start, end = _ecom_range(date_from, date_to)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+    key = (market, start.isoformat(), end.isoformat())
+    hit = _ecom_live.get(key)
+    if hit is not None:
+        print(f"/api/ecom live {market} {key[1]}..{key[2]} — cache hit "
+              f"({hit[1]}s old), no BigQuery", flush=True)
+        return hit[0]
+    with _ecom_live.lock(key):
+        hit = _ecom_live.get(key)             # a twin request finished first
+        if hit is not None:
+            print(f"/api/ecom live {market} {key[1]}..{key[2]} — cache hit after "
+                  f"wait ({hit[1]}s old), no BigQuery", flush=True)
+            return hit[0]
+        t0 = time.time()
+        try:
+            payload, st = re_.build_custom(market, start, end)
+        except Exception as e:
+            print(f"ERROR /api/ecom live {market} {key[1]}..{key[2]}: "
+                  f"{type(e).__name__}: {e}", flush=True)
+            return JSONResponse(
+                {"error": f"the BigQuery query failed ({type(e).__name__}). "
+                          "Try a shorter range, or a preset."}, status_code=502)
+        _ecom_live.put(key, payload)
+        print(f"/api/ecom live {market} {key[1]}..{key[2]} ({st['span']} d) — "
+              f"{time.time() - t0:.1f}s total, {st['elapsed']}s in BigQuery, "
+              f"{st['queries']} queries, {st['bytes_processed']:,} B processed, "
+              f"site={st['site']!r}", flush=True)
+        return payload
+
+
+@app.get("/api/ecom")
+def api_ecom(market: str = ECOM_DEFAULT_MARKET, days: str = str(ECOM_DEFAULT_DAYS),
+             date_from: str = Query("", alias="from"),
+             date_to: str = Query("", alias="to"),
+             _: str = Depends(verify)):
+    """E-com Funnel payload (shape: refresh_ecom.build_combo()).
+
+    `market` + `days` read one precomputed snapshot; an unknown value falls back
+    to the default combination (meta.market / meta.days state what was served),
+    as /api/meta does. `from` / `to` switch to the live path: 400 on a bad range,
+    502 on a failed query, both `{"error": "…"}`.
+
+    Unlike /api/meta there is no empty skeleton: a snapshot that does not exist
+    yet is a 503 `{"error": "…"}`. Every number on this tab is a ratio of sums,
+    and a skeleton of nulls would render as a page of dashes with no reason."""
+    if market not in ECOM_MARKETS:
+        market = ECOM_DEFAULT_MARKET
+    if date_from or date_to:
+        return _api_ecom_live(market, date_from.strip(), date_to.strip())
+
+    from funnel_client import get_cache
+
+    try:
+        days_n = int(days)
+    except (TypeError, ValueError):
+        days_n = ECOM_DEFAULT_DAYS
+    if days_n not in ECOM_DAYS:
+        days_n = ECOM_DEFAULT_DAYS
+
+    try:
+        data = get_cache().get(f"ecom__{market}_{days_n}")
+    except Exception as e:
+        print(f"ERROR /api/ecom: {type(e).__name__}: {e}", flush=True)
+        return JSONResponse(
+            {"error": "the E-com snapshot could not be read — try again shortly"},
+            status_code=503)
+    if data is None:
+        return JSONResponse(
+            {"error": f"no E-com snapshot yet for {market} / {days_n} days — the "
+                      "ecom-refresh job has not written it"}, status_code=503)
+    return data
 
 
 # Mirrored creative images, one Firestore document per ad, written by

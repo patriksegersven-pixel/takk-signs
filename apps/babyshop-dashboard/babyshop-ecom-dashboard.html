@@ -1,0 +1,1916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E-com Funnel · Babyshop</title>
+  <link rel="icon" type="image/svg+xml" href="/babyshop-favicon.svg">
+  <link rel="stylesheet" href="/brand.css">
+  <!-- Vendored: the usual CDNs are unreachable on the client network. -->
+  <script src="/chart.umd.js"></script>
+  <!-- Shared column filters + CSV/Sheets export. -->
+  <script src="/table-tools.js"></script>
+  <style>
+    /* Tokens, header chrome and the card/table floor come from brand.css. This
+       block is the page layer only. */
+    :root { --accent:#235837; --accent-bg:#EAF2EC; --accent-dark:#1A4429; }
+
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+    html { font-size:16px; scroll-behavior:smooth; }
+    body { font-family:var(--font); background:var(--bg); color:var(--body); min-height:100vh; -webkit-font-smoothing:antialiased; font-variant-numeric:tabular-nums; }
+
+    main { max-width:1380px; margin:0 auto; padding:26px 32px 56px; }
+    .page-title { font-size:21px; font-weight:700; color:var(--h); letter-spacing:-.3px; }
+    .page-sub { font-size:12px; color:var(--muted); margin-top:3px; line-height:1.5; }
+    section { scroll-margin-top:118px; }
+
+    /* ── Controls ─────────────────────────────────────────────────────────── */
+    .filters { display:flex; align-items:center; gap:10px 22px; flex-wrap:wrap; margin-top:16px;
+               background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm);
+               padding:11px 16px; }
+    .fgroup { display:flex; align-items:center; gap:9px; }
+    .flabel { font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); display:inline-flex; align-items:center; }
+    .seg { display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:var(--border-lt); }
+    .seg button { appearance:none; border:0; background:transparent; font:600 12px/1 var(--font); color:var(--muted);
+                  padding:7px 13px; cursor:pointer; border-right:1px solid var(--border); white-space:nowrap; }
+    .seg button:last-child { border-right:0; }
+    .seg button:hover { color:var(--h); background:#fff; }
+    .seg button[aria-pressed="true"] { background:var(--accent); color:#fff; }
+    .seg button:disabled { opacity:.45; cursor:not-allowed; }
+    .seg button:disabled:hover { background:transparent; color:var(--muted); }
+    .seg button:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+    .seg.sm button { padding:5px 10px; font-size:11.5px; }
+    .filters.busy { opacity:.55; pointer-events:none; }
+    .dinput { font:600 12px/1 var(--font); color:var(--h); background:var(--card);
+              border:1px solid var(--border); border-radius:6px; padding:6px 8px; }
+    .dinput:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+    .fbtn { appearance:none; font:700 12px/1 var(--font); color:#fff; background:var(--accent);
+            border:1px solid var(--accent); border-radius:6px; padding:7px 14px; cursor:pointer; }
+    .fbtn:hover { filter:brightness(1.08); }
+    .fbtn:disabled { opacity:.55; cursor:default; }
+    .floading { display:flex; align-items:center; gap:9px; font-size:11.5px; color:var(--h); font-weight:600; }
+    .spin { width:13px; height:13px; border-radius:50%; border:2px solid var(--border);
+            border-top-color:var(--accent); animation:spin .8s linear infinite; flex:none; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .ferr { font-size:11.5px; color:var(--down); font-weight:600; line-height:1.5; }
+    .fgroup[hidden], .floading[hidden] { display:none; }
+    .fwin { flex:1 1 100%; font-size:11.5px; color:var(--muted); line-height:1.55; border-top:1px solid var(--border-lt); padding-top:9px; }
+    .fwin b { color:var(--h); font-weight:600; }
+    .fwin .soft { color:var(--warn); }
+
+    /* Jump links — the page is long; this is its table of contents. */
+    .jump { position:sticky; top:60px; z-index:150; background:var(--bg); display:flex; gap:4px; flex-wrap:wrap; padding:9px 0 8px; margin-top:8px; border-bottom:1px solid var(--border-lt); }
+    .jump a { font-size:11.5px; font-weight:600; color:var(--muted); text-decoration:none; padding:4px 10px; border-radius:12px; white-space:nowrap; }
+    .jump a:hover { color:var(--accent-dark); background:var(--accent-bg); }
+    .jump a.hot { color:var(--accent-dark); background:var(--accent-bg); }
+
+    .notes { margin-top:12px; font-size:11.5px; line-height:1.55; color:#6E4A12; background:var(--warn-bg); border:1px solid #EBD8B6; border-radius:var(--r); padding:9px 14px; }
+    .notes ul { margin-left:16px; }
+    .notes[hidden] { display:none; }
+
+    .section-head { margin:30px 0 14px; display:flex; align-items:flex-start; justify-content:space-between; gap:18px; flex-wrap:wrap; }
+    .section-title { font-size:15px; font-weight:700; color:var(--h); letter-spacing:-.2px; display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+    .section-tag { font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--accent); background:var(--accent-bg); border-radius:3px; padding:2px 7px; white-space:nowrap; }
+    .section-tag.ev { color:#8A5416; background:var(--warn-bg); }
+    .section-sub { font-size:12px; color:var(--muted); margin-top:4px; max-width:940px; line-height:1.55; }
+    .sub-head { font-size:10px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); margin:16px 0 8px; }
+    .sub-head span { font-weight:500; letter-spacing:.02em; text-transform:none; }
+
+    /* ── At a glance ─────────────────────────────────────────────────────── */
+    .glance { margin-top:18px; background:var(--card); border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:14px 20px; }
+    .glance h3 { font-size:10px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+    .glance ul { list-style:none; display:grid; grid-template-columns:1fr 1fr; gap:7px 34px; }
+    .glance li { font-size:13px; line-height:1.5; color:var(--body); padding-left:15px; position:relative; }
+    .glance li::before { content:''; position:absolute; left:0; top:8px; width:6px; height:6px; border-radius:50%; background:var(--muted); }
+    .glance li.bad::before { background:var(--down); } .glance li.good::before { background:var(--up); } .glance li.act::before { background:var(--brand-coral); }
+    .glance b { color:var(--h); font-weight:600; }
+    .glance a { color:var(--accent); font-weight:600; text-decoration:none; } .glance a:hover { text-decoration:underline; }
+
+    /* ── KPI tiles ───────────────────────────────────────────────────────── */
+    .kpi-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
+    .kpi-grid.four { grid-template-columns:repeat(4,1fr); }
+    .kpi { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:14px 14px 12px; min-width:0; }
+    .kpi .k { font-size:10px; font-weight:600; letter-spacing:.07em; color:var(--muted); text-transform:uppercase; margin-bottom:8px; }
+    .kpi .v { font-size:23px; font-weight:700; color:var(--h); letter-spacing:-.5px; line-height:1.1; white-space:nowrap; }
+    .kpi .d { display:inline-block; margin-top:7px; font-size:10.5px; font-weight:600; padding:2px 6px; border-radius:10px; letter-spacing:.01em; white-space:nowrap; }
+    .d.up, .dl.up { background:var(--up-bg); color:var(--up); }
+    .d.down, .dl.down { background:var(--down-bg); color:var(--down); }
+    .d.flat, .dl.flat { background:var(--border-lt); color:var(--muted); }
+    .kpi .n { font-size:10px; color:var(--muted); margin-top:7px; line-height:1.45; }
+    .kpi .basis { display:inline-block; font-size:8.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; border-radius:3px; padding:1px 5px; margin-top:6px; background:var(--border-lt); color:#6B7078; }
+    .kpi .basis.ev { background:var(--warn-bg); color:#8A5416; }
+    /* inline delta in table cells */
+    .dl { display:inline-block; font-size:10.5px; font-weight:600; padding:1px 5px; border-radius:9px; white-space:nowrap; }
+    td .dl.plain { background:none; padding:0; }
+
+    /* ── Cards + tables ──────────────────────────────────────────────────── */
+    .card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:20px 22px; }
+    .card h3 { font-size:14px; font-weight:600; color:var(--h); }
+    .card .csub { color:var(--muted); font-size:11px; margin-top:2px; line-height:1.5; max-width:820px; }
+    .card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+    .card-tools { display:flex; align-items:center; gap:8px 12px; flex-wrap:wrap; }
+    .two { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    .stack { margin-top:20px; }
+    .card.tbl { padding:0; overflow:hidden; }
+    .card.tbl .card-head { padding:16px 20px 12px; margin-bottom:0; border-bottom:1px solid var(--border); align-items:center; }
+    .tbl-scroll { overflow-x:auto; }
+    .tbl-foot { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 20px; border-top:1px solid var(--border-lt); font-size:11.5px; color:var(--muted); }
+    .tbl-foot button, .linkbtn { appearance:none; border:1px solid var(--border); background:var(--card); border-radius:var(--r-sm); font:600 11px/1.4 var(--font); color:var(--body); padding:4px 9px; cursor:pointer; }
+    .tbl-foot button:hover, .linkbtn:hover { color:var(--accent); border-color:var(--accent); }
+    .tbl-note { padding:9px 20px; font-size:11px; color:var(--muted); line-height:1.5; border-top:1px solid var(--border-lt); }
+
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:right; padding:9px 12px; font-size:13px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+    th.lbl, td.lbl { text-align:left; }
+    thead th { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); border-bottom:1px solid var(--border); background:var(--card); }
+    tbody td { font-weight:500; color:var(--body); border-bottom:1px solid var(--border-lt); vertical-align:middle; }
+    tbody tr:last-child td { border-bottom:none; }
+    tbody tr:hover td { background-image:linear-gradient(rgba(27,40,57,.025),rgba(27,40,57,.025)); }
+    td.dim, .dim { color:var(--muted); }
+    td.strong { color:var(--h); font-weight:700; }
+    td.empty { text-align:center; color:var(--muted); padding:26px 12px; font-weight:400; }
+    tr.total td { font-weight:700; color:var(--h); border-bottom:1px solid var(--border); background:#FCFBF9; }
+    tr.sel td.lbl { box-shadow:inset 3px 0 0 var(--accent); }
+    tr.click { cursor:pointer; }
+    td.name { white-space:normal; min-width:200px; max-width:380px; line-height:1.35; }
+    td.name .t { color:var(--h); font-weight:600; overflow-wrap:anywhere; }
+    td.name .s { font-size:11px; color:var(--muted); margin-top:1px; }
+    td.path { max-width:420px; overflow:hidden; text-overflow:ellipsis; color:var(--h); font-weight:600; }
+    .lnk { color:inherit; cursor:pointer; border-bottom:1px dotted var(--muted); }
+    .lnk:hover { color:var(--accent); border-color:var(--accent); }
+    .sub { display:block; font-size:10.5px; font-weight:500; color:var(--muted); margin-top:1px; }
+
+    table.sortable thead th { cursor:pointer; user-select:none; position:relative; padding-right:20px; }
+    table.sortable thead th:hover { color:var(--h); }
+    table.sortable thead th::after { content:'⇅'; position:absolute; right:7px; top:50%; transform:translateY(-50%); opacity:.28; font-size:9px; }
+    table.sortable thead th.sort-asc::after  { content:'▲'; opacity:1; color:var(--accent); }
+    table.sortable thead th.sort-desc::after { content:'▼'; opacity:1; color:var(--accent); }
+    table.sortable thead th.sort-asc, table.sortable thead th.sort-desc { color:var(--accent); }
+
+    #mkTable th, #mkTable td { padding-left:9px; padding-right:9px; }
+    #mkTable thead th { white-space:normal; vertical-align:bottom; line-height:1.35; }
+    #mkTable td .sub, #mkTable th .sub { white-space:nowrap; }
+    .chip { display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; padding:3px 7px; border-radius:3px; white-space:nowrap; line-height:1; }
+    .chip.type { background:var(--border-lt); color:#6B7078; }
+    .chip.flag { background:var(--down-bg); color:var(--down); }
+    .chip.new  { background:var(--brand-lime); color:var(--brand-ink); }
+    .chip.rise { background:var(--up-bg); color:var(--up); }
+    .legend { display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--muted); }
+    .legend i { width:34px; height:9px; border-radius:2px; display:inline-block; }
+    .legend .g { background:linear-gradient(90deg, rgba(30,122,69,.06), rgba(30,122,69,.30)); }
+    .legend .r { background:linear-gradient(90deg, rgba(185,58,34,.30), rgba(185,58,34,.06)); }
+
+    .tinput { font:500 12px/1 var(--font); color:var(--h); background:var(--card); border:1px solid var(--border); border-radius:6px; padding:7px 9px; }
+    .tinput:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+    .tinput.q { width:210px; } .tinput.n { width:84px; text-align:right; }
+    select.tinput { padding:6px 8px; font-weight:600; }
+    .crumbs { display:flex; gap:6px; flex-wrap:wrap; align-items:center; padding:10px 20px; border-bottom:1px solid var(--border-lt); font-size:12px; color:var(--muted); }
+    .crumbs[hidden] { display:none; }
+    .crumb { display:inline-flex; align-items:center; gap:6px; background:var(--accent-bg); color:var(--accent-dark); font-weight:600; border-radius:12px; padding:3px 4px 3px 10px; }
+    .crumb button { appearance:none; border:0; background:rgba(35,88,55,.14); color:var(--accent-dark); width:17px; height:17px; border-radius:50%; cursor:pointer; font:700 11px/1 var(--font); }
+    .crumb button:hover { background:var(--accent); color:#fff; }
+
+    /* ── Funnel ──────────────────────────────────────────────────────────── */
+    .fn-wrap { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:26px; align-items:start; }
+    .fn-row { display:grid; grid-template-columns:150px minmax(0,1fr) 108px 74px; align-items:center; gap:12px; }
+    .fn-name { font-size:13px; font-weight:600; color:var(--h); }
+    .fn-name small { display:block; font-size:10.5px; font-weight:500; color:var(--muted); }
+    .fn-track { position:relative; height:30px; background:var(--border-lt); border-radius:4px; }
+    .fn-bar { height:100%; background:var(--accent); border-radius:4px; min-width:3px; }
+    .fn-prev { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--brand-ink); opacity:.55; }
+    .fn-n { font-size:14px; font-weight:700; color:var(--h); text-align:right; }
+    .fn-p { font-size:11.5px; color:var(--muted); text-align:right; }
+    .fn-conn { display:grid; grid-template-columns:150px minmax(0,1fr); gap:12px; margin:3px 0; }
+    .fn-conn > div { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:11.5px; color:var(--muted); padding:5px 0 5px 12px; border-left:2px solid var(--border); margin-left:8px; }
+    .fn-conn b { color:var(--h); font-weight:700; font-size:12.5px; }
+    .fn-conn .lost { color:var(--down); font-weight:600; }
+    .fn-tag { font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:2px 6px; border-radius:3px; }
+    .fn-tag.leak { background:var(--down-bg); color:var(--down); } .fn-tag.worse { background:var(--warn-bg); color:#8A5416; } .fn-tag.better { background:var(--up-bg); color:var(--up); }
+    .fn-side { border-left:1px solid var(--border-lt); padding-left:22px; }
+    .fn-side .item { padding:9px 0; border-bottom:1px solid var(--border-lt); }
+    .fn-side .item:last-of-type { border-bottom:0; }
+    .fn-side .k { font-size:10px; font-weight:600; letter-spacing:.07em; color:var(--muted); text-transform:uppercase; }
+    .fn-side .v { font-size:20px; font-weight:700; color:var(--h); margin-top:3px; display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+    .fn-side .f { font-size:10.5px; color:var(--muted); margin-top:2px; line-height:1.4; }
+    .fn-win { font-size:11.5px; line-height:1.5; color:var(--body); background:var(--accent-bg); border-radius:var(--r-sm); padding:8px 11px; margin-bottom:14px; }
+    .fn-win.ev { background:var(--warn-bg); color:#6E4A12; }
+    .fn-win b { color:var(--h); }
+    .fn-legend { font-size:10.5px; color:var(--muted); margin-top:10px; display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+    .fn-legend i.b { display:inline-block; width:14px; height:9px; border-radius:2px; background:var(--accent); vertical-align:-1px; margin-right:4px; }
+    .fn-legend i.p { display:inline-block; width:2px; height:13px; background:var(--brand-ink); opacity:.55; vertical-align:-3px; margin-right:5px; }
+    .fn-bd { margin-top:18px; border-top:1px solid var(--border-lt); padding-top:14px; }
+    .fn-bd-head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:6px; }
+    .fn-bd-head h4 { font-size:12.5px; font-weight:600; color:var(--h); }
+    .fn-bd table th, .fn-bd table td { padding:8px 10px; }
+
+    .chart-box { position:relative; height:300px; }
+    .chart-note { font-size:11px; color:var(--muted); margin-top:9px; line-height:1.5; }
+    .chk { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--body); cursor:pointer; }
+    .chk input { accent-color:var(--accent); }
+
+    /* ── Opportunities ───────────────────────────────────────────────────── */
+    .opp-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+    .opp { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); display:flex; flex-direction:column; min-width:0; }
+    .opp-h { padding:15px 18px 11px; border-bottom:1px solid var(--border-lt); }
+    .opp-top { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+    .opp-h h3 { font-size:14px; font-weight:700; color:var(--h); line-height:1.3; }
+    .opp-own { font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--accent); background:var(--accent-bg); border-radius:3px; padding:2px 7px; display:inline-block; margin-top:5px; }
+    .opp-sum { text-align:right; flex:none; }
+    .opp-sum b { display:block; font-size:17px; font-weight:700; color:var(--h); white-space:nowrap; }
+    .opp-sum span { font-size:10px; color:var(--muted); white-space:nowrap; }
+    .opp-why { font-size:12px; line-height:1.5; color:var(--body); margin-top:8px; }
+    .opp-thr { font-size:10.5px; line-height:1.45; color:var(--muted); margin-top:5px; }
+    .opp-list { list-style:none; }
+    .opp-list li { display:grid; grid-template-columns:22px minmax(0,1fr) auto; gap:8px; align-items:center; padding:8px 18px; border-bottom:1px solid var(--border-lt); }
+    .opp-list li.go { cursor:pointer; } .opp-list li.go:hover { background:#FCFBF9; }
+    .opp-list li:last-child { border-bottom:0; }
+    .opp-list .r { font-size:11px; font-weight:700; color:var(--muted); }
+    .opp-list .t { font-size:12.5px; font-weight:600; color:var(--h); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .opp-list .f { font-size:11px; color:var(--muted); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .opp-list .f b { color:var(--down); font-weight:600; } .opp-list .f b.g { color:var(--up); }
+    .opp-list .i { font-size:13px; font-weight:700; color:var(--h); white-space:nowrap; text-align:right; }
+    .opp-list .i small { display:block; font-size:9.5px; font-weight:500; color:var(--muted); }
+    .opp-empty { padding:22px 18px; font-size:12px; color:var(--muted); }
+    .opp-foot { margin-top:auto; padding:8px 18px; border-top:1px solid var(--border-lt); display:flex; gap:8px; align-items:center; justify-content:space-between; font-size:11px; color:var(--muted); }
+
+    /* ── Definitions ─────────────────────────────────────────────────────── */
+    .defs td, .defs th { white-space:normal; text-align:left; font-size:12px; padding:7px 12px; vertical-align:top; }
+    .defs td:first-child { font-weight:600; color:var(--h); white-space:nowrap; }
+    .defs code { font:500 11.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color:var(--accent-dark); background:var(--accent-bg); border-radius:3px; padding:1px 5px; }
+    .defs .b { display:inline-block; font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; border-radius:3px; padding:2px 6px; margin-right:6px; white-space:nowrap; }
+    .b.ses { background:#E8F0F4; color:#245A75; } .b.evt { background:var(--warn-bg); color:#8A5416; } .b.itm { background:#F4F0F6; color:#684777; } .b.usr { background:var(--accent-bg); color:var(--accent-dark); } .b.mix { background:var(--border-lt); color:#6B7078; }
+    .na { font-size:12px; line-height:1.6; color:var(--body); }
+    .na ul { margin:6px 0 0 18px; }
+
+    tr.bench td { font-weight:700; color:var(--h); background:#F3F8F4; border-bottom:1px solid var(--border); }
+    tr.muted td { color:var(--muted); }
+    .notes li[hidden] { display:none; }
+    .notes-foot { display:flex; gap:8px 16px; flex-wrap:wrap; align-items:center; margin-top:6px; }
+    .notes-foot:empty { display:none; }
+    .notes-foot a { color:#6E4A12; font-weight:600; }
+    .notes .linkbtn { background:transparent; border-color:#E0C99E; color:#6E4A12; }
+    .opp.off { background:transparent; border-style:dashed; box-shadow:none; }
+    .opp-own.gap { color:#8A5416; background:var(--warn-bg); }
+    .opp-own { white-space:nowrap; }
+    .opp.off .opp-top > div { min-width:0; }
+    .opp-why a, .kpi-ctx a, #kpiSub a { color:var(--accent); font-weight:600; text-decoration:none; }
+    details.gaps { padding:0; margin-bottom:20px; scroll-margin-top:118px; }
+    details.gaps[hidden] { display:none; }
+    details.gaps summary { cursor:pointer; list-style:none; display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:14px 20px; }
+    details.gaps summary::-webkit-details-marker { display:none; }
+    details.gaps summary::before { content:'▸'; color:var(--muted); font-size:12px; }
+    details.gaps[open] summary::before { content:'▾'; }
+    details.gaps[open] summary { border-bottom:1px solid var(--border-lt); }
+    .gaps-t { font-size:14px; font-weight:600; color:var(--h); }
+    .gaps-c { font-size:11px; font-weight:700; background:var(--warn-bg); color:#8A5416; border-radius:10px; padding:2px 8px; }
+    .gaps-s { font-size:11.5px; color:var(--muted); }
+    #gapsBody { padding:6px 20px 16px; }
+    .gaps-lead { font-size:12px; color:var(--body); line-height:1.55; margin:8px 0 6px; max-width:900px; }
+    .gap { display:grid; grid-template-columns:24px minmax(0,1fr); gap:10px; padding:11px 0; border-top:1px solid var(--border-lt); }
+    .gap-n { width:22px; height:22px; border-radius:50%; background:var(--border-lt); color:var(--body); font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+    .gap-w { font-size:13px; font-weight:600; color:var(--h); line-height:1.4; }
+    .gap-l { font-size:12px; line-height:1.55; color:var(--body); margin-top:3px; }
+    .gap-l b { display:inline-block; min-width:92px; font-size:9.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+    .pending { text-align:center; color:var(--muted); font-size:13px; padding:60px 0 30px; }
+    .fail { margin-top:18px; background:var(--down-bg); color:var(--down); border:1px solid #F0CBBE; border-radius:var(--r); padding:12px 16px; font-size:12.5px; font-weight:600; }
+
+    @media (max-width:1180px) {
+      .kpi-grid, .kpi-grid.four { grid-template-columns:repeat(3,1fr); }
+      .fn-wrap { grid-template-columns:1fr; } .fn-side { border-left:0; padding-left:0; border-top:1px solid var(--border-lt); padding-top:8px; display:grid; grid-template-columns:repeat(3,1fr); gap:0 18px; }
+      .fn-side .fn-win { grid-column:1 / -1; }
+      .opp-grid { grid-template-columns:1fr; }
+    }
+    @media (max-width:980px) { .two { grid-template-columns:1fr; } .glance ul { grid-template-columns:1fr; } }
+    @media (max-width:700px) {
+      main { padding:20px 14px 44px; }
+      .kpi-grid, .kpi-grid.four { grid-template-columns:repeat(2,1fr); }
+      .fn-row { grid-template-columns:96px minmax(0,1fr) 80px; } .fn-p { display:none; } .fn-conn { grid-template-columns:1fr; }
+      .fn-side { grid-template-columns:1fr; }
+      .jump { position:static; }
+    }
+    @media (prefers-reduced-motion:reduce) { * { transition:none !important; animation:none !important; } html { scroll-behavior:auto; } }
+  </style>
+</head>
+<body>
+<header id="app-header" data-page="ecom"></header>
+<template data-header-extra>
+  <div class="refresh-pill" id="refreshPill" title=""></div>
+</template>
+<script src="/nav.js"></script>
+
+<main>
+  <div class="page-title">E-commerce funnel &amp; conversion</div>
+  <div class="page-sub">Where the funnel leaks, compared with what, and which brands, categories, products and landing pages to act on. Source: GA4 (web), revenue in SEK as reported by GA4.</div>
+
+  <div class="filters" id="filters">
+    <div class="fgroup">
+      <span class="flabel">Market</span>
+      <div class="seg" id="segMarket" role="group" aria-label="Market"></div>
+    </div>
+    <div class="fgroup">
+      <span class="flabel">Period</span>
+      <div class="seg" id="segDays" role="group" aria-label="Period"></div>
+    </div>
+    <div class="fgroup" id="customRange" hidden>
+      <label class="flabel" for="cFrom">From</label>
+      <input class="dinput" type="date" id="cFrom" aria-label="Custom range, first day">
+      <label class="flabel" for="cTo">To</label>
+      <input class="dinput" type="date" id="cTo" aria-label="Custom range, last day">
+      <button type="button" class="fbtn" id="cApply">Apply</button>
+    </div>
+    <div class="fgroup">
+      <span class="flabel">Compare with</span>
+      <div class="seg" id="segCmp" role="group" aria-label="Comparison"></div>
+    </div>
+    <div class="floading" id="floading" hidden><span class="spin"></span><span id="floadingTxt"></span></div>
+    <div class="ferr" id="ferr" role="alert" hidden></div>
+    <div class="fwin" id="fwin" role="status" aria-live="polite"></div>
+  </div>
+
+  <div class="pending" id="pending" hidden>No e-com snapshot yet — the refresh job has not run. This page fills in after the first <code>ecom-refresh</code> execution.</div>
+  <div class="fail" id="failed" hidden></div>
+
+  <div id="content" hidden>
+  <nav class="jump" aria-label="Sections">
+    <a href="#s-kpi">KPIs</a><a href="#s-funnel">Funnel</a><a href="#s-trend">Trend</a><a href="#s-markets">Markets</a>
+    <a href="#s-opps" class="hot">Opportunities</a><a href="#s-channels">Channels</a><a href="#s-landing">Landing pages</a>
+    <a href="#s-merch">Brands · categories · products</a><a href="#s-search">On-site search</a><a href="#s-defs">How to read this</a>
+  </nav>
+
+  <div class="notes" id="notes" hidden></div>
+  <div class="glance" id="glance"></div>
+
+  <!-- ── KPIs ─────────────────────────────────────────────────────────────── -->
+  <section id="s-kpi">
+    <div class="section-head"><div>
+      <div class="section-title"><span id="kpiTitle">Key metrics</span></div>
+      <div class="section-sub" id="kpiSub"></div>
+    </div></div>
+    <div class="sub-head">Traffic and conversion <span>· per session</span></div>
+    <div class="kpi-grid" id="kpiGrid1"></div>
+    <div class="sub-head">Product and checkout <span>· item counts and event counts — not sessions, see the tag on each tile</span></div>
+    <div class="kpi-grid four" id="kpiGrid2"></div>
+  </section>
+
+  <!-- ── Funnel ───────────────────────────────────────────────────────────── -->
+  <section id="s-funnel">
+    <div class="section-head"><div>
+      <div class="section-title">Purchase funnel <span class="section-tag" id="fnTag"></span><span class="section-tag ev" id="fnSmp" hidden>GA4-sampled estimate</span></div>
+      <div class="section-sub" id="fnSub"></div>
+    </div></div>
+    <div class="card">
+      <div class="fn-wrap">
+        <div>
+          <div id="fnBars"></div>
+          <div class="fn-legend" id="fnLegend"></div>
+        </div>
+        <div class="fn-side" id="fnSide"></div>
+      </div>
+      <div class="fn-bd" id="fnBd"></div>
+    </div>
+  </section>
+
+  <!-- ── Trend ────────────────────────────────────────────────────────────── -->
+  <section id="s-trend">
+    <div class="section-head"><div>
+      <div class="section-title">Trend</div>
+      <div class="section-sub">One metric per day for the selected period, with the comparison period laid on top, day for day.</div>
+    </div></div>
+    <div class="card">
+      <div class="card-head">
+        <div><h3 id="trTitle"></h3><div class="csub" id="trSub"></div></div>
+        <div class="card-tools">
+          <select class="tinput" id="trMetric" aria-label="Trend metric"></select>
+          <label class="chk"><input type="checkbox" id="trRoll"> 7-day rolling</label>
+        </div>
+      </div>
+      <div class="chart-box"><canvas id="trChart" role="img" aria-label="Daily trend chart"></canvas></div>
+      <div class="chart-note" id="trNote"></div>
+    </div>
+  </section>
+
+  <!-- ── Markets ──────────────────────────────────────────────────────────── -->
+  <section id="s-markets">
+    <div class="section-head"><div>
+      <div class="section-title">Market benchmark <span class="section-tag">always all markets</span></div>
+      <div class="section-sub" id="mkLead"></div>
+    </div></div>
+    <div class="card tbl">
+      <div class="card-head">
+        <div><h3 id="mkTitle">Markets vs benchmark</h3><div class="csub" id="mkSub"></div></div>
+        <div class="card-tools"><span class="legend"><i class="r"></i> <span id="mkLegend">worse than benchmark · better</span> <i class="g"></i></span><span id="mkTools"></span></div>
+      </div>
+      <div class="tbl-scroll"><table id="mkTable" data-export-name="ecom-markets"></table></div>
+      <div class="tbl-note">Session columns (conversion, bounce, revenue/session, AOV, pages/session) are per session. <b>View→cart / view→purchase</b> are item counts. <b>Cart→checkout and the two abandonment columns are EVENT counts</b> — they overstate abandonment compared with a session- or user-based figure and are for comparing markets and periods only.</div>
+    </div>
+  </section>
+
+  <!-- ── Opportunities ────────────────────────────────────────────────────── -->
+  <section id="s-opps">
+    <div class="section-head"><div>
+      <div class="section-title">Opportunities <span class="section-tag">act on this week</span></div>
+      <div class="section-sub" id="oppSub"></div>
+    </div></div>
+    <div class="opp-grid" id="oppGrid"></div>
+  </section>
+
+  <!-- ── Channels ─────────────────────────────────────────────────────────── -->
+  <section id="s-channels">
+    <div class="section-head"><div>
+      <div class="section-title">Channels</div>
+      <div class="section-sub">GA4 default channel group of the session. Rates shaded against the total row.</div>
+    </div></div>
+    <div class="card tbl">
+      <div class="card-head">
+        <div><h3>Sessions, conversion and bounce by channel</h3><div class="csub" id="chSub">Δ columns compare with the previous period.</div></div>
+        <div class="card-tools"><span class="legend"><i class="r"></i> worse than total · better <i class="g"></i></span><span id="chTools"></span></div>
+      </div>
+      <div class="tbl-scroll"><table id="chTable" class="sortable" data-export-name="ecom-channels"></table></div>
+    </div>
+  </section>
+
+  <!-- ── Landing pages ────────────────────────────────────────────────────── -->
+  <section id="s-landing">
+    <div class="section-head"><div>
+      <div class="section-title">Landing pages</div>
+      <div class="section-sub">Where sessions start. A page's bounce rate is only meaningful against pages of the same type — a product page always bounces more than the home page — so each page is compared with its page-type average.</div>
+    </div></div>
+    <div class="card tbl">
+      <div class="card-head">
+        <div><h3>By page type</h3><div class="csub">All landing pages rolled up. Click a row to filter the page list below.</div></div>
+        <div class="card-tools"><span id="ptTools"></span></div>
+      </div>
+      <div class="tbl-scroll"><table id="ptTable" class="sortable" data-export-name="ecom-page-types"></table></div>
+    </div>
+    <div class="card tbl stack">
+      <div class="card-head">
+        <div><h3>Top landing pages</h3><div class="csub" id="lpSub"></div></div>
+        <div class="card-tools">
+          <label class="chk"><input type="checkbox" id="lpFlagged"> Flagged only</label>
+          <select class="tinput" id="lpType" aria-label="Page type"></select>
+          <input class="tinput q" type="search" id="lpQ" placeholder="Search path…" aria-label="Search landing pages">
+          <span id="lpTools"></span>
+        </div>
+      </div>
+      <div class="tbl-scroll"><table id="lpTable" class="sortable" data-export-name="ecom-landing-pages"></table></div>
+      <div class="tbl-foot" id="lpFoot"></div>
+    </div>
+  </section>
+
+  <!-- ── Merchandising ────────────────────────────────────────────────────── -->
+  <section id="s-merch">
+    <div class="section-head"><div>
+      <div class="section-title">Brands · categories · products <span class="section-tag">item counts</span></div>
+      <div class="section-sub">Product-page performance. Click a brand to open its categories, a category to open its subcategories, a subcategory to open its products. Brand is GA4's; category › subcategory › type come from the product feed. All rates here are <b>item counts</b> (items added or purchased ÷ items viewed) — a session-based conversion rate per brand or product does not exist in the data.</div>
+    </div></div>
+    <div class="card tbl">
+      <div class="card-head">
+        <div class="card-tools">
+          <div class="seg sm" id="segDim" role="group" aria-label="Dimension"></div>
+          <input class="tinput q" type="search" id="mQ" placeholder="Search…" aria-label="Search merchandising table">
+          <label class="chk" for="mMin" title="Rows below this many product views in the period are hidden so that small-sample rates do not dominate the sort.">Min views <input class="tinput n" type="number" id="mMin" min="0" step="50"></label>
+        </div>
+        <div class="card-tools"><span class="legend"><i class="r"></i> below listed average · above <i class="g"></i></span><span id="mTools"></span></div>
+      </div>
+      <div class="crumbs" id="mCrumbs" hidden></div>
+      <div class="tbl-scroll"><table id="mTable" class="sortable" data-export-name="ecom-merchandising"></table></div>
+      <div class="tbl-foot" id="mFoot"></div>
+      <div class="tbl-note" id="mNote"></div>
+    </div>
+
+    <div class="card tbl stack" id="heatCard" hidden>
+      <div class="card-head">
+        <div><h3>Brand × market: product view → purchase</h3><div class="csub" id="heatSub"></div></div>
+        <div class="card-tools"><span class="legend"><i class="r"></i> below the brand's own all-market rate · above <i class="g"></i></span><span id="heatTools"></span></div>
+      </div>
+      <div class="tbl-scroll"><table id="heatTable" class="sortable" data-export-name="ecom-brand-by-market"></table></div>
+      <div class="tbl-foot" id="heatFoot"></div>
+    </div>
+  </section>
+
+  <!-- ── Search ───────────────────────────────────────────────────────────── -->
+  <section id="s-search">
+    <div class="section-head"><div>
+      <div class="section-title">On-site search</div>
+      <div class="section-sub">What visitors type into the search box (<code>view_search_results</code> events). Rising terms are demand you can meet with a landing page, a synonym or stock.</div>
+    </div></div>
+    <div class="card na" id="srOff" hidden><b style="color:var(--h)">On-site search is not tracked in GA4.</b> The site fires almost no <code>view_search_results</code> events, so search terms, search usage and what people fail to find cannot be reported. <a href="#gapsCard" data-open-gaps style="color:var(--accent);font-weight:600">See tracking gaps for the fix</a>.</div>
+    <div class="card tbl" id="srCard">
+      <div class="card-head">
+        <div><h3>Top search terms</h3><div class="csub" id="srSub"></div></div>
+        <div class="card-tools"><input class="tinput q" type="search" id="srQ" placeholder="Search term…" aria-label="Filter search terms"><span id="srTools"></span></div>
+      </div>
+      <div class="tbl-scroll"><table id="srTable" class="sortable" data-export-name="ecom-search-terms"></table></div>
+      <div class="tbl-foot" id="srFoot"></div>
+    </div>
+  </section>
+
+  <!-- ── Definitions ──────────────────────────────────────────────────────── -->
+  <section id="s-defs">
+    <div class="section-head"><div>
+      <div class="section-title">How to read this</div>
+      <div class="section-sub">Four different things are counted on this page — sessions, events, items and users. They do not divide into each other, and a rate is only comparable with another rate on the same basis.</div>
+    </div></div>
+    <details class="card gaps" id="gapsCard" hidden>
+      <summary><span class="gaps-t">Tracking gaps</span><span class="gaps-c" id="gapsCount"></span><span class="gaps-s">what GA4 is not capturing today, what that limits here, and how to fix it — for the analytics / dev team</span></summary>
+      <div id="gapsBody"></div>
+    </details>
+    <div class="two">
+      <div class="card tbl">
+        <div class="tbl-scroll"><table class="defs" id="defTable"></table></div>
+      </div>
+      <div>
+        <div class="card na" id="basisCard"></div>
+        <div class="card na stack" id="naCard"></div>
+      </div>
+    </div>
+  </section>
+  </div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const DASH = '–';
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  }
+
+  /* ── Numbers ──────────────────────────────────────────────────────────────
+     Every rate on this page is a ratio of sums computed here from the additive
+     fields in the payload. A missing input is null and prints as "–": it is
+     never coerced to 0 and never allowed to become NaN. */
+  const ok = v => typeof v === 'number' && isFinite(v);
+  const val = (o, k) => (o && ok(o[k])) ? o[k] : null;
+  const div = (a, b) => (ok(a) && ok(b) && b > 0) ? a / b : null;
+  const inv = r => r == null ? null : 1 - r;
+
+  const fmtInt = n => !ok(n) ? DASH : Math.round(n).toLocaleString('sv-SE');
+  const fmtKr = n => !ok(n) ? DASH : Math.round(n).toLocaleString('sv-SE') + ' kr';
+  const fmtKr1 = n => !ok(n) ? DASH : n.toFixed(1).replace('.', ',') + ' kr';
+  const fmtKr2 = n => !ok(n) ? DASH : n.toFixed(2).replace('.', ',') + ' kr';
+  const fmtPct = (r, d) => !ok(r) ? DASH : (r * 100).toFixed(d == null ? 1 : d).replace('.', ',') + ' %';
+  const fmtNum = (n, d) => !ok(n) ? DASH : n.toFixed(d == null ? 2 : d).replace('.', ',');
+  function fmtKrC(n) {                       // compact money for tiles and impact estimates
+    if (!ok(n)) return DASH;
+    const a = Math.abs(n);
+    if (a >= 1e6) return (n / 1e6).toFixed(a >= 1e7 ? 1 : 2).replace('.', ',') + ' M kr';
+    if (a >= 1e4) return Math.round(n / 1e3).toLocaleString('sv-SE') + ' k kr';
+    return Math.round(n).toLocaleString('sv-SE') + ' kr';
+  }
+  function fmtIntC(n) {
+    if (!ok(n)) return DASH;
+    const a = Math.abs(n);
+    if (a >= 1e6) return (n / 1e6).toFixed(2).replace('.', ',') + ' M';
+    return Math.round(n).toLocaleString('sv-SE');
+  }
+  const FMT = { int: fmtInt, intc: fmtIntC, kr: fmtKr, krc: fmtKrC, kr1: fmtKr1, kr2: fmtKr2,
+                pct1: r => fmtPct(r, 1), pct2: r => fmtPct(r, 2), num2: n => fmtNum(n, 2) };
+
+  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function fmtDate(iso, withYear) {
+    if (!iso || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return DASH;
+    return (+iso.slice(8, 10)) + ' ' + MON[+iso.slice(5, 7) - 1] + (withYear === false ? '' : ' ' + iso.slice(0, 4));
+  }
+  function fmtRange(w) {
+    if (!w || !w.from || !w.to) return DASH;
+    return fmtDate(w.from, w.from.slice(0, 4) !== w.to.slice(0, 4)) + ' – ' + fmtDate(w.to);
+  }
+  function median(a) {
+    const s = a.filter(ok).sort((x, y) => x - y);
+    if (!s.length) return null;
+    const m = s.length >> 1;
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+  function quantile(a, q) {
+    const s = a.filter(ok).sort((x, y) => x - y);
+    if (!s.length) return null;
+    const p = (s.length - 1) * q, lo = Math.floor(p), hi = Math.ceil(p);
+    return s[lo] + (s[hi] - s[lo]) * (p - lo);
+  }
+  function nice(x) {                          // a round threshold a human would have picked
+    if (!ok(x) || x <= 0) return 0;
+    const mag = Math.pow(10, Math.floor(Math.log10(x)));
+    let best = mag;
+    [1, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10].forEach(c => { if (Math.abs(c * mag - x) < Math.abs(best - x)) best = c * mag; });
+    return Math.round(best);
+  }
+
+  /* ── Metric registry ──────────────────────────────────────────────────────
+     ONE definition per metric: numerator, denominator, whether it is 1 − ratio,
+     which way is good, and the basis it is counted on. Tiles, tables, the trend
+     chart and the definitions panel all read from here, so a label and its
+     formula cannot drift apart. `basis` is the contract's wording. */
+  const M = {
+    sessions:  { label: 'Sessions', n: o => val(o, 'sessions'), fmt: 'int', good: 1, basis: 'ses', btxt: 'sessions', formula: 'sessions' },
+    cr:        { label: 'Conversion rate', n: o => val(o, 'transactions'), d: o => val(o, 'sessions'), fmt: 'pct2', good: 1, basis: 'ses', btxt: 'sessions', formula: 'transactions / sessions' },
+    bounce:    { label: 'Bounce rate (GA4)', n: o => val(o, 'engaged_sessions'), d: o => val(o, 'engaged_denom'), inv: true, fmt: 'pct1', good: -1, basis: 'ses',
+                 btxt: 'sessions (GA4 = non-engaged, not UA single-page)', formula: '1 − engaged_sessions / engaged_denom' },
+    rps:       { label: 'Revenue / session', n: o => val(o, 'revenue'), d: o => val(o, 'sessions'), fmt: 'kr1', good: 1, basis: 'ses', btxt: 'sessions', formula: 'revenue / sessions' },
+    aov:       { label: 'AOV (GA4)', n: o => val(o, 'revenue'), d: o => val(o, 'transactions'), fmt: 'kr', good: 1, basis: 'ses', btxt: 'transactions', formula: 'revenue / transactions' },
+    pps:       { label: 'Pages / session', n: o => val(o, 'page_views'), d: o => val(o, 'sessions'), fmt: 'num2', good: 1, basis: 'ses', btxt: 'sessions', formula: 'page_views / sessions' },
+    newshare:  { label: 'New-user share', n: o => val(o, 'new_users'), d: o => val(o, 'sessions'), fmt: 'pct1', good: 0, basis: 'ses', btxt: 'approx', formula: 'new_users / sessions' },
+    revenue:   { label: 'Revenue (GA4)', n: o => val(o, 'revenue'), fmt: 'krc', good: 1, basis: 'ses', btxt: 'GA4 purchase revenue, SEK', formula: 'revenue' },
+    transactions: { label: 'Transactions', n: o => val(o, 'transactions'), fmt: 'int', good: 1, basis: 'ses', btxt: 'transactions', formula: 'transactions' },
+    v2c:       { label: 'Product view → cart', n: o => val(o, 'items_added_to_cart'), d: o => val(o, 'items_viewed'), fmt: 'pct2', good: 1, basis: 'itm', btxt: 'item counts', formula: 'items_added_to_cart / items_viewed' },
+    v2p:       { label: 'Product view → purchase', n: o => val(o, 'items_purchased'), d: o => val(o, 'items_viewed'), fmt: 'pct2', good: 1, basis: 'itm', btxt: 'item counts', formula: 'items_purchased / items_viewed' },
+    c2p:       { label: 'Cart → purchase (item)', n: o => val(o, 'items_purchased'), d: o => val(o, 'items_added_to_cart'), fmt: 'pct1', good: 1, basis: 'itm', btxt: 'item counts', formula: 'items_purchased / items_added_to_cart' },
+    rpv:       { label: 'Item value / product view', n: o => val(o, 'item_revenue'), d: o => val(o, 'items_viewed'), fmt: 'kr2', good: 1, basis: 'itm', btxt: 'GA4 item value ÷ item views; item value does not reconcile with purchase revenue', formula: 'item_revenue / items_viewed' },
+    cartab:    { label: 'Cart abandonment (events)', n: o => val(o, 'purchase'), d: o => val(o, 'add_to_cart'), inv: true, fmt: 'pct1', good: -1, basis: 'evt',
+                 btxt: 'EVENT counts — overstates vs session-based; trend/compare only', formula: '1 − purchase / add_to_cart' },
+    chkab:     { label: 'Checkout abandonment (events)', n: o => val(o, 'purchase'), d: o => val(o, 'begin_checkout'), inv: true, fmt: 'pct1', good: -1, basis: 'evt', btxt: 'EVENT counts', formula: '1 − purchase / begin_checkout' },
+    c2chk:     { label: 'Cart → checkout', n: o => val(o, 'begin_checkout'), d: o => val(o, 'add_to_cart'), fmt: 'pct1', good: 1, basis: 'evt', btxt: 'EVENT counts', formula: 'begin_checkout / add_to_cart' }
+  };
+  Object.keys(M).forEach(k => { M[k].id = k; });
+  const BASIS_TAG = { ses: 'Sessions', evt: 'Event counts', itm: 'Item counts', usr: 'Users' };
+
+  function calc(id, o) {
+    const m = M[id];
+    if (!o) return null;
+    if (!m.d) return m.n(o);
+    const r = div(m.n(o), m.d(o));
+    return m.inv ? inv(r) : r;
+  }
+  const show = (id, v) => FMT[M[id].fmt](v);
+  const isRate = id => !!M[id].d && /^pct/.test(M[id].fmt);
+
+  /* A delta: percentage points for rates, relative % for everything else.
+     Colour follows GOOD, not the arrow — a falling bounce rate is green. */
+  function delta(id, cur, prev) {
+    if (!ok(cur) || !ok(prev)) return null;
+    const rate = isRate(id);
+    if (!rate && prev === 0) return null;
+    const diff = rate ? (cur - prev) * 100 : (cur / prev - 1) * 100;
+    const rel = prev !== 0 ? (cur / prev - 1) * 100 : null;
+    const flat = Math.abs(diff) < (rate ? 0.005 : 0.05);
+    const dir = flat ? 0 : (diff > 0 ? 1 : -1);
+    const g = M[id].good * dir;
+    const txt = (diff > 0 ? '+' : diff < 0 ? '−' : '±') + Math.abs(diff).toFixed(rate ? 2 : 1).replace('.', ',') + (rate ? ' pp' : ' %');
+    return { diff, rel, dir, txt, cls: flat || !M[id].good ? 'flat' : (g > 0 ? 'up' : 'down'), arrow: dir > 0 ? '▲' : dir < 0 ? '▼' : '' };
+  }
+  function deltaObj(id, c, p) { return delta(id, calc(id, c), calc(id, p)); }
+  function dl(d, title) {
+    if (!d) return '<span class="dim">' + DASH + '</span>';
+    return '<span class="dl ' + d.cls + '"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + d.txt + '</span>';
+  }
+
+  /* Cell shading against a benchmark: green = better, red = worse, strength by
+     relative distance, saturating at ±40 %. */
+  function shade(id, v, bench) {
+    if (!ok(v) || !ok(bench) || bench === 0 || !M[id].good) return '';
+    const rel = (v / bench - 1) * M[id].good;
+    const a = Math.min(Math.abs(rel) / 0.4, 1) * 0.26;
+    if (a < 0.03) return '';
+    return ' style="background-color:rgba(' + (rel > 0 ? '30,122,69' : '185,58,34') + ',' + a.toFixed(3) + ')"';
+  }
+  function vsBench(id, v, bench) {
+    if (!ok(v) || !ok(bench) || bench === 0) return '';
+    const r = (v / bench - 1) * 100;
+    return (r >= 0 ? '+' : '−') + Math.abs(r).toFixed(0) + ' % vs ' + show(id, bench);
+  }
+
+  /* Null-aware sum of metric objects: a field is the sum of its non-null
+     values, or null when no row had it. */
+  function sumObjs(list) {
+    const out = {};
+    list.forEach(o => { if (!o) return; Object.keys(o).forEach(k => { if (ok(o[k])) out[k] = (out[k] || 0) + o[k]; }); });
+    return out;
+  }
+
+  /* ── Generic data grid ────────────────────────────────────────────────────
+     Sorts the DATA (not the DOM), renders a capped number of rows as one
+     string, and offers "show more". Nulls sort last in both directions. */
+  function Grid(o) {
+    this.o = o; this.table = $(o.table); this.cols = o.cols || []; this.rows = [];
+    this.sort = o.sort ? { id: o.sort[0], dir: o.sort[1] } : null;
+    this.page = o.page || 25; this.limit = this.page; this._head = false;
+    this.table.addEventListener('click', e => {
+      const th = e.target.closest('thead th');
+      if (th && this.table.contains(th)) {
+        if (e.target.closest('.tt-fbtn') || o.sortable === false) return;
+        const c = this.cols[+th.dataset.c];
+        if (!c || c.sort === false) return;
+        const dir = this.sort && this.sort.id === c.id ? (this.sort.dir === 'desc' ? 'asc' : 'desc') : (c.lbl ? 'asc' : 'desc');
+        this.sort = { id: c.id, dir }; this.limit = this.page; this.render();
+        return;
+      }
+      if (!o.onRow) return;
+      const tr = e.target.closest('tbody tr[data-i]');
+      if (tr) o.onRow(this.view[+tr.dataset.i], e);
+    });
+    if (o.foot) $(o.foot).addEventListener('click', e => {
+      const b = e.target.closest('button[data-more]');
+      if (!b) return;
+      this.limit = b.dataset.more === 'all' ? Infinity : this.limit + this.page * 2;
+      this.render();
+    });
+  }
+  Grid.prototype.set = function (rows, cols) {
+    if (cols) { this.cols = cols; this._head = false; if (this.sort && !cols.some(c => c.id === this.sort.id)) this.sort = null; }
+    this.rows = rows || []; this.limit = this.page; this.render();
+  };
+  Grid.prototype.sorted = function () {
+    const rows = this.rows.slice(), s = this.sort;
+    const c = s && this.cols.find(x => x.id === s.id);
+    if (!c) return rows;
+    const sgn = s.dir === 'asc' ? 1 : -1;
+    const keyed = rows.map(r => [c.val(r), r]);
+    keyed.sort((a, b) => {
+      const x = a[0], y = b[0], xn = x == null || x === '', yn = y == null || y === '';
+      if (xn || yn) return xn && yn ? 0 : (xn ? 1 : -1);
+      if (typeof x === 'string' || typeof y === 'string') return sgn * String(x).localeCompare(String(y), 'sv');
+      return sgn * (x - y);
+    });
+    return keyed.map(k => k[1]);
+  };
+  Grid.prototype.render = function () {
+    const o = this.o, cols = this.cols, t0 = performance.now();
+    if (!this._head) {
+      this.table.innerHTML = '<thead><tr>' + cols.map((c, i) =>
+        '<th data-c="' + i + '" class="' + (c.lbl ? 'lbl' : '') + '"' + (c.title ? ' title="' + esc(c.title) + '"' : '') + '>' + c.label + '</th>').join('') +
+        '</tr></thead><tbody></tbody>';
+      this._head = true;
+    }
+    const ths = this.table.tHead.rows[0].cells;
+    for (let i = 0; i < ths.length; i++) {
+      ths[i].classList.remove('sort-asc', 'sort-desc');
+      if (this.sort && cols[i] && cols[i].id === this.sort.id) ths[i].classList.add('sort-' + this.sort.dir);
+    }
+    const all = this.sorted();
+    this.view = all.slice(0, this.limit);
+    let html = o.pre ? o.pre(all) : '';
+    if (!this.view.length && !html) {
+      html = '<tr><td class="empty" colspan="' + cols.length + '">' + esc(o.empty || 'No rows') + '</td></tr>';
+    } else {
+      const parts = new Array(this.view.length);
+      for (let i = 0; i < this.view.length; i++) {
+        const r = this.view[i];
+        let tr = '<tr data-i="' + i + '"' + (o.rowCls ? ' class="' + (o.rowCls(r) || '') + '"' : '') + '>';
+        for (let j = 0; j < cols.length; j++) {
+          const c = cols[j];
+          tr += c.td ? c.td(r) : '<td' + (c.lbl ? ' class="lbl"' : '') + '>' + (c.html ? c.html(r) : esc(c.val(r))) + '</td>';
+        }
+        parts[i] = tr + '</tr>';
+      }
+      html += parts.join('');
+    }
+    this.table.tBodies[0].innerHTML = html;
+    if (o.foot) {
+      const rest = all.length - this.view.length;
+      $(o.foot).innerHTML = '<span>Showing ' + fmtInt(this.view.length) + ' of ' + fmtInt(all.length) + (o.footNote ? ' · ' + o.footNote() : '') + '</span>' +
+        (rest > 0 ? '<button type="button" data-more="page">Show ' + Math.min(rest, this.page * 2) + ' more</button><button type="button" data-more="all">Show all ' + fmtInt(all.length) + '</button>' : '');
+      $(o.foot).hidden = !all.length;
+    }
+    if (!this._tt && window.TableTools && o.tools) {
+      this._tt = true;
+      try { window.TableTools.enhance(this.table, { toolbar: $(o.tools), scroll: false, filters: o.filters === true, exportIgnore: '.sub,.chip' }); } catch (e) { /* export is a nicety */ }
+    }
+    this.lastMs = performance.now() - t0;
+    this.table.dataset.renderMs = this.lastMs.toFixed(1);
+  };
+
+  /* Column factories shared by the tables. */
+  function colMetric(id, get, bench, o) {
+    o = o || {};
+    return { id: o.id || id, label: o.label || M[id].label, title: M[id].formula + ' — ' + M[id].btxt,
+      val: r => calc(id, get(r)),
+      // o.guard(row) = false → not shaded: a rate on a handful of events must not colour the table
+      td: r => { const v = calc(id, get(r)), b = bench && (!o.guard || o.guard(r)) ? bench() : null;
+        return '<td' + (b != null ? shade(id, v, b) : '') + (b != null && ok(v) ? ' title="' + esc(vsBench(id, v, b)) + '"' : '') + '>' + show(id, v) + '</td>'; } };
+  }
+  const roundSig = (n, d) => ok(n) ? Number(n.toPrecision(d)) : n;
+  function colDelta(id, getC, getP, label) {
+    return { id: 'd_' + id, label: label || 'Δ', title: 'Change in ' + M[id].label.toLowerCase() + ' vs previous period (' + (isRate(id) ? 'percentage points' : '%') + ')',
+      val: r => { const d = deltaObj(id, getC(r), getP(r)); return d ? d.diff : null; },
+      html: r => dl(deltaObj(id, getC(r), getP(r)), 'previous: ' + show(id, calc(id, getP(r)))) };
+  }
+  const cur = r => r.cur, prv = r => r.prev;
+
+  /* ── State ────────────────────────────────────────────────────────────── */
+  const LS_KEY = 'ecom.filters.v1';
+  const OPTS = { markets: ['all', 'SE', 'NO', 'DK', 'FI'], days: [7, 28, 90] };
+  const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
+  let state = { market: 'all', days: 28, custom: false, from: '', to: '', cmp: 'prev' };
+  let D = null, inflight = 0, chart = null, lastGood = null;
+  const ui = { fnDim: null, trMetric: 'cr', trRoll: null, merch: { dim: 'brand', brand: null, category: null, subcategory: null, type: null, q: '', min: null, minTouched: false }, notesOpen: false, lp: { q: '', type: '', flagged: false }, fall: 'brand', oppOpen: {} };
+
+  function readState() {
+    const s = Object.assign({}, state);
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}') || {}; } catch (e) { saved = {}; }
+    const q = new URLSearchParams(location.search);
+    const hasUrl = q.has('market') || q.has('days') || q.has('from');
+    const src = hasUrl ? { market: q.get('market'), days: q.get('days'), from: q.get('from'), to: q.get('to'), cmp: q.get('cmp') } : saved;
+    const m = String(src.market || '').toUpperCase();
+    if (m === 'ALL') s.market = 'all'; else if (OPTS.markets.indexOf(m) > 0) s.market = m;
+    if (ISO_RE.test(src.from || '') && ISO_RE.test(src.to || '') && src.from <= src.to) { s.custom = true; s.from = src.from; s.to = src.to; }
+    else if (OPTS.days.indexOf(+src.days) >= 0) s.days = +src.days;
+    if (src.cmp === 'yoy') s.cmp = 'yoy';
+    return s;
+  }
+  function saveState() {
+    const q = new URLSearchParams(location.search);
+    ['market', 'days', 'from', 'to', 'cmp'].forEach(k => q.delete(k));
+    q.set('market', state.market);
+    if (state.custom) { q.set('from', state.from); q.set('to', state.to); } else q.set('days', state.days);
+    if (state.cmp === 'yoy') q.set('cmp', 'yoy');
+    try { history.replaceState(null, '', location.pathname + '?' + q.toString() + location.hash); } catch (e) {}
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ market: state.market, days: state.days, from: state.custom ? state.from : '', to: state.custom ? state.to : '', cmp: state.cmp })); } catch (e) {}
+  }
+  function segHTML(items, pressed) {
+    return items.map(it => '<button type="button" data-v="' + esc(it.v) + '" aria-pressed="' + (String(it.v) === String(pressed)) + '"' +
+      (it.disabled ? ' disabled' : '') + (it.title ? ' title="' + esc(it.title) + '"' : '') + '>' + esc(it.label) + '</button>').join('');
+  }
+  function markSegs() {
+    $('segMarket').innerHTML = segHTML(OPTS.markets.map(m => ({ v: m, label: m === 'all' ? 'All' : m })), state.market);
+    $('segDays').innerHTML = segHTML(OPTS.days.map(d => ({ v: d, label: d + ' days' })).concat([{ v: 'custom', label: 'Custom' }]), state.custom ? 'custom' : state.days);
+    const hasYoy = !!(D && D.totals && D.totals.yoy);
+    $('segCmp').innerHTML = segHTML([
+      { v: 'prev', label: 'Previous period' },
+      { v: 'yoy', label: 'Year over year', disabled: !hasYoy, title: hasYoy ? 'Same dates 364 days earlier (same weekdays)' : 'No year-over-year data for this selection' }
+    ], effCmp());
+    $('customRange').hidden = !state.custom;
+  }
+  /* The comparison actually in force: YoY only when the payload carries it. */
+  function effCmp() { return state.cmp === 'yoy' && D && D.totals && D.totals.yoy ? 'yoy' : 'prev'; }
+  function cmpTotals() { return effCmp() === 'yoy' ? D.totals.yoy : (D.totals.prev || null); }
+  function cmpLabel() { return effCmp() === 'yoy' ? 'last year' : 'previous period'; }
+  function cmpShort() { return effCmp() === 'yoy' ? 'YoY' : 'prev'; }
+  /* How many trailing days of the selected period GA4 may still restate: only
+     days within restated_days of the last complete day at generation time. A
+     custom range that ended weeks ago has none. */
+  function softDays() {
+    const m = D.meta, n = +m.restated_days || 0, g = String(m.generated_at || '').slice(0, 10);
+    if (!n || !m.cur || !m.cur.to) return 0;
+    if (!ISO_RE.test(g)) return n;
+    const lag = Math.round((Date.parse(g + 'T00:00:00Z') - Date.parse(m.cur.to + 'T00:00:00Z')) / 864e5) - 1;   // days between cur.to and the last complete day
+    return Math.max(0, Math.min(n, n - Math.max(0, lag)));
+  }
+  function periodDays() { return (D && D.meta && +D.meta.days) || state.days; }
+
+  function setBusy(on, msg) {
+    $('filters').classList.toggle('busy', on);
+    ['cFrom', 'cTo', 'cApply'].forEach(id => { $(id).disabled = on; });
+    $('floading').hidden = !(on && msg);
+    if (on && msg) $('floadingTxt').textContent = msg;
+  }
+  function showErr(msg) { $('ferr').textContent = msg; $('ferr').hidden = !msg; }
+
+  function setPill(generatedAt) {
+    const pill = $('refreshPill');
+    if (!pill) return;
+    pill.className = 'refresh-pill';
+    if (!generatedAt) { pill.textContent = 'no snapshot yet'; pill.title = 'ecom-refresh has not written funnel_cache yet'; pill.classList.add('show', 'unknown'); return; }
+    const ageH = (Date.now() - new Date(generatedAt).getTime()) / 36e5;
+    if (ageH > 30 && !state.custom) {
+      pill.textContent = 'snapshot ' + (ageH > 72 ? Math.round(ageH / 24) + 'd' : Math.round(ageH) + 'h') + ' old';
+      pill.title = 'the daily ecom-refresh may have failed';
+      pill.classList.add('show', 'stale');
+    }
+  }
+
+  function load() {
+    const seq = ++inflight;
+    markSegs(); saveState(); showErr('');
+    const url = '/api/ecom?market=' + encodeURIComponent(state.market) + (state.custom
+      ? '&from=' + encodeURIComponent(state.from) + '&to=' + encodeURIComponent(state.to)
+      : '&days=' + encodeURIComponent(state.days));
+    setBusy(true, state.custom ? 'Querying ' + state.from + ' – ' + state.to + ' live…' : (D ? 'Loading…' : ''));
+    fetch(url, { credentials: 'same-origin' })
+      .then(r => r.json().then(j => ({ ok: r.ok, status: r.status, body: j }), () => ({ ok: false, status: r.status, body: {} })))
+      .then(res => {
+        if (seq !== inflight) return;            // a slow first request must not overwrite a later one
+        setBusy(false);
+        $('failed').hidden = true;
+        if (!res.ok || !res.body || res.body.error) {
+          const msg = (res.body && res.body.error) || 'the request failed';
+          // The API answers a snapshot the job has not written yet with 503
+          // {"error": "no E-com snapshot yet …"}: that is "not ready", not "broken".
+          if (!D && res.status === 503 && /no e-?com snapshot yet/i.test(msg)) {
+            $('content').hidden = true; $('pending').hidden = false; setPill(null);
+            return;
+          }
+          if (D) showErr(msg); else { $('failed').hidden = false; $('failed').textContent = 'Could not load /api/ecom: ' + msg; }
+          revert();
+          return;                                // the view on screen stays as it was
+        }
+        const data = res.body, meta = data.meta || {};
+        if (!meta.generated_at || !data.totals || !data.totals.cur) {
+          $('content').hidden = true; $('pending').hidden = false; setPill(null);
+          return;
+        }
+        D = data;
+        // Follow what the server actually served, so the pressed buttons never claim another view.
+        const gm = String(meta.market || '');
+        if (gm.toLowerCase() === 'all') state.market = 'all'; else if (OPTS.markets.indexOf(gm.toUpperCase()) > 0) state.market = gm.toUpperCase();
+        if (!state.custom && OPTS.days.indexOf(+meta.days) >= 0) state.days = +meta.days;
+        lastGood = Object.assign({}, state);
+        setPill(meta.generated_at);
+        $('pending').hidden = true; $('content').hidden = false;
+        markSegs();
+        render();
+      })
+      .catch(e => {
+        if (seq !== inflight) return;
+        setBusy(false);
+        revert();
+        if (D) showErr('Could not load /api/ecom: ' + e.message);
+        else { $('failed').hidden = false; $('failed').textContent = 'Could not load /api/ecom: ' + e.message; }
+      });
+  }
+
+  /* A rejected request must not leave the controls (or the URL) pointing at a
+     view that is not on screen: fall back to the last selection that loaded.
+     The typed dates stay in the inputs so they can be corrected. */
+  function revert() {
+    if (!lastGood) return;
+    const cmp = state.cmp;
+    state = Object.assign({}, lastGood, { cmp });
+    markSegs(); saveState();
+    if (!state.custom && ($('cFrom').value || $('cTo').value)) $('customRange').hidden = false;
+  }
+
+  /* ── Render ───────────────────────────────────────────────────────────── */
+  function render() {
+    const t0 = performance.now();
+    renderWindow(); renderNotes(); renderGaps();
+    computeThresholds();
+    const opps = computeOpps();
+    renderKpis(); renderFunnel(); renderTrend(); renderMarkets(); renderOpps(opps);
+    renderChannels(); renderLanding(); renderMerch(); renderHeat(); renderSearch(); renderDefs();
+    renderGlance(opps);
+    document.body.dataset.renderMs = (performance.now() - t0).toFixed(1);
+    document.body.dataset.rendered = String((+document.body.dataset.rendered || 0) + 1);
+  }
+
+  function renderWindow() {
+    const m = D.meta, rest = softDays();
+    const yoyAsked = state.cmp === 'yoy', yoy = effCmp() === 'yoy';
+    let h = '<b>' + esc(fmtRange(m.cur)) + '</b> · ' + fmtInt(m.days) + ' days' + (state.custom ? ', queried live' : '') +
+      ' · compared with ' + (yoy ? '<b>the same dates a year earlier</b> (−364 days, same weekdays)' : '<b>' + esc(fmtRange(m.prev)) + '</b> (previous period)') + '. ';
+    if (yoyAsked && !yoy) h += '<span class="soft">Year-over-year is not available for this selection — showing previous period. </span>';
+    if (yoy) h += 'YoY applies to the key metrics and the trend; tables and the user funnel always compare with the previous period. ';
+    h += 'Data through <b>' + esc(fmtDate(m.data_through)) + '</b>' +
+      (rest > 0 ? ' <span class="soft" title="GA4 keeps revising recent days as late events and attribution arrive.">· the last ' + rest + ' day' + (rest === 1 ? '' : 's') + ' may still change</span>' : '') + '.';
+    $('fwin').innerHTML = h;
+    if (m.data_through) { $('cFrom').max = m.data_through; $('cTo').max = m.data_through; }
+  }
+  /* Data caveats, verbatim from the payload — but only the first two until
+     asked, so ten notes do not push the numbers off the first screen. */
+  function renderNotes() {
+    const n = (D.meta.notes || []).filter(Boolean), gaps = (D.meta.tracking_gaps || []).length, keep = 2, open = ui.notesOpen;
+    $('notes').hidden = !n.length && !gaps;
+    $('notes').innerHTML = (n.length ? '<ul>' + n.map((x, i) => '<li' + (i >= keep && !open ? ' hidden' : '') + '>' + esc(x) + '</li>').join('') + '</ul>' : '') +
+      '<div class="notes-foot">' + (n.length > keep ? '<button type="button" class="linkbtn" data-notes>' + (open ? 'Show fewer notes' : 'Show all ' + n.length + ' data notes') + '</button>' : '') +
+      (gaps ? '<a href="#gapsCard" data-open-gaps>' + gaps + ' tracking gap' + (gaps === 1 ? '' : 's') + ' — what GA4 is not capturing today</a>' : '') + '</div>';
+  }
+  function renderGaps() {
+    const g = (D.meta.tracking_gaps || []).filter(x => x && (x.what || x.impact || x.fix)), card = $('gapsCard');
+    card.hidden = !g.length;
+    if (!g.length) return;
+    $('gapsCount').textContent = g.length;
+    $('gapsBody').innerHTML = '<p class="gaps-lead">Nothing here is broken on the site. These are things the GA4 setup does not send today; each one limits what this page can show. They are listed for the analytics / development team, with what fixing each would unlock.</p>' +
+      g.map((x, i) => '<div class="gap"><div class="gap-n">' + (i + 1) + '</div><div><div class="gap-w">' + esc(x.what || '') + '</div>' +
+        (x.impact ? '<div class="gap-l"><b>What it limits</b> ' + esc(x.impact) + '</div>' : '') + (x.fix ? '<div class="gap-l"><b>Fix</b> ' + esc(x.fix) + '</div>' : '') + '</div></div>').join('');
+  }
+
+  /* KPI tiles */
+  function tile(id, c, p, o) {
+    o = o || {};
+    const v = calc(id, c), pv = calc(id, p), d = delta(id, v, pv), m = M[id];
+    return '<div class="kpi" data-kpi="' + id + '"><div class="k">' + esc(o.label || m.label) + '</div>' +
+      '<div class="v">' + (o.fmt ? FMT[o.fmt](v) : show(id, v)) + '</div>' +
+      (d ? '<span class="d ' + d.cls + '" title="' + (d.rel != null && isRate(id) ? esc((d.rel >= 0 ? '+' : '−') + Math.abs(d.rel).toFixed(1) + ' % relative') : '') + '">' + d.arrow + ' ' + d.txt + '</span>'
+         : '<span class="d flat">no comparison</span>') +
+      '<div class="n">' + esc(cmpShort()) + ' ' + (o.fmt ? FMT[o.fmt](pv) : show(id, pv)) + (o.extra ? '<br>' + o.extra : '') + '</div>' +
+      '<span class="basis' + (m.basis === 'evt' ? ' ev' : '') + '" title="' + esc(m.formula + ' — ' + m.btxt) + '">' + esc(BASIS_TAG[m.basis]) + '</span></div>';
+  }
+  function renderKpis() {
+    const c = D.totals.cur, p = cmpTotals();
+    $('kpiTitle').textContent = (state.custom ? fmtRange(D.meta.cur) : 'Last ' + periodDays() + ' days') + ' · ' + (state.market === 'all' ? 'all markets' : state.market);
+    $('kpiSub').innerHTML = 'Pill = change vs ' + esc(cmpLabel()) + ' (percentage points for rates, % for volumes). Green is better, red is worse — a falling bounce or abandonment rate is green.';
+    // context a bare all-market number needs: how much of it is traffic outside the four storefronts
+    const na = nordicAgg(), allS = val(c, 'sessions');
+    if (state.market === 'all' && na.n && ok(allS) && ok(val(na.cur, 'sessions')) && val(na.cur, 'sessions') < allS * 0.97) {
+      const oth = sumObjs((D.by_market || []).filter(r => r && r.cur && !isCore(r.key)).map(r => r.cur));
+      $('kpiSub').innerHTML += ' <b>All markets includes traffic outside the four storefronts</b>: ' + fmtPct(div(val(oth, 'sessions'), allS), 0) + ' of sessions, converting at ' + show('cr', calc('cr', oth)) +
+        ' — the Nordics alone convert at <b>' + show('cr', calc('cr', na.cur)) + '</b>. <a href="#s-markets">Market benchmark</a>';
+    }
+    const ns = (D.by_page_type || []).find(r => r && r.key === 'not_set' && r.cur);
+    const bEx = ns && ok(div(val(ns.cur, 'sessions'), allS)) && div(val(ns.cur, 'sessions'), allS) >= 0.05
+      ? inv(div((val(c, 'engaged_sessions') || 0) - (val(ns.cur, 'engaged_sessions') || 0), (val(c, 'engaged_denom') || 0) - (val(ns.cur, 'engaged_denom') || 0))) : null;
+    $('kpiGrid1').innerHTML = [tile('sessions', c, p, { fmt: 'intc' }), tile('cr', c, p), tile('bounce', c, p, ok(bEx) ? { extra: '<b>' + show('bounce', bEx) + '</b> excl. sessions with no landing page' } : null), tile('rps', c, p), tile('aov', c, p)].join('');
+    $('kpiGrid2').innerHTML = [tile('v2c', c, p), tile('v2p', c, p), tile('cartab', c, p, { label: 'Cart abandonment' }), tile('chkab', c, p, { label: 'Checkout abandonment' })].join('');
+  }
+
+  /* ── Funnel ───────────────────────────────────────────────────────────── */
+  const STEP_LABEL = { session_start: 'Sessions started', view_item: 'Viewed a product', add_to_cart: 'Added to cart', begin_checkout: 'Began checkout', purchase: 'Purchased' };
+  function funnelModel() {
+    const f = D.funnel;
+    if (f && Array.isArray(f.steps) && f.steps.length >= 2 && f.steps.some(s => ok(s.users))) {
+      const prev = Array.isArray(f.prev_steps) && f.prev_steps.length === f.steps.length ? f.prev_steps.map(s => ok(s.users) ? s.users : null) : null;
+      return { user: true, unit: 'users', names: f.steps.map(s => s.name), n: f.steps.map(s => ok(s.users) ? s.users : null), prev, breakdowns: f.breakdowns || {},
+               sampled: !!(f.sampled || (prev && f.prev_sampled)), bdSampled: f.breakdowns_sampled || {} };
+    }
+    const names = ['view_item', 'add_to_cart', 'begin_checkout', 'purchase'], c = D.totals.cur, p = cmpTotals();
+    return { user: false, unit: 'events', names, n: names.map(k => val(c, k)), prev: p ? names.map(k => val(p, k)) : null, breakdowns: {}, sampled: false, bdSampled: {} };
+  }
+  const BD_LABEL = { deviceCategory: 'Device', newVsReturning: 'New vs returning', sessionDefaultChannelGroup: 'Channel' };
+  function renderFunnel() {
+    const fm = funnelModel(), w = D.meta.funnel_window, n = fm.n, pn = fm.prev, first = n[0];
+    const cmpTxt = fm.user ? 'previous ' + (w && w.kind ? w.kind : '') + ' window' : cmpLabel();
+    $('fnTag').textContent = fm.user ? 'users · closed funnel' : 'event counts · fallback';
+    $('fnTag').className = 'section-tag' + (fm.user ? '' : ' ev');
+    $('fnSmp').hidden = !fm.sampled;
+    /* A sampled funnel is an estimate: user counts are rounded to three
+       significant figures and every difference carries "≈". */
+    const smp = fm.sampled, ap = smp ? '≈ ' : '';
+    const fmtU = v => !ok(v) ? DASH : (smp ? fmtInt(roundSig(v, 3)) : fmtInt(v));
+    const ppTxt = v => (v > 0 ? '+' : '−') + Math.abs(v).toFixed(smp ? 1 : 2).replace('.', ',') + ' pp';
+    $('fnSub').innerHTML = fm.user
+      ? 'Unique <b>users</b> who completed each step in order (GA4 closed funnel). This is the headline abandonment figure on this page.' +
+        (fm.sampled ? ' <b>GA4-sampled estimate</b>: for 30- and 90-day windows GA4 computes the funnel from a subset of events, so user counts are rounded and differences marked ≈ — treat changes of under about 1 pp as noise. The 7-day funnel is exact.' : '')
+      : 'The user-based funnel is not available for this selection, so this is the <b>event-count</b> version: how many times each event fired. One visitor can fire an event several times and the steps are not closed, so it overstates abandonment — use it for comparing periods, not as an absolute figure.';
+    // step-to-step rates
+    const steps = [];
+    for (let i = 1; i < n.length; i++) {
+      const r = div(n[i], n[i - 1]), pr = pn ? div(pn[i], pn[i - 1]) : null;
+      steps.push({ i, r, pr, lost: ok(n[i]) && ok(n[i - 1]) ? n[i - 1] - n[i] : null, pp: ok(r) && ok(pr) ? (r - pr) * 100 : null });
+    }
+    const worst = steps.filter(s => ok(s.pp) && s.pr > 0 && (s.r / s.pr - 1) < -(smp ? 0.03 : 0.005)).sort((a, b) => a.pp / (a.pr || 1) - b.pp / (b.pr || 1))[0];
+    const leak = steps.filter(s => ok(s.lost)).sort((a, b) => b.lost - a.lost)[0];
+    let h = '';
+    n.forEach((u, i) => {
+      if (i > 0) {
+        const s = steps[i - 1];
+        const pill = ok(s.pp) ? '<span class="dl ' + (Math.abs(s.pp) < 0.005 ? 'flat' : s.pp > 0 ? 'up' : 'down') + '" title="' + esc(cmpTxt + ': ' + fmtPct(s.pr, 1)) + '">' +
+          ap + ppTxt(s.pp) + ' vs ' + (fm.user ? 'prev window' : cmpShort()) + '</span>' : '';
+        h += '<div class="fn-conn"><span></span><div>↓ <b>' + fmtPct(s.r, 1) + '</b> continue ' + pill +
+          '<span class="lost">' + (ok(s.lost) ? ap + fmtU(s.lost) + ' ' + fm.unit + ' drop off' + (ok(s.r) ? ' (' + fmtPct(1 - s.r, 1) + ')' : '') : '') + '</span>' +
+          (leak && leak.i === s.i ? '<span class="fn-tag leak">largest drop-off</span>' : '') +
+          (worst && worst.i === s.i ? '<span class="fn-tag worse">worsened most</span>' : '') + '</div></div>';
+      }
+      const share = div(u, first), pshare = pn ? div(pn[i], pn[0]) : null;
+      h += '<div class="fn-row"><div class="fn-name">' + esc(STEP_LABEL[fm.names[i]] || fm.names[i]) + '<small>' + esc(fm.names[i]) + '</small></div>' +
+        '<div class="fn-track"><div class="fn-bar" style="width:' + (ok(share) ? Math.max(0.3, Math.min(100, share * 100)).toFixed(2) : 0) + '%"></div>' +
+        (i > 0 && ok(pshare) ? '<div class="fn-prev" style="left:' + Math.min(100, pshare * 100).toFixed(2) + '%" title="' + esc(cmpTxt + ': ' + fmtPct(pshare, 2) + ' of step 1') + '"></div>' : '') + '</div>' +
+        '<div class="fn-n">' + ap + fmtU(u) + '</div><div class="fn-p">' + (i === 0 ? fm.unit : fmtPct(share, share != null && share < 0.1 ? 2 : 1)) + '</div></div>';
+    });
+    $('fnBars').innerHTML = h;
+    $('fnLegend').innerHTML = '<span><i class="b"></i>' + (fm.user ? 'users' : 'events') + ' reaching the step, as a share of step 1</span>' +
+      (pn ? '<span><i class="p"></i>same share in the ' + esc(cmpTxt) + '</span>' : '<span>No ' + esc(cmpTxt) + ' to compare with.</span>');
+
+    // side panel: the window statement + the headline abandonment figures
+    const idx = k => fm.names.indexOf(k);
+    const pair = (a, b) => idx(a) >= 0 && idx(b) >= 0 ? { c: inv(div(n[idx(b)], n[idx(a)])), p: pn ? inv(div(pn[idx(b)], pn[idx(a)])) : null } : { c: null, p: null };
+    const sideItem = (label, x, formula, lowerGood) => {
+      const pp = ok(x.c) && ok(x.p) ? (x.c - x.p) * 100 : null;
+      const cls = !ok(pp) || Math.abs(pp) < 0.005 ? 'flat' : ((pp > 0) === !lowerGood ? 'up' : 'down');
+      return '<div class="item"><div class="k">' + label + '</div><div class="v">' + fmtPct(x.c, x.c != null && x.c < 0.1 ? 2 : 1) +
+        (ok(pp) ? '<span class="dl ' + cls + '">' + ap + ppTxt(pp) + '</span>' : '') + '</div>' +
+        '<div class="f">' + formula + (ok(x.p) ? ' · ' + (fm.user ? 'prev window ' : cmpShort() + ' ') + fmtPct(x.p, x.p < 0.1 ? 2 : 1) : '') + '</div></div>';
+    };
+    let side;
+    if (fm.user) {
+      const kind = w && w.kind ? w.kind : 'fixed';
+      side = '<div class="fn-win"><b>Window: ' + esc(kind) + ' · ' + esc(fmtRange(w)) + '</b><br>GA4 funnel reports exist only for fixed 7 / 30 / 90-day windows' +
+        (state.custom ? ' — <b>this is not your custom range</b> (' + esc(fmtRange(D.meta.cur)) + ').' : (kind === 'd30' && periodDays() === 28 ? ', so the 28-day view uses the 30-day funnel.' : '.')) +
+        (smp ? '<br><b>GA4-sampled estimate.</b> ' + (state.custom ? '' : '<button type="button" class="linkbtn" data-go7 style="margin-top:6px">Show the exact 7-day funnel</button>') : '') + '</div>';
+      const a = pair('add_to_cart', 'purchase'), b = pair('begin_checkout', 'purchase');
+      const o = { c: div(n[n.length - 1], n[0]), p: pn ? div(pn[pn.length - 1], pn[0]) : null };
+      side += sideItem('Cart abandonment · users', a, '1 − purchasers ÷ users who added to cart', true) +
+              sideItem('Checkout abandonment · users', b, '1 − purchasers ÷ users who began checkout', true) +
+              sideItem('User conversion', o, 'purchasers ÷ users with a session', false);
+    } else {
+      side = '<div class="fn-win ev"><b>Event counts · ' + esc(fmtRange(D.meta.cur)) + '</b><br>Fallback: the user-based funnel could not be read for this selection. These are counts of events, not sessions or users.</div>';
+      side += sideItem('Cart abandonment · events', pair('add_to_cart', 'purchase'), '1 − purchase ÷ add_to_cart events', true) +
+              sideItem('Checkout abandonment · events', pair('begin_checkout', 'purchase'), '1 − purchase ÷ begin_checkout events', true) +
+              sideItem('Cart → checkout · events', { c: div(n[2], n[1]), p: pn ? div(pn[2], pn[1]) : null }, 'begin_checkout ÷ add_to_cart events', false);
+    }
+    $('fnSide').innerHTML = side;
+    renderFunnelBreakdown(fm);
+  }
+  function renderFunnelBreakdown(fm) {
+    const dims = Object.keys(BD_LABEL).filter(k => Array.isArray(fm.breakdowns[k]) && fm.breakdowns[k].length);
+    const el = $('fnBd');
+    if (!fm.user) { el.innerHTML = ''; el.hidden = true; return; }
+    el.hidden = false;
+    if (!dims.length) {
+      el.innerHTML = '<div class="chart-note">Breakdown by device, new vs returning and channel is not available for this selection' + (state.market !== 'all' ? ' — GA4 funnel breakdowns exist for <b>All markets</b> only' : '') + '.</div>';
+      return;
+    }
+    if (dims.indexOf(ui.fnDim) < 0) ui.fnDim = dims[0];
+    const rows = fm.breakdowns[ui.fnDim].filter(r => Array.isArray(r.steps)), n = fm.n;
+    const bs = !!(fm.sampled || fm.bdSampled[ui.fnDim]), fmtU = v => !ok(v) ? DASH : (bs ? '≈ ' + fmtInt(roundSig(v, 3)) : fmtInt(v));
+    const minU = (ok(n[0]) ? n[0] : 0) * 0.005;      // segments under 0.5 % of users are listed but not shaded
+    const tot = rows.reduce((a, r) => a + (ok(r.steps[0]) ? r.steps[0] : 0), 0);
+    const overall = []; for (let i = 1; i < n.length; i++) overall.push(div(n[i], n[i - 1]));
+    overall.push(div(n[n.length - 1], n[0]));
+    const cell = (v, b, big) => {
+      let st = '';
+      if (big && ok(v) && ok(b) && b > 0) { const rel = v / b - 1, a = Math.min(Math.abs(rel) / 0.4, 1) * 0.26; if (a >= 0.03) st = ' style="background-color:rgba(' + (rel > 0 ? '30,122,69' : '185,58,34') + ',' + a.toFixed(3) + ')"'; }
+      return '<td' + st + '>' + fmtPct(v, v != null && v < 0.1 ? 2 : 1) + '</td>';
+    };
+    const heads = []; for (let i = 1; i < n.length; i++) heads.push(esc((STEP_LABEL[fm.names[i - 1]] || '').split(' ')[0] + ' → ' + (fm.names[i] || '').replace(/_/g, ' ')));
+    let h = '<div class="fn-bd-head"><h4>Step conversion by</h4><div class="seg sm" id="segFn">' + segHTML(dims.map(k => ({ v: k, label: BD_LABEL[k] })), ui.fnDim) + '</div>' +
+      '<span class="legend"><i class="r"></i> below overall · above <i class="g"></i></span></div>' +
+      '<div class="tbl-scroll"><table><thead><tr><th class="lbl">' + esc(BD_LABEL[ui.fnDim]) + '</th><th>Users</th><th>Share</th>' +
+      ['session → view item', 'view item → add to cart', 'add to cart → checkout', 'checkout → purchase'].slice(0, n.length - 1).map(x => '<th>' + x + '</th>').join('') +
+      '<th>User conversion</th></tr></thead><tbody>';
+    h += '<tr class="total"><td class="lbl">All users</td><td>' + fmtU(n[0]) + '</td><td>' + DASH + '</td>' + overall.map(v => '<td>' + fmtPct(v, v != null && v < 0.1 ? 2 : 1) + '</td>').join('') + '</tr>';
+    h += rows.slice().sort((a, b) => (b.steps[0] || 0) - (a.steps[0] || 0)).map(r => {
+      const s = r.steps, rs = []; for (let i = 1; i < n.length; i++) rs.push(div(s[i], s[i - 1]));
+      rs.push(div(s[n.length - 1], s[0]));
+      return '<tr><td class="lbl strong">' + esc(r.key == null ? '(not set)' : r.key) + '</td><td>' + fmtU(s[0]) + '</td><td class="dim">' + fmtPct(div(s[0], tot), 1) + '</td>' + rs.map((v, i) => cell(v, overall[i], (s[0] || 0) >= minU)).join('') + '</tr>';
+    }).join('');
+    el.innerHTML = h + '</tbody></table></div><div class="chart-note">Users, same ' + esc((D.meta.funnel_window || {}).kind || '') + ' window as above. A segment that is red at one step and normal elsewhere tells you where its experience breaks.' + (bs ? ' <b>GA4-sampled estimate</b> — small segments are especially noisy; those under 0,5 % of users are not shaded.' : ' Segments under 0,5 % of users are not shaded.') + '</div>';
+  }
+
+  /* ── Trend ────────────────────────────────────────────────────────────── */
+  const TR_METRICS = ['cr', 'sessions', 'bounce', 'rps', 'aov', 'revenue', 'transactions', 'pps', 'newshare', 'v2c', 'v2p', 'c2p', 'cartab', 'chkab', 'c2chk'];
+  function dayObj(d, i) { const o = {}; Object.keys(d).forEach(k => { if (k !== 'date') o[k] = d[k][i]; }); return o; }
+  /* Series over index range [a,b] of a columnar daily block; with roll>1 each
+     point is a ratio of sums over the trailing window (never a mean of ratios),
+     using only days where both numerator and denominator are known. */
+  function series(d, a, b, id, roll) {
+    const m = M[id], out = [];
+    for (let i = a; i <= b; i++) {
+      let N = 0, Dn = 0, any = false;
+      for (let j = Math.max(0, i - roll + 1); j <= i; j++) {
+        const o = dayObj(d, j), nn = m.n(o), dd = m.d ? m.d(o) : 1;
+        if (ok(nn) && ok(dd)) { N += nn; Dn += dd; any = true; }
+      }
+      if (!any) { out.push(null); continue; }
+      if (!m.d) { out.push(roll > 1 ? N / Dn : N); continue; }
+      const r = div(N, Dn);
+      out.push(m.inv ? inv(r) : r);
+    }
+    return out;
+  }
+  function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+  function renderTrend() {
+    const d = D.daily, id = ui.trMetric, m = M[id];
+    const sel = $('trMetric');
+    if (!sel.options.length) sel.innerHTML = TR_METRICS.map(k => '<option value="' + k + '">' + esc(M[k].label) + '</option>').join('');
+    sel.value = id;
+    if (ui.trRoll == null) ui.trRoll = periodDays() >= 60;
+    $('trRoll').checked = ui.trRoll;
+    const roll = ui.trRoll ? 7 : 1;
+    $('trTitle').textContent = m.label + (roll > 1 ? ' · 7-day rolling' : ' · daily');
+    $('trSub').innerHTML = '<code>' + esc(m.formula) + '</code> — ' + esc(m.btxt);
+    if (chart) { chart.destroy(); chart = null; }
+    const box = $('trChart').parentNode;
+    if (!d || !Array.isArray(d.date) || !d.date.length || !window.Chart) {
+      box.hidden = true; $('trNote').textContent = 'No daily data for this selection.'; return;
+    }
+    box.hidden = false;
+    const cf = D.meta.cur.from, ct = D.meta.cur.to;
+    let a = d.date.findIndex(x => x >= cf), b = d.date.length - 1;
+    while (b >= 0 && d.date[b] > ct) b--;
+    if (a < 0 || b < a) { a = 0; b = d.date.length - 1; }
+    const len = b - a + 1, curS = series(d, a, b, id, roll), labels = d.date.slice(a, b + 1);
+    let cmpS = null, cmpDates = null;
+    if (effCmp() === 'yoy' && D.daily_yoy && Array.isArray(D.daily_yoy.date)) {
+      const y = D.daily_yoy, ya = Math.max(0, y.date.length - len);
+      cmpS = series(y, ya, y.date.length - 1, id, roll); cmpDates = y.date.slice(ya);
+    } else if (a >= 1) {
+      const pa = Math.max(0, a - len);
+      cmpS = series(d, pa, a - 1, id, roll); cmpDates = d.date.slice(pa, a);
+      while (cmpS.length < len) { cmpS.unshift(null); cmpDates.unshift(null); }
+    }
+    const rest = Math.max(0, Math.min(softDays(), len - 1));
+    const softFrom = len - 1 - rest;             // segments after this index are still being restated
+    const accent = cssVar('--accent') || '#235837', ink = cssVar('--muted') || '#8C9098', grid = cssVar('--border-lt') || '#F2EFEB';
+    const tick = v => m.fmt === 'krc' ? fmtKrC(v) : (m.fmt === 'int' ? fmtIntC(v) : FMT[m.fmt](v));
+    chart = new Chart($('trChart'), {
+      type: 'line',
+      data: { labels, datasets: [
+        { label: state.custom ? 'Selected range' : 'Last ' + periodDays() + ' days', data: curS, borderColor: accent, backgroundColor: accent, borderWidth: 2, pointRadius: len <= 31 ? 2.5 : 0, pointHoverRadius: 4, tension: 0.25, spanGaps: false,
+          segment: { borderDash: c => (rest > 0 && c.p0DataIndex >= softFrom ? [4, 4] : undefined) } }
+      ].concat(cmpS ? [{ label: effCmp() === 'yoy' ? 'Same days last year' : 'Previous period', data: cmpS, borderColor: ink, backgroundColor: ink, borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 3, tension: 0.25, spanGaps: false }] : []) },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', align: 'end', labels: { boxWidth: 18, boxHeight: 2, font: { family: 'Jost', size: 11 }, color: cssVar('--body') || '#3F4650' } },
+          tooltip: { callbacks: {
+            title: items => items.length ? fmtDate(labels[items[0].dataIndex]) : '',
+            label: it => ' ' + (it.datasetIndex === 1 && cmpDates && cmpDates[it.dataIndex] ? fmtDate(cmpDates[it.dataIndex]) : it.dataset.label) + ': ' + show(id, it.parsed.y)
+          } }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { maxTicksLimit: 10, maxRotation: 0, font: { family: 'Jost', size: 11 }, color: ink, callback: function (v) { return fmtDate(this.getLabelForValue(v), false); } } },
+          y: { beginAtZero: !m.d, grid: { color: grid }, border: { display: false }, ticks: { font: { family: 'Jost', size: 11 }, color: ink, callback: tick } }
+        }
+      }
+    });
+    $('trNote').innerHTML = (rest > 0 ? 'Dashed end of the line = the last ' + rest + ' days, which GA4 may still restate. ' : '') +
+      (roll > 1 ? 'Each point is the ratio of sums over the trailing 7 days. ' : '') +
+      (cmpS ? 'Comparison is aligned day for day (' + (effCmp() === 'yoy' ? '−364 days, same weekday' : 'the ' + len + ' days before') + ').' : 'No comparison series available.') +
+      (m.basis === 'evt' ? ' <b>Event counts</b> — use for the trend, not the level.' : '');
+  }
+
+  /* ── Markets ──────────────────────────────────────────────────────────── */
+  const MK_COLS = ['cr', 'bounce', 'rps', 'aov', 'pps', 'newshare', 'v2c', 'v2p', 'c2chk', 'cartab', 'chkab'];
+  let gMk, gCh, gPt, gLp, gM, gHeat, gSr;
+  /* The markets the tab can be filtered to (meta.markets). by_market also
+     carries every other raw market (US, GB, …) and "Rest of world"; those are
+     shown for completeness but never benchmarked or called out: they have no
+     local storefront effort behind them and convert at a fraction of the
+     Nordic rate, so they would win every "weakest market" contest. */
+  function coreMarkets() { const m = D && D.meta && D.meta.markets; return Array.isArray(m) && m.length ? m : OPTS.markets.slice(1); }
+  function isCore(k) { return coreMarkets().indexOf(k) >= 0; }
+  function isOtherMarket(r) { return !r.total && !r.nordic && !isCore(r.key); }
+  function nordicAgg() {
+    const rows = (D.by_market || []).filter(r => r && r.cur && isCore(r.key));
+    return { cur: sumObjs(rows.map(r => r.cur)), prev: sumObjs(rows.map(r => r.prev)), n: rows.length };
+  }
+  function nordicName() { return 'Nordics (' + coreMarkets().join('+') + ')'; }
+  function renderMarkets() {
+    const rows = (D.by_market || []).filter(r => r && r.cur);
+    const all = { key: 'All markets', cur: sumObjs(rows.map(r => r.cur)), prev: sumObjs(rows.map(r => r.prev)), total: true };
+    const na = nordicAgg(), hasOther = rows.some(isOtherMarket);
+    const nordic = { key: nordicName(), cur: na.cur, prev: na.prev, nordic: true };
+    const benchRow = na.n && hasOther ? nordic : all, benchName = benchRow === nordic ? 'Nordic' : 'all-market';
+    const bench = id => calc(id, benchRow.cur);
+    const allS = val(all.cur, 'sessions');
+    const cols = [
+      { id: 'key', label: 'Market', lbl: true, val: r => r.key, html: r => '<span class="' + (r.total || isOtherMarket(r) ? '' : 'strong') + '">' + esc(r.key) + '</span>' +
+          (r.nordic ? '<span class="sub">benchmark</span>' : isOtherMarket(r) ? '<span class="sub">not selectable</span>' : '') },
+      { id: 'sessions', label: 'Sessions', val: r => val(r.cur, 'sessions'), html: r => fmtInt(val(r.cur, 'sessions')) },
+      { id: 'share', label: 'Share', val: r => div(val(r.cur, 'sessions'), allS), html: r => '<span class="dim">' + (r.total ? DASH : fmtPct(div(val(r.cur, 'sessions'), allS), 1)) + '</span>' }
+    ].concat(MK_COLS.map(id => ({ id, label: shortLabel(id), title: M[id].formula + ' — ' + M[id].btxt, val: r => calc(id, r.cur),
+      td: r => { const v = calc(id, r.cur), b = bench(id), plain = r.total || r.nordic || isOtherMarket(r);
+        return '<td' + (plain ? '' : shade(id, v, b)) + (!plain && ok(v) ? ' title="' + esc(vsBench(id, v, b) + ' ' + benchName) + '"' : '') + '>' + show(id, v) +
+          (id === 'cr' ? '<span class="sub">' + (deltaObj('cr', r.cur, r.prev) ? deltaObj('cr', r.cur, r.prev).txt + ' vs prev' : DASH) + '</span>' : '') + '</td>'; } })));
+    if (!gMk) gMk = new Grid({ table: 'mkTable', sortable: false, page: 50, tools: 'mkTools', empty: 'No market data in this payload',
+      rowCls: r => (r.total ? 'total' : r.nordic ? 'bench' : isOtherMarket(r) ? 'muted' : '') + (!r.total && r.key === state.market ? ' sel' : '') });
+    $('mkLead').innerHTML = 'Every rate per market, shaded against the <b>' + (benchRow === nordic ? esc(nordicName()) : 'all-market') + '</b> rate. This is the yardstick for a single-market number: the same conversion rate means something different in SE than in FI.' +
+      (hasOther ? ' Markets outside the four storefronts are listed but not benchmarked — they pull the all-market rates down and are not something to "fix" market by market.' : '');
+    $('mkTitle').textContent = 'Markets vs ' + benchName + ' rate';
+    $('mkLegend').textContent = 'worse than ' + benchName + ' · better';
+    $('mkSub').innerHTML = esc(fmtRange(D.meta.cur)) + ' · all markets regardless of the market filter' + (state.market !== 'all' ? ' · <b>' + esc(state.market) + '</b> is marked' : '') + ' · hover a cell for the gap.';
+    const bySes = (a, b) => (val(b.cur, 'sessions') || 0) - (val(a.cur, 'sessions') || 0);
+    const core = rows.filter(r => isCore(r.key)).sort((a, b) => coreMarkets().indexOf(a.key) - coreMarkets().indexOf(b.key));
+    const other = rows.filter(r => !isCore(r.key)).sort((a, b) => (/^rest of world$/i.test(a.key) - /^rest of world$/i.test(b.key)) || bySes(a, b));
+    gMk.set(rows.length ? [all].concat(benchRow === nordic ? [nordic] : [], core, other) : [], cols);
+  }
+  function shortLabel(id) {
+    return { cr: 'Conv. rate', bounce: 'Bounce', rps: 'Rev / session', aov: 'AOV', pps: 'Pages / sess.', newshare: 'New users', v2c: 'View→cart', v2p: 'View→purch.',
+             c2chk: 'Cart→checkout <span class="sub">events</span>', cartab: 'Cart aband. <span class="sub">events</span>', chkab: 'Checkout aband. <span class="sub">events</span>', c2p: 'Cart→purch.', rpv: 'Item value / view' }[id] || M[id].label;
+  }
+
+  /* ── Channels ─────────────────────────────────────────────────────────── */
+  function renderChannels() {
+    /* Session metrics and event metrics come from two marts keyed on different
+       columns. The backend joins them on the raw key, so one channel can arrive
+       as two rows with the same display label (one with sessions, one with
+       events): fold those together, and say so when a row still has only one side. */
+    const merged = new Map();
+    (D.by_channel || []).filter(r => r && r.cur).forEach(r => {
+      const lab = r.label != null && r.label !== '' ? r.label : r.key, k = lab == null || lab === '' ? '(not set)' : String(lab), g = merged.get(k);
+      if (!g) merged.set(k, { key: k, c: [r.cur], p: [r.prev] }); else { g.c.push(r.cur); g.p.push(r.prev); }
+    });
+    const rows = Array.from(merged.values()).map(g => ({ key: g.key, cur: g.c.length === 1 ? g.c[0] : sumObjs(g.c), prev: g.p.length === 1 ? g.p[0] : sumObjs(g.p) }));
+    const noSes = rows.filter(r => !ok(val(r.cur, 'sessions'))).length, noEvt = rows.filter(r => ok(val(r.cur, 'sessions')) && !ok(val(r.cur, 'add_to_cart')) && !ok(val(r.cur, 'purchase'))).length;
+    $('chSub').innerHTML = 'Δ columns compare with the previous period. Channels under 0,5 % of sessions are listed but not shaded.' +
+      (noSes ? ' <b>' + noSes + ' row' + (noSes === 1 ? ' has' : 's have') + ' event counts but no sessions</b> (the event data names the channel differently) — listed last.' : '') +
+      (noEvt ? ' ' + noEvt + ' channel' + (noEvt === 1 ? ' has' : 's have') + ' no event counts, so cart abandonment shows ' + DASH + '.' : '');
+    const tot = D.totals.cur, sumS = rows.reduce((a, r) => a + (val(r.cur, 'sessions') || 0), 0);
+    const b = id => () => calc(id, tot);
+    const bigCh = r => (val(r.cur, 'sessions') || 0) >= sumS * 0.005;     // under 0.5 % of sessions: listed, not shaded
+    const cols = [
+      { id: 'key', label: 'Channel', lbl: true, val: r => r.key, html: r => '<span class="strong">' + esc(r.key) + '</span>' },
+      { id: 'sessions', label: 'Sessions', val: r => val(r.cur, 'sessions'), html: r => fmtInt(val(r.cur, 'sessions')) },
+      { id: 'share', label: 'Share', val: r => div(val(r.cur, 'sessions'), sumS), html: r => '<span class="dim">' + fmtPct(div(val(r.cur, 'sessions'), sumS), 1) + '</span>' },
+      colDelta('sessions', cur, prv, 'Δ sessions'),
+      colMetric('cr', cur, b('cr'), { label: 'Conv. rate', guard: bigCh }), colDelta('cr', cur, prv, 'Δ pp'),
+      colMetric('bounce', cur, b('bounce'), { label: 'Bounce', guard: bigCh }), colDelta('bounce', cur, prv, 'Δ pp'),
+      colMetric('rps', cur, b('rps'), { label: 'Rev / session', guard: bigCh }),
+      colMetric('aov', cur, b('aov'), { label: 'AOV', guard: bigCh }),
+      { id: 'revenue', label: 'Revenue', val: r => val(r.cur, 'revenue'), html: r => fmtKr(val(r.cur, 'revenue')) },
+      colMetric('cartab', cur, b('cartab'), { label: 'Cart aband. <span class="sub">events</span>', guard: bigCh })
+    ];
+    if (!gCh) gCh = new Grid({ table: 'chTable', sort: ['sessions', 'desc'], page: 30, tools: 'chTools', filters: true, empty: 'No channel data in this payload',
+      pre: () => { const t = D.totals.cur, p = D.totals.prev; return (D.by_channel || []).length ? '<tr class="total"><td class="lbl">Total</td><td>' + fmtInt(val(t, 'sessions')) + '</td><td>' + DASH + '</td><td>' + dl(deltaObj('sessions', t, p)) +
+        '</td><td>' + show('cr', calc('cr', t)) + '</td><td>' + dl(deltaObj('cr', t, p)) + '</td><td>' + show('bounce', calc('bounce', t)) + '</td><td>' + dl(deltaObj('bounce', t, p)) +
+        '</td><td>' + show('rps', calc('rps', t)) + '</td><td>' + show('aov', calc('aov', t)) + '</td><td>' + fmtKr(val(t, 'revenue')) + '</td><td>' + show('cartab', calc('cartab', t)) + '</td></tr>' : ''; } });
+    gCh.set(rows, cols);
+  }
+
+  /* ── Thresholds (minimum-volume guards) ───────────────────────────────────
+     Derived from the size of the selection so that a 7-day FI view and a
+     90-day all-market view each get a sensible floor, and never so low that a
+     rate rests on a handful of events (100 views ≈ 7 adds at a typical rate).
+     Shown wherever used. */
+  let T = {};
+  function computeThresholds() {
+    const t = D.totals.cur, prods = D.products || [];
+    const pv = prods.reduce((a, p) => a + (val(p.cur, 'items_viewed') || 0), 0) || val(t, 'items_viewed') || 0;
+    const pa = prods.reduce((a, p) => a + (val(p.cur, 'items_added_to_cart') || 0), 0) || val(t, 'items_added_to_cart') || 0;
+    const sr = (D.search || []).reduce((a, s) => a + (val(s.cur, 'count') || 0), 0);
+    T = {
+      views: Math.max(100, nice(pv * 0.0004)),
+      adds: Math.max(20, nice(pa * 0.0005)),
+      sessions: Math.max(300, nice((val(t, 'sessions') || 0) * 0.001)),
+      searches: Math.max(10, nice(sr * 0.002)),
+      bouncePP: 8, group: 8,
+      impact: Math.max(1000, nice((val(t, 'item_revenue') || 0) * 0.0002))     // an opportunity smaller than this is not worth a line
+    };
+    if (!ui.merch.minTouched) ui.merch.min = T.views;
+  }
+
+  /* ── Landing pages ────────────────────────────────────────────────────── */
+  const lpBounce = o => calc('bounce', o);
+  /* 'not_set' = GA4 could not tie the session to a first page view. It is not a
+     page anyone can fix, so it is labelled, never flagged and kept out of the
+     page-type benchmark. */
+  const ptLabel = k => k === 'not_set' ? 'no landing page recorded' : String(k == null ? 'other' : k);
+  function pageTypeAvg() {
+    const m = {};
+    (D.by_page_type || []).forEach(r => { if (r && r.cur) m[r.key] = lpBounce(r.cur); });
+    // fall back to the listed pages for a type the rollup lacks
+    const by = {};
+    (D.by_landing || []).forEach(r => { if (!r || !r.cur) return; const k = r.page_type || 'other'; (by[k] = by[k] || []).push(r.cur); });
+    Object.keys(by).forEach(k => { if (!ok(m[k])) m[k] = lpBounce(sumObjs(by[k])); });
+    return m;
+  }
+  function landingRows() {
+    const avg = pageTypeAvg();
+    return (D.by_landing || []).filter(r => r && r.cur).map(r => {
+      const type = r.page_type || 'other', b = lpBounce(r.cur), ta = avg[type], gap = type !== 'not_set' && ok(b) && ok(ta) ? (b - ta) * 100 : null;
+      const s = val(r.cur, 'sessions');
+      return { key: r.key == null ? '(not set)' : r.key, type, cur: r.cur, prev: r.prev, bounce: b, typeAvg: ta, gap,
+               flag: type !== 'checkout' && ok(gap) && gap >= T.bouncePP && ok(s) && s >= T.sessions };
+    });
+  }
+  function renderLanding() {
+    const rows = landingRows(), totS = val(D.totals.cur, 'sessions');
+    // page-type rollup
+    const pt = (D.by_page_type || []).filter(r => r && r.cur);
+    const ptTot = sumObjs(pt.map(r => r.cur)), ptS = val(ptTot, 'sessions'), ptBench = sumObjs(pt.filter(r => r.key !== 'not_set').map(r => r.cur));
+    const perS = (k) => r => div(val(r.cur, k), val(r.cur, 'sessions'));
+    const ptCols = [
+      { id: 'key', label: 'Page type', lbl: true, val: r => r.key, html: r => '<span class="chip type">' + esc(ptLabel(r.key)) + '</span>' + (r.key === 'not_set' ? '<span class="sub">GA4 saw no first page view — not benchmarked</span>' : '') },
+      { id: 'sessions', label: 'Sessions', val: r => val(r.cur, 'sessions'), html: r => fmtInt(val(r.cur, 'sessions')) },
+      { id: 'share', label: 'Share', val: r => div(val(r.cur, 'sessions'), ptS), html: r => '<span class="dim">' + fmtPct(div(val(r.cur, 'sessions'), ptS), 1) + '</span>' },
+      colDelta('sessions', cur, prv, 'Δ sessions'),
+      colMetric('bounce', cur, () => calc('bounce', ptBench), { label: 'Bounce', guard: r => r.key !== 'not_set' }), colDelta('bounce', cur, prv, 'Δ pp'),
+      colMetric('pps', cur, null, { label: 'Pages / sess.' }),
+      { id: 'atc', label: 'Add-to-cart events / session', title: 'add_to_cart EVENTS ÷ landing sessions — an intensity, not a share of sessions', val: perS('add_to_cart'), html: r => fmtNum(perS('add_to_cart')(r), 3) },
+      { id: 'pur', label: 'Purchase events / session', title: 'purchase EVENTS ÷ landing sessions', val: perS('purchase'), html: r => fmtPct(perS('purchase')(r), 2) },
+      { id: 'flagged', label: 'Flagged pages', val: r => rows.filter(x => x.type === r.key && x.flag).length, html: r => {  if (r.key === 'not_set') return '<span class="dim">' + DASH + '</span>'; const n = rows.filter(x => x.type === r.key && x.flag).length; return n ? '<span class="chip flag">' + n + ' high bounce</span>' : '<span class="dim">' + DASH + '</span>'; } }
+    ];
+    if (!gPt) gPt = new Grid({ table: 'ptTable', sort: ['sessions', 'desc'], page: 20, tools: 'ptTools', empty: 'No page-type data in this payload', rowCls: r => 'click' + (ui.lp.type === r.key ? ' sel' : ''),
+      onRow: r => { ui.lp.type = ui.lp.type === r.key ? '' : r.key; renderLanding(); } });
+    gPt.set(pt, ptCols);
+
+    const types = Array.from(new Set(rows.map(r => r.type))).sort();
+    $('lpType').innerHTML = '<option value="">All page types</option>' + types.map(t => '<option value="' + esc(t) + '"' + (t === ui.lp.type ? ' selected' : '') + '>' + esc(ptLabel(t)) + '</option>').join('');
+    $('lpFlagged').checked = ui.lp.flagged; $('lpQ').value = ui.lp.q;
+    const q = ui.lp.q.trim().toLowerCase();
+    const list = rows.filter(r => (!ui.lp.type || r.type === ui.lp.type) && (!ui.lp.flagged || r.flag) && (!q || r.key.toLowerCase().indexOf(q) >= 0));
+    const nFlag = rows.filter(r => r.flag).length;
+    $('lpSub').innerHTML = 'Top ' + rows.length + ' by sessions. <span class="chip flag">High bounce</span> = at least ' + fmtInt(T.sessions) + ' sessions and a bounce rate ' + T.bouncePP +
+      ' pp or more above its page-type average (checkout and confirmation pages are never flagged: sessions that start there are returns from the payment step) — <b>' + nFlag + '</b> page' + (nFlag === 1 ? '' : 's') + ' flagged.';
+    const lpCols = [
+      { id: 'key', label: 'Landing page', lbl: true, val: r => r.key, td: r => '<td class="lbl path" title="' + esc(r.key) + '">' + esc(r.key) + (r.type === 'not_set' ? ' <span class="dim" style="font-weight:500">— no landing page recorded</span>' : '') + (r.flag ? ' <span class="chip flag">High bounce</span>' : '') + '</td>' },
+      { id: 'type', label: 'Type', lbl: true, val: r => r.type, html: r => '<span class="chip type">' + esc(r.type === 'not_set' ? 'not set' : r.type) + '</span>' },
+      { id: 'sessions', label: 'Sessions', val: r => val(r.cur, 'sessions'), html: r => fmtInt(val(r.cur, 'sessions')) },
+      { id: 'share', label: 'Share', title: 'Share of all sessions in the selection', val: r => div(val(r.cur, 'sessions'), totS), html: r => '<span class="dim">' + fmtPct(div(val(r.cur, 'sessions'), totS), 2) + '</span>' },
+      colDelta('sessions', cur, prv, 'Δ sessions'),
+      { id: 'bounce', label: 'Bounce', title: M.bounce.formula + ' — ' + M.bounce.btxt, val: r => r.bounce, td: r => '<td' + (r.type === 'not_set' ? '' : shade('bounce', r.bounce, r.typeAvg)) + '>' + fmtPct(r.bounce, 1) + '</td>' },
+      { id: 'gap', label: 'vs type avg', title: 'Bounce rate minus the average bounce rate of its page type, in percentage points', val: r => r.gap,
+        html: r => !ok(r.gap) ? '<span class="dim">' + DASH + '</span>' : '<span class="dl ' + (Math.abs(r.gap) < 1 ? 'flat' : r.gap > 0 ? 'down' : 'up') + '" title="' + esc(ptLabel(r.type) + ' average ' + fmtPct(r.typeAvg, 1)) + '">' + (r.gap > 0 ? '+' : '−') + Math.abs(r.gap).toFixed(1).replace('.', ',') + ' pp</span>' },
+      colDelta('bounce', cur, prv, 'Δ pp prev'),
+      colMetric('pps', cur, null, { label: 'Pages / sess.' }),
+      { id: 'pur', label: 'Purchase events / session', title: 'purchase EVENTS ÷ landing sessions', val: perS('purchase'), html: r => fmtPct(perS('purchase')(r), 2) }
+    ];
+    if (!gLp) gLp = new Grid({ table: 'lpTable', sort: ['sessions', 'desc'], page: 20, foot: 'lpFoot', tools: 'lpTools', empty: 'No landing pages match' });
+    gLp.set(list, lpCols);
+  }
+
+  /* ── Merchandising ────────────────────────────────────────────────────────
+     Brand comes from GA4 (item_brand). Category › subcategory › type come from
+     the Google Shopping feed, matched on product name; a product the feed does
+     not know is "Uncategorised". Products are keyed on market + name + brand
+     (GA4 view events carry no item id and names are localised), so with
+     market = All the same article is one row PER MARKET. */
+  const nn = v => (v == null || v === '') ? '(not set)' : String(v);
+  const UNCAT = 'Uncategorised';
+  const catKey = p => (p.category == null || p.category === '') ? UNCAT : String(p.category);
+  const subKey = p => (p.subcategory == null || p.subcategory === '') ? '(no subcategory)' : String(p.subcategory);
+  const typeKey = p => (p.type == null || p.type === '') ? '(no type)' : String(p.type);
+  const DIM_KEY = { brand: p => nn(p.brand), category: catKey, subcategory: subKey, type: typeKey };
+  function aggBy(prods, dim) {
+    const m = new Map(), kf = DIM_KEY[dim];
+    prods.forEach(p => { const k = kf(p); let g = m.get(k); if (!g) { g = { key: k, c: [], p: [], n: 0, category: dim === 'subcategory' ? catKey(p) : null }; m.set(k, g); } g.c.push(p.cur); g.p.push(p.prev); g.n++; });
+    return Array.from(m.values()).map(g => { const prev = sumObjs(g.p); return { key: g.key, category: g.category, cur: sumObjs(g.c), prev: Object.keys(prev).length ? prev : null, n: g.n }; });
+  }
+  function merchRows() {
+    const s = ui.merch;
+    const prods = (D.products || []).filter(p => p && p.cur && (!s.brand || nn(p.brand) === s.brand) && (!s.category || catKey(p) === s.category) &&
+      (!s.subcategory || subKey(p) === s.subcategory) && (!s.type || typeKey(p) === s.type));
+    let rows, derived = false;
+    const narrow = !!(s.brand || s.type);            // filters the pre-aggregated lists cannot answer
+    if (s.dim === 'product') rows = prods.map(p => ({ key: nn(p.name || p.id), id: p.id, market: p.market || null, brand: nn(p.brand), category: catKey(p), subcategory: subKey(p), type: typeKey(p), cur: p.cur, prev: p.prev }));
+    else if (s.dim === 'brand') {
+      if (s.category || s.subcategory || s.type) { rows = aggBy(prods, 'brand'); derived = true; }
+      else rows = (D.brands || []).filter(r => r && r.cur && (!s.brand || nn(r.key) === s.brand)).map(r => ({ key: nn(r.key), cur: r.cur, prev: r.prev }));
+    } else if (s.dim === 'category') {
+      if (narrow || s.subcategory) { rows = aggBy(prods, 'category'); derived = true; }
+      else rows = (D.categories || []).filter(r => r && r.cur && (!s.category || nn(r.key) === s.category)).map(r => ({ key: nn(r.key), cur: r.cur, prev: r.prev }));
+    } else {
+      if (narrow || !Array.isArray(D.subcategories)) { rows = aggBy(prods, 'subcategory'); derived = true; }
+      else rows = D.subcategories.filter(r => r && r.cur && (!s.category || nn(r.category) === s.category) && (!s.subcategory || nn(r.key) === s.subcategory)).map(r => ({ key: nn(r.key), category: nn(r.category), cur: r.cur, prev: r.prev }));
+    }
+    const q = s.q.trim().toLowerCase();
+    if (q) rows = rows.filter(r => [r.key, r.brand, r.category, r.subcategory, r.type, r.market, r.id].filter(Boolean).join(' ').toLowerCase().indexOf(q) >= 0);
+    const total = rows.length, min = +s.min || 0;
+    const kept = rows.filter(r => (val(r.cur, 'items_viewed') || 0) >= min);
+    // how much of the filtered entity the product list actually covers
+    let cover = null;
+    if (derived || (s.dim === 'product' && (s.brand || s.category || s.subcategory))) {
+      const one = [s.brand && !s.category && !s.subcategory && !s.type ? (D.brands || []).find(r => r && nn(r.key) === s.brand) : null,
+                   s.category && !s.brand && !s.subcategory && !s.type ? (D.categories || []).find(r => r && nn(r.key) === s.category) : null,
+                   s.subcategory && !s.brand && !s.type ? (D.subcategories || []).find(r => r && nn(r.key) === s.subcategory && (!s.category || nn(r.category) === s.category)) : null].filter(Boolean)[0];
+      if (one) cover = div(prods.reduce((a, p) => a + (val(p.cur, 'items_viewed') || 0), 0), val(one.cur, 'items_viewed'));
+    }
+    return { rows: kept, hidden: total - kept.length, derived, cover };
+  }
+  function renderMerch() {
+    const s = ui.merch, dimLabel = { brand: 'Brand', category: 'Category', subcategory: 'Subcategory', product: 'Product' };
+    const hasSub = Array.isArray(D.subcategories) || (D.products || []).some(p => p && p.subcategory);
+    if (s.dim === 'subcategory' && !hasSub) s.dim = 'category';
+    const allMk = state.market === 'all' && (D.products || []).some(p => p && p.market);
+    $('segDim').innerHTML = segHTML([{ v: 'brand', label: 'Brands' }, { v: 'category', label: 'Categories' }].concat(hasSub ? [{ v: 'subcategory', label: 'Subcategories' }] : [], [{ v: 'product', label: 'Products' }]), s.dim);
+    $('mMin').value = s.min; $('mQ').value = s.q;
+    $('mQ').placeholder = 'Search ' + (s.dim === 'product' ? 'product, brand, type' : s.dim) + '…';
+    const crumbs = [];
+    [['brand', 'Brand'], ['category', 'Category'], ['subcategory', 'Subcategory'], ['type', 'Type']].forEach(f => {
+      if (s[f[0]]) crumbs.push('<span class="crumb">' + f[1] + ': ' + esc(s[f[0]]) + '<button type="button" data-clear="' + f[0] + '" aria-label="Remove ' + f[1].toLowerCase() + ' filter">×</button></span>');
+    });
+    $('mCrumbs').hidden = !crumbs.length;
+    $('mCrumbs').innerHTML = crumbs.length ? 'Filtered to ' + crumbs.join(' ') + ' <button type="button" class="linkbtn" data-clear="all">Clear</button>' : '';
+    const m = merchRows(), bench = sumObjs(m.rows.map(r => r.cur));
+    const b = id => () => calc(id, bench);
+    const big = r => (val(r.cur, 'items_viewed') || 0) >= T.views;      // shade only rows with enough volume to mean something
+    const lnk = (act, v, txt) => '<span class="lnk" data-act="' + act + '" data-v="' + esc(v) + '">' + esc(txt == null ? v : txt) + '</span>';
+    const first = s.dim === 'product'
+      ? { id: 'key', label: 'Product', lbl: true, val: r => r.key, td: r => '<td class="lbl name"><div class="t">' + esc(r.key) + '</div><div class="s">' + lnk('brand', r.brand) +
+          (r.category !== UNCAT ? ' · ' + lnk('subcategory', r.subcategory, r.subcategory) + (r.type !== '(no type)' ? ' · ' + lnk('type', r.type) : '') : ' · <span title="No match in the Google Shopping feed">uncategorised</span>') + '</div></td>' }
+      : { id: 'key', label: dimLabel[s.dim], lbl: true, val: r => r.key, td: r => '<td class="lbl"><span class="strong lnk" data-act="row">' + esc(r.key) + '</span>' +
+          (r.key === UNCAT && s.dim === 'category' ? '<span class="sub">no match in the product feed</span>' : s.dim === 'subcategory' && r.category ? '<span class="sub">' + esc(r.category) + '</span>' : '') +
+          (r.n != null ? '<span class="sub">' + r.n + ' product' + (r.n === 1 ? '' : 's') + ' in the top list</span>' : '') + '</td>' };
+    const cols = [first].concat(s.dim === 'product' && allMk ? [{ id: 'market', label: 'Market', lbl: true, val: r => r.market, html: r => '<span class="chip type">' + esc(r.market || DASH) + '</span>' }] : [], [
+      { id: 'views', label: 'Views', title: 'items_viewed — item counts', val: r => val(r.cur, 'items_viewed'), html: r => fmtInt(val(r.cur, 'items_viewed')) },
+      { id: 'd_views', label: 'Δ', title: 'Change in views vs previous period (%)', val: r => { const d = relDelta(val(r.cur, 'items_viewed'), val(r.prev, 'items_viewed')); return d ? d.diff : null; }, html: r => dl(relDelta(val(r.cur, 'items_viewed'), val(r.prev, 'items_viewed'))) },
+      colMetric('v2c', cur, b('v2c'), { label: 'View→cart', guard: big }), colDelta('v2c', cur, prv, 'Δ pp'),
+      colMetric('v2p', cur, b('v2p'), { label: 'View→purchase', guard: big }), colDelta('v2p', cur, prv, 'Δ pp'),
+      colMetric('c2p', cur, b('c2p'), { label: 'Cart→purchase', guard: big }),
+      { id: 'rev', label: 'Item value <span class="sub">GA4</span>', title: 'item_revenue as GA4 reports it, SEK. Does not reconcile with GA4 purchase revenue — see "How to read this".', val: r => val(r.cur, 'item_revenue'), html: r => fmtKr(val(r.cur, 'item_revenue')) },
+      { id: 'd_rev', label: 'Δ', title: 'Change in item value vs previous period (%)', val: r => { const d = relDelta(val(r.cur, 'item_revenue'), val(r.prev, 'item_revenue')); return d ? d.diff : null; }, html: r => dl(relDelta(val(r.cur, 'item_revenue'), val(r.prev, 'item_revenue'))) },
+      colMetric('rpv', cur, null, { label: 'Item value / view' })
+    ]);
+    if (!gM) gM = new Grid({ table: 'mTable', sort: ['views', 'desc'], page: 25, foot: 'mFoot', tools: 'mTools', empty: 'No rows match — lower the minimum views or clear the search',
+      rowCls: () => ui.merch.dim === 'product' ? '' : 'click',
+      footNote: () => gM._hidden ? fmtInt(gM._hidden) + ' below ' + fmtInt(ui.merch.min) + ' views hidden' : 'minimum ' + fmtInt(ui.merch.min) + ' views',
+      onRow: (r, e) => {
+        const a = e.target.closest('[data-act]'), act = a ? a.dataset.act : 'row', sm = ui.merch;
+        if (act === 'brand' || act === 'subcategory' || act === 'type') { sm[act] = a.dataset.v; if (act === 'subcategory' && r.category) sm.category = r.category; }
+        else if (sm.dim === 'brand') { sm.brand = r.key; sm.dim = 'category'; }
+        else if (sm.dim === 'category') { sm.category = r.key; sm.dim = hasSub && r.key !== UNCAT ? 'subcategory' : 'product'; }
+        else if (sm.dim === 'subcategory') { sm.subcategory = r.key; if (r.category) sm.category = r.category; sm.dim = 'product'; }
+        else return;
+        sm.q = ''; renderMerch();
+      } });
+    gM._hidden = m.hidden;
+    gM.set(m.rows, cols);
+    const cov = D.meta.category_coverage, nProd = fmtInt((D.products || []).length);
+    $('mNote').innerHTML = 'Listed average: view→cart <b>' + show('v2c', calc('v2c', bench)) + '</b>, view→purchase <b>' + show('v2p', calc('v2p', bench)) + '</b>, cart→purchase <b>' + show('c2p', calc('c2p', bench)) +
+      '</b> (ratio of sums over the ' + fmtInt(m.rows.length) + ' listed rows — this is what the shading compares with; rows under ' + fmtInt(T.views) + ' views are not shaded). Δ = vs previous period.' +
+      (ok(cov) && s.dim !== 'brand' ? ' <b>Category known for ' + fmtPct(cov, 0) + ' of product views</b>' + (state.market === 'all' && cov < 0.8 ? ' — markets outside the Nordics have no product-feed match, so they are all "Uncategorised"; pick a market for a cleaner view' : '') + '.' : '') +
+      (m.derived ? ' <b>Rolled up from the top ' + nProd + ' products</b>' + (ok(m.cover) ? ', which hold ' + fmtPct(Math.min(1, m.cover), 0) + ' of this selection\'s views' : '') + ' — the long tail is not in these rows.' : '') +
+      (s.dim === 'product' ? ' Products are the top ' + nProd + ' by views' + (ok(m.cover) && !m.derived ? ' (' + fmtPct(Math.min(1, m.cover), 0) + ' of this selection\'s views)' : '') + '.' +
+        (allMk ? ' <b>One row per market</b>: product names are localised, so the same article appears once for each market it is viewed in.' : '') : '');
+  }
+  function relDelta(c, p) {
+    if (!ok(c) || !ok(p) || p === 0) return null;
+    const diff = (c / p - 1) * 100, flat = Math.abs(diff) < 0.05;
+    return { diff, txt: (diff > 0 ? '+' : diff < 0 ? '−' : '±') + Math.abs(diff).toFixed(Math.abs(diff) >= 100 ? 0 : 1).replace('.', ',') + ' %', cls: flat ? 'flat' : diff > 0 ? 'up' : 'down' };
+  }
+
+  /* Brand × market heat table (market = All only) */
+  function renderHeat() {
+    const bbm = (D.brand_by_market || []).filter(r => r && r.cur), card = $('heatCard');
+    if (state.market !== 'all' || !bbm.length) { card.hidden = true; return; }
+    card.hidden = false;
+    const mk = (D.meta.markets && D.meta.markets.length ? D.meta.markets.filter(m => bbm.some(r => r.market === m)) : Array.from(new Set(bbm.map(r => r.market)))).filter(Boolean);
+    const by = new Map();
+    bbm.forEach(r => { const k = nn(r.brand); let g = by.get(k); if (!g) { g = { key: k, m: {} }; by.set(k, g); } g.m[r.market] = r.cur; });
+    const rows = Array.from(by.values()).map(g => { g.all = sumObjs(Object.keys(g.m).map(m => g.m[m])); return g; });
+    const cols = [
+      { id: 'key', label: 'Brand', lbl: true, val: r => r.key, html: r => '<span class="strong lnk" data-act="brand">' + esc(r.key) + '</span>' },
+      { id: 'views', label: 'Views', val: r => val(r.all, 'items_viewed'), html: r => fmtInt(val(r.all, 'items_viewed')) },
+      { id: 'all', label: 'All markets', title: 'items_purchased / items_viewed over all markets, including any outside the listed columns', val: r => calc('v2p', r.all), html: r => '<b>' + show('v2p', calc('v2p', r.all)) + '</b>' }
+    ].concat(mk.map(m => ({ id: 'm_' + m, label: esc(m), val: r => calc('v2p', r.m[m]),
+      td: r => { const o = r.m[m], v = calc('v2p', o), views = val(o, 'items_viewed'), low = !ok(views) || views < T.views;
+        return '<td' + (low ? ' class="dim"' : shade('v2p', v, calc('v2p', r.all))) + ' title="' + esc(m + ': ' + fmtInt(views) + ' views' + (low ? ' — below ' + fmtInt(T.views) + ', not shaded' : (ok(v) ? ' · ' + vsBench('v2p', v, calc('v2p', r.all)) : ''))) + '">' + show('v2p', v) + '</td>'; } })))
+     .concat([{ id: 'spread', label: 'Weakest market', lbl: true, title: 'Market with the lowest view→purchase among those with enough views', val: r => weakest(r, mk).gap,
+        html: r => { const w = weakest(r, mk); return w.m ? esc(w.m) + ' <span class="dl ' + (w.gap < -15 ? 'down' : 'flat') + '">' + (w.gap > 0 ? '+' : '−') + Math.abs(w.gap).toFixed(0) + ' % vs brand</span>' : '<span class="dim">' + DASH + '</span>'; } }]);
+    if (!gHeat) gHeat = new Grid({ table: 'heatTable', sort: ['views', 'desc'], page: 15, foot: 'heatFoot', tools: 'heatTools', empty: 'No brand × market data',
+      onRow: (r, e) => { if (!e.target.closest('[data-act]')) return; ui.merch.brand = r.key; ui.merch.category = null; ui.merch.dim = 'category'; ui.merch.q = ''; renderMerch(); $('s-merch').scrollIntoView(); } });
+    $('heatSub').innerHTML = 'Top ' + rows.length + ' brands. Each market cell is shaded against <b>that brand\'s own</b> all-market rate, so a red cell means the brand under-converts in that market specifically — check price, assortment depth and delivery there. Cells under ' + fmtInt(T.views) + ' views are greyed, not shaded. Item counts.';
+    gHeat.set(rows, cols);
+  }
+  function weakest(r, mk) {
+    const b = calc('v2p', r.all); let best = { m: null, gap: null };
+    mk.forEach(m => { const o = r.m[m], v = calc('v2p', o), views = val(o, 'items_viewed');
+      if (!ok(v) || !ok(b) || b === 0 || !ok(views) || views < T.views) return;
+      const g = (v / b - 1) * 100; if (best.gap == null || g < best.gap) best = { m, gap: g }; });
+    return best;
+  }
+
+  /* ── On-site search ───────────────────────────────────────────────────── */
+  function searchRows() {
+    return (D.search || []).filter(r => r && r.cur).map(r => {
+      const c = val(r.cur, 'count'), p = val(r.prev, 'count');
+      const isNew = ok(c) && c > 0 && (r.prev == null || p === 0 || p == null);
+      const g = ok(c) && ok(p) && p > 0 ? (c / p - 1) * 100 : null;
+      return { term: nn(r.term), count: c, users: val(r.cur, 'users'), prev: p, growth: g, isNew, abs: ok(c) ? c - (p || 0) : null,
+               rising: ok(c) && c >= T.searches && (isNew || (ok(g) && g >= 50)) };
+    });
+  }
+  function renderSearch() {
+    const off = !searchTracked();
+    $('srCard').hidden = off; $('srOff').hidden = !off;
+    if (off) return;
+    const rows = searchRows(), tot = rows.reduce((a, r) => a + (r.count || 0), 0), q = (ui.srQ || '').trim().toLowerCase();
+    const cols = [
+      { id: 'term', label: 'Search term', lbl: true, val: r => r.term, html: r => '<span class="strong">' + esc(r.term) + '</span>' + (r.isNew && r.rising ? ' <span class="chip new">new</span>' : r.rising ? ' <span class="chip rise">rising</span>' : '') },
+      { id: 'count', label: 'Searches', title: 'view_search_results events — event counts', val: r => r.count, html: r => fmtInt(r.count) },
+      { id: 'share', label: 'Share of listed', val: r => div(r.count, tot), html: r => '<span class="dim">' + fmtPct(div(r.count, tot), 1) + '</span>' },
+    ].concat(rows.some(r => ok(r.users)) ? [
+      { id: 'users', label: 'Users', val: r => r.users, html: r => fmtInt(r.users) },
+      { id: 'spu', label: 'Searches / user', title: 'A high value can mean the first result page did not answer the query', val: r => div(r.count, r.users), html: r => fmtNum(div(r.count, r.users), 2) }
+    ] : []).concat([
+      { id: 'prev', label: 'Previous period', val: r => r.prev, html: r => fmtInt(r.prev) },
+      { id: 'growth', label: 'Change', val: r => r.isNew ? Infinity : r.growth, html: r => r.isNew ? '<span class="dl up">new</span>' : dl(relDelta(r.count, r.prev)) }
+    ]);
+    if (!gSr) gSr = new Grid({ table: 'srTable', sort: ['count', 'desc'], page: 20, foot: 'srFoot', tools: 'srTools', empty: 'No search terms in this payload' });
+    $('srSub').innerHTML = (rows.some(r => ok(r.users)) ? '' : 'User counts are not available (GA4 reports them per day and they cannot be added up). ') + 'Top ' + rows.length + ' terms by searches, vs previous period. <span class="chip rise">rising</span> = at least ' + fmtInt(T.searches) + ' searches and +50 % or more; <span class="chip new">new</span> = not searched in the previous period.';
+    gSr.set(q ? rows.filter(r => r.term.toLowerCase().indexOf(q) >= 0) : rows, cols);
+  }
+
+  /* ── Opportunities ────────────────────────────────────────────────────────
+     Each list answers "what should I look at, and what is it worth". Impact is
+     an estimate in SEK of GA4 item value for a period of the same length as
+     the selection, built only from fields in the payload; where no SEK figure
+     can be derived the list says so instead of inventing one. Ranked by
+     impact, not by rate.
+
+     Benchmarks: a product is compared with the median of its SUBCATEGORY when
+     at least T.group products there clear the volume guard, else with its
+     CATEGORY, else it gets no benchmark and is left out (as are products the
+     feed could not categorise) — a median of unlike products is not a target.
+     Sanity cap: no estimate may exceed the larger of the product's own item
+     value and the median product's in its benchmark group, i.e. "fixing" one
+     product is never assumed to more than double it.
+     With market = All only the four selectable markets are considered, and
+     each row carries its market (the same article is a row per market). */
+  const LOCALE_MK = { 'sv-se': 'SE', 'nb-no': 'NO', 'da-dk': 'DK', 'fi-fi': 'FI' };
+  function pathMarket(k) { const m = /^\/([a-z]{2}-[a-z]{2})(\/|\?|$)/.exec(String(k || '')); return m ? (LOCALE_MK[m[1]] || 'other') : null; }
+  function searchTracked() { return !(D.meta && D.meta.search_tracked === false); }
+  const OPP_RATIO = 0.5, OPP_LIFT = 2;
+  function computeOpps() {
+    const allMk = state.market === 'all';
+    const prods = (D.products || []).filter(p => p && p.cur && (!allMk || !p.market || isCore(p.market))).map(p => ({
+      name: nn(p.name || p.id), brand: nn(p.brand), market: p.market || null, category: catKey(p), subcategory: subKey(p), cur: p.cur, prev: p.prev,
+      views: val(p.cur, 'items_viewed'), adds: val(p.cur, 'items_added_to_cart'), buys: val(p.cur, 'items_purchased'), rev: val(p.cur, 'item_revenue'),
+      v2c: calc('v2c', p.cur), v2p: calc('v2p', p.cur), c2p: calc('c2p', p.cur), rpv: calc('rpv', p.cur) }));
+    const known = p => p.category !== UNCAT;
+    const eligV = prods.filter(p => known(p) && ok(p.views) && p.views >= T.views);
+    const eligA = prods.filter(p => known(p) && ok(p.adds) && p.adds >= T.adds);
+    const gk = p => p.category + ' › ' + p.subcategory;
+    const groupUp = list => { const sub = {}, cat = {}; list.forEach(p => { (sub[gk(p)] = sub[gk(p)] || []).push(p); (cat[p.category] = cat[p.category] || []).push(p); }); return { sub, cat, memo: {} }; };
+    const GV = groupUp(eligV), GA = groupUp(eligA);
+    const sumK = (l, k) => l.reduce((a, p) => a + (ok(p[k]) ? p[k] : 0), 0);
+    function bm(p, G) {
+      const s = p.subcategory !== '(no subcategory)' ? G.sub[gk(p)] : null, c = G.cat[p.category];
+      const list = s && s.length >= T.group ? s : (c && c.length >= T.group ? c : null);
+      if (!list) return null;
+      const key = list === s ? gk(p) : p.category;
+      if (!G.memo[key]) G.memo[key] = { label: list === s ? p.subcategory : p.category, level: list === s ? 'subcategory' : 'category', n: list.length,
+        v2c: median(list.map(x => x.v2c)), v2p: median(list.map(x => x.v2p)), c2p: median(list.map(x => x.c2p)), views: median(list.map(x => x.views)), p75: quantile(list.map(x => x.views), 0.75),
+        medRev: median(list.map(x => x.rev)), rpp: div(sumK(list, 'rev'), sumK(list, 'buys')), c2pAgg: div(sumK(list, 'buys'), sumK(list, 'adds')) };
+      return G.memo[key];
+    }
+    const totals = D.totals.cur, siteRpp = div(val(totals, 'item_revenue'), val(totals, 'items_purchased'));
+    const rpp = (p, st) => (ok(p.buys) && p.buys >= 3 && ok(p.rev) && p.rev > 0) ? p.rev / p.buys : (ok(st.rpp) ? st.rpp : siteRpp);
+    const capAt = (est, lim) => !ok(est) ? { v: null, capped: false } : (ok(lim) && lim > 0 && est > lim ? { v: lim, capped: true } : { v: est, capped: false });
+    const byImpact = (a, b) => (b.impact || 0) - (a.impact || 0);
+    const pSub = p => p.brand + (p.subcategory !== '(no subcategory)' ? ' · ' + p.subcategory : '') + (allMk && p.market ? ' · ' + p.market : '');
+    const item = (p, imp, fact, extra) => ({ title: p.name, sub: pSub(p), brand: p.brand, go: { type: 'product', q: p.name }, impact: imp.v, capped: imp.capped, fact, extra });
+    const noBench = prods.filter(p => ok(p.views) && p.views >= T.views && (!known(p) || !bm(p, GV))).length;
+
+    // (a) seen a lot, rarely added to cart
+    const a = [];
+    eligV.forEach(p => {
+      const st = bm(p, GV); if (!st || !ok(p.v2c) || !ok(st.v2c) || p.v2c >= OPP_RATIO * st.v2c) return;
+      const c2p = ok(p.adds) && p.adds >= T.adds && ok(p.c2p) && p.c2p > 0 ? p.c2p : st.c2pAgg, r = rpp(p, st);
+      const extra = (st.v2c - p.v2c) * p.views * (ok(c2p) ? c2p : 0);
+      a.push(item(p, capAt(ok(r) ? extra * r : null, Math.max(p.rev || 0, st.medRev || 0)),
+        fmtInt(p.views) + ' views · view→cart <b>' + fmtPct(p.v2c, 1) + '</b> vs ' + fmtPct(st.v2c, 1) + ' median for ' + esc(st.label), '+' + fmtInt(extra) + ' items sold'));
+    });
+    const floor = T.impact, keep = x => ok(x.impact) && x.impact >= floor;
+    const a2 = a.filter(keep); a.length = 0; a2.forEach(x => a.push(x));
+    a.sort(byImpact);
+
+    // (b) added to cart, not bought
+    const b = [];
+    eligA.forEach(p => {
+      const st = bm(p, GA); if (!st || !ok(p.c2p) || !ok(st.c2p) || p.c2p >= OPP_RATIO * st.c2p) return;
+      const r = rpp(p, st), extra = (st.c2p - p.c2p) * p.adds;
+      b.push(item(p, capAt(ok(r) ? extra * r : null, Math.max(p.rev || 0, st.medRev || 0)),
+        fmtInt(p.adds) + ' adds to cart · cart→purchase <b>' + fmtPct(p.c2p, 1) + '</b> vs ' + fmtPct(st.c2p, 1) + ' median for ' + esc(st.label), '+' + fmtInt(extra) + ' items sold'));
+    });
+    const b2 = b.filter(keep); b.length = 0; b2.forEach(x => b.push(x));
+    b.sort(byImpact);
+
+    // (c) converts well, too few see it
+    const c = [];
+    eligV.forEach(p => {
+      const st = bm(p, GV); if (!st || !ok(p.v2p) || !ok(st.v2p) || st.v2p <= 0 || p.v2p < OPP_LIFT * st.v2p || !ok(p.buys) || p.buys < 5 || !ok(st.views) || p.views >= st.views || !ok(p.rpv)) return;
+      const extraViews = Math.max(0, st.p75 - p.views);
+      c.push(item(p, capAt(extraViews * p.rpv, p.rev),
+        'view→purchase <b class="g">' + fmtPct(p.v2p, 1) + '</b> vs ' + fmtPct(st.v2p, 1) + ' median for ' + esc(st.label) + ' · only ' + fmtInt(p.views) + ' views', 'at ' + fmtInt(st.p75) + ' views'));
+    });
+    const c2 = c.filter(keep); c.length = 0; c2.forEach(x => c.push(x));
+    c.sort(byImpact);
+
+    // (d) biggest fallers in view→purchase
+    const fall = (list, minV) => list.map(r => {
+      const cv = val(r.cur, 'items_viewed'), pv = val(r.prev, 'items_viewed'), cr_ = calc('v2p', r.cur), pr = calc('v2p', r.prev), pb = val(r.prev, 'items_purchased');
+      if (!ok(cv) || !ok(pv) || cv < minV || pv < minV || !ok(cr_) || !ok(pr) || pr <= 0 || !ok(pb) || pb < 10) return null;
+      const rel = cr_ / pr - 1; if (rel > -0.2) return null;
+      const r1 = div(val(r.cur, 'item_revenue'), val(r.cur, 'items_purchased')), r0 = div(val(r.prev, 'item_revenue'), val(r.prev, 'items_purchased'));
+      const rv = ok(r1) ? r1 : r0, lost = (pr - cr_) * cv, imp = capAt(ok(rv) ? lost * rv : null, val(r.prev, 'item_revenue'));
+      return { title: r.title, sub: r.sub, brand: r.brand || null, go: r.go, impact: imp.v, capped: imp.capped,
+        fact: 'view→purchase <b>' + fmtPct(cr_, 1) + '</b>, was ' + fmtPct(pr, 1) + ' (' + (rel * 100).toFixed(0).replace('-', '−') + ' %) · ' + fmtInt(cv) + ' views', extra: '−' + fmtInt(lost) + ' items sold' };
+    }).filter(Boolean).sort(byImpact);
+    const d = {
+      brand: fall((D.brands || []).filter(r => r && r.cur && r.prev).map(r => ({ cur: r.cur, prev: r.prev, title: nn(r.key), sub: 'Brand', go: { type: 'brand', v: nn(r.key) } })), T.views * 5),
+      subcategory: fall((Array.isArray(D.subcategories) ? D.subcategories : (D.categories || [])).filter(r => r && r.cur && r.prev && nn(r.key) !== UNCAT)
+        .map(r => ({ cur: r.cur, prev: r.prev, title: nn(r.key), sub: r.category ? nn(r.category) : 'Category', go: r.category ? { type: 'subcategory', v: nn(r.key), c: nn(r.category) } : { type: 'category', v: nn(r.key) } })), T.views * 5),
+      product: fall(prods.filter(p => p.prev).map(p => ({ cur: p.cur, prev: p.prev, title: p.name, sub: pSub(p), brand: p.brand, go: { type: 'product', q: p.name } })), T.views)
+    };
+
+    // (e) landing pages bouncing well above their type
+    const rpe = div(val(totals, 'revenue'), val(totals, 'engaged_sessions'));
+    let lpSkipped = 0;
+    const e = landingRows().filter(r => r.flag).filter(r => { const foreign = allMk && pathMarket(r.key) === 'other'; if (foreign) lpSkipped++; return !foreign; }).map(r => {
+      const extra = (r.bounce - r.typeAvg) * (val(r.cur, 'engaged_denom') || 0);
+      return { title: r.key, sub: ptLabel(r.type) + ' page', go: { type: 'landing', q: r.key }, impact: ok(rpe) ? extra * rpe : null,
+        fact: fmtInt(val(r.cur, 'sessions')) + ' sessions · bounce <b>' + fmtPct(r.bounce, 1) + '</b> vs ' + fmtPct(r.typeAvg, 1) + ' for ' + esc(ptLabel(r.type)) + ' pages', extra: '+' + fmtInt(extra) + ' engaged sessions' };
+    }).sort(byImpact);
+
+    // (f) rising on-site search terms — no SEK basis in the data
+    const f = !searchTracked() ? null : searchRows().filter(r => r.rising).sort((x, y) => (y.abs || 0) - (x.abs || 0)).map(r => ({
+      title: r.term, sub: '', go: { type: 'search', q: r.term }, impact: null, count: r.abs,
+      fact: fmtInt(r.count) + ' searches' + (r.isNew ? ' · <b class="g">new</b> (none in the previous period)' : ' · <b class="g">+' + r.growth.toFixed(0) + ' %</b> from ' + fmtInt(r.prev)), extra: '' }));
+    return { a, b, c, d, e, f, noBench, lpSkipped, nProds: prods.length };
+  }
+  /* The first n rows by impact with at most `cap` rows per brand, so that a
+     brand holding half the catalogue cannot fill the whole list. */
+  function pickTop(list, n, cap) {
+    const out = [], seen = {};
+    for (let i = 0; i < list.length && out.length < n; i++) {
+      const b = list[i].brand;
+      if (b) { seen[b] = (seen[b] || 0) + 1; if (seen[b] > cap) continue; }
+      out.push(list[i]);
+    }
+    return out;
+  }
+  function renderOpps(o) {
+    const days = periodDays(), per = 'per ' + days + ' days', allMk = state.market === 'all';
+    $('oppSub').innerHTML = 'Computed in your browser from the data on this page for <b>' + esc(fmtRange(D.meta.cur)) + '</b>' + (allMk ? ' — <b>' + esc(coreMarkets().join(', ')) + ' only</b>, each row tagged with its market' : ', ' + esc(state.market)) +
+      '. Every list has a minimum-volume guard (stated on the card) and is ranked by <b>estimated impact</b>, not by rate. Impact ≈ <b>GA4 item value</b> ' + esc(per) +
+      ' <i>if the gap closed</i> — a way to prioritise, not a forecast, and never more than the product already sells for. Products are compared with the median of their subcategory (or category when the subcategory has fewer than ' + T.group + ' comparable products)' +
+      (o.noBench ? '; ' + fmtInt(o.noBench) + ' product' + (o.noBench === 1 ? ' has' : 's have') + ' no benchmark (uncategorised or too few peers) and ' + (o.noBench === 1 ? 'is' : 'are') + ' left out of the first three lists' : '') +
+      '. At most 2 rows per brand are shown in a top 5.' +
+      (allMk ? ' <b>Pick a market for a fuller list</b>: here the top products are split across markets, so fewer clear the volume guards.' : '');
+    const capTxt = ' Capped at the larger of the product\'s own item value and its group\'s median; estimates under ' + fmtKr(T.impact) + ' are dropped.';
+    const cards = [
+      { id: 'a', own: 'Product page · price · sizes in stock', title: 'Seen a lot, rarely added to cart',
+        why: 'These products get the traffic but far fewer viewers add them to the cart than comparable products. Check price vs competitors, size and colour availability, images and delivery promise.',
+        thr: 'At least ' + fmtInt(T.views) + ' views, and view→cart below ' + (OPP_RATIO * 100) + ' % of the subcategory median. Impact = views × gap to the median × cart→purchase × item value per item sold.' + capTxt, list: o.a },
+      { id: 'b', own: 'Checkout · shipping · stock', title: 'Added to cart, not bought',
+        why: 'Shoppers want these enough to add them, then leave. Look for sizes selling out in the cart, shipping cost or delivery time shown late, and payment friction for the markets involved.',
+        thr: 'At least ' + fmtInt(T.adds) + ' adds to cart, and cart→purchase below ' + (OPP_RATIO * 100) + ' % of the subcategory median. Impact = adds × gap to the median × item value per item sold.' + capTxt, list: o.b },
+      { id: 'c', own: 'Merchandising · campaigns · CRM', title: 'Converts well, too few see it',
+        why: 'High view→purchase but less traffic than a typical product in its subcategory. Candidates for category-page placement, newsletters and paid feeds.',
+        thr: 'At least ' + fmtInt(T.views) + ' views and 5 items sold, view→purchase ≥ ' + OPP_LIFT + '× the subcategory median, views below the subcategory median. Impact = item value per view × the extra views needed to reach the 75th percentile, capped at the product\'s current item value (i.e. at most doubling it) — an upper bound, added traffic usually converts worse. Estimates under ' + fmtKr(T.impact) + ' are dropped.', list: o.c },
+      { id: 'd', own: 'Investigate first', title: 'Biggest fallers in view→purchase',
+        why: 'Conversion dropped sharply versus the previous period on meaningful volume. Usual causes: broken sizes or stock-outs, a price change, a campaign ending, or lower-intent traffic being sent in.',
+        thr: 'At least ' + fmtInt(ui.fall === 'product' ? T.views : T.views * 5) + ' views in both periods, 10+ items sold before, view→purchase down 20 % or more. Impact = item value lost versus the previous rate at current views, capped at the previous period\'s item value.' + (allMk && ui.fall !== 'product' ? ' Brand and subcategory rows include traffic from outside the Nordics.' : ''),
+        list: o.d[ui.fall] || [], seg: [['brand', 'Brands'], ['subcategory', Array.isArray(D.subcategories) ? 'Subcategories' : 'Categories'], ['product', 'Products']] },
+      { id: 'e', own: 'Landing page · campaign fit', title: 'Landing pages losing visitors on arrival',
+        why: 'High-traffic entry pages that bounce far more than other pages of the same type. Check which campaigns send traffic here, whether the page matches the ad or search intent, and load speed.',
+        thr: 'At least ' + fmtInt(T.sessions) + ' sessions, bounce ≥ ' + T.bouncePP + ' pp above the page-type average. Sessions with no landing page recorded are excluded' + (allMk ? ', as are pages of non-Nordic storefronts' + (o.lpSkipped ? ' (' + o.lpSkipped + ' skipped)' : '') : '') +
+          '. Impact = sessions that would stay at the type average × site revenue per engaged session (GA4 purchase revenue) — rough.', list: o.e, money: 'GA4 revenue' },
+      o.f ? { id: 'f', own: 'Demand signal · search · buying', title: 'Rising on-site searches',
+        why: 'Visitors are asking for these more than before. Make sure each term returns good results, consider a landing page or menu entry, and check stock depth.',
+        thr: 'At least ' + fmtInt(T.searches) + ' searches, up 50 % or more (or new). Ranked by added searches. <b>No SEK estimate</b>: the data does not connect a search to revenue.', list: o.f, noMoney: true }
+      : { id: 'f', off: true, own: 'Tracking gap', title: 'Rising on-site searches' }
+    ];
+    $('oppGrid').innerHTML = cards.map(c => {
+      if (c.off) return '<div class="opp off" data-opp="f"><div class="opp-h" style="border-bottom:0"><div class="opp-top"><div><h3>' + esc(c.title) + '</h3><span class="opp-own gap">' + esc(c.own) + '</span></div></div>' +
+        '<div class="opp-why"><b>On-site search is not tracked in GA4</b>, so there are no search terms to rank. Once it is, this card lists the terms visitors are asking for more than before — demand you can meet with a landing page, a synonym or stock. ' +
+        '<a href="#gapsCard" data-open-gaps>What to fix</a></div></div></div>';
+      const open = !!ui.oppOpen[c.id], top = pickTop(c.list, open ? 15 : 5, open ? 5 : 2);
+      const sum = top.slice(0, 5).reduce((a, r) => a + (ok(r.impact) ? r.impact : 0), 0);
+      const anyMoney = c.list.some(r => ok(r.impact));
+      c.shown = top;
+      return '<div class="opp" data-opp="' + c.id + '"><div class="opp-h"><div class="opp-top"><div><h3>' + esc(c.title) + '</h3><span class="opp-own">' + esc(c.own) + '</span></div>' +
+        '<div class="opp-sum">' + (c.noMoney ? '<b>' + fmtInt(c.list.length) + '</b><span>rising terms</span>' : '<b>' + (anyMoney ? '≈ ' + fmtKrC(sum) : DASH) + '</b><span>top 5 · ' + esc(c.money || 'GA4 item value') + ' · ' + esc(per) + '</span>') + '</div></div>' +
+        '<div class="opp-why">' + esc(c.why) + '</div><div class="opp-thr">' + c.thr + '</div>' +
+        (c.seg ? '<div class="seg sm" style="margin-top:9px" data-fall>' + segHTML(c.seg.map(s => ({ v: s[0], label: s[1] })), ui.fall) + '</div>' : '') + '</div>' +
+        (top.length ? '<ol class="opp-list">' + top.map((r, i) =>
+          '<li class="go" data-i="' + i + '" title="Show in the table below"><span class="r">' + (i + 1) + '</span><div style="min-width:0"><div class="t" title="' + esc(r.title) + '">' + esc(r.title) + (r.sub ? ' <span class="dim" style="font-weight:500">· ' + esc(r.sub) + '</span>' : '') + '</div><div class="f">' + r.fact + '</div></div>' +
+          '<div class="i"' + (r.capped ? ' title="Capped — the raw estimate was higher than this product plausibly sells for"' : '') + '>' + (c.noMoney ? '+' + fmtInt(r.count) + '<small>searches</small>' : (ok(r.impact) ? '≈ ' + fmtKrC(r.impact) : DASH) + '<small>' + esc(r.extra) + (r.capped ? ' · capped' : '') + '</small>') + '</div></li>').join('') + '</ol>'
+          : '<div class="opp-empty">Nothing clears the threshold in this selection' + (D.products && D.products.length ? (days <= 7 ? ' — a 7-day window is short for product-level rates; try 28 days' : '') : ' (no product data in the payload)') + '.</div>') +
+        '<div class="opp-foot"><span>' + fmtInt(c.list.length) + ' match' + (c.list.length === 1 ? '' : 'es') + '</span>' +
+        (c.list.length > 5 ? '<button type="button" class="linkbtn" data-toggle="' + c.id + '">' + (open ? 'Show top 5' : 'Show top ' + Math.min(15, c.list.length)) + '</button>' : '') + '</div></div>';
+    }).join('');
+    $('oppGrid')._cards = cards;
+  }
+  function goTo(g) {
+    if (!g) return;
+    const reset = { brand: null, category: null, subcategory: null, type: null, q: '' };
+    if (g.type === 'product') { Object.assign(ui.merch, reset, { dim: 'product', q: g.q, min: 0, minTouched: true }); renderMerch(); $('s-merch').scrollIntoView(); }
+    else if (g.type === 'brand') { Object.assign(ui.merch, reset, { dim: 'category', brand: g.v, min: 0, minTouched: true }); renderMerch(); $('s-merch').scrollIntoView(); }
+    else if (g.type === 'category') { Object.assign(ui.merch, reset, { dim: 'product', category: g.v }); renderMerch(); $('s-merch').scrollIntoView(); }
+    else if (g.type === 'subcategory') { Object.assign(ui.merch, reset, { dim: 'product', category: g.c, subcategory: g.v }); renderMerch(); $('s-merch').scrollIntoView(); }
+    else if (g.type === 'landing') { Object.assign(ui.lp, { q: g.q, type: '', flagged: false }); renderLanding(); $('lpTable').closest('.card').scrollIntoView({ block: 'center' }); }
+    else if (g.type === 'search') { ui.srQ = g.q; $('srQ').value = g.q; renderSearch(); $('s-search').scrollIntoView(); }
+  }
+
+  /* ── At a glance ──────────────────────────────────────────────────────────
+     Four or five sentences a merchandiser could act on. Markets are compared
+     within the selectable four against their combined rate — never against
+     "all markets", which non-Nordic traffic drags down. */
+  function renderGlance(o) {
+    const c = D.totals.cur, p = cmpTotals(), li = [];
+    const crD = deltaObj('cr', c, p), sD = deltaObj('sessions', c, p), rD = deltaObj('revenue', c, p);
+    if (crD) li.push({ cls: crD.cls === 'up' ? 'good' : crD.cls === 'down' ? 'bad' : '', h: 'Conversion rate is <b>' + show('cr', calc('cr', c)) + '</b>, ' + (crD.dir > 0 ? 'up' : crD.dir < 0 ? 'down' : 'flat') + ' <b>' + crD.txt.replace(/^[+−±]/, '') +
+      '</b> vs ' + esc(cmpLabel()) + (sD ? ', on ' + sD.txt + ' sessions' : '') + (rD ? ' and ' + rD.txt + ' revenue' : '') + '.' });
+    const fm = funnelModel(), n = fm.n, pn = fm.prev, tol = fm.sampled ? 0.03 : 0.01;
+    if (pn) {
+      let w = null;
+      for (let i = 1; i < n.length; i++) { const r = div(n[i], n[i - 1]), pr = div(pn[i], pn[i - 1]); if (ok(r) && ok(pr) && pr > 0) { const rel = r / pr - 1; if (!w || rel < w.rel) w = { i, r, pr, rel }; } }
+      const basis = fm.user ? (fm.sampled ? 'users, GA4-sampled estimate' : 'users') : 'event counts', vs = fm.user ? 'previous window' : esc(cmpLabel());
+      if (w && w.rel < -tol) li.push({ cls: 'bad', h: 'The funnel step that weakened most: <b>' + esc((fm.names[w.i - 1] + ' → ' + fm.names[w.i]).replace(/_/g, ' ')) + '</b>, ' + (fm.sampled ? '≈ ' : '') + fmtPct(w.r, 1) + ' of users continue vs ' + fmtPct(w.pr, 1) +
+        ' in the ' + vs + ' (' + basis + '). <a href="#s-funnel">Funnel</a>' });
+      else if (w) li.push({ cls: 'good', h: 'No funnel step weakened by more than ' + (tol * 100) + ' % vs the ' + vs + ' (' + basis + '). <a href="#s-funnel">Funnel</a>' });
+    }
+    const mk = (D.by_market || []).filter(r => r && r.cur && isCore(r.key)), na = nordicAgg(), bCr = calc('cr', na.cur);
+    if (mk.length > 1 && ok(bCr)) {
+      const line = (r, lead) => { const v = calc('cr', r.cur), rel = (v / bCr - 1) * 100, bo = calc('bounce', r.cur), aov = calc('aov', r.cur);
+        return { cls: rel < -5 ? 'bad' : rel > 5 ? 'good' : '', h: lead + ' <b>' + show('cr', v) + '</b> vs ' + show('cr', bCr) + ' for the Nordics combined (' + (rel >= 0 ? '+' : '−') + Math.abs(rel).toFixed(0) + ' %)' +
+          (ok(bo) ? '; bounce ' + show('bounce', bo) + ' vs ' + show('bounce', calc('bounce', na.cur)) : '') + (ok(aov) ? ', AOV ' + show('aov', aov) + ' vs ' + show('aov', calc('aov', na.cur)) : '') + '. <a href="#s-markets">Market benchmark</a>' }; };
+      if (state.market !== 'all') { const me = mk.find(r => r.key === state.market); if (me && ok(calc('cr', me.cur))) li.push(line(me, '<b>' + esc(state.market) + '</b> converts at')); }
+      else {
+        const low = mk.filter(r => ok(calc('cr', r.cur))).sort((a, b) => calc('cr', a.cur) - calc('cr', b.cur))[0];
+        if (low && calc('cr', low.cur) / bCr - 1 < -0.05) li.push(line(low, '<b>' + esc(low.key) + '</b> is the weakest of the four markets: conversion'));
+      }
+    }
+    const top2sum = l => pickTop(l, 5, 2).reduce((a, r) => a + (ok(r.impact) ? r.impact : 0), 0);
+    const best = [['seen a lot, rarely added to cart', o.a], ['added to cart, not bought', o.b]].map(x => ({ t: x[0], v: top2sum(x[1]), n: x[1].length, first: pickTop(x[1], 1, 1)[0] })).filter(x => x.v > 0).sort((a, b) => b.v - a.v)[0];
+    if (best) li.push({ cls: 'act', h: 'Largest fixable product gap: <b>' + esc(best.t) + '</b> — ' + best.n + ' product' + (best.n === 1 ? '' : 's') + ' flagged, ' + (best.n > 5 ? 'top 5 ' : '') + 'worth ≈ <b>' + fmtKrC(best.v) + '</b> GA4 item value per ' + periodDays() + ' days' +
+      (best.first ? ', led by ' + esc(best.first.title) : '') + '. <a href="#s-opps">Opportunities</a>' });
+    const fb = (o.d.brand || [])[0];
+    if (fb) li.push({ cls: 'bad', h: 'Biggest faller: <b>' + esc(fb.title) + '</b> — ' + fb.fact.replace(/<\/?b[^>]*>/g, '') + ' (≈ ' + fmtKrC(fb.impact) + ' item value). <a href="#s-opps">Opportunities</a>' });
+    const ns = (D.by_page_type || []).find(r => r && r.key === 'not_set' && r.cur), nsShare = ns ? div(val(ns.cur, 'sessions'), val(c, 'sessions')) : null;
+    if (ok(nsShare) && nsShare >= 0.05) {
+      const ex = inv(div((val(c, 'engaged_sessions') || 0) - (val(ns.cur, 'engaged_sessions') || 0), (val(c, 'engaged_denom') || 0) - (val(ns.cur, 'engaged_denom') || 0)));
+      li.push({ cls: '', h: 'Read bounce with care: <b>' + fmtPct(nsShare, 0) + '</b> of sessions have no landing page recorded and bounce at ' + show('bounce', calc('bounce', ns.cur)) + '. Without them the bounce rate is <b>' + show('bounce', ex) + '</b>, not ' + show('bounce', calc('bounce', c)) + '. <a href="#s-landing">Landing pages</a>' });
+    }
+    $('glance').hidden = !li.length;
+    $('glance').innerHTML = '<h3>At a glance</h3><ul>' + li.map(x => '<li class="' + x.cls + '">' + x.h + '</li>').join('') + '</ul>';
+  }
+
+  /* ── Definitions ──────────────────────────────────────────────────────── */
+  function renderDefs() {
+    if ($('defTable').dataset.done) return;
+    $('defTable').dataset.done = '1';
+    const B = (k, t) => '<span class="b ' + k + '">' + t + '</span>';
+    const rows = [
+      ['Conversion rate', 'transactions / sessions', B('ses', 'Sessions')],
+      ['Bounce rate (GA4)', '1 − engaged_sessions / engaged_denom', B('ses', 'Sessions') + 'GA4 = non-engaged sessions, not the old Universal Analytics single-page bounce'],
+      ['Revenue / session', 'revenue / sessions', B('ses', 'Sessions') + 'GA4 purchase revenue in SEK, as reported'],
+      ['AOV (GA4)', 'revenue / transactions', B('ses', 'Transactions')],
+      ['Pages / session', 'page_views / sessions', B('ses', 'Sessions')],
+      ['New-user share', 'new_users / sessions', B('ses', 'Sessions') + 'approximate'],
+      ['Cart abandonment (events)', '1 − purchase / add_to_cart', B('evt', 'Event counts') + '<b>overstates</b> vs a session-based figure; trend / compare only'],
+      ['Checkout abandonment (events)', '1 − purchase / begin_checkout', B('evt', 'Event counts')],
+      ['Cart → checkout', 'begin_checkout / add_to_cart', B('evt', 'Event counts')],
+      ['Cart / checkout abandonment (users)', 'from funnel.steps', B('usr', 'Users') + 'closed funnel, fixed 7 / 30 / 90-day window — <b>the headline one</b>'],
+      ['Product view → cart', 'items_added_to_cart / items_viewed', B('itm', 'Item counts')],
+      ['Product view → purchase', 'items_purchased / items_viewed', B('itm', 'Item counts')],
+      ['Cart → purchase (item)', 'items_purchased / items_added_to_cart', B('itm', 'Item counts')],
+      ['Item value / product view', 'item_revenue / items_viewed', B('itm', 'Item counts') + 'GA4 item value — <b>does not reconcile</b> with GA4 purchase revenue']
+    ];
+    $('defTable').innerHTML = '<thead><tr><th>Metric</th><th>Formula</th><th>Counted on</th></tr></thead><tbody>' +
+      rows.map(r => '<tr><td>' + r[0] + '</td><td><code>' + esc(r[1]) + '</code></td><td>' + r[2] + '</td></tr>').join('') + '</tbody>';
+    $('basisCard').innerHTML = '<h3>Four bases — do not mix them</h3><ul>' +
+      '<li>' + B('ses', 'Sessions') + ' A visit. Conversion, bounce, revenue/session, the market, channel and landing-page tables.</li>' +
+      '<li>' + B('evt', 'Event counts') + ' How many times an event fired. One visitor can add to cart five times, so event-count abandonment is <b>higher</b> than the share of visitors who abandon. Good for trends and comparisons, wrong as an absolute.</li>' +
+      '<li>' + B('itm', 'Item counts') + ' Items viewed, added and purchased. The only basis available per brand, category and product.</li>' +
+      '<li>' + B('usr', 'Users') + ' Unique users moving through the steps in order (closed funnel). The most honest abandonment figure, but only for fixed 7 / 30 / 90-day windows.</li></ul>' +
+      '<p style="margin-top:10px"><b>Item value (GA4)</b> is the item revenue GA4 attaches to purchased items. It is higher than GA4 purchase revenue for the same period (the basis is unexplained — possibly VAT or discounts), so the two must not be added, compared or reconciled. Opportunity estimates use item value and are marked ≈.</p>' +
+      '<p style="margin-top:10px"><b>Products</b> are identified by name + brand within a market (GA4 product views carry no item id; names are localised). <b>Category › subcategory › type</b> come from the Google Shopping feed, matched on product name — products without a match are "Uncategorised".</p>' +
+      '<p style="margin-top:10px">Every rate is a ratio of sums over the selection (never an average of daily or per-row rates). <b>–</b> means the data is missing, not zero. Comparison: previous period = the same number of days immediately before; year over year = the same dates minus 364 days, so weekdays line up.</p>';
+    $('naCard').innerHTML = '<h3>Not available in the data today</h3><ul>' +
+      '<li>Sessions, bounce or conversion rate by <b>device</b> or by <b>new vs returning</b> — these splits exist only inside the user funnel.</li>' +
+      '<li>A <b>session-based conversion rate per brand, category or product</b> — only item-count rates exist at that level.</li>' +
+      '<li><b>Items checked out</b> (itemsCheckedOut).</li>' +
+      '<li><b>GA4\'s own item categories and item ids</b> — not implemented in the tracking; categories here are matched from the product feed instead.</li>' +
+      '<li><b>Add shipping info / add payment info as funnel steps</b>.</li></ul>' +
+      '<p style="margin-top:10px">Nothing on this page estimates or fills in these numbers.</p>';
+  }
+
+  /* ── Events ───────────────────────────────────────────────────────────── */
+  function onSeg(id, fn) { $(id).addEventListener('click', e => { const b = e.target.closest('button[data-v]'); if (b && !b.disabled) fn(b.dataset.v); }); }
+  function isoDay(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function defaultRange() {
+    const end = D && D.meta && D.meta.data_through ? new Date(D.meta.data_through + 'T12:00:00') : new Date(Date.now() - 864e5);
+    const start = new Date(end); start.setDate(start.getDate() - 13);
+    return { from: isoDay(start), to: isoDay(end) };
+  }
+  onSeg('segMarket', v => { state.market = v; resetView(); load(); });
+  onSeg('segDays', v => {
+    if (v === 'custom') {
+      if (!state.from || !state.to) { const r = defaultRange(); state.from = r.from; state.to = r.to; }
+      $('cFrom').value = state.from; $('cTo').value = state.to;
+      $('customRange').hidden = false;
+      Array.prototype.forEach.call($('segDays').children, b => b.setAttribute('aria-pressed', b.dataset.v === 'custom'));
+      $('cFrom').focus();
+      return;                                    // a range is only queried on Apply
+    }
+    state.custom = false; state.days = +v; resetView(); load();
+  });
+  onSeg('segCmp', v => { state.cmp = v; saveState(); markSegs(); if (D) { renderWindow(); renderKpis(); renderFunnel(); renderTrend(); renderGlance(computeOpps()); } });
+  $('cApply').addEventListener('click', () => {
+    const f = $('cFrom').value, t = $('cTo').value;
+    if (!ISO_RE.test(f) || !ISO_RE.test(t)) return showErr('Pick both a start and an end date.');
+    if (f > t) return showErr('The start date is after the end date.');
+    state.custom = true; state.from = f; state.to = t; resetView(); load();
+  });
+  ['cFrom', 'cTo'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $('cApply').click(); }));
+  /* A new selection changes volumes by an order of magnitude: let the
+     thresholds and the rolling default re-derive, keep drill-down filters. */
+  function resetView() { ui.merch.minTouched = false; ui.trRoll = null; }
+
+  $('trMetric').addEventListener('change', e => { ui.trMetric = e.target.value; renderTrend(); });
+  $('trRoll').addEventListener('change', e => { ui.trRoll = e.target.checked; renderTrend(); });
+  $('fnBd').addEventListener('click', e => { const b = e.target.closest('#segFn button[data-v]'); if (b) { ui.fnDim = b.dataset.v; renderFunnelBreakdown(funnelModel()); } });
+
+  $('notes').addEventListener('click', e => { if (e.target.closest('[data-notes]')) { ui.notesOpen = !ui.notesOpen; renderNotes(); } });
+  document.addEventListener('click', e => { if (e.target.closest('[data-open-gaps]')) { const g = $('gapsCard'); if (g && !g.hidden) g.open = true; } });
+  $('fnSide').addEventListener('click', e => { if (e.target.closest('[data-go7]')) { state.custom = false; state.days = 7; resetView(); load(); } });
+  let deb = {};
+  function debounced(key, fn) { clearTimeout(deb[key]); deb[key] = setTimeout(fn, 120); }
+  onSeg('segDim', v => { ui.merch.dim = v; ui.merch.q = ''; renderMerch(); });
+  $('mQ').addEventListener('input', e => { ui.merch.q = e.target.value; debounced('m', renderMerchKeepFocus); });
+  $('mMin').addEventListener('input', e => { ui.merch.min = Math.max(0, +e.target.value || 0); ui.merch.minTouched = true; debounced('m', renderMerchKeepFocus); });
+  function renderMerchKeepFocus() { const a = document.activeElement, pos = a && a.selectionStart; renderMerch(); if (a && a.id) { $(a.id).focus(); try { if (pos != null && a.type !== 'number') $(a.id).setSelectionRange(pos, pos); } catch (e) {} } }
+  $('mCrumbs').addEventListener('click', e => {
+    const b = e.target.closest('[data-clear]'); if (!b) return;
+    const k = b.dataset.clear, s = ui.merch;
+    if (k === 'all') { s.brand = s.category = s.subcategory = s.type = null; }
+    else { s[k] = null; if (k === 'category') s.subcategory = null; }
+    renderMerch();
+  });
+  $('lpQ').addEventListener('input', e => { ui.lp.q = e.target.value; debounced('lp', () => { renderLanding(); $('lpQ').focus(); }); });
+  $('lpType').addEventListener('change', e => { ui.lp.type = e.target.value; renderLanding(); });
+  $('lpFlagged').addEventListener('change', e => { ui.lp.flagged = e.target.checked; renderLanding(); });
+  $('srQ').addEventListener('input', e => { ui.srQ = e.target.value; debounced('sr', () => { renderSearch(); $('srQ').focus(); }); });
+  $('oppGrid').addEventListener('click', e => {
+    const card = e.target.closest('.opp'); if (!card) return;
+    const seg = e.target.closest('[data-fall] button[data-v]');
+    if (seg) { ui.fall = seg.dataset.v; renderOpps(computeOpps()); return; }
+    const tg = e.target.closest('[data-toggle]');
+    if (tg) { ui.oppOpen[tg.dataset.toggle] = !ui.oppOpen[tg.dataset.toggle]; renderOpps(computeOpps()); return; }
+    const li = e.target.closest('li[data-i]');
+    if (li) { const c = ($('oppGrid')._cards || []).find(x => x.id === card.dataset.opp); if (c && c.shown && c.shown[+li.dataset.i]) goTo(c.shown[+li.dataset.i].go); }
+  });
+
+  state = readState();
+  if (state.custom) { $('cFrom').value = state.from; $('cTo').value = state.to; }
+  load();
+})();
+</script>
+</body>
+</html>
