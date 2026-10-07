@@ -14,31 +14,25 @@
 #                      agg_daily_events_by_session_channel, agg_daily_landing_page_*,
 #                      agg_daily_kpis_by_brand, agg_daily_kpis_by_gads_product,
 #                      agg_daily_on_site_search, agg_funnel_snapshots)
-#   babyshop_staging   int_ga4_item_rows — a VIEW, the source of the products,
-#                      categories and subcategories (GA4 item_id is unusable on
-#                      this property, so products are keyed on name + brand,
-#                      which only this view carries)
-#   babyshop_raw       that view resolves against the raw GA4 items table with
-#                      the CALLER's permissions
+#   babyshop_staging   stg_ga4__items_by_source_daily — a VIEW, the source of the
+#                      products, categories and subcategories (GA4 item_id is
+#                      unusable on this property, so products are keyed on
+#                      name + brand, which only the item rows carry)
+#   babyshop_raw       that view resolves against items_by_source_daily_native,
+#                      and nothing else, with the CALLER's permissions
 #
 # All three were granted to 871631085269-compute@ for meta-refresh on
-# 2026-09-04 (see setup-meta.sh), so in the normal case NOTHING new is needed.
+# 2026-09-04 (see setup-meta.sh), so NOTHING new is needed.
 #
-# ONE POSSIBLE GAP (not yet verified AS THE SERVICE ACCOUNT — the 2026-10-07
-# real-data runs were made as a kuvio user): int_ga4_item_rows also joins the
-# reporting FX-rates view (stg_reference__currency_rates_reporting). If that
-# view resolves against a dataset outside the three above, the products query
-# 403s. The job does not fail — products / categories / subcategories arrive
-# empty with a note, and the log carries "WARN ecom: products failed —
-# Forbidden: … Access Denied: Table <project>:<dataset>.<table>". Grant READER
-# on the dataset that message names, the same way setup-meta.sh does it (as a
-# kuvio owner):
-#
-#   export CLOUDSDK_CORE_ACCOUNT=patrik@kuvio.io
-#   ds=<dataset from the error>
-#   bq --project_id=claude-private-499703 show --format=prettyjson claude-private-499703:$ds \
-#     | python3 -c 'import json,sys; d=json.load(sys.stdin); d["access"].append({"role":"READER","userByEmail":"871631085269-compute@developer.gserviceaccount.com"}); json.dump({"access":d["access"]},open("/tmp/"+sys.argv[1]+".json","w"))' $ds \
-#     && bq --project_id=claude-private-499703 update --source /tmp/$ds.json claude-private-499703:$ds
+# RESOLVED 2026-10-07 — do NOT repoint the products query at
+# babyshop_staging.int_ga4_item_rows. That view also joins the reporting
+# FX-rates view, which resolves to claude-private-499703:bluebird_shared
+# .currency_rates_daily; the SA has no grant there (deliberately — it is a
+# dataset shared by every client) and the first production run 403'd on it,
+# leaving products empty. refresh_ecom.py now reads the plain staging view and
+# converts item revenue with the rate the warehouse itself applied, implied by
+# babyshop_marts.agg_daily_kpis_by_brand (item_revenue / item_revenue_native).
+# Every other source is a base TABLE in babyshop_marts.
 #
 # The user funnel is read from the MART (babyshop_marts.agg_funnel_snapshots, a
 # table), never from the staging view over babyshop_funnel, so that dataset

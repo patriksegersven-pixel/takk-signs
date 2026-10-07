@@ -51,7 +51,12 @@ SOURCES (claude-private-499703)
   babyshop_marts.agg_daily_landing_page_sessions      landing-page sessions
   babyshop_marts.agg_daily_landing_page_events        landing-page add_to_cart / purchase events
   babyshop_marts.agg_daily_kpis_by_brand              brands + item totals (fees excluded)
-  babyshop_staging.int_ga4_item_rows                  products, keyed (market, name, brand)
+  babyshop_staging.stg_ga4__items_by_source_daily     products, keyed (market, name, brand)
+      (a view over babyshop_raw.items_by_source_daily_native ONLY. NOT
+      int_ga4_item_rows: that view's FX join reaches bluebird_shared, which the
+      dashboard's service account cannot read — 403 in production 2026-10-07.
+      Item revenue is native currency there; it is converted with the rate the
+      warehouse itself applied, read back from agg_daily_kpis_by_brand.)
   babyshop_marts.agg_daily_kpis_by_gads_product       Shopping-feed product types → category
   babyshop_marts.agg_daily_on_site_search             search terms
   babyshop_marts.agg_funnel_snapshots                 USER-based closed funnel (not additive)
@@ -182,7 +187,7 @@ T_BRAND    = _t(MARTS_DATASET, "agg_daily_kpis_by_brand")
 T_GADS_PRODUCT = _t(MARTS_DATASET, "agg_daily_kpis_by_gads_product")
 T_SEARCH   = _t(MARTS_DATASET, "agg_daily_on_site_search")
 T_FUNNEL   = _t(MARTS_DATASET, "agg_funnel_snapshots")
-T_ITEMROWS = _t(STAGING_DATASET, "int_ga4_item_rows")
+T_ITEMS_SRC = _t(STAGING_DATASET, "stg_ga4__items_by_source_daily")
 
 # The market bucket, in SQL and in Python — must agree.
 _MKT_LIST = ", ".join(f"'{m}'" for m in MARKETS)
@@ -624,7 +629,7 @@ def q_funnel(site, stats, today=None):
 _P_C = _I_C + ["c_v_noid", "c_v_nocat"]
 
 
-def q_products(windows, site, only, stats):
+def q_products(windows, only, stats):
     """Products keyed (market, brand, name) with their Shopping-feed type, plus
     the category roll-up of ALL products — one scan of the item rows.
 
@@ -642,11 +647,15 @@ def q_products(windows, site, only, stats):
     hi = p["hi"]
     p.update({"only": only, "n": PRODUCTS_TOP, "thi": hi,
               "tlo": hi - datetime.timedelta(days=TYPE_MAP_DAYS)})
-    if site:
-        p["site"] = site
+    counts = [k for k in I_KEYS if k != "item_revenue"]
     sel = ",\n             ".join(
-        [f"sum(if(t.date between w.cf and w.ct, t.{k}, null)) as c_{k}" for k in I_KEYS]
-        + [f"sum(if(t.date between w.pf and w.pt, t.{k}, null)) as p_{k}" for k in I_KEYS])
+        [f"sum(if(t.date between w.cf and w.ct, t.{k}, null)) as c_{k}" for k in counts]
+        + [f"sum(if(t.date between w.pf and w.pt, t.{k}, null)) as p_{k}" for k in counts]
+        # Revenue is NULL — not understated — when any row in the period has
+        # native revenue but no usable rate.
+        + [f"if(logical_or(t.date between w.{a} and w.{b} and t.no_rate), null, "
+           f"sum(if(t.date between w.{a} and w.{b}, t.item_revenue, null))) as {pre}_item_revenue"
+           for pre, a, b in (("c", "cf", "ct"), ("p", "pf", "pt"))])
     cols = ", ".join(_P_C)
     sums = ", ".join(f"sum({c}) as {c}" for c in _P_C)
     return q(f"""
@@ -654,13 +663,13 @@ def q_products(windows, site, only, stats):
     gt as (
       select upper(g.market) as market,
              regexp_replace(lower(trim(g.product_title)), r'\\s+', ' ') as t,
-             any_value(g.product_type_l1) as l1, any_value(g.product_type_l2) as l2,
-             any_value(g.product_type_l3) as l3, sum(g.clicks) as c
+             g.product_type_l1 as l1, g.product_type_l2 as l2,
+             g.product_type_l3 as l3, sum(g.clicks) as c
       from {T_GADS_PRODUCT} g
       where g.date between @tlo and @thi and g.product_type_l1 is not null
         and g.product_title is not null
         and (@only in ('', 'all') or upper(g.market) = @only)
-      group by 1, 2),
+      group by 1, 2, 3, 4, 5),
     pre as (
       select market,
              array_to_string(array(select w from unnest(split(t, ' ')) w with offset o
@@ -669,21 +678,58 @@ def q_products(windows, site, only, stats):
       from gt, unnest(generate_array(2, least(array_length(split(t, ' ')), 14))) n),
     mp as (
       select market, p,
-             array_agg(struct(l1, l2, l3) order by c desc limit 1)[offset(0)] as ty
-      from pre group by 1, 2),
-    a as (
-      select w.days as days, upper(t.market) as market,
+             -- fully ordered, so the same data always yields the same category
+             array_agg(struct(l1, l2, l3) order by c desc, l1, l2, l3 limit 1)[offset(0)] as ty
+      from (select market, p, l1, l2, l3, sum(c) as c from pre group by 1, 2, 3, 4, 5)
+      group by 1, 2),
+    -- The rate the warehouse applied (native → reporting currency), implied by
+    -- the brand mart, which carries both amounts: per day, with the window
+    -- average as the fallback for a day without native revenue.
+    fx as (
+      select b.date as date, upper(b.market) as market,
+             coalesce(b.source_currency, '') as ccy,
+             safe_divide(sum(b.item_revenue), sum(b.item_revenue_native)) as rate
+      from {T_BRAND} b
+      where b.date between @lo and @hi and b.item_revenue_native != 0
+      group by 1, 2, 3),
+    fxa as (
+      select upper(b.market) as market, coalesce(b.source_currency, '') as ccy,
+             safe_divide(sum(b.item_revenue), sum(b.item_revenue_native)) as rate
+      from {T_BRAND} b
+      where b.date between @lo and @hi and b.item_revenue_native != 0
+      group by 1, 2),
+    base as (
+      select t.date as date, upper(t.market) as market,
+             coalesce(t.source_currency, '') as ccy,
              trim(coalesce(t.item_brand, '')) as brand,
              regexp_replace(trim(coalesce(t.item_name, '')), r'\\s+', ' ') as name,
-             {sel},
-             sum(if(t.date between w.cf and w.ct
-                    and coalesce(t.item_id, '') in ('', '(not set)'), t.items_viewed, null)) as c_v_noid,
-             sum(if(t.date between w.cf and w.ct
-                    and lower(coalesce(t.item_category, '')) in ('', '(not set)', 'not implemented'),
-                    t.items_viewed, null)) as c_v_nocat
-      from {T_ITEMROWS} t cross join win w
-      where t.date between @lo and @hi and t.date between w.pf and w.ct{_site_sql(site)}
+             sum(t.items_viewed) as items_viewed,
+             sum(t.items_added_to_cart) as items_added_to_cart,
+             sum(t.items_purchased) as items_purchased,
+             sum(t.item_revenue) as rev_native,
+             sum(if(coalesce(t.item_id, '') in ('', '(not set)'), t.items_viewed, null)) as v_noid,
+             sum(if(lower(coalesce(t.item_category, '')) in ('', '(not set)', 'not implemented'),
+                    t.items_viewed, null)) as v_nocat
+      from {T_ITEMS_SRC} t
+      where t.date between @lo and @hi
         and (@only in ('', 'all') or upper(t.market) = @only){_not_fee_sql(with_name=True)}
+      group by 1, 2, 3, 4, 5),
+    conv as (
+      select b.* except (rev_native),
+             case when b.rev_native is null then null
+                  when b.rev_native = 0 then 0
+                  else b.rev_native * coalesce(fx.rate, fxa.rate) end as item_revenue,
+             coalesce(b.rev_native, 0) != 0 and coalesce(fx.rate, fxa.rate) is null as no_rate
+      from base b
+      left join fx on fx.date = b.date and fx.market = b.market and fx.ccy = b.ccy
+      left join fxa on fxa.market = b.market and fxa.ccy = b.ccy),
+    a as (
+      select w.days as days, t.market as market, t.brand as brand, t.name as name,
+             {sel},
+             sum(if(t.date between w.cf and w.ct, t.v_noid, null)) as c_v_noid,
+             sum(if(t.date between w.cf and w.ct, t.v_nocat, null)) as c_v_nocat
+      from conv t cross join win w
+      where t.date between w.pf and w.ct
       group by 1, 2, 3, 4),
     j as (
       select a.*, mp.ty.l1 as l1, mp.ty.l2 as l2, mp.ty.l3 as l3
@@ -755,7 +801,7 @@ def fetch(windows: list[dict], only: str = "") -> dict:
         "brands":     (lambda: q_items_keyed(T_BRAND, "item_brand", windows, only, stats,
                                              top=BRANDS_MAX, min_views=BRANDS_MIN_VIEWS,
                                              market_top=BRAND_MARKET_TOP), "Brands"),
-        "products":   (lambda: q_products(windows, site, only, stats),
+        "products":   (lambda: q_products(windows, only, stats),
                        "Products and categories"),
         "search":     (lambda: q_search(windows, only, stats), "On-site search"),
         "funnel":     (lambda: q_funnel(site, stats), "The user funnel"),
