@@ -1,0 +1,327 @@
+{
+ "lens": "operations",
+ "run_date": "2026-10-07",
+ "candidates": [
+  {
+   "lever": "own-brand-size-depth",
+   "scope": {
+    "markets": [
+     "ALL"
+    ],
+    "category": "outerwear, rainwear, footwear, accessories",
+    "brand": "Kuling",
+    "segment": null
+   },
+   "title": "Buy deeper in the Kuling sizes that sell out in season",
+   "hypothesis": "Kuling (own brand, ~46% of revenue, GM1 ~67%, GP2 ~28%) runs out of individual sizes of its best autumn styles in the middle of the season. 355 SKUs flickered in and out of stock in 48 days: every returned unit that came back sold again within days, which shows live demand that the buy did not cover. Because it is the own brand, size curves and reorder quantities are fully in Babyshop's control.",
+   "action": "Hand buying the list of 355 Kuling SKUs (size x colour) with their lost-days and run-rates; raise next-season size-curve depth for the recurring ones (shell jackets, functional trainers, rain sets, shell/rain gloves, shell pants; sizes 86-116) and add an in-season top-up order for carry-over colours. Keep a weekly sold-out-with-demand list from fct_norce_stock_daily.",
+   "evidence": [
+    {
+     "claim": "20 Aug-6 Oct 2026 (48 daily stock snapshots, global stock): 355 Kuling SKUs with a reliable run-rate (>=7 in-stock days, >=3 units sold) had 773 stock-out episodes that began inside the window; run-rate x out-of-stock days (capped at 14 days per episode) = 1.78M SEK lost revenue, i.e. 8.9% of Kuling's 20.1M SEK revenue in the same 48 days, about 1.11M SEK per month (2.16M SEK uncapped).",
+     "sql": "WITH st AS ( SELECT snapshot_date d, part_no sku, SUM(sellable_units) su, ANY_VALUE(brand) brand, ANY_VALUE(category) category, MAX(cost_unit) cost_unit FROM babyshop_marts.fct_norce_stock_daily WHERE snapshot_date BETWEEN '2026-08-20' AND '2026-10-06' GROUP BY 1,2), sa AS ( SELECT date d, sku, SUM(units_net) u, SUM(revenue) rev FROM babyshop_marts.fct_product_sales_daily WHERE date BETWEEN '2026-08-20' AND '2026-10-06' AND platform='norce' GROUP BY 1,2), j0 AS ( SELECT st.*, IFNULL(sa.u,0) u, IFNULL(sa.rev,0) rev, LAG(su) OVER (PARTITION BY st.sku ORDER BY st.d) prev_su FROM st LEFT JOIN sa USING(d, sku)), j1 AS ( -- episode id: increments each time an OOS spell starts SELECT *, SUM(IF(su<=0 AND prev_su>0,1,0)) OVER (PARTITION BY sku ORDER BY d) ep, SUM(IF(su>0 AND prev_su<=0,1,0)) OVER (PARTITION BY sku ORDER BY d) rs FROM j0), ep AS ( -- one row per OOS episode that started inside the window (so demand before it was observed) SELECT sku, ep, MIN(d) oos_start, COUNT(*) oos_days, MAX(d) oos_end FROM j1 WHERE su<=0 AND ep>=1 GROUP BY 1,2), ep2 AS ( SELECT ep.*, r.su restock_qty FROM ep LEFT JOIN j1 r ON r.sku=ep.sku AND r.d=DATE_ADD(ep.oos_end, INTERVAL 1 DAY) AND r.su>0), sk AS ( SELECT sku, ANY_VALUE(brand) brand, ANY_VALUE(category) category, MAX(cost_unit) cost_unit, COUNTIF(su>0) days_in, SUM(IF(su>0,u,0)) u_in, SUM(IF(su>0,rev,0)) rev_in, SUM(u) u_all, SUM(rev) rev_all FROM j1 GROUP BY 1), x AS ( SELECT ep2.*, sk.brand, sk.category, sk.cost_unit, sk.days_in, sk.u_in, sk.rev_in, sk.rev_all, SAFE_DIVIDE(u_in,days_in) rate, SAFE_DIVIDE(rev_in,u_in) asp, CASE WHEN restock_qty>=3 THEN 'restocked_3plus' WHEN restock_qty>0 THEN 'restocked_1_2' ELSE 'open_at_end' END kind FROM ep2 JOIN sk USING(sku) WHERE sk.days_in>=7 AND sk.u_in>=3) SELECT kind, IF(oos_start<'2026-09-13','H1','H2') half, COUNT(*) episodes, COUNT(DISTINCT sku) skus, ROUND(AVG(oos_days),1) avg_len, ROUND(SUM(rate*oos_days*asp)) lost_rev, ROUND(SUM(rate*LEAST(oos_days,14)*asp)) lost_rev_cap14 FROM x WHERE brand='Kuling' GROUP BY 1,2 ORDER BY 1,2",
+     "n": 773
+    },
+    {
+     "claim": "210 of the 355 SKUs had two or more stock-out episodes in the window and carry 1.56M of the 1.78M SEK (88%): the same items go out repeatedly, typically refilled by 1-2 returned units that sell again within about 5-8 days.",
+     "sql": "WITH st AS ( SELECT snapshot_date d, part_no sku, SUM(sellable_units) su, ANY_VALUE(brand) brand, ANY_VALUE(category) category, MAX(cost_unit) cost_unit FROM babyshop_marts.fct_norce_stock_daily WHERE snapshot_date BETWEEN '2026-08-20' AND '2026-10-06' GROUP BY 1,2), sa AS ( SELECT date d, sku, SUM(units_net) u, SUM(revenue) rev FROM babyshop_marts.fct_product_sales_daily WHERE date BETWEEN '2026-08-20' AND '2026-10-06' AND platform='norce' GROUP BY 1,2), j0 AS ( SELECT st.*, IFNULL(sa.u,0) u, IFNULL(sa.rev,0) rev, LAG(su) OVER (PARTITION BY st.sku ORDER BY st.d) prev_su FROM st LEFT JOIN sa USING(d, sku)), j1 AS ( -- episode id: increments each time an OOS spell starts SELECT *, SUM(IF(su<=0 AND prev_su>0,1,0)) OVER (PARTITION BY sku ORDER BY d) ep, SUM(IF(su>0 AND prev_su<=0,1,0)) OVER (PARTITION BY sku ORDER BY d) rs FROM j0), ep AS ( -- one row per OOS episode that started inside the window (so demand before it was observed) SELECT sku, ep, MIN(d) oos_start, COUNT(*) oos_days, MAX(d) oos_end FROM j1 WHERE su<=0 AND ep>=1 GROUP BY 1,2), ep2 AS ( SELECT ep.*, r.su restock_qty FROM ep LEFT JOIN j1 r ON r.sku=ep.sku AND r.d=DATE_ADD(ep.oos_end, INTERVAL 1 DAY) AND r.su>0), sk AS ( SELECT sku, ANY_VALUE(brand) brand, ANY_VALUE(category) category, MAX(cost_unit) cost_unit, COUNTIF(su>0) days_in, SUM(IF(su>0,u,0)) u_in, SUM(IF(su>0,rev,0)) rev_in, SUM(u) u_all, SUM(rev) rev_all FROM j1 GROUP BY 1), x AS ( SELECT ep2.*, sk.brand, sk.category, sk.cost_unit, sk.days_in, sk.u_in, sk.rev_in, sk.rev_all, SAFE_DIVIDE(u_in,days_in) rate, SAFE_DIVIDE(rev_in,u_in) asp, CASE WHEN restock_qty>=3 THEN 'restocked_3plus' WHEN restock_qty>0 THEN 'restocked_1_2' ELSE 'open_at_end' END kind FROM ep2 JOIN sk USING(sku) WHERE sk.days_in>=7 AND sk.u_in>=3) SELECT COUNT(DISTINCT sku) kuling_oos_skus, COUNT(DISTINCT IF(n>=2,sku,NULL)) skus_2plus_episodes, ROUND(SUM(IF(n>=2,lost,0))) lost_2plus, ROUND(SUM(lost)) lost_all FROM (SELECT sku, COUNT(*) n, SUM(rate*LEAST(oos_days,14)*asp) lost FROM x WHERE brand='Kuling' GROUP BY 1)",
+     "n": 355
+    },
+    {
+     "claim": "Loss is concentrated in core autumn categories: Shell Jackets 282k, Functional Trainers 213k, Rain Sets w/o Lining 150k, Shell and Softshell Gloves 144k, Shell Pants 141k, Rain sets 116k, Rain Gloves 111k, Beanies 109k SEK (48 days, capped).",
+     "sql": "WITH st AS ( SELECT snapshot_date d, part_no sku, SUM(sellable_units) su, ANY_VALUE(brand) brand, ANY_VALUE(category) category, MAX(cost_unit) cost_unit FROM babyshop_marts.fct_norce_stock_daily WHERE snapshot_date BETWEEN '2026-08-20' AND '2026-10-06' GROUP BY 1,2), sa AS ( SELECT date d, sku, SUM(units_net) u, SUM(revenue) rev FROM babyshop_marts.fct_product_sales_daily WHERE date BETWEEN '2026-08-20' AND '2026-10-06' AND platform='norce' GROUP BY 1,2), j0 AS ( SELECT st.*, IFNULL(sa.u,0) u, IFNULL(sa.rev,0) rev, LAG(su) OVER (PARTITION BY st.sku ORDER BY st.d) prev_su FROM st LEFT JOIN sa USING(d, sku)), j1 AS ( -- episode id: increments each time an OOS spell starts SELECT *, SUM(IF(su<=0 AND prev_su>0,1,0)) OVER (PARTITION BY sku ORDER BY d) ep, SUM(IF(su>0 AND prev_su<=0,1,0)) OVER (PARTITION BY sku ORDER BY d) rs FROM j0), ep AS ( -- one row per OOS episode that started inside the window (so demand before it was observed) SELECT sku, ep, MIN(d) oos_start, COUNT(*) oos_days, MAX(d) oos_end FROM j1 WHERE su<=0 AND ep>=1 GROUP BY 1,2), ep2 AS ( SELECT ep.*, r.su restock_qty FROM ep LEFT JOIN j1 r ON r.sku=ep.sku AND r.d=DATE_ADD(ep.oos_end, INTERVAL 1 DAY) AND r.su>0), sk AS ( SELECT sku, ANY_VALUE(brand) brand, ANY_VALUE(category) category, MAX(cost_unit) cost_unit, COUNTIF(su>0) days_in, SUM(IF(su>0,u,0)) u_in, SUM(IF(su>0,rev,0)) rev_in, SUM(u) u_all, SUM(rev) rev_all FROM j1 GROUP BY 1), x AS ( SELECT ep2.*, sk.brand, sk.category, sk.cost_unit, sk.days_in, sk.u_in, sk.rev_in, sk.rev_all, SAFE_DIVIDE(u_in,days_in) rate, SAFE_DIVIDE(rev_in,u_in) asp, CASE WHEN restock_qty>=3 THEN 'restocked_3plus' WHEN restock_qty>0 THEN 'restocked_1_2' ELSE 'open_at_end' END kind FROM ep2 JOIN sk USING(sku) WHERE sk.days_in>=7 AND sk.u_in>=3) SELECT category, COUNT(*) episodes, COUNT(DISTINCT sku) skus, ROUND(SUM(rate*LEAST(oos_days,14)*asp)) lost_rev_cap14, ROUND(SUM(IF(oos_start<'2026-09-13',rate*LEAST(oos_days,14)*asp,0))) h1, ROUND(SUM(IF(oos_start>='2026-09-13',rate*LEAST(oos_days,14)*asp,0))) h2 FROM x WHERE brand='Kuling' GROUP BY 1 ORDER BY lost_rev_cap14 DESC LIMIT 15",
+     "n": 773
+    },
+    {
+     "claim": "Kuling GP2 margin is 27.8% in Q3 2026 (23.4% in Q2) on 12.4M SEK revenue per month; GM1 66.7%. FI: 1.03M SEK per month at 19.8% GP2.",
+     "sql": "SELECT IF(date<'2026-07-01','Q2','Q3') q, market, ROUND(SUM(revenue)/3) rev_m, ROUND(SAFE_DIVIDE(SUM(gp2),SUM(revenue)),3) gm2, ROUND(SAFE_DIVIDE(SUM(gp1),SUM(revenue)),3) gm1 FROM babyshop_marts.agg_daily_kuvio_products WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND brand='Kuling' GROUP BY ROLLUP(1,2)",
+     "n": 122342
+    },
+    {
+     "claim": "The marts' own estimate could not be used: agg_product_velocity / agg_stockout_daily have market='default', revenue_28d=0 and lost_revenue_est NULL on every row, and agg_norce_inventory_daily.oos_lost_revenue_monthly = 12.3M SEK is 46% of the 26.7M monthly revenue, which is implausible. The figures above are re-derived from fct_norce_stock_daily x fct_product_sales_daily.",
+     "sql": "SELECT snapshot_date, COUNT(*) n, COUNT(DISTINCT market) mk, SUM(lost_revenue_est) lost, SUM(revenue_28d) rev28 FROM babyshop_marts.agg_product_velocity GROUP BY 1; SELECT snapshot_date, oos_lost_revenue_monthly FROM babyshop_marts.agg_norce_inventory_daily ORDER BY snapshot_date DESC LIMIT 6",
+     "n": 139843
+    }
+   ],
+   "replication": "Stock history is only 48 days (from 2026-08-20), so replication is within the window, not a second season: episodes starting 20 Aug-12 Sep lost 855k SEK and episodes starting 13 Sep-6 Oct lost 929k SEK (capped); all top-15 categories show losses in both halves; 210 SKUs recur. Stock is global, so there is no second-market replication.",
+   "sizing": {
+    "driver": "recovered",
+    "baseline_month_sek": 310000,
+    "baseline_note": "Lost revenue 1,783,247 SEK over 48 days (capped at 14 days per episode) x 30/48 = 1,114,529 SEK per month, x Kuling Q3 GP2 margin 27.8% (agg_daily_kuvio_products) = ~310k SEK GP2 per month. Measured in the autumn launch peak; outside peak the monthly figure will be lower.",
+    "fi_baseline_month_sek": 18000,
+    "uplift_low": 0.05,
+    "uplift_base": 0.15,
+    "uplift_high": 0.3,
+    "uplift_rationale": "Not all of it is recoverable: (a) run-rates of SKUs that sell out are biased upward; (b) part of the demand already substitutes to another colour or adjacent size of the same Kuling style; (c) own-brand lead times mean most of the fix lands next season, and deeper buys carry markdown risk. A quarter is what I would bet on; 40% assumes an in-season top-up on carry-over colours.",
+    "flow_through": 1.0,
+    "evidence_grade": "cross_market"
+   },
+   "effort": "M",
+   "owner": "buying",
+   "rollout": "ship_direct",
+   "pilot": null,
+   "risks": "Only one 48-day peak-season window; run-rate x days overstates lost demand when demand was a short spike; substitution within Kuling is not measured (GA4 item ids do not join to Norce part numbers, so views on sold-out sizes could not be used). The Kuling GP2 margin comes from agg_daily_kuvio_products, whose total GP2 (4.29M/month) is lower than the profit ladder's (6.37M/month). Deeper buys that miss turn into the over-stock already visible in Kuling winter lines.",
+   "curator_note": "Curator lowered the recovered share from 10/25/40% to 5/15/30%. The lost-sales baseline comes from 48 days of stock history at the autumn-launch peak, so it overstates a normal month, and most of the fix lands next season. The warehouse's own lost-revenue marts were unusable and were not used."
+  },
+  {
+   "lever": "footwear-size-guidance",
+   "scope": {
+    "markets": [
+     "ALL"
+    ],
+    "category": "footwear",
+    "brand": null,
+    "segment": null
+   },
+   "title": "Cut footwear returns with fit guidance on the worst styles",
+   "hypothesis": "Shoes are returned 2.5x as often as everything else, and the gap is driven by fit: the smallest sizes and a handful of high-volume Kuling styles return at 23-27%, and a third of returned pairs come from orders where the customer bought two sizes of the same shoe to try. Telling the customer before purchase how a style fits (inner length in mm, 'runs small, size up') removes part of both the wrong-size and the two-size orders.",
+   "action": "Add measured inner length and a fit note to the product pages of the ten highest-return footwear styles (start with Kuling functional trainers PM-72808, KUL-20195197 and sandals KUL-20195213/-212) and to all first-walker sizes EU 20-22; show a 'most customers keep size X' hint when two sizes of one style are in the basket. Track return rate per style monthly from bc_item_ledger_entries.",
+   "evidence": [
+    {
+     "claim": "Cohort return rate (orders joined to Business Central return receipts, 99.7% of receipts match a Norce order): footwear 14.5% of units for Jun-Aug 2026 orders (n=35,950 units) vs 5.9% for non-footwear (n=200,016).",
+     "sql": "WITH v AS (SELECT code part_no, ANY_VALUE(itemNumber) itemNumber FROM babyshop_raw.bc_item_variants WHERE itemNumber IS NOT NULL AND itemNumber!='' GROUP BY 1), n AS (SELECT part_no, ANY_VALUE(brand) brand, ANY_VALUE(category) category FROM babyshop_marts.fct_norce_stock_daily WHERE snapshot_date='2026-10-06' GROUP BY 1), o AS (SELECT DISTINCT SAFE_CAST(order_no AS INT64) order_no, order_link, market, shop, date FROM babyshop_staging.stg_norce__orders WHERE date BETWEEN '2026-03-01' AND '2026-08-31' AND is_revenue_status), oi AS ( SELECT o.order_no, o.market, o.date, v.itemNumber, ANY_VALUE(n.brand) brand, ANY_VALUE(n.category) category, ANY_VALUE(i.product_name) size_name, SUM(i.quantity) units, COUNT(DISTINCT i.part_no) n_sizes FROM babyshop_staging.stg_norce__order_items i JOIN o ON o.order_link=i.order_link LEFT JOIN v ON v.part_no=i.part_no LEFT JOIN n ON n.part_no=i.part_no WHERE i.date BETWEEN '2026-03-01' AND '2026-08-31' AND NOT i.is_shipping AND i.quantity>0 GROUP BY 1,2,3,4), rr AS (SELECT number, SAFE_CAST(SPLIT(orderNumber,'_')[OFFSET(0)] AS INT64) order_no FROM babyshop_raw.bc_return_receipts), rt AS ( SELECT rr.order_no, e.itemNumber, SUM(e.quantity) ret_units FROM babyshop_raw.bc_item_ledger_entries e JOIN rr ON rr.number=e.documentNumber WHERE e.documentType LIKE '%Return_x0020_Receipt' AND e.itemNumber!='RETURNFEE' GROUP BY 1,2), c AS (SELECT oi.*, IFNULL(rt.ret_units,0) ret_units FROM oi LEFT JOIN rt USING(order_no, itemNumber)) SELECT REGEXP_CONTAINS(category, r'(?i)trainer|boot|sandal|shoe|sneaker|slipper') footwear, IF(date<'2026-06-01','Mar-May','Jun-Aug') p, SUM(units) units, SUM(LEAST(ret_units,units)) ret, ROUND(SAFE_DIVIDE(SUM(LEAST(ret_units,units)),SUM(units)),4) rr, COUNTIF(n_sizes>1) multi_size_lines, SUM(IF(n_sizes>1,LEAST(ret_units,units),0)) ret_multi FROM c GROUP BY 1,2 ORDER BY 1,2",
+     "n": 235966
+    },
+    {
+     "claim": "Functional Trainers return at 18.4% (Jun-Aug) / 21.1% (Mar-May) and Strappy Sandals at 17.8% / 20.6%; the largest single style, Kuling PM-72808 (3,468 units), returns at 26.0% (23.8% / 27.4%), against 17-18% for sibling Kuling styles in the same category.",
+     "sql": "WITH v AS (SELECT code part_no, ANY_VALUE(itemNumber) itemNumber FROM babyshop_raw.bc_item_variants WHERE itemNumber IS NOT NULL AND itemNumber!='' GROUP BY 1), n AS (SELECT part_no, ANY_VALUE(brand) brand, ANY_VALUE(category) category FROM babyshop_marts.fct_norce_stock_daily WHERE snapshot_date='2026-10-06' GROUP BY 1), o AS (SELECT DISTINCT SAFE_CAST(order_no AS INT64) order_no, order_link, market, shop, date FROM babyshop_staging.stg_norce__orders WHERE date BETWEEN '2026-03-01' AND '2026-08-31' AND is_revenue_status), oi AS ( SELECT o.order_no, o.market, o.date, v.itemNumber, ANY_VALUE(n.brand) brand, ANY_VALUE(n.category) category, ANY_VALUE(i.product_name) size_name, SUM(i.quantity) units, COUNT(DISTINCT i.part_no) n_sizes FROM babyshop_staging.stg_norce__order_items i JOIN o ON o.order_link=i.order_link LEFT JOIN v ON v.part_no=i.part_no LEFT JOIN n ON n.part_no=i.part_no WHERE i.date BETWEEN '2026-03-01' AND '2026-08-31' AND NOT i.is_shipping AND i.quantity>0 GROUP BY 1,2,3,4), rr AS (SELECT number, SAFE_CAST(SPLIT(orderNumber,'_')[OFFSET(0)] AS INT64) order_no FROM babyshop_raw.bc_return_receipts), rt AS ( SELECT rr.order_no, e.itemNumber, SUM(e.quantity) ret_units FROM babyshop_raw.bc_item_ledger_entries e JOIN rr ON rr.number=e.documentNumber WHERE e.documentType LIKE '%Return_x0020_Receipt' AND e.itemNumber!='RETURNFEE' GROUP BY 1,2), c AS (SELECT oi.*, IFNULL(rt.ret_units,0) ret_units FROM oi LEFT JOIN rt USING(order_no, itemNumber)) SELECT itemNumber, ANY_VALUE(category) cat, ANY_VALUE(brand) brand, SUM(units) units, SUM(LEAST(ret_units,units)) ret, ROUND(SAFE_DIVIDE(SUM(LEAST(ret_units,units)),SUM(units)),3) rr, ROUND(SAFE_DIVIDE(SUM(IF(date>='2026-06-01',LEAST(ret_units,units),0)),SUM(IF(date>='2026-06-01',units,0))),3) rr_ja, ROUND(SAFE_DIVIDE(SUM(IF(date<'2026-06-01',LEAST(ret_units,units),0)),SUM(IF(date<'2026-06-01',units,0))),3) rr_mm FROM c WHERE REGEXP_CONTAINS(category, r'(?i)trainer|boot|sandal|shoe|sneaker|slipper') GROUP BY 1 HAVING units>=400 ORDER BY rr DESC LIMIT 15",
+     "n": 18691
+    },
+    {
+     "claim": "Within Kuling trainers and sandals the smallest sizes return most: EU 20 27.6% / 35.2% and EU 22 21.4% / 26.6% (Jun-Aug / Mar-May) vs EU 29 10.4% / 17.9%.",
+     "sql": "WITH v AS (SELECT code part_no, ANY_VALUE(itemNumber) itemNumber FROM babyshop_raw.bc_item_variants WHERE itemNumber IS NOT NULL AND itemNumber!='' GROUP BY 1), n AS (SELECT part_no, ANY_VALUE(brand) brand, ANY_VALUE(category) category FROM babyshop_marts.fct_norce_stock_daily WHERE snapshot_date='2026-10-06' GROUP BY 1), o AS (SELECT DISTINCT SAFE_CAST(order_no AS INT64) order_no, order_link, market, shop, date FROM babyshop_staging.stg_norce__orders WHERE date BETWEEN '2026-03-01' AND '2026-08-31' AND is_revenue_status), oi AS ( SELECT o.order_no, o.market, o.date, v.itemNumber, ANY_VALUE(n.brand) brand, ANY_VALUE(n.category) category, ANY_VALUE(i.product_name) size_name, SUM(i.quantity) units, COUNT(DISTINCT i.part_no) n_sizes FROM babyshop_staging.stg_norce__order_items i JOIN o ON o.order_link=i.order_link LEFT JOIN v ON v.part_no=i.part_no LEFT JOIN n ON n.part_no=i.part_no WHERE i.date BETWEEN '2026-03-01' AND '2026-08-31' AND NOT i.is_shipping AND i.quantity>0 GROUP BY 1,2,3,4), rr AS (SELECT number, SAFE_CAST(SPLIT(orderNumber,'_')[OFFSET(0)] AS INT64) order_no FROM babyshop_raw.bc_return_receipts), rt AS ( SELECT rr.order_no, e.itemNumber, SUM(e.quantity) ret_units FROM babyshop_raw.bc_item_ledger_entries e JOIN rr ON rr.number=e.documentNumber WHERE e.documentType LIKE '%Return_x0020_Receipt' AND e.itemNumber!='RETURNFEE' GROUP BY 1,2), c AS (SELECT oi.*, IFNULL(rt.ret_units,0) ret_units FROM oi LEFT JOIN rt USING(order_no, itemNumber)) SELECT REGEXP_EXTRACT(size_name, r'(\\d{2}) EU') eu_size, SUM(units) units, SUM(LEAST(ret_units,units)) ret, ROUND(SAFE_DIVIDE(SUM(IF(date>='2026-06-01',LEAST(ret_units,units),0)),SUM(IF(date>='2026-06-01',units,0))),3) rr_jun_aug, ROUND(SAFE_DIVIDE(SUM(IF(date<'2026-06-01',LEAST(ret_units,units),0)),SUM(IF(date<'2026-06-01',units,0))),3) rr_mar_may FROM c WHERE brand='Kuling' AND category IN ('Functional Trainers','Strappy Sandals') GROUP BY 1 HAVING units>=300 ORDER BY 1",
+     "n": 21006
+    },
+    {
+     "claim": "3,752 of the 11,737 returned footwear units (32%) in Mar-Aug orders come from order lines where two or more sizes of the same style were bought together (5,032 such lines).",
+     "sql": "WITH v AS (SELECT code part_no, ANY_VALUE(itemNumber) itemNumber FROM babyshop_raw.bc_item_variants WHERE itemNumber IS NOT NULL AND itemNumber!='' GROUP BY 1), n AS (SELECT part_no, ANY_VALUE(brand) brand, ANY_VALUE(category) category FROM babyshop_marts.fct_norce_stock_daily WHERE snapshot_date='2026-10-06' GROUP BY 1), o AS (SELECT DISTINCT SAFE_CAST(order_no AS INT64) order_no, order_link, market, shop, date FROM babyshop_staging.stg_norce__orders WHERE date BETWEEN '2026-03-01' AND '2026-08-31' AND is_revenue_status), oi AS ( SELECT o.order_no, o.market, o.date, v.itemNumber, ANY_VALUE(n.brand) brand, ANY_VALUE(n.category) category, ANY_VALUE(i.product_name) size_name, SUM(i.quantity) units, COUNT(DISTINCT i.part_no) n_sizes FROM babyshop_staging.stg_norce__order_items i JOIN o ON o.order_link=i.order_link LEFT JOIN v ON v.part_no=i.part_no LEFT JOIN n ON n.part_no=i.part_no WHERE i.date BETWEEN '2026-03-01' AND '2026-08-31' AND NOT i.is_shipping AND i.quantity>0 GROUP BY 1,2,3,4), rr AS (SELECT number, SAFE_CAST(SPLIT(orderNumber,'_')[OFFSET(0)] AS INT64) order_no FROM babyshop_raw.bc_return_receipts), rt AS ( SELECT rr.order_no, e.itemNumber, SUM(e.quantity) ret_units FROM babyshop_raw.bc_item_ledger_entries e JOIN rr ON rr.number=e.documentNumber WHERE e.documentType LIKE '%Return_x0020_Receipt' AND e.itemNumber!='RETURNFEE' GROUP BY 1,2), c AS (SELECT oi.*, IFNULL(rt.ret_units,0) ret_units FROM oi LEFT JOIN rt USING(order_no, itemNumber)) SELECT REGEXP_CONTAINS(category, r'(?i)trainer|boot|sandal|shoe|sneaker|slipper') footwear, SUM(units) units, SUM(LEAST(ret_units,units)) ret, COUNTIF(n_sizes>1) multi_size_lines, SUM(IF(n_sizes>1,LEAST(ret_units,units),0)) ret_multi FROM c GROUP BY 1",
+     "n": 11737
+    },
+    {
+     "claim": "Returned footwear carried 340k SEK of GP1 per month in Q3 2026 (738k returned sales less 397k cost, 5,951 units in the quarter) and 358k per month in Q2.",
+     "sql": "WITH v AS (SELECT itemNumber, ANY_VALUE(code) code FROM babyshop_raw.bc_item_variants WHERE itemNumber IS NOT NULL AND itemNumber!='' GROUP BY 1), n AS (SELECT part_no, ANY_VALUE(brand) brand, ANY_VALUE(category) category FROM babyshop_marts.fct_norce_stock_daily WHERE snapshot_date='2026-10-06' GROUP BY 1), m AS (SELECT v.itemNumber, n.brand, n.category FROM v JOIN n ON n.part_no=v.code) SELECT IF(DATE(postingDate)<'2026-07-01','Q2','Q3') q, REGEXP_CONTAINS(m.category, r'(?i)trainer|boot|sandal|shoe|sneaker|slipper') footwear, SUM(quantity) ret_units, ROUND(-SUM(salesAmountActual)/3) ret_sales_m, ROUND(SUM(costAmountActual)/3) ret_cost_m, ROUND((-SUM(salesAmountActual)-SUM(costAmountActual))/3) gp1_reversed_m, COUNT(DISTINCT documentNumber) receipts FROM babyshop_raw.bc_item_ledger_entries e JOIN m USING(itemNumber) WHERE documentType LIKE '%Return_x0020_Receipt' AND DATE(postingDate) BETWEEN '2026-04-01' AND '2026-09-30' GROUP BY 1,2 ORDER BY 1,2",
+     "n": 11725
+    },
+    {
+     "claim": "Footwear return rate by market (Mar-Aug orders): SE 18.7% (n=49,083 units), DK 13.3%, NO 11.9%, FI 11.2% (n=4,169).",
+     "sql": "WITH v AS (SELECT code part_no, ANY_VALUE(itemNumber) itemNumber FROM babyshop_raw.bc_item_variants WHERE itemNumber IS NOT NULL AND itemNumber!='' GROUP BY 1), n AS (SELECT part_no, ANY_VALUE(brand) brand, ANY_VALUE(category) category FROM babyshop_marts.fct_norce_stock_daily WHERE snapshot_date='2026-10-06' GROUP BY 1), o AS (SELECT DISTINCT SAFE_CAST(order_no AS INT64) order_no, order_link, market, shop, date FROM babyshop_staging.stg_norce__orders WHERE date BETWEEN '2026-03-01' AND '2026-08-31' AND is_revenue_status), oi AS ( SELECT o.order_no, o.market, o.date, v.itemNumber, ANY_VALUE(n.brand) brand, ANY_VALUE(n.category) category, ANY_VALUE(i.product_name) size_name, SUM(i.quantity) units, COUNT(DISTINCT i.part_no) n_sizes FROM babyshop_staging.stg_norce__order_items i JOIN o ON o.order_link=i.order_link LEFT JOIN v ON v.part_no=i.part_no LEFT JOIN n ON n.part_no=i.part_no WHERE i.date BETWEEN '2026-03-01' AND '2026-08-31' AND NOT i.is_shipping AND i.quantity>0 GROUP BY 1,2,3,4), rr AS (SELECT number, SAFE_CAST(SPLIT(orderNumber,'_')[OFFSET(0)] AS INT64) order_no FROM babyshop_raw.bc_return_receipts), rt AS ( SELECT rr.order_no, e.itemNumber, SUM(e.quantity) ret_units FROM babyshop_raw.bc_item_ledger_entries e JOIN rr ON rr.number=e.documentNumber WHERE e.documentType LIKE '%Return_x0020_Receipt' AND e.itemNumber!='RETURNFEE' GROUP BY 1,2), c AS (SELECT oi.*, IFNULL(rt.ret_units,0) ret_units FROM oi LEFT JOIN rt USING(order_no, itemNumber)) SELECT market, SUM(units) u, SUM(LEAST(ret_units,units)) ret, ROUND(SAFE_DIVIDE(SUM(LEAST(ret_units,units)),SUM(units)),3) rr FROM c WHERE REGEXP_CONTAINS(category, r'(?i)trainer|boot|sandal|shoe|sneaker|slipper') GROUP BY 1 ORDER BY ret DESC",
+     "n": 72844
+    }
+   ],
+   "replication": "Two order cohorts: footwear 17.7% vs 6.7% non-footwear for Mar-May 2026 orders and 14.5% vs 5.9% for Jun-Aug; the worst styles and the small-size gradient hold in both cohorts; footwear is the highest-return group in all four Nordic markets.",
+   "sizing": {
+    "driver": "cost",
+    "baseline_month_sek": 340000,
+    "baseline_note": "GP1 reversed on returned footwear units, Q3 2026 monthly average from bc_item_ledger_entries (returned sales 737,677 less cost 397,396 = 340,280 SEK per month; Q2 358,415). Return freight, handling and wasted outbound shipping are NOT in this baseline because no per-return logistics cost exists in the warehouse, so it is a floor on what returns cost.",
+    "fi_baseline_month_sek": 13600,
+    "uplift_low": 0.03,
+    "uplift_base": 0.07,
+    "uplift_high": 0.12,
+    "uplift_rationale": "Uplift = share of the reversed footwear GP1 that is retained. Bringing the four worst Kuling styles (8,800 units, 22-26%) down to their siblings' 17-18% removes about 5% of footwear returns; size notes on EU 20-22 add a few points. Only avoided wrong-size returns keep a sale; an avoided second pair in a two-size order saves logistics but no GP1, so I count roughly half of avoided returns.",
+    "flow_through": 1.0,
+    "evidence_grade": "cross_market"
+   },
+   "effort": "M",
+   "owner": "merchandising",
+   "rollout": "ship_direct",
+   "pilot": null,
+   "risks": "The effect of fit notes on return rate is inferred from the gap between styles, not from a test. High return rates on small sizes may reflect growing feet rather than poor guidance. Better guidance could reduce two-size orders and with them some first-order revenue. Finland has only ~80 returned footwear units a month, too few to pilot there. The profit ladder's cost_returns (17.4% of SE revenue) is far above the returned sales value in Business Central (about 10% of SE revenue), so the ladder cannot be used to cross-check this baseline.",
+   "curator_note": "The baseline is gross profit reversed on returned footwear only, without return freight or handling, so it is a floor. Return reasons were not analysed."
+  },
+  {
+   "lever": "free-shipping-campaign-floor",
+   "scope": {
+    "markets": [
+     "SE",
+     "NO",
+     "FI",
+     "DK"
+    ],
+    "category": null,
+    "brand": null,
+    "segment": "babyshop orders below ~300 SEK on free-shipping campaign days"
+   },
+   "title": "Put a minimum basket on free-shipping campaigns",
+   "hypothesis": "Babyshop ran blanket free shipping on 60 of 92 days in SE in Q3 2026 (about 40 of 92 in NO, FI and DK). On those days the smallest baskets ship free although their margin does not cover pick, pack and freight, and the normal threshold's pull on basket size disappears: average basket is 8-17% lower than on days when the threshold applies. A low floor (for example 299 kr / 29 EUR) keeps the offer for ~85% of orders and makes the rest pay the standard fee or add an item.",
+   "action": "Run the next free-shipping campaign with a minimum basket of about 299 SEK / 349 NOK / 29 EUR / 249 DKK instead of no minimum, configured in Ingrid/Norce. Report campaign-day orders, basket and freight income per order against the previous campaign.",
+   "evidence": [
+    {
+     "claim": "Free-shipping days (under 12% of orders paying freight) vs threshold days (over 45% paying), babyshop shop: SE Q3 60 vs 30 days, NO 40 vs 50, FI 40 vs 48, DK 39 vs 49; in Q2 21-23 free days per market. Freight income per order falls from 26.3 SEK to 1.8 SEK in SE, 44.9 to 3.1 NOK in NO, 4.16 to 0.07 EUR in FI, 22.8 to 0.2 DKK in DK (Q3).",
+     "sql": "WITH o AS ( SELECT order_link, ANY_VALUE(market) market, ANY_VALUE(shop) shop, ANY_VALUE(currency) currency, MAX(freight_cost) freight, MIN(date) date FROM babyshop_staging.stg_norce__orders WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND is_revenue_status GROUP BY 1), i AS ( SELECT order_link, SUM(IF(is_shipping,0,line_amount)) goods_ex, SUM(IF(is_shipping,0,line_amount*(1+vat_rate/100))) goods_inc, SUM(IF(is_shipping,line_amount*(1+vat_rate/100),0)) ship_inc, SUM(IF(is_shipping,0,quantity)) units FROM babyshop_staging.stg_norce__order_items WHERE date BETWEEN '2026-04-01' AND '2026-09-30' GROUP BY 1), x AS (SELECT o.*, i.goods_ex, i.goods_inc, i.ship_inc, i.units, IF(o.date<'2026-07-01','Q2','Q3') q FROM o JOIN i USING(order_link) WHERE i.goods_inc>0) , dd AS (SELECT market, date, COUNTIF(freight>0)/COUNT(*) ps FROM x WHERE shop='babyshop' GROUP BY 1,2), tt AS (SELECT x.*, IF(dd.ps<0.12,'free','normal') daytype, CASE market WHEN 'FI' THEN 129 WHEN 'DK' THEN 900 WHEN 'NO' THEN 1300 ELSE 1000 END thr, CASE market WHEN 'FI' THEN 11.2 WHEN 'DK' THEN 1.45 ELSE 1.0 END fx FROM x JOIN dd USING(market,date) WHERE shop='babyshop' AND market IN ('SE','NO','FI','DK') AND (dd.ps<0.12 OR dd.ps>0.45)) SELECT market, q, daytype, COUNT(DISTINCT date) days, COUNT(*) n, ROUND(APPROX_QUANTILES(goods_inc,2)[OFFSET(1)]) med, ROUND(AVG(goods_inc),1) avg_basket, ROUND(COUNTIF(goods_inc>=thr)/COUNT(*),3) sh_above, ROUND(COUNTIF(goods_inc>=0.85*thr AND goods_inc<thr)/COUNT(*),4) sh_just_below, ROUND(COUNTIF(goods_inc>=thr AND goods_inc<1.15*thr)/COUNT(*),4) sh_just_above, ROUND(SUM(freight)/COUNT(*),2) freight_per_order_local FROM tt GROUP BY 1,2,3 ORDER BY 1,2,3",
+     "n": 142342
+    },
+    {
+     "claim": "Average basket (incl. VAT, local currency) is lower on free-shipping days in every market: SE 886 vs 963 in Q3 (-8%) and 735 vs 888 in Q2 (-17%); NO 1,120 vs 1,235 (-9%) and 1,060 vs 1,198 (-12%); FI 87 vs 100 EUR (-13%) and 73 vs 86 (-15%); DK 668 vs 867 (-23%) in Q3, flat in Q2.",
+     "sql": "same query as above (avg_basket by market, q, daytype)",
+     "n": 142342
+    },
+    {
+     "claim": "The threshold visibly moves baskets when it applies: on threshold days SE has 2,333 orders in the 1,000-1,099 kr band vs 952 in 900-999 (2.5x); on free-shipping days 2,006 vs 2,090 (1.0x). DK 365 vs 93 at 900 DKK (free days 206 vs 156); FI 207 vs 137 at 129 EUR (free days 124 vs 130); NO 821 vs 575 at 1,300 NOK (free days 574 vs 488).",
+     "sql": "WITH o AS ( SELECT order_link, ANY_VALUE(market) market, ANY_VALUE(shop) shop, ANY_VALUE(currency) currency, MAX(freight_cost) freight, MIN(date) date FROM babyshop_staging.stg_norce__orders WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND is_revenue_status GROUP BY 1), i AS ( SELECT order_link, SUM(IF(is_shipping,0,line_amount)) goods_ex, SUM(IF(is_shipping,0,line_amount*(1+vat_rate/100))) goods_inc, SUM(IF(is_shipping,line_amount*(1+vat_rate/100),0)) ship_inc, SUM(IF(is_shipping,0,quantity)) units FROM babyshop_staging.stg_norce__order_items WHERE date BETWEEN '2026-04-01' AND '2026-09-30' GROUP BY 1), x AS (SELECT o.*, i.goods_ex, i.goods_inc, i.ship_inc, i.units, IF(o.date<'2026-07-01','Q2','Q3') q FROM o JOIN i USING(order_link) WHERE i.goods_inc>0) , dd AS (SELECT market, date, COUNTIF(freight>0)/COUNT(*) ps FROM x WHERE shop='babyshop' GROUP BY 1,2), tt AS (SELECT x.*, IF(dd.ps<0.12,'free','normal') daytype, CASE market WHEN 'FI' THEN 129 WHEN 'DK' THEN 900 WHEN 'NO' THEN 1300 ELSE 1000 END thr, CASE market WHEN 'FI' THEN 11.2 WHEN 'DK' THEN 1.45 ELSE 1.0 END fx FROM x JOIN dd USING(market,date) WHERE shop='babyshop' AND market IN ('SE','NO','FI','DK') AND (dd.ps<0.12 OR dd.ps>0.45)) SELECT market, CAST(FLOOR(goods_inc/IF(market='FI',10,100))*IF(market='FI',10,100) AS INT64) band, COUNTIF(daytype='normal') n_normal, ROUND(SAFE_DIVIDE(COUNTIF(daytype='normal' AND freight>0),COUNTIF(daytype='normal')),2) pay_normal, COUNTIF(daytype='free') n_free FROM tt WHERE goods_inc < IF(market='FI',10,100)*20 GROUP BY 1,2 ORDER BY 1,2",
+     "n": 142342
+    },
+    {
+     "claim": "Orders under ~300 SEK (incl. VAT) shipped free on campaign days: Q3 5,380 SE + 889 NO + 357 DK + 266 FI = 6,892; Q2 2,845 + 579 + 258 + 241 = 3,923. At the standard fees actually charged on threshold days (40.5 / 65.2 / 52.2 / 61.8 SEK) that is 311k SEK of freight income not charged in Q3 and 181k in Q2.",
+     "sql": "WITH o AS ( SELECT order_link, ANY_VALUE(market) market, ANY_VALUE(shop) shop, ANY_VALUE(currency) currency, MAX(freight_cost) freight, MIN(date) date FROM babyshop_staging.stg_norce__orders WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND is_revenue_status GROUP BY 1), i AS ( SELECT order_link, SUM(IF(is_shipping,0,line_amount)) goods_ex, SUM(IF(is_shipping,0,line_amount*(1+vat_rate/100))) goods_inc, SUM(IF(is_shipping,line_amount*(1+vat_rate/100),0)) ship_inc, SUM(IF(is_shipping,0,quantity)) units FROM babyshop_staging.stg_norce__order_items WHERE date BETWEEN '2026-04-01' AND '2026-09-30' GROUP BY 1), x AS (SELECT o.*, i.goods_ex, i.goods_inc, i.ship_inc, i.units, IF(o.date<'2026-07-01','Q2','Q3') q FROM o JOIN i USING(order_link) WHERE i.goods_inc>0) , dd AS (SELECT market, date, COUNTIF(freight>0)/COUNT(*) ps FROM x WHERE shop='babyshop' GROUP BY 1,2), tt AS (SELECT x.*, IF(dd.ps<0.12,'free','normal') daytype, CASE market WHEN 'FI' THEN 129 WHEN 'DK' THEN 900 WHEN 'NO' THEN 1300 ELSE 1000 END thr, CASE market WHEN 'FI' THEN 11.2 WHEN 'DK' THEN 1.45 ELSE 1.0 END fx FROM x JOIN dd USING(market,date) WHERE shop='babyshop' AND market IN ('SE','NO','FI','DK') AND (dd.ps<0.12 OR dd.ps>0.45)) SELECT market, q, COUNT(DISTINCT date) free_days, COUNT(*) free_day_orders, COUNTIF(freight=0 AND goods_inc*fx<300) free_lt300, COUNTIF(freight=0 AND goods_inc*fx<500) free_lt500, ROUND(SUM(IF(freight=0 AND goods_inc*fx<300, goods_ex*fx,0))) goods_ex_sek_lt300 FROM tt WHERE daytype='free' GROUP BY 1,2 ORDER BY 1,2; WITH o AS ( SELECT order_link, ANY_VALUE(market) market, ANY_VALUE(shop) shop, ANY_VALUE(currency) currency, MAX(freight_cost) freight, MIN(date) date FROM babyshop_staging.stg_norce__orders WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND is_revenue_status GROUP BY 1), i AS ( SELECT order_link, SUM(IF(is_shipping,0,line_amount)) goods_ex, SUM(IF(is_shipping,0,line_amount*(1+vat_rate/100))) goods_inc, SUM(IF(is_shipping,line_amount*(1+vat_rate/100),0)) ship_inc, SUM(IF(is_shipping,0,quantity)) units FROM babyshop_staging.stg_norce__order_items WHERE date BETWEEN '2026-04-01' AND '2026-09-30' GROUP BY 1), x AS (SELECT o.*, i.goods_ex, i.goods_inc, i.ship_inc, i.units, IF(o.date<'2026-07-01','Q2','Q3') q FROM o JOIN i USING(order_link) WHERE i.goods_inc>0) , dd AS (SELECT market, date, COUNTIF(freight>0)/COUNT(*) ps FROM x WHERE shop='babyshop' GROUP BY 1,2), tt AS (SELECT x.*, IF(dd.ps<0.12,'free','normal') daytype, CASE market WHEN 'FI' THEN 129 WHEN 'DK' THEN 900 WHEN 'NO' THEN 1300 ELSE 1000 END thr, CASE market WHEN 'FI' THEN 11.2 WHEN 'DK' THEN 1.45 ELSE 1.0 END fx FROM x JOIN dd USING(market,date) WHERE shop='babyshop' AND market IN ('SE','NO','FI','DK') AND (dd.ps<0.12 OR dd.ps>0.45)) SELECT market, ROUND(AVG(IF(freight>0 AND goods_inc<thr,freight*fx,NULL)),1) std_fee_sek FROM tt WHERE daytype='normal' GROUP BY 1",
+     "n": 10815
+    },
+    {
+     "claim": "A free-shipped one-item basket under ~213 SEK incl. VAT in SE is GP2-negative on the ladder's own cost model (GM1 55.5%, returns 17.4%, payment 0.5% of revenue; shipping 40 SEK and fulfilment ~24 SEK per one-row order); in FI the break-even is ~36 EUR (shipping 94 SEK per order).",
+     "sql": "SELECT IF(date<'2026-07-01','Q2','Q3') q, market, SUM(orders) orders, ROUND(SAFE_DIVIDE(SUM(cost_shipping),SUM(orders)),1) ship_po, ROUND(SAFE_DIVIDE(SUM(cost_shipping),SUM(revenue)),4) ship_share, ROUND(SUM(cost_shipping)/3) ship_m, ROUND(SAFE_DIVIDE(SUM(cost_fulfilment),SUM(orders)),1) ful_po, ROUND(SAFE_DIVIDE(SUM(cost_extra_per_order),SUM(orders)),1) per_order, ROUND(SAFE_DIVIDE(SUM(cost_returns),SUM(revenue)),4) ret_share, ROUND(SAFE_DIVIDE(SUM(gp1),SUM(revenue)),4) gm1 FROM babyshop_marts.agg_daily_profit_ladder WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND orders>0 GROUP BY 1,2 ORDER BY 1,2",
+     "n": 57001
+    },
+    {
+     "claim": "Small baskets are not disproportionately created by free shipping: share of orders under ~300 SEK is 14.4% on free days vs 13.6% on threshold days in SE Q3 (20.3% vs 15.8% in Q2), so most of these customers order anyway.",
+     "sql": "WITH o AS ( SELECT order_link, ANY_VALUE(market) market, ANY_VALUE(shop) shop, ANY_VALUE(currency) currency, MAX(freight_cost) freight, MIN(date) date FROM babyshop_staging.stg_norce__orders WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND is_revenue_status GROUP BY 1), i AS ( SELECT order_link, SUM(IF(is_shipping,0,line_amount)) goods_ex, SUM(IF(is_shipping,0,line_amount*(1+vat_rate/100))) goods_inc, SUM(IF(is_shipping,line_amount*(1+vat_rate/100),0)) ship_inc, SUM(IF(is_shipping,0,quantity)) units FROM babyshop_staging.stg_norce__order_items WHERE date BETWEEN '2026-04-01' AND '2026-09-30' GROUP BY 1), x AS (SELECT o.*, i.goods_ex, i.goods_inc, i.ship_inc, i.units, IF(o.date<'2026-07-01','Q2','Q3') q FROM o JOIN i USING(order_link) WHERE i.goods_inc>0) , dd AS (SELECT market, date, COUNTIF(freight>0)/COUNT(*) ps FROM x WHERE shop='babyshop' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2), t AS (SELECT x.*, CASE WHEN dd.ps<0.12 THEN 'free_day' WHEN dd.ps>0.45 THEN 'normal_day' ELSE 'mixed' END daytype FROM x JOIN dd USING(market,date) WHERE shop='babyshop') SELECT market, q, daytype, COUNT(DISTINCT date) days, COUNT(*) orders, ROUND(COUNT(*)/COUNT(DISTINCT date)) orders_per_day, ROUND(AVG(goods_inc)) avg_basket, ROUND(COUNTIF(goods_inc<CASE market WHEN 'FI' THEN 30 WHEN 'DK' THEN 200 ELSE 300 END)/COUNT(*),3) share_lt300 FROM t GROUP BY 1,2,3 ORDER BY 1,2,3",
+     "n": 142342
+    }
+   ],
+   "replication": "Holds in two quarters (Q2 and Q3 2026) and in four markets: lower baskets on free-shipping days in 7 of 8 market-quarters, and threshold bunching that appears on threshold days and vanishes on free days in SE, DK, FI and NO.",
+   "sizing": {
+    "driver": "cost",
+    "baseline_month_sek": 82000,
+    "baseline_note": "Freight income not charged on free-shipped orders under ~300 SEK incl. VAT on campaign days: (311k SEK in Q3 + 181k in Q2) / 6 months = 82k SEK per month (Q3 alone 104k). Standard fees are those observed on threshold days, converted with FX implied by ladder revenue / Norce order lines (EUR 11.2, DKK 1.45, NOK 1.0). The wider blanket-free-shipping give-away (all baskets under the threshold) is about 550k SEK per month in Q3 and is listed under needs_data, not sized here.",
+    "fi_baseline_month_sek": 5200,
+    "uplift_low": 0.3,
+    "uplift_base": 0.5,
+    "uplift_high": 0.7,
+    "uplift_rationale": "Share of that freight income recovered, as a fee or as the equivalent margin on a topped-up basket. Small-basket share barely differs between free and threshold days, which says most of these orders are not created by the offer; I assume half pay or top up and the rest either leave (orders that were GP2-negative anyway) or are lost to the campaign's softer message.",
+    "flow_through": 1.0,
+    "evidence_grade": "cross_market"
+   },
+   "effort": "S",
+   "owner": "marketing",
+   "rollout": "fi_pilot",
+   "pilot": {
+    "metric": "FI campaign-day orders per day and freight income per order, indexed to SE/NO/DK running the same campaign without a floor",
+    "weeks": 4,
+    "control": "SE/NO/DK same campaign days; FI previous campaign",
+    "decision_rule": "Roll out if FI freight income per campaign-day order rises by at least 0.25 EUR while FI's order index vs control falls by less than 5%."
+   },
+   "risks": "Free-shipping days coincide with sales campaigns, so the day-type comparison is confounded for order volume (orders per day are 45-70% higher on free days) and a floor could dent the campaign's headline. FI has only ~90 affected orders a month and FI baskets are already distorted by the 129 EUR threshold and SEK/10 pricing, so the FI pilot will mainly test whether order volume holds. freight_cost is what the customer paid; real carrier cost per order is a flat model value in the ladder.",
+   "curator_note": "Free-shipping campaigns ran on 60 of 92 days in Sweden and about 40 of 92 in NO, FI and DK in Q3 2026. That also means the live threshold test only applies on about half the days."
+  }
+ ],
+ "needs_data": [
+  {
+   "hypothesis": "Blanket free-shipping campaigns give away about 550k SEK of freight income per month in Q3 2026 (SE 314k, NO 146k, FI 62k, DK 28k; 244k per month in Q2) and lower the average basket 8-17%; they may not pay for themselves.",
+   "missing_source": "A holdout: one campaign run with free shipping in some Nordic markets and the normal threshold in others (or campaign calendar data to separate the free-shipping offer from the concurrent sale). Today free-shipping days and sale days coincide, so the +45-70% orders per day cannot be attributed.",
+   "why_promising": "The freight income forgone is about 8% of monthly GP2; even a partial switch from blanket free shipping to a lowered threshold would be worth several times the campaign-floor candidate."
+  },
+  {
+   "hypothesis": "Sold-out sizes still receive product-page views, which would give a demand-based (not run-rate-based) measure of lost sales and of substitution.",
+   "missing_source": "A join key between GA4 item ids and Norce part numbers: fct_product_sales_daily GA4 rows (platform NULL, items_viewed) share no sku with the Norce rows, and agg_product_velocity / agg_stockout_daily are unpopulated (market='default', revenue 0, lost_revenue_est NULL).",
+   "why_promising": "Stock-outs are the largest leak found in this lens (about 3.9M SEK revenue per month across all brands on a run-rate basis, 1.1M of it Kuling); views-while-out would separate real lost demand from end-of-season sell-out."
+  },
+  {
+   "hypothesis": "About 5.9M SEK of stock at cost (6,248 SKUs, non-winter categories) has been on hand since at least 20 Aug with no sale in 180 days - Molo 1.41M, Bobo Choses 0.72M, Konges Slojd 0.47M - and could be cleared on a plan instead of a later fire-sale.",
+   "missing_source": "Stock age (goods-receipt date per SKU, derivable from bc_item_ledger_entries purchase receipts) and realised recovery rates of past clearance campaigns; stock snapshots only start 2026-08-20, so the pattern cannot be replicated on a second date range.",
+   "why_promising": "Every 10 points of extra recovery on that stock is ~0.6M SEK one-off; Molo and Bobo Choses already run at negative GP2 (-18% and -20% in Q3 in agg_daily_kuvio_products)."
+  },
+  {
+   "hypothesis": "The EU shop carries a flat extra cost of 111 SEK per order (cost_extra_per_order) against 12-15 SEK in every other market, about 99k SEK per month in Q3.",
+   "missing_source": "The cost configuration behind cost_extra_per_order for 'Babyshop EU 2026' (what the 111 SEK represents and whether it is invoiced).",
+   "why_promising": "If it is a stale setting or an avoidable handling fee, bringing EU to the Nordic level is worth roughly 60-85k SEK per month."
+  },
+  {
+   "hypothesis": "Return cost in the P&L is overstated or mis-specified: the ladder books cost_returns at 17.4% of SE revenue (NO 12.0%, FI 14.3%, DK 7.7%) with almost no variation by channel, while Business Central shows returned sales of about 10% of SE revenue (NO 7%, FI 8%, DK 6%) and cohort unit return rates of 9% / 6% / 7% / 4%.",
+   "missing_source": "The definition of agg_daily_profit_ladder.cost_returns (rate table or formula) and actual return freight and handling cost per return.",
+   "why_promising": "If the ladder deducts more than returns really cost, GP2 by market is understated (SE most) and every GP2-based sizing in the engine shifts; if it is right, returns cost far more than the margin reversed and the footwear candidate is undersized."
+  },
+  {
+   "hypothesis": "Return reasons would show how much of the footwear return rate is size versus quality or changed mind.",
+   "missing_source": "bc_sales_credit_memos.customerReturnReasonId exists but was not profiled or mapped to a reason table in this run.",
+   "why_promising": "It would turn the footwear candidate from cross-style inference into measured, style-level fixes."
+  },
+  {
+   "hypothesis": "Finnish last-mile delivery costs about 94 kr per order against 76 in Norway and 56 in Denmark, which would be worth roughly 40 000 kr a month if brought to Norway's level.",
+   "missing_source": "Actual carrier invoices per order (Posti, Bring). The profit ladder's shipping cost is a flat modelled rate per market (exactly 40,0 kr per order in Sweden), so the gap may be a configuration value rather than a real cost.",
+   "why_promising": "The gap is the same in Q2 and Q3 2026 and Finland ships with a different carrier."
+  }
+ ],
+ "checked_and_dropped": [
+  {
+   "idea": "Ad spend on out-of-stock SKUs",
+   "why": "Below floor. Of 4.07M SEK SKU-level ad spend 20 Aug-6 Oct only 9.3k SEK (0.2%) fell on SKUs out of stock three days running and 29k SEK (0.7%) on any out-of-stock day, mostly the day of sell-out; the feed switches items off promptly. About 6-18k SEK spend per month, and those clicks still convert to other sizes."
+  },
+  {
+   "idea": "Stock-outs on third-party brands that were demonstrably restocked (Reima, Bugaboo, Kavat, Little Dutch, Viking)",
+   "why": "Below floor in GP2. Episodes ended by a restock of 3+ units lost 1.1M SEK revenue in 48 days (0.69M per month), but brand GP2 margins are thin (Reima 0.4%, Kavat 3%, Viking 4%, Bugaboo 20%, Little Dutch 16% in Q3): Bugaboo, the best case, is ~105k SEK lost revenue per month = 21k GP2, about 9k recoverable."
+  },
+  {
+   "idea": "Third-party seasonal sell-outs still out of stock at the end of the window",
+   "why": "Not actionable as replenishment: 4.7M SEK run-rate 'loss' across all brands is mostly end-of-season sizes that will not be re-bought; no evidence they are replenishable."
+  },
+  {
+   "idea": "Lowering the FI free-shipping threshold from 129 to 69 EUR (ledger lever fi-free-shipping-threshold, scope FI) - basket evidence only",
+   "why": "Could not be shown to clear the floor on basket effects alone. FI threshold days: only 24.1% of orders reach 129 EUR (Q3; 21.5% Q2) vs 35-36% reaching the threshold in SE/NO/DK, and bunching at 129 EUR is weak (207 orders in 130-139 EUR vs 137 in 120-129; SE is 2.5x). But 29% of FI threshold-day orders sit between 69 and 129 EUR and pay freight: a 69 EUR threshold forgoes about 17k SEK freight income per month at the Q3 campaign cadence (33k if no free-shipping campaigns ran), while the top-up effect seen in SE (about 3 points of orders lifted over the line) is worth only ~3k SEK GP2 per month in FI. Also, FI already had blanket free shipping on 40 of 92 Q3 days, so the threshold binds only about half the time. The test therefore has to win on conversion (roughly +10% on threshold days to break even), which this lens cannot measure."
+  },
+  {
+   "idea": "Return fee differences between markets",
+   "why": "No lever: a return fee is charged on ~90% of return receipts in all four Nordic markets (SE ~73 SEK, NO ~80-85, FI ~90-97, DK ~124-134); SE is lowest and has the highest return rate, but raising it is a pricing decision without evidence of elasticity."
+  },
+  {
+   "idea": "Over-stock measured by days of cover from the 48-day run-rate",
+   "why": "Not valid in early October: 30M SEK of 'cover over 365 days' is mostly Kuling winter stock (coveralls 6.4M, snow boots 3.5M) that has just landed before its season. Dead-stock slice moved to needs_data."
+  },
+  {
+   "idea": "Serial returners",
+   "why": "Not run: return receipts carry customer numbers but the cohort join was built on orders; left for the CRM lens."
+  }
+ ],
+ "moved_to_needs_data": [
+  {
+   "lever": "fi-carrier-cost",
+   "scope": {
+    "markets": [
+     "FI"
+    ],
+    "category": null,
+    "brand": null,
+    "segment": null
+   },
+   "title": "Tender Finnish last-mile to bring cost per order to Nordic level",
+   "hypothesis": "Finland is the only Nordic market delivered by Posti; Denmark and Norway go by Bring pickup from the same Swedish warehouse. The P&L books 94 SEK shipping per Finnish order against 56 in Denmark and 76 in Norway, and the customer fee on small baskets (5.5 EUR, about 62 SEK) does not cover it, while it roughly does in SE, DK and NO. A like-for-like cross-border parcel should not cost 70% more to Finland than to Denmark.",
+   "action": "Logistics to pull the actual Posti invoice cost per parcel, then tender FI pickup-point delivery (Bring, PostNord, Matkahuolto, DHL) against the DK/NO Bring rates; in parallel review whether the FI sub-threshold fee should move from 5.5 to 6.5 EUR.",
+   "evidence": [
+    {
+     "claim": "Shipping cost per order in the profit ladder: FI 94.2 SEK (Q3 2026, 7,651 orders) and 92.6 (Q2), vs DK 56.4 / 55.4, NO 76.2 / 74.5, SE 40.0 / 40.0. As a share of revenue: FI 11.3% / 12.5% vs SE 5.5%, DK 5.9%, NO 7.9% in Q3.",
+     "sql": "SELECT IF(date<'2026-07-01','Q2','Q3') q, market, SUM(orders) orders, ROUND(SAFE_DIVIDE(SUM(cost_shipping),SUM(orders)),1) ship_po, ROUND(SAFE_DIVIDE(SUM(cost_shipping),SUM(revenue)),4) ship_share, ROUND(SUM(cost_shipping)/3) ship_m, ROUND(SAFE_DIVIDE(SUM(cost_fulfilment),SUM(orders)),1) ful_po, ROUND(SAFE_DIVIDE(SUM(cost_extra_per_order),SUM(orders)),1) per_order, ROUND(SAFE_DIVIDE(SUM(cost_returns),SUM(revenue)),4) ret_share, ROUND(SAFE_DIVIDE(SUM(gp1),SUM(revenue)),4) gm1 FROM babyshop_marts.agg_daily_profit_ladder WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND orders>0 GROUP BY 1,2 ORDER BY 1,2",
+     "n": 7651
+    },
+    {
+     "claim": "FI cost_shipping was 240k SEK per month in Q3 2026 (114k in Q2).",
+     "sql": "SELECT IF(date<'2026-07-01','Q2','Q3') q, market, SUM(orders) orders, ROUND(SAFE_DIVIDE(SUM(cost_shipping),SUM(orders)),1) ship_po, ROUND(SAFE_DIVIDE(SUM(cost_shipping),SUM(revenue)),4) ship_share, ROUND(SUM(cost_shipping)/3) ship_m, ROUND(SAFE_DIVIDE(SUM(cost_fulfilment),SUM(orders)),1) ful_po, ROUND(SAFE_DIVIDE(SUM(cost_extra_per_order),SUM(orders)),1) per_order, ROUND(SAFE_DIVIDE(SUM(cost_returns),SUM(revenue)),4) ret_share, ROUND(SAFE_DIVIDE(SUM(gp1),SUM(revenue)),4) gm1 FROM babyshop_marts.agg_daily_profit_ladder WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND orders>0 GROUP BY 1,2 ORDER BY 1,2",
+     "n": 7651
+    },
+    {
+     "claim": "Carrier mix Q3 2026: babyshop-fi 7,027 orders Posti pickup + 256 Posti home; babyshop-dk 5,288 Bring pickup; babyshop-no 17,792 Bring pickup + 553 UPS; babyshop-se 47,869 DHL service point.",
+     "sql": "SELECT _application app, REGEXP_REPLACE(DeliveryMode, r'-[0-9a-f]{32}$', '') mode, COUNT(DISTINCT OrderNo) orders FROM babyshop_raw.norce_order_items_native WHERE DATE(OrderDate) BETWEEN '2026-07-01' AND '2026-09-30' AND _application IN ('babyshop-fi','babyshop-se','babyshop-no','babyshop-dk') GROUP BY 1,2 HAVING orders>=150 ORDER BY 1, orders DESC",
+     "n": 79511
+    },
+    {
+     "claim": "Fee the customer pays below the threshold vs booked cost per order: FI 61.8 vs 94 SEK, NO 65.2 vs 76, DK 52.2 vs 56, SE 40.5 vs 40.",
+     "sql": "WITH o AS ( SELECT order_link, ANY_VALUE(market) market, ANY_VALUE(shop) shop, ANY_VALUE(currency) currency, MAX(freight_cost) freight, MIN(date) date FROM babyshop_staging.stg_norce__orders WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND is_revenue_status GROUP BY 1), i AS ( SELECT order_link, SUM(IF(is_shipping,0,line_amount)) goods_ex, SUM(IF(is_shipping,0,line_amount*(1+vat_rate/100))) goods_inc, SUM(IF(is_shipping,line_amount*(1+vat_rate/100),0)) ship_inc, SUM(IF(is_shipping,0,quantity)) units FROM babyshop_staging.stg_norce__order_items WHERE date BETWEEN '2026-04-01' AND '2026-09-30' GROUP BY 1), x AS (SELECT o.*, i.goods_ex, i.goods_inc, i.ship_inc, i.units, IF(o.date<'2026-07-01','Q2','Q3') q FROM o JOIN i USING(order_link) WHERE i.goods_inc>0) , dd AS (SELECT market, date, COUNTIF(freight>0)/COUNT(*) ps FROM x WHERE shop='babyshop' GROUP BY 1,2), tt AS (SELECT x.*, IF(dd.ps<0.12,'free','normal') daytype, CASE market WHEN 'FI' THEN 129 WHEN 'DK' THEN 900 WHEN 'NO' THEN 1300 ELSE 1000 END thr, CASE market WHEN 'FI' THEN 11.2 WHEN 'DK' THEN 1.45 ELSE 1.0 END fx FROM x JOIN dd USING(market,date) WHERE shop='babyshop' AND market IN ('SE','NO','FI','DK') AND (dd.ps<0.12 OR dd.ps>0.45)) SELECT market, ROUND(AVG(IF(freight>0 AND goods_inc<thr,freight,NULL)),2) std_fee_local, ROUND(AVG(IF(freight>0 AND goods_inc<thr,freight*fx,NULL)),1) std_fee_sek FROM tt WHERE daytype='normal' GROUP BY 1",
+     "n": 60731
+    }
+   ],
+   "replication": "The FI gap to DK and NO is the same in Q2 and Q3 2026 (92.6 and 94.2 SEK vs 55-56 and 75-76).",
+   "sizing": {
+    "driver": "cost",
+    "baseline_month_sek": 240000,
+    "baseline_note": "FI cost_shipping in agg_daily_profit_ladder, Q3 2026 monthly average (7,651 orders x 94.2 SEK / 3). Q2 was 114k per month on lower volume.",
+    "fi_baseline_month_sek": 240000,
+    "uplift_low": 0.08,
+    "uplift_base": 0.18,
+    "uplift_high": 0.3,
+    "uplift_rationale": "Matching Norway's cost per order (76 SEK) is a 19% cut; matching Denmark's (56 SEK) would be 40%. Base assumes Norway-level pricing; low assumes only a renegotiation with Posti.",
+    "flow_through": 1.0,
+    "evidence_grade": "cross_market"
+   },
+   "effort": "XL",
+   "owner": "logistics",
+   "rollout": "market_specific",
+   "pilot": null,
+   "risks": "The per-order shipping cost in the ladder is a flat modelled rate per market (exactly 40.0 in SE), not invoiced cost; if the FI rate is a stale assumption the saving is an accounting correction, not cash. Carrier-level actual cost is being built elsewhere and should confirm the 94 SEK before any tender. Switching carrier in Finland can hurt conversion if Posti pickup points are what Finnish customers expect."
+  }
+ ]
+}

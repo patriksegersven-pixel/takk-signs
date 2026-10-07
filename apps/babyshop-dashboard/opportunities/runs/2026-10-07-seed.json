@@ -28,6 +28,21 @@
      "claim": "The four Nordic markets earned 5.90M kr GP2 per month in Q3 2026 (SE 3.67M, NO 1.47M, FI 0.43M, DK 0.34M).",
      "sql": "SELECT market, SUM(gp2)/3 FROM babyshop_marts.agg_daily_profit_ladder WHERE date BETWEEN '2026-07-01' AND '2026-09-30' AND market IN ('SE','NO','FI','DK') GROUP BY 1",
      "n": 89793
+    },
+    {
+     "claim": "On days when the threshold applies, only 24% of Finnish orders reach 129 €, against 35–36% reaching the threshold in SE, NO and DK; 29% of Finnish orders sit between 69 and 129 € and pay freight (operations lens, 7 Oct 2026).",
+     "sql": null,
+     "n": null
+    },
+    {
+     "claim": "A 69 € threshold in Finland gives up about 17 000 kr of freight income a month and gains about 3 000 kr from basket top-ups, so it needs roughly +10% conversion on threshold days to break even (operations lens, 7 Oct 2026).",
+     "sql": null,
+     "n": null
+    },
+    {
+     "claim": "Orders bunch just above the threshold on threshold days (SE 2.5× as many just above 1 000 kr as just below, DK 3.9×, FI 1.5×, NO 1.4×) and the bunching disappears on free-shipping campaign days.",
+     "sql": null,
+     "n": null
     }
    ],
    "replication": "The test runs in all four markets at once, so each market is a replication of the others.",
@@ -53,7 +68,7 @@
     "decision_rule": "Keep the lower threshold where GP2 per day is at or above baseline after the test period."
    },
    "risks": "More orders qualify for free shipping, so GP2 per order falls; the test has to show that volume more than pays for it. The flow-through of 0.6 is an assumption.",
-   "curator_note": "Seeded from the Finland deep dive so the lenses do not re-propose it. The uplift is a placeholder, not a finding."
+   "curator_note": "Seeded from the Finland deep dive so the lenses do not re-propose it. The uplift is a placeholder, not a finding. Blanket free-shipping campaigns ran on roughly half the days in Q3 2026, so the threshold only applies about half the time; read the test on threshold days."
   },
   {
    "lever": "fi-category-naming",
