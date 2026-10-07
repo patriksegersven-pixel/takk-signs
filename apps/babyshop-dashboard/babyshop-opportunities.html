@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Opportunities · Babyshop</title>
+  <link rel="icon" type="image/svg+xml" href="/babyshop-favicon.svg">
+  <link rel="stylesheet" href="/brand.css">
+<style>
+  /* Same design system as the other tabs; brand green is this page's accent. */
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html{font-size:16px}
+  body{font-family:'Jost',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--body);min-height:100vh;-webkit-font-smoothing:antialiased}
+
+  .wrap{max-width:1380px;margin:0 auto;padding:26px 32px 56px}
+  h1{font-size:21px;font-weight:700;color:var(--h);letter-spacing:-.3px}
+  .sub{color:var(--muted);font-size:12px;margin-top:3px;line-height:1.5;max-width:860px}
+
+  .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:18px}
+  .kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:15px 14px}
+  .kpi.spot{border-color:var(--accent);position:relative;overflow:hidden}
+  .kpi.spot::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent)}
+  .kpi .k{font-size:10px;font-weight:600;letter-spacing:.07em;color:var(--muted);text-transform:uppercase;margin-bottom:8px}
+  .kpi .v{font-size:23px;font-weight:700;color:var(--h);letter-spacing:-.5px;line-height:1.1;font-variant-numeric:tabular-nums}
+  .kpi .n{font-size:10.5px;color:var(--muted);margin-top:7px;line-height:1.45}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:20px 22px;margin-top:20px}
+  .card h3{font-size:14px;font-weight:600;color:var(--h)}
+  .card .csub{color:var(--muted);font-size:11px;margin-top:2px;margin-bottom:12px;line-height:1.5}
+
+  /* Effort × impact matrix */
+  .mx{display:grid;grid-template-columns:150px repeat(4,1fr);gap:6px}
+  .mx .hd{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);padding:4px 6px}
+  .mx .hd small{display:block;font-weight:500;text-transform:none;letter-spacing:0;margin-top:1px}
+  .mx .rh{display:flex;flex-direction:column;justify-content:center}
+  .mx .cell{min-height:54px;border:1px solid var(--border-lt);border-radius:var(--r-sm);background:var(--bg);padding:7px;display:flex;flex-wrap:wrap;gap:5px;align-content:flex-start}
+  .mx .cell.best{background:var(--accent-bg);border-color:#CFE0D4}
+  .chip{font:inherit;font-size:11.5px;font-weight:700;font-variant-numeric:tabular-nums;border:1px solid var(--border);background:var(--card);color:var(--h);border-radius:var(--r-sm);padding:3px 7px;cursor:pointer;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chip:hover{border-color:var(--accent);color:var(--accent)}
+  .chip span{font-weight:500;color:var(--muted);margin-left:5px}
+
+  .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .filters select,.filters input{font:inherit;font-size:12.5px;color:var(--body);background:var(--card);border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 9px}
+  .filters input{min-width:220px}
+  .filters .count{margin-left:auto;font-size:11.5px;color:var(--muted)}
+
+  .tblwrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:right;padding:10px 10px;font-size:13px;font-variant-numeric:tabular-nums;vertical-align:top}
+  th:nth-child(2),td:nth-child(2){text-align:left}
+  th:first-child,td:first-child{text-align:left;padding-left:0;width:34px}
+  thead th{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap}
+  tbody td{font-weight:500;color:var(--body);border-bottom:1px solid var(--border-lt)}
+  tr.row{cursor:pointer}
+  tr.row:hover td{background:var(--bg)}
+  tr.row.open td{border-bottom-color:transparent;background:var(--bg)}
+  tr.row.is-rejected td{opacity:.5}
+  td .t{font-weight:600;color:var(--h);line-height:1.35}
+  td .s{color:var(--muted);font-size:11px;font-weight:500;margin-top:3px}
+  td .rng{color:var(--muted);font-size:11px;font-weight:500;white-space:nowrap}
+  .tag{display:inline-block;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;padding:2px 6px;border-radius:var(--r-sm);background:var(--border-lt);color:var(--body);white-space:nowrap}
+  .tag.pilot{background:var(--hero-bg);color:var(--hero)}
+  .tag.direct{background:var(--accent-bg);color:var(--accent)}
+  .tag.st-new{background:var(--border-lt);color:var(--body)}
+  .tag.st-accepted,.tag.st-piloting,.tag.st-shipped,.tag.st-measured{background:var(--accent-bg);color:var(--accent)}
+  .tag.st-rejected{background:var(--down-bg);color:var(--down)}
+
+  tr.detail td{background:var(--bg);text-align:left;padding:4px 14px 20px 34px;border-bottom:1px solid var(--border)}
+  .dgrid{display:grid;grid-template-columns:1.25fr 1fr;gap:26px}
+  .dgrid h4{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:14px 0 5px}
+  .dgrid p,.dgrid li{font-size:12.5px;line-height:1.6;font-weight:400;color:var(--body)}
+  .dgrid ul{padding-left:17px}
+  .dgrid li{margin-bottom:4px}
+  .dgrid details{margin-top:3px}
+  .dgrid summary{font-size:11px;color:var(--muted);cursor:pointer}
+  .dgrid pre{font-size:10.5px;line-height:1.5;background:var(--card);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 10px;margin-top:5px;white-space:pre-wrap;word-break:break-word;color:var(--body)}
+  .math{background:var(--card);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 12px;font-size:12px;line-height:1.7}
+  .math b{color:var(--h);font-weight:600}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+  .actions input{font:inherit;font-size:12px;flex:1;min-width:180px;border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 9px;background:var(--card);color:var(--body)}
+  .btn{font:inherit;font-size:12px;font-weight:600;border:1px solid var(--border);background:var(--card);color:var(--h);border-radius:var(--r-sm);padding:6px 12px;cursor:pointer}
+  .btn:hover{border-color:var(--accent);color:var(--accent)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:var(--accent-dark);color:#fff}
+  .btn.danger:hover{border-color:var(--down);color:var(--down)}
+  .hist{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6}
+
+  .need{display:grid;grid-template-columns:1fr 1fr;gap:10px 26px}
+  .need div{font-size:12.5px;line-height:1.55;padding:9px 0;border-bottom:1px solid var(--border-lt)}
+  .need b{color:var(--h);font-weight:600}
+  .need .s{color:var(--muted);font-size:11.5px}
+
+  .note{background:var(--warn-bg);border:1px solid #EDD7B0;border-radius:var(--r);padding:12px 16px;font-size:11.5px;color:#7A4E18;margin-top:20px;line-height:1.55}
+  .how{font-size:12px;line-height:1.65;color:var(--body)}
+  .how b{color:var(--h);font-weight:600}
+  .how li{margin:0 0 5px 17px}
+  .loading{padding:60px 0;text-align:center;color:var(--muted);font-size:13px}
+  @media(max-width:1100px){.grid{grid-template-columns:repeat(3,1fr)}.dgrid{grid-template-columns:1fr}.need{grid-template-columns:1fr}}
+  @media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.wrap{padding:20px 16px 48px}.mx{grid-template-columns:96px repeat(4,1fr)}}
+</style>
+</head>
+<body>
+<header id="app-header" data-page="opps"></header>
+<template data-header-extra>
+  <div class="live-dot" id="live-src">Opportunity ledger</div>
+</template>
+<script src="/nav.js"></script>
+
+<div class="wrap">
+  <h1>Opportunities</h1>
+  <div class="sub" id="sub">Loading…</div>
+  <div id="banner" class="note" style="display:none"></div>
+  <div id="loading" class="loading">Loading the ledger…</div>
+
+  <div id="content" style="display:none">
+    <div class="grid" id="kpis"></div>
+
+    <div class="card">
+      <h3>Effort × impact</h3>
+      <div class="csub">Each chip is one open opportunity, numbered by its rank below. Impact is risk-adjusted incremental GP2 per month for the full rollout. Top-left is where to start.</div>
+      <div class="mx" id="matrix"></div>
+    </div>
+
+    <div class="card">
+      <h3>Ranked opportunities</h3>
+      <div class="csub">Ranked by risk-adjusted GP2 per month divided by effort in person-weeks. Click a row for the evidence, the sizing and the pilot plan.</div>
+      <div class="filters">
+        <select id="f-lens" aria-label="Lens"></select>
+        <select id="f-status" aria-label="Status"></select>
+        <select id="f-rollout" aria-label="Rollout"></select>
+        <select id="f-owner" aria-label="Owner"></select>
+        <input id="f-q" type="search" placeholder="Search title, brand, lever…" aria-label="Search">
+        <span class="count" id="count"></span>
+      </div>
+      <div class="tblwrap">
+        <table>
+          <thead><tr>
+            <th>#</th><th>Opportunity</th><th>GP2 / month</th><th>Finland pilot</th>
+            <th>Confidence</th><th>Effort</th><th>Rollout</th><th>Score</th><th>Status</th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" id="needs-card" style="display:none">
+      <h3>Promising, but not testable with today's data</h3>
+      <div class="csub">Hypotheses the lenses could not back with numbers. The missing source is the case for which data to add next.</div>
+      <div class="need" id="needs"></div>
+    </div>
+
+    <div class="card">
+      <h3>How to read this</h3>
+      <div class="how">
+        <ul>
+          <li><b>One list, no duplicates.</b> Each opportunity is keyed by its mechanism and scope. When a later run finds it again, the row is updated instead of added.</li>
+          <li><b>GP2 / month</b> is one driver (traffic, conversion, order value, repeat, margin, cost or recovered loss) applied to a baseline queried from the warehouse, as a low–base–high range. Nothing under <span id="how-floor"></span> kr/month at base case is listed.</li>
+          <li><b>Confidence</b> reflects the kind of evidence: 80% when the effect was measured in our own data, 50% when inferred from a gap between our own markets or segments, 30% when the uplift is an outside benchmark.</li>
+          <li><b>Effort</b> is person-weeks: S = 1, M = 3, L = 8, XL = 20. <b>Score</b> = GP2/month × confidence ÷ effort weeks.</li>
+          <li><b>Finland pilot</b> shows what the base case is worth in Finland alone. Items marked Pilot are tested there for 4–6 weeks against SE/NO/DK before rollout; items marked Ship are no-regret fixes.</li>
+          <li><b>Rejected</b> items stay rejected: a later run cannot bring one back.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var DATA = null, OPEN = null;
+  var LENS = {crm:'Customer & CRM', demand:'Demand & assortment', operations:'Operations',
+              offer:'Offer', conversion:'Conversion & content', explorer:'Explorer', seed:'Earlier analysis'};
+  var ROLL = {fi_pilot:'Pilot in FI', ship_direct:'Ship', market_specific:'Market-specific'};
+  var DRIVER = {traffic:'traffic', conversion:'conversion rate', aov:'order value', repeat:'repeat orders',
+                margin:'margin', cost:'cost', recovered:'recovered loss'};
+  var GRADE = {measured:'Measured in our data', cross_market:'Inferred from our own markets/segments', benchmark:'Outside benchmark'};
+  var BANDS = [{min:100000, label:'100k+'}, {min:30000, label:'30–100k'}, {min:0, label:'Under 30k'}];
+  var NEXT = {new:['accepted','rejected'], accepted:['piloting','shipped','rejected'],
+              piloting:['shipped','rejected'], shipped:['measured'], measured:[], rejected:['new']};
+  var VERB = {accepted:'Accept', rejected:'Reject', piloting:'Start pilot', shipped:'Mark shipped',
+              measured:'Mark measured', new:'Reopen'};
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  function kr(n) { return Math.round(n || 0).toLocaleString('sv-SE').replace(/ /g, ' '); }
+  function k(n) { n = n || 0; return n >= 1e6 ? (n / 1e6).toFixed(2).replace('.', ',') + 'M' : Math.round(n / 1000) + 'k'; }
+  function pct(x) { return (Math.round(x * 1000) / 10).toString().replace('.', ',') + '%'; }
+  function $(id) { return document.getElementById(id); }
+  function scopeText(sc) {
+    var p = [(sc.markets || []).join(', ') === 'ALL' ? 'All markets' : (sc.markets || []).join(', ')];
+    ['brand', 'category', 'segment'].forEach(function (f) { if (sc[f]) p.push(sc[f]); });
+    return p.join(' · ');
+  }
+  function isOpen(r) { return r.status !== 'rejected'; }
+
+  function fill(sel, label, map, values) {
+    sel.innerHTML = '<option value="">' + esc(label) + '</option>' + values.map(function (v) {
+      return '<option value="' + esc(v) + '">' + esc(map[v] || v) + '</option>';
+    }).join('');
+  }
+  function uniq(key) {
+    var seen = {};
+    DATA.items.forEach(function (r) { seen[r[key]] = 1; });
+    return Object.keys(seen).sort();
+  }
+
+  function visible() {
+    var f = {lens:$('f-lens').value, status:$('f-status').value, rollout:$('f-rollout').value,
+             owner:$('f-owner').value, q:$('f-q').value.trim().toLowerCase()};
+    return DATA.items.filter(function (r) {
+      if (f.lens && r.lens !== f.lens) return false;
+      if (f.status ? r.status !== f.status : false) return false;
+      if (f.rollout && r.rollout !== f.rollout) return false;
+      if (f.owner && r.owner !== f.owner) return false;
+      if (f.q && (r.title + ' ' + r.lever + ' ' + scopeText(r.scope) + ' ' + r.hypothesis).toLowerCase().indexOf(f.q) < 0) return false;
+      return true;
+    });
+  }
+
+  function renderKpis() {
+    var open = DATA.items.filter(isOpen);
+    var sum = function (key, rows) { return rows.reduce(function (a, r) { return a + (r[key] || 0); }, 0); };
+    var quick = open.filter(function (r) { return r.effort === 'S'; });
+    var pilots = open.filter(function (r) { return r.rollout === 'fi_pilot'; });
+    var cards = [
+      {k:'Open opportunities', v:open.length, n:DATA.items.length - open.length + ' rejected', spot:1},
+      {k:'GP2 / month, base case', v:k(sum('gp2_month_base', open)) + ' kr',
+       n:'Range ' + k(sum('gp2_month_low', open)) + '–' + k(sum('gp2_month_high', open)) + ' kr. Items overlap, so this is not a forecast.'},
+      {k:'Risk-adjusted', v:k(sum('gp2_month_risk_adjusted', open)) + ' kr', n:'Base case weighted by evidence confidence'},
+      {k:'Quick wins', v:quick.length, n:k(sum('gp2_month_risk_adjusted', quick)) + ' kr/month risk-adjusted at one week each'},
+      {k:'Finland pilots', v:pilots.length, n:k(sum('gp2_month_base_fi', pilots)) + ' kr/month at stake in Finland'}
+    ];
+    $('kpis').innerHTML = cards.map(function (c) {
+      return '<div class="kpi' + (c.spot ? ' spot' : '') + '"><div class="k">' + esc(c.k) + '</div><div class="v">' +
+             esc(c.v) + '</div><div class="n">' + esc(c.n) + '</div></div>';
+    }).join('');
+  }
+
+  function renderMatrix() {
+    var efforts = ['S', 'M', 'L', 'XL'], w = DATA.model.effort_weeks;
+    var html = '<div class="hd"></div>' + efforts.map(function (e) {
+      return '<div class="hd">' + e + '<small>' + w[e] + (w[e] === 1 ? ' week' : ' weeks') + '</small></div>';
+    }).join('');
+    BANDS.forEach(function (b, bi) {
+      html += '<div class="hd rh">' + esc(b.label) + '<small>kr / month</small></div>';
+      efforts.forEach(function (e, ei) {
+        var hi = bi === 0 ? Infinity : BANDS[bi - 1].min;
+        var here = DATA.items.filter(function (r) {
+          return isOpen(r) && r.effort === e && r.gp2_month_risk_adjusted >= b.min && r.gp2_month_risk_adjusted < hi;
+        });
+        html += '<div class="cell' + (bi === 0 && ei === 0 ? ' best' : '') + '">' + here.map(function (r) {
+          return '<button class="chip" data-id="' + esc(r.id) + '" title="' + esc(r.title) + '">' + r._rank +
+                 '<span>' + k(r.gp2_month_risk_adjusted) + '</span></button>';
+        }).join('') + '</div>';
+      });
+    });
+    $('matrix').innerHTML = html;
+  }
+
+  function detailHTML(r) {
+    var s = r.sizing, ft = (s.flow_through == null ? 1 : s.flow_through);
+    var usesFt = ['traffic', 'conversion', 'aov', 'repeat'].indexOf(s.driver) >= 0;
+    var up = s.driver === 'margin'
+      ? '+' + (s.uplift_base * 100).toFixed(1).replace('.', ',') + ' pts (' + (s.uplift_low * 100).toFixed(1).replace('.', ',') + '–' + (s.uplift_high * 100).toFixed(1).replace('.', ',') + ')'
+      : pct(s.uplift_base) + ' (' + pct(s.uplift_low) + '–' + pct(s.uplift_high) + ')';
+    var math = '<b>Driver:</b> ' + esc(DRIVER[s.driver] || s.driver) + '<br>' +
+      '<b>Baseline:</b> ' + kr(s.baseline_month_sek) + ' kr/month' + (s.baseline_note ? ' — ' + esc(s.baseline_note) : '') + '<br>' +
+      '<b>Uplift:</b> ' + up + (s.uplift_rationale ? ' — ' + esc(s.uplift_rationale) : '') + '<br>' +
+      (usesFt && ft !== 1 ? '<b>Flow-through:</b> × ' + String(ft).replace('.', ',') + '<br>' : '') +
+      '<b>= ' + kr(r.gp2_month_base) + ' kr GP2/month</b> (' + kr(r.gp2_month_low) + '–' + kr(r.gp2_month_high) + '), ' +
+      kr(r.gp2_year_base) + ' kr/year<br>' +
+      '<b>Confidence:</b> ' + pct(r.confidence) + ' — ' + esc(GRADE[s.evidence_grade] || s.evidence_grade) +
+      ' → ' + kr(r.gp2_month_risk_adjusted) + ' kr risk-adjusted';
+    var ev = (r.evidence || []).map(function (e) {
+      return '<li>' + esc(e.claim) + (e.n != null ? ' <span style="color:var(--muted)">(n = ' + kr(e.n) + ')</span>' : '') +
+        (e.sql ? '<details><summary>Query</summary><pre>' + esc(e.sql) + '</pre></details>' : '') + '</li>';
+    }).join('');
+    var pilot = '';
+    if (r.rollout === 'fi_pilot' && r.pilot) {
+      pilot = '<h4>Finland pilot</h4><p><b>Metric:</b> ' + esc(r.pilot.metric) +
+        (r.pilot.weeks ? '<br><b>Duration:</b> ' + esc(r.pilot.weeks) + ' weeks' : '') +
+        (r.pilot.control ? '<br><b>Control:</b> ' + esc(r.pilot.control) : '') +
+        (r.pilot.decision_rule ? '<br><b>Decision rule:</b> ' + esc(r.pilot.decision_rule) : '') +
+        '<br><b>Worth in Finland:</b> ' + kr(r.gp2_month_base_fi) + ' kr/month at base case</p>';
+    }
+    var btns = (NEXT[r.status] || []).map(function (st) {
+      return '<button class="btn' + (st === 'accepted' ? ' primary' : st === 'rejected' ? ' danger' : '') +
+             '" data-set="' + st + '" data-id="' + esc(r.id) + '">' + VERB[st] + '</button>';
+    }).join('');
+    var hist = (r.status_history || []).map(function (h) {
+      return esc((h.at || '').slice(0, 10)) + ': ' + esc(h.from || '—') + ' → ' + esc(h.to) + (h.note ? ' — ' + esc(h.note) : '');
+    }).join('<br>');
+    return '<div class="dgrid"><div>' +
+      '<h4>Hypothesis</h4><p>' + esc(r.hypothesis) + '</p>' +
+      '<h4>Action</h4><p>' + esc(r.action) + '</p>' +
+      '<h4>Evidence</h4><ul>' + ev + '</ul>' +
+      (r.replication ? '<h4>Where else it holds</h4><p>' + esc(r.replication) + '</p>' : '') +
+      (r.risks ? '<h4>Risks</h4><p>' + esc(r.risks) + '</p>' : '') +
+      (r.curator_note ? '<h4>Curator note</h4><p>' + esc(r.curator_note) + '</p>' : '') +
+      '</div><div>' +
+      '<h4>Sizing</h4><div class="math">' + math + '</div>' + pilot +
+      '<h4>Owner and effort</h4><p>' + esc(r.owner.replace('_', ' ')) + ' · ' + esc(r.effort) + ' (' + r.effort_weeks + ' person-weeks)</p>' +
+      '<h4>Decision</h4><div class="actions"><input type="text" placeholder="Note (required when rejecting)" data-note="' + esc(r.id) + '">' + btns + '</div>' +
+      (hist ? '<div class="hist">' + hist + '</div>' : '') +
+      '<div class="hist">First seen ' + esc(r.first_seen) + ' · last run ' + esc(r.last_run) + ' · found ' + (r.times_seen || 1) + '×</div>' +
+      '</div></div>';
+  }
+
+  function renderRows() {
+    var rows = visible();
+    $('count').textContent = rows.length + ' of ' + DATA.items.length;
+    $('rows').innerHTML = rows.map(function (r) {
+      var open = OPEN === r.id;
+      return '<tr class="row' + (open ? ' open' : '') + (r.status === 'rejected' ? ' is-rejected' : '') + '" data-id="' + esc(r.id) + '">' +
+        '<td>' + r._rank + '</td>' +
+        '<td><div class="t">' + esc(r.title) + '</div><div class="s">' + esc(LENS[r.lens] || r.lens) + ' · ' + esc(scopeText(r.scope)) + '</div></td>' +
+        '<td>' + kr(r.gp2_month_base) + ' kr<div class="rng">' + k(r.gp2_month_low) + '–' + k(r.gp2_month_high) + '</div></td>' +
+        '<td>' + (r.gp2_month_base_fi ? kr(r.gp2_month_base_fi) + ' kr' : '—') + '</td>' +
+        '<td>' + pct(r.confidence) + '</td>' +
+        '<td>' + esc(r.effort) + '<div class="rng">' + r.effort_weeks + ' wk</div></td>' +
+        '<td><span class="tag ' + (r.rollout === 'fi_pilot' ? 'pilot' : r.rollout === 'ship_direct' ? 'direct' : '') + '">' + esc(ROLL[r.rollout] || r.rollout) + '</span></td>' +
+        '<td>' + kr(r.score) + '</td>' +
+        '<td><span class="tag st-' + esc(r.status) + '">' + esc(r.status) + '</span></td></tr>' +
+        (open ? '<tr class="detail"><td colspan="9">' + detailHTML(r) + '</td></tr>' : '');
+    }).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:30px 0">Nothing matches these filters.</td></tr>';
+  }
+
+  function renderNeeds() {
+    var n = DATA.needs_data || [];
+    $('needs-card').style.display = n.length ? '' : 'none';
+    $('needs').innerHTML = n.map(function (x) {
+      return '<div><b>' + esc(x.hypothesis) + '</b><br><span class="s">Missing: ' + esc(x.missing_source) +
+        (x.why_promising ? ' · ' + esc(x.why_promising) : '') + ' · ' + esc(LENS[x.lens] || x.lens) + '</span></div>';
+    }).join('');
+  }
+
+  function renderAll() {
+    // Rank is over OPEN items in score order; rejected ones sink to the end.
+    var n = 0;
+    DATA.items.sort(function (a, b) { return (isOpen(b) - isOpen(a)) || (b.score - a.score); });
+    DATA.items.forEach(function (r) { r._rank = isOpen(r) ? ++n : '–'; });
+    var last = DATA.items.reduce(function (m, r) { return r.last_run > m ? r.last_run : m; }, '');
+    $('sub').textContent = 'Business-development opportunities found in Babyshop’s own data, sized as incremental GP2 and ranked by impact per week of effort. ' +
+      (last ? 'Latest lens run ' + last + '.' : '');
+    $('how-floor').textContent = kr(DATA.model.floor_sek_month);
+    renderKpis(); renderMatrix(); renderRows(); renderNeeds();
+  }
+
+  function setStatus(id, status) {
+    var noteEl = document.querySelector('[data-note="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+    var note = noteEl ? noteEl.value.trim() : '';
+    if (status === 'rejected' && !note) { noteEl.focus(); noteEl.placeholder = 'Say why — the reason keeps it from coming back'; return; }
+    fetch('/api/opportunities/' + encodeURIComponent(id) + '/status', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({status:status, note:note || null})
+    }).then(function (res) { return res.json().then(function (j) { return {ok:res.ok, j:j}; }); })
+      .then(function (r) {
+        if (!r.ok) throw new Error(r.j.error || 'update failed');
+        for (var i = 0; i < DATA.items.length; i++) if (DATA.items[i].id === id) DATA.items[i] = r.j;
+        renderAll();
+      }).catch(function (e) { banner('Could not save the decision: ' + e.message); });
+  }
+
+  function banner(msg) { var b = $('banner'); b.textContent = msg; b.style.display = msg ? '' : 'none'; }
+
+  document.addEventListener('click', function (ev) {
+    var set = ev.target.closest('[data-set]');
+    if (set) { setStatus(set.getAttribute('data-id'), set.getAttribute('data-set')); return; }
+    var chip = ev.target.closest('.chip');
+    if (chip) {
+      OPEN = chip.getAttribute('data-id');
+      ['f-lens', 'f-status', 'f-rollout', 'f-owner', 'f-q'].forEach(function (i) { $(i).value = ''; });
+      renderRows();
+      var tr = document.querySelector('tr.row.open');
+      if (tr) tr.scrollIntoView({behavior:'smooth', block:'start'});
+      return;
+    }
+    if (ev.target.closest('tr.detail')) return;
+    var row = ev.target.closest('tr.row');
+    if (row) { var id = row.getAttribute('data-id'); OPEN = OPEN === id ? null : id; renderRows(); }
+  });
+  ['f-lens', 'f-status', 'f-rollout', 'f-owner'].forEach(function (i) { $(i).addEventListener('change', renderRows); });
+  $('f-q').addEventListener('input', renderRows);
+
+  fetch('/api/opportunities').then(function (res) {
+    return res.json().then(function (j) { if (!res.ok) throw new Error(j.error || res.status); return j; });
+  }).then(function (j) {
+    DATA = j;
+    $('loading').style.display = 'none';
+    if (!j.items.length) { banner('The ledger is empty — no lens run has been ingested yet.'); return; }
+    fill($('f-lens'), 'All lenses', LENS, uniq('lens'));
+    fill($('f-status'), 'All statuses', {}, uniq('status'));
+    fill($('f-rollout'), 'All rollout paths', ROLL, uniq('rollout'));
+    fill($('f-owner'), 'All owners', {}, uniq('owner'));
+    $('content').style.display = '';
+    renderAll();
+  }).catch(function (e) {
+    $('loading').style.display = 'none';
+    banner('Could not load the ledger: ' + e.message);
+  });
+})();
+</script>
+</body>
+</html>

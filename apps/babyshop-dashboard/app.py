@@ -145,6 +145,7 @@ BUNDLES_HTML   = STATIC_DIR / "babyshop-bundles-dashboard.html"
 SOS_HTML       = STATIC_DIR / "babyshop-sos-dashboard.html"
 META_HTML      = STATIC_DIR / "babyshop-meta-dashboard.html"
 ECOM_HTML      = STATIC_DIR / "babyshop-ecom-dashboard.html"
+OPPS_HTML      = STATIC_DIR / "babyshop-opportunities.html"
 EXEC_PL_HTML   = STATIC_DIR / "babyshop-exec-pl.html"
 DAILY_PERF_HTML = STATIC_DIR / "babyshop-daily-perf.html"
 TABLE_TOOLS_JS = STATIC_DIR / "table-tools.js"
@@ -241,6 +242,11 @@ def ecom_dashboard(_: str = Depends(verify)):
     return FileResponse(ECOM_HTML, media_type="text/html")
 
 
+@app.get("/babyshop-opportunities.html")
+def opportunities_dashboard(_: str = Depends(verify)):
+    return FileResponse(OPPS_HTML, media_type="text/html")
+
+
 # Shared table filtering + export module, used by <script src="/table-tools.js">
 # on the dashboard pages. Same `verify` dependency as the HTML routes: the pages
 # are fetched with Basic credentials, so the browser replays them for this
@@ -331,6 +337,54 @@ def api_stoy_data(_: str = Depends(verify)):
     if data is None:
         return JSONResponse({"error": "no stoy snapshot yet"}, status_code=503)
     return data
+
+
+# ── Opportunities (business-development ledger) ──────────────────────────────
+# Read straight from Firestore, uncached: the ledger is a few dozen small
+# documents, and a decision made on the page has to show on the next load.
+def _opps_db():
+    """The cache's Firestore client in production; opp_ledger's own (ADC, then a
+    gcloud token) when the cache fell back to in-process, i.e. local dev."""
+    from funnel_client import get_firestore_db
+    db = get_firestore_db()
+    if db is None:
+        import opp_ledger
+        db = opp_ledger._db()
+    return db
+
+
+@app.get("/api/opportunities")
+def api_opportunities(_: str = Depends(verify)):
+    """The ranked opportunity ledger (shape: opp_ledger.payload())."""
+    import opp_ledger
+    try:
+        return opp_ledger.payload(_opps_db())
+    except Exception as e:
+        print(f"ERROR /api/opportunities: {type(e).__name__}: {e}", flush=True)
+        return JSONResponse({"error": "ledger unavailable"}, status_code=503)
+
+
+@app.post("/api/opportunities/{opp_id}/status")
+async def api_opportunity_status(opp_id: str, request: Request, user: str = Depends(verify)):
+    """Accept / reject / advance one opportunity. Body: {"status", "note"}.
+    A rejection needs a note — the reason is what keeps the item from returning."""
+    import opp_ledger
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "body must be JSON"}, status_code=400)
+    new_status, note = (body or {}).get("status"), ((body or {}).get("note") or "").strip() or None
+    if new_status not in opp_ledger.STATUSES:
+        return JSONResponse({"error": f"status must be one of {opp_ledger.STATUSES}"}, status_code=400)
+    if new_status == "rejected" and not note:
+        return JSONResponse({"error": "a rejection needs a note"}, status_code=400)
+    try:
+        return opp_ledger.set_status(_opps_db(), opp_id, new_status, note, by=user)
+    except KeyError:
+        return JSONResponse({"error": "unknown opportunity"}, status_code=404)
+    except Exception as e:
+        print(f"ERROR /api/opportunities status: {type(e).__name__}: {e}", flush=True)
+        return JSONResponse({"error": "ledger unavailable"}, status_code=503)
 
 
 @app.get("/api/shipping-test")

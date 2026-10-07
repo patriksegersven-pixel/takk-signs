@@ -51,6 +51,7 @@
     { id:'sos',       title:'Share of Search',   href:'/babyshop-sos-dashboard.html',       group:'core',     subtitle:'Share of Search' },
     { id:'inventory', title:'Inventory',         href:'/babyshop-inventory-dashboard.html', group:'core',     subtitle:'Inventory & Stockout Insights' },
     { id:'bundles',   title:'Bundles',           href:'/babyshop-bundles-dashboard.html',   group:'core',     subtitle:'Product Bundles' },
+    { id:'opps',      title:'Opportunities',     href:'/babyshop-opportunities.html',       group:'core',     subtitle:'Business Development Opportunities' },
     { id:'voyado',    title:'Email (Voyado)',    href:'/babyshop-voyado-dashboard.html',    group:'channels', subtitle:'Email · Voyado Engage' },
     { id:'meta',      title:'Meta creatives',    href:'/babyshop-meta-dashboard.html',      group:'channels', subtitle:'Meta · Creative Performance' },
     { id:'stoy',      title:'Stoy Test',         href:'/babyshop-stoy-dashboard.html',      group:'tests',    subtitle:'Stoy Funnel-Shift Test' },
