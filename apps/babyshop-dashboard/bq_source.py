@@ -192,25 +192,61 @@ KVD = ("SUM(rev) rev, SUM(rev)-COALESCE(SUM(ret),0) net_rev, "
 # The day pool includes Lekmer returns (Lekmer has no product rows), so the
 # product tab's total netting matches the KV Overview's.
 # kv_returns only populates from ~Sep 2025, so earlier days net to gross.
-def _pr_cte(where: str) -> str:
+# ── Product market scope ────────────────────────────────────────────────────
+# Product rows DO carry the KV market in `market_level_1_kv` (it is
+# `market_level_1` that is NULL on them): 'SE' / 'NO' / 'DK' / 'FI', plus one
+# rest-of-world bucket that the export has keyed two ways — 'ROW EUR' through
+# 2026-05-07 and NULL from 2026-05-08. PROD_MARKET_OTHER folds both into one
+# stable option, so the series does not break at the re-keying.
+PROD_MARKETS      = ("SE", "NO", "DK", "FI")
+PROD_MARKET_OTHER = "Other"
+
+def _pr_market_cond(market, alias=""):
+    """SQL predicate scoping rows to one product market, or None for all markets.
+
+    The value is checked against the whitelist and only constants are
+    interpolated, so no caller-supplied text reaches the SQL. The same predicate
+    fits KV rows: there the rest-of-world bucket is every per-country market
+    ('DE', 'KZ', …), which `NOT IN` the core four catches as well."""
+    if not market:
+        return None
+    col = f"{alias}market_level_1_kv"
+    if market in PROD_MARKETS:
+        return f"{col} = '{market}'"
+    if market == PROD_MARKET_OTHER:
+        core = "','".join(PROD_MARKETS)
+        return f"COALESCE({col}, '') NOT IN ('{core}')"
+    raise ValueError(f"unknown product market: {market!r}")
+
+def _pr_cte(where: str, market=None) -> str:
     """CTE `pr_rows`: the raw table plus `pr_ret_rate`, the day's returns ÷
     product revenue. Cost-only rows (NULL product revenue) pass through
     untouched — NULL × rate stays NULL, so gp3's shopping_cost keeps summing
-    over them. `where` must only constrain the date range."""
+    over them. `where` must only constrain the date range.
+
+    `market` (see _pr_market_cond) scopes all three CTEs: the market's own
+    product and shopping-cost rows, netted with the market's OWN day returns
+    over its own product revenue. Return rates differ a lot by market (SE ~14%,
+    DK ~7% of KV revenue), so the cross-market day rate would be wrong for any
+    single one. The markets still add up to the unscoped total: every return
+    lands in exactly one market's pool."""
+    mc = _pr_market_cond(market)
+    m  = f" AND {mc}" if mc else ""
+    mt = f" AND {_pr_market_cond(market, 't.')}" if mc else ""
     return f"""
     pr_ret AS (
       SELECT Date d, SUM(kv_returns) ret
-      FROM `{BQ_TABLE}` WHERE {where} GROUP BY d),
+      FROM `{BQ_TABLE}` WHERE {where}{m} GROUP BY d),
     pr_base AS (
       SELECT Date d, SUM(kv_revenue_product) rev
-      FROM `{BQ_TABLE}` WHERE {where} GROUP BY d
+      FROM `{BQ_TABLE}` WHERE {where}{m} GROUP BY d
       HAVING SUM(kv_revenue_product) > 0),
     pr_rows AS (
       SELECT t.*, COALESCE(r.ret / b.rev, 0) AS pr_ret_rate
       FROM `{BQ_TABLE}` t
       LEFT JOIN pr_base b ON b.d = t.Date
       LEFT JOIN pr_ret  r ON r.d = t.Date
-      WHERE {where})
+      WHERE {where}{mt})
     """
 
 # Product aggregate — SELECT from `pr_rows` (never the raw table), so rev/gp1
@@ -343,9 +379,10 @@ def _merge_prod(cur, prev):
                     "gp3_prev": I(p["gp3"]) if p else None})
     return out
 
-def _prod_dim(col, cs, ce, ps, pe, limit=1000):
+def _prod_dim(col, cs, ce, ps, pe, limit=1000, market=None):
     """Per-value product P&L for one dimension (brand / category), every row that
     has revenue — the dashboard tables are scrollable, so they show the full list.
+    `market` scopes it to one product market (see _pr_market_cond).
 
     `limit` is a defensive ceiling, not a top-N: at ~180 B/row a full brand list
     is a couple of hundred KB, which is fine over HTTP and still leaves the
@@ -356,13 +393,31 @@ def _prod_dim(col, cs, ce, ps, pe, limit=1000):
         # Blank-dimension rows are ~97% shipping-fee line items (zero COGS, so
         # they'd show ~100% GM1 as 'Uncategorised') — label them by their title
         # instead; only the truly blank remainder stays 'Uncategorised'.
-        sql = (f"WITH {_pr_cte('Date BETWEEN @cs AND @ce')} "
+        sql = (f"WITH {_pr_cte('Date BETWEEN @cs AND @ce', market)} "
                f"SELECT COALESCE(NULLIF({col}, ''), "
                f"IF(LOWER(Product_title__File_Import) = 'shipping charge', 'Shipping charge', NULL), "
                f"'Uncategorised') name, {PR} FROM pr_rows "
                f"GROUP BY name HAVING SUM(kv_revenue_product) > 0 ORDER BY rev DESC LIMIT {limit}")
         return _rows(sql, _p(s, e, s, e))
     return _merge_prod(q(cs, ce), q(ps, pe))
+
+PROD_LONG_START = datetime.date(2025, 1, 1)
+
+def product_daily_long(market, end: datetime.date | None = None):
+    """Product daily totals for ONE market, 2025 → `end` (default yesterday) — the
+    same row shape as product-overview's `daily_long`, which the products tab
+    swaps this in for while a market filter is active."""
+    if not _pr_market_cond(market):
+        raise ValueError("market is required")
+    end = end or (datetime.date.today() - datetime.timedelta(days=1))
+    params = [bigquery.ScalarQueryParameter("start", "DATE", PROD_LONG_START),
+              bigquery.ScalarQueryParameter("end", "DATE", end)]
+    rows = _rows(f"WITH {_pr_cte('Date BETWEEN @start AND @end', market)} "
+                 f"SELECT CAST(Date AS STRING) d, {PR} FROM pr_rows GROUP BY d ORDER BY d",
+                 params)
+    return [{"iso": r["d"], "revenue": I(r["rev"]), "net_revenue": I(r["net_rev"]),
+             "cogs": I(r["cogs"]),
+             "gp1": I(r["gp1"]), "gp2": I(r["gp2"]), "gp3": I(r["gp3"])} for r in rows]
 
 def build_payloads(cur_end: datetime.date | None = None):
     ce = cur_end or (datetime.date.today() - datetime.timedelta(days=1))

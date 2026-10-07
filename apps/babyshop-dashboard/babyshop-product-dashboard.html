@@ -152,6 +152,7 @@
       border-color: var(--accent);
       color: var(--accent); font-weight: 600;
     }
+    .filter-select.is-loading { opacity: .55; cursor: progress; }
     .filter-select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
     .filter-reset {
       font-family: inherit; font-size: 11px; font-weight: 500;
@@ -479,6 +480,17 @@
 
   <!-- ── Filter row ─────────────────────────────────── -->
   <div class="filter-row" id="filter-row">
+    <div class="filter-group">
+      <span class="filter-label" title="cf1j1qh36fictd7_market_level_1_kv">Market</span>
+      <select class="filter-select" id="f-market">
+        <option value="">All markets</option>
+        <option value="SE">SE</option>
+        <option value="NO">NO</option>
+        <option value="DK">DK</option>
+        <option value="FI">FI</option>
+        <option value="Other" title="Every market outside SE / NO / DK / FI">Other</option>
+      </select>
+    </div>
     <div class="filter-group">
       <span class="filter-label" title="dim-1j4p9puragt0f_kv_brand">Brand</span>
       <div class="search-select" id="ss-brand">
@@ -1434,7 +1446,11 @@ async function fetchLiveAndOverlay() {
     }
     if (Array.isArray(live.categories)) CATEGORIES.splice(0, CATEGORIES.length, ...live.categories);
     if (Array.isArray(live.brands))     BRANDS.splice    (0, BRANDS.length,     ...live.brands);
-    if (Array.isArray(live.daily_long)) DAILY_LONG = live.daily_long;   // real long daily series
+    if (Array.isArray(live.daily_long)) {                               // real long daily series
+      DAILY_LONG_ALL = live.daily_long;
+      // A market picked before the snapshot landed keeps its own series.
+      if (!marketFilter) DAILY_LONG = DAILY_LONG_ALL;
+    }
     if (typeof _setDateMax === 'function') _setDateMax(_dataEndDate());
 
     // Long-term chart follows the daily series — rebuild its monthly totals
@@ -1548,6 +1564,49 @@ document.getElementById('d-end').addEventListener('change', () => {
 
 /* ─── Filter (brand / category) ───────────────────── */
 let filter = { brand: '', category: '' };
+
+/* ─── Market scope ─────────────────────────────────────
+ * Unlike brand/category — which pick one row out of the loaded tables — a market
+ * changes what gets loaded: DAILY_LONG is swapped for that market's own daily
+ * series (/api/product-market) and the brand/category tables are re-queried with
+ * &market=. Everything downstream (KPIs, bridge, long-term chart, the brand and
+ * category filters) then simply reads the scoped data. Var, not let: the live
+ * overlay above runs before this line and reads both. */
+var marketFilter = '';
+var DAILY_LONG_ALL = DAILY_LONG;          // the all-markets series, kept for the way back
+const _marketSeries = {};                 // market → daily_long, fetched once per page load
+let _mkSeq = 0;
+
+async function setMarket(val) {
+  const sel = document.getElementById('f-market');
+  const seq = ++_mkSeq;
+  let series = val ? _marketSeries[val] : DAILY_LONG_ALL;
+  if (!series) {
+    sel.classList.add('is-loading');
+    try {
+      const res = await fetch('/api/product-market?market=' + encodeURIComponent(val), { cache: 'no-store' });
+      const d = res.ok ? await res.json() : null;
+      if (d && Array.isArray(d.daily_long) && d.daily_long.length) series = _marketSeries[val] = d.daily_long;
+    } catch (e) { /* handled below */ }
+    if (seq !== _mkSeq) return;                         // a later pick superseded this one
+    sel.classList.remove('is-loading');
+    if (!series) {                                      // keep showing what the data on screen is
+      sel.value = marketFilter;
+      sel.title = `Could not load ${val} — still showing ${marketFilter || 'all markets'}`;
+      return;
+    }
+  }
+  sel.classList.remove('is-loading');
+  sel.title = '';
+  sel.value = val;
+  marketFilter = val;
+  DAILY_LONG = series;
+  _setDateMax(_dataEndDate());
+  if (typeof refreshLTFromDaily === 'function') refreshLTFromDaily();
+  applyFilter();
+  loadBreakdown();
+}
+document.getElementById('f-market').addEventListener('change', e => setMarket(e.target.value));
 
 /* ─── Custom searchable dropdown (for long lists like brands) ── */
 class SearchSelect {
@@ -1703,7 +1762,8 @@ async function loadBreakdown(){
     return;
   }
   const q = `/api/breakdown?dataset=product&start=${_isoLocal(r.start)}&end=${_isoLocal(r.end)}`
-          + `&cstart=${_isoLocal(c.start)}&cend=${_isoLocal(c.end)}`;
+          + `&cstart=${_isoLocal(c.start)}&cend=${_isoLocal(c.end)}`
+          + (marketFilter ? `&market=${encodeURIComponent(marketFilter)}` : '');
   const seq = ++_bkSeq;
   try {
     const res = await fetch(q, { cache:'no-store' });
@@ -1730,10 +1790,12 @@ function applyFilter() {
   // Visual active state — brand uses SearchSelect, category is a native <select>
   if (brandSelect) brandSelect.button.classList.toggle('is-active', !!filter.brand);
   document.getElementById('f-category').classList.toggle('is-active', !!filter.category);
+  document.getElementById('f-market').classList.toggle('is-active', !!marketFilter);
 
   const pill = document.getElementById('filter-pill');
-  if (activeKey) {
-    pill.textContent = `${activeKey}: ${activeVal}`;
+  if (activeKey || marketFilter) {
+    pill.textContent = [marketFilter && `market: ${marketFilter}`,
+                        activeKey && `${activeKey}: ${activeVal}`].filter(Boolean).join(' · ');
     pill.style.display = 'inline-block';
   } else {
     pill.style.display = 'none';
@@ -1768,6 +1830,10 @@ function applyFilter() {
         gp3:     cmpBase.gp3     * share,
       };
       TOTALS = { cur, prev };
+    } else {
+      // The picked brand/category has no rows in this market or period — blank
+      // the cards rather than leave the previous selection's totals standing.
+      TOTALS = { cur: _noTotals(), prev: _noTotals() };
     }
   }
   updateDateChip();
@@ -1798,7 +1864,8 @@ document.getElementById('filter-reset').addEventListener('click', () => {
   filter = { brand: '', category: '' };
   if (brandSelect) brandSelect.setValue('', false);
   document.getElementById('f-category').value = '';
-  applyFilter();
+  if (marketFilter || document.getElementById('f-market').value) setMarket('');   // re-renders + reloads the tables
+  else applyFilter();
 });
 
 populateFilters();

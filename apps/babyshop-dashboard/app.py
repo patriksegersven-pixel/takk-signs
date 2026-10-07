@@ -1080,12 +1080,17 @@ def api_breakdown(dataset: str, start: str, end: str, cstart: str, cend: str,
 
     market/shop/channel (kv only) scope every table to that AND-combination, so an
     active report filter reaches the breakdowns too instead of leaving them showing
-    all markets while the KPI cards show one."""
+    all markets while the KPI cards show one.
+
+    For dataset=product only `market` applies, and it takes the product market
+    options (bq_source.PROD_MARKETS + PROD_MARKET_OTHER)."""
     import datetime as _dt
     try:
         import bq_source as bs
         cs, ce = _dt.date.fromisoformat(start), _dt.date.fromisoformat(end)
         ps, pe = _dt.date.fromisoformat(cstart), _dt.date.fromisoformat(cend)
+        if dataset == "product":
+            bs._pr_market_cond(market)              # rejects an unknown market
     except Exception as e:
         return JSONResponse({"error": f"bad params: {e}"}, status_code=400)
     try:
@@ -1093,8 +1098,8 @@ def api_breakdown(dataset: str, start: str, end: str, cstart: str, cend: str,
             return {
                 # LOWER(kv_brand): unify the casing split (revenue on 'kuling',
                 # some ad cost on 'Kuling') so each brand is one complete row.
-                "brands":     bs._prod_dim("LOWER(kv_brand)", cs, ce, ps, pe),
-                "categories": bs._prod_dim("Product_type_2", cs, ce, ps, pe),
+                "brands":     bs._prod_dim("LOWER(kv_brand)", cs, ce, ps, pe, market=market),
+                "categories": bs._prod_dim("Product_type_2", cs, ce, ps, pe, market=market),
             }
         if dataset == "kv":
             f = {"market": market, "shop": shop, "channel": channel}
@@ -1106,6 +1111,37 @@ def api_breakdown(dataset: str, start: str, end: str, cstart: str, cend: str,
         return JSONResponse({"error": "dataset must be 'product' or 'kv'"}, status_code=400)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# One long-range BigQuery scan per market per TTL; the snapshot behind the
+# unfiltered tab refreshes hourly, so a filtered view is never staler than that.
+_PRODUCT_MARKET_TTL = 15 * 60
+_product_market_cache: dict = {}
+
+
+@app.get("/api/product-market")
+def api_product_market(market: str, _: str = Depends(verify)):
+    """Product daily series (2025 → yesterday) for ONE market, computed live from
+    BigQuery — what the products tab swaps in for the snapshot's all-markets
+    `daily_long` while its market filter is active. The per-period brand and
+    category tables come from /api/breakdown?dataset=product&market=…"""
+    import time as _time
+    import bq_source as bs
+    if market not in bs.PROD_MARKETS + (bs.PROD_MARKET_OTHER,):
+        return JSONResponse({"error": "unknown market",
+                             "markets": list(bs.PROD_MARKETS) + [bs.PROD_MARKET_OTHER]},
+                            status_code=400)
+    hit = _product_market_cache.get(market)
+    if hit and _time.time() - hit[0] < _PRODUCT_MARKET_TTL:
+        return hit[1]
+    try:
+        days = bs.product_daily_long(market)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    payload = {"market": market, "daily_long": days,
+               "data_end": days[-1]["iso"] if days else None, "source": bs.SOURCE}
+    _product_market_cache[market] = (_time.time(), payload)
+    return payload
 
 
 @app.get("/api/filtered")
