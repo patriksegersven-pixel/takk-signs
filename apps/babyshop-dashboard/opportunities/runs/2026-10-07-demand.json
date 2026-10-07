@@ -1,0 +1,390 @@
+{
+ "lens": "demand",
+ "run_date": "2026-10-07",
+ "candidates": [
+  {
+   "lever": "own-brand-footwear-exposure",
+   "scope": {
+    "markets": [
+     "NO",
+     "FI",
+     "DK"
+    ],
+    "category": "footwear (functional trainers, rubber boots, snow boots)",
+    "brand": "Kuling",
+    "segment": null
+   },
+   "title": "Push Kuling footwear in NO, FI and DK to close the gap to Sweden",
+   "hypothesis": "Shoppers outside Sweden look for children's footwear almost as often as Swedes do, but buy it from low-margin third-party brands (Reima, Viking, Kavat) instead of Kuling. In SE Kuling footwear is 10.8% of revenue and outsells third-party footwear 2:1; in NO it is 5.3% and in FI 4.0%, where third-party footwear outsells Kuling. The products are listed in every market, so this is an exposure and awareness gap, not an assortment gap.",
+   "action": "Give Kuling trainers, rubber boots and snow boots the top slots on footwear category and footwear search pages in NO/FI/DK, add a Kuling footwear block to seasonal landing pages and newsletters, and give the Kuling footwear Shopping products their own budget line for the Oct-Dec snow-boot season.",
+   "evidence": [
+    {
+     "claim": "Oct 2025-Sep 2026, Kuling footwear (3 categories) as share of Babyshop revenue: SE 10.78%, NO 5.32%, FI 4.00%, DK 2.10%; third-party footwear share is similar everywhere (SE 5.38%, NO 6.12%, FI 6.58%). Kuling footwear ladder-consistent GP2: NO 114 374, FI 17 160, DK 7 488 SEK/month.",
+     "sql": "WITH lad AS (SELECT market, SUM(gp1)-SUM(cost_shipping)-SUM(gp2) other_cost, SUM(revenue) lrev, SUM(gp2) lgp2 FROM `claude-private-499703.babyshop_marts.agg_daily_profit_ladder` WHERE date BETWEEN '2025-10-01' AND '2026-09-30' AND shop='babyshop' AND market IN ('SE','NO','FI','DK') GROUP BY 1), kp AS (SELECT market, LOWER(TRIM(brand))='kuling' is_k, category IN ('Functional Trainers','Rubber Boots','Snow Boots') is_fw, SUM(revenue) rev, SUM(gp1) gp1, SUM(shipping_cost) ship, SUM(supplement_cost) supp FROM `claude-private-499703.babyshop_marts.agg_daily_kuvio_products` WHERE date BETWEEN '2025-10-01' AND '2026-09-30' AND shop='babyshop' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2,3), kk AS (SELECT kp.market, ANY_VALUE(other_cost)/SUM(supp) kval, SUM(rev) tot FROM kp JOIN lad USING (market) GROUP BY 1) SELECT kp.market, is_k, is_fw, ROUND(rev/12) rev_m, ROUND(100*rev/tot,2) pct_of_market_rev, ROUND((gp1-ship-supp*kval)/12) gp2adj_m, ROUND((gp1-ship-supp*kval)/rev,3) gp2adj_margin, ROUND(kval,3) k FROM kp JOIN kk USING (market) ORDER BY 1,2,3",
+     "n": 4226000
+    },
+    {
+     "claim": "The gap holds in every one of four quarters. Functional trainers Kuling share of market revenue Q3-26: SE 7.31%, NO 3.63%, FI 2.32%, DK 0.55% (Q3-25: 6.40/2.99/1.98/0.24). Snow boots Q4-25: SE 12.98%, NO 6.15%, FI 4.75%, DK 3.36%. Rubber boots Q3-26: SE 2.89%, NO 1.24%, FI 1.19%, DK 0.43%.",
+     "sql": "WITH x AS (SELECT CASE WHEN date BETWEEN '2026-07-01' AND '2026-09-30' THEN 'q3_26' WHEN date BETWEEN '2026-04-01' AND '2026-06-30' THEN 'q2_26' WHEN date BETWEEN '2025-10-01' AND '2025-12-31' THEN 'q4_25' ELSE 'q3_25' END p, market, CASE WHEN category='Functional Trainers' THEN 'functional_trainers' WHEN category='Snow Boots' THEN 'snow_boots' WHEN category='Rubber Boots' THEN 'rubber_boots' ELSE 'other' END cat, LOWER(brand)='kuling' is_k, SUM(revenue) r FROM `claude-private-499703.babyshop_marts.agg_daily_kuvio_products` WHERE ((date BETWEEN '2026-04-01' AND '2026-09-30') OR (date BETWEEN '2025-07-01' AND '2025-12-31')) AND shop='babyshop' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2,3,4), t AS (SELECT p, market, SUM(r) tot FROM x GROUP BY 1,2) SELECT p, cat, market, ROUND(SUM(IF(is_k,r,0))/3) kuling_rev_m, ROUND(SUM(IF(NOT is_k,r,0))/3) other_rev_m, ROUND(100*SUM(IF(is_k,r,0))/ANY_VALUE(tot),2) kuling_pct, ROUND(100*SUM(IF(NOT is_k,r,0))/ANY_VALUE(tot),2) other_pct FROM x JOIN t USING (p,market) WHERE cat!='other' GROUP BY 1,2,3 ORDER BY 2,1,3",
+     "n": 12
+    },
+    {
+     "claim": "Footwear words are 5.3-6.3% of FI and 6.3-7.0% of NO search-page users per month in Jul-Sep 2026 versus 7.8-10.2% in SE - i.e. footwear search interest is roughly 65-75% of the Swedish level while Kuling footwear revenue share is 37-52% of it.",
+     "sql": "WITH s AS ( SELECT date_day, CASE REGEXP_EXTRACT(pagePath, r'^/([a-z]{2}-[a-z]{2})/search/') WHEN 'sv-se' THEN 'SE' WHEN 'nb-no' THEN 'NO' WHEN 'fi-fi' THEN 'FI' WHEN 'da-dk' THEN 'DK' END AS market, TRIM(REGEXP_REPLACE(LOWER(REGEXP_EXTRACT(pagePath, r'^/[a-z]{2}-[a-z]{2}/search/([^/?]*)')), r'\\s+', ' ')) AS term, eventCount, totalUsers FROM `claude-private-499703.babyshop_raw.event_by_source_page_daily_native` WHERE date_day BETWEEN '2026-07-01' AND '2026-09-30' AND eventName = 'page_view' AND REGEXP_CONTAINS(pagePath, r'^/(sv-se|nb-no|fi-fi|da-dk)/search/') ) SELECT market, FORMAT_DATE('%m',date_day) m, SUM(totalUsers) u, ROUND(100*SUM(IF(STRPOS(term,'kuling')>0,totalUsers,0))/SUM(totalUsers),2) kuling_pct, ROUND(100*SUM(IF(REGEXP_CONTAINS(term, r'sko|stövl|støvl|sneaker|känga|kängor|kenk|kengä|saappa|lenkkar|tossu|støvle|boots|sandal|tofflor|tøfler'),totalUsers,0))/SUM(totalUsers),2) footwear_pct, ROUND(100*SUM(IF(REGEXP_CONTAINS(term, r'reima|konges|molo|wheat|mini rodini|bobo|liewood|joha|viking|didriksons|kavat|bugaboo|flöss|floss|marmar|mini a ture|name it|tretorn|new balance'),totalUsers,0))/SUM(totalUsers),2) top_tp_brand_pct FROM s GROUP BY 1,2 ORDER BY 1,2",
+     "n": 328593
+    },
+    {
+     "claim": "In FI the largest footwear brand is Reima (66 918 SEK/month, GP1 39%) ahead of Kuling (58 149, GP1 58%); in NO Viking + Reima + Kavat sell 245 230 SEK/month against Kuling 266 396 (GP1 69% vs 39-47%).",
+     "sql": "SELECT market, LOWER(brand) brand, ROUND(SUM(revenue)/12) rev_m, ROUND(SUM(gp1)/SUM(revenue),2) gp1p FROM `claude-private-499703.babyshop_marts.agg_daily_kuvio_products` WHERE date BETWEEN '2025-10-01' AND '2026-09-30' AND shop='babyshop' AND market IN ('FI','NO') AND category IN ('Functional Trainers','Rubber Boots','Snow Boots') GROUP BY 1,2 QUALIFY ROW_NUMBER() OVER (PARTITION BY market ORDER BY SUM(revenue) DESC)<=6 ORDER BY 1,3 DESC",
+     "n": 12
+    },
+    {
+     "claim": "Kuling trainers are listed in Shopping in all markets (112-189 item ids each) but get 9.7% of SE Shopping spend, 4.6% of NO, 3.0% of FI and 1.3% of DK (Q3-26 spend 351 604 / 88 594 / 13 495 / 4 849 SEK).",
+     "sql": "SELECT market, COUNT(DISTINCT product_item_id) items, ROUND(SUM(ad_spend)) spend, SUM(clicks) clicks, ROUND(SUM(conversion_value)) cv FROM `claude-private-499703.babyshop_marts.agg_daily_kpis_by_gads_product` WHERE date BETWEEN '2026-07-01' AND '2026-09-30' AND market IN ('SE','NO','FI','DK') AND LOWER(product_brand)='kuling' AND REGEXP_CONTAINS(LOWER(CONCAT(IFNULL(product_type_l1,''),IFNULL(product_type_l2,''),IFNULL(product_type_l3,''),IFNULL(product_title,''))), r'sneaker|trainer|lenkkar|välikausiken|joggesko') GROUP BY 1",
+     "n": 4
+    }
+   ],
+   "replication": "Same ordering SE > NO > FI > DK in Q3 2025, Q4 2025, Q2 2026 and Q3 2026, and in all three footwear categories separately.",
+   "sizing": {
+    "driver": "traffic",
+    "baseline_month_sek": 139022,
+    "baseline_note": "Ladder-consistent GP2 of Kuling functional trainers + rubber boots + snow boots in NO (114 374), FI (17 160) and DK (7 488), monthly average Oct 2025-Sep 2026, shop babyshop. GP2 by brand is 'ladder-consistent': agg_daily_kuvio_products.gp1 - shipping_cost - supplement_cost x k, where k per market and period scales product-level supplement_cost down so that brand GP2 sums to agg_daily_profit_ladder.gp2 (k = 0.59-0.81). Raw product-level gp2 is 20-57% below the ladder.",
+    "fi_baseline_month_sek": 17160,
+    "uplift_low": 0.1,
+    "uplift_base": 0.25,
+    "uplift_high": 0.5,
+    "uplift_rationale": "+25% moves NO from 5.3% to ~6.7% of revenue and FI from 4.0% to ~5.0%, i.e. closes about a quarter of the gap to Sweden's 10.8%. High case closes half of the NO gap. Low case is what merchandising slots alone might do without media.",
+    "flow_through": 0.8,
+    "evidence_grade": "cross_market"
+   },
+   "effort": "M",
+   "owner": "merchandising",
+   "rollout": "fi_pilot",
+   "pilot": {
+    "metric": "Kuling footwear revenue as % of FI Babyshop revenue (snow boots + rubber boots + functional trainers)",
+    "weeks": 6,
+    "control": "NO and DK same period, plus FI Q4 2025 share (snow boots 4.75%)",
+    "decision_rule": "Roll out to NO/DK if the FI Kuling footwear share rises by at least 1.0 percentage point versus the change in NO over the same weeks, without total FI footwear GP2 falling."
+   },
+   "risks": "Part of the uplift cannibalises third-party footwear (5-14% GP2 margin), hence flow_through 0.8. The Swedish position may rest on brand awareness and a Swedish 'best in test' result (138 SE search users for 'best in test') that cannot be copied quickly. FI-specific: SEK/10 pricing may make Kuling boots look expensive next to Reima/Kuoma, and FI base is small (about 130 pairs/month outside Q4), so the pilot must run in snow-boot season. Overlaps with any ads-lens candidate on own-brand budget share.",
+   "curator_note": "Brand-level GP2 is rescaled so that brands sum to the profit ladder; the rescale assumes product-level costs are overstated equally for every brand. DK footwear (about 7 500 kr of baseline) is also inside the Danish Kuling item."
+  },
+  {
+   "lever": "own-brand-exposure",
+   "scope": {
+    "markets": [
+     "DK"
+    ],
+    "category": null,
+    "brand": "Kuling",
+    "segment": null
+   },
+   "title": "Give Kuling more of the Danish shop window",
+   "hypothesis": "Danish shoppers arrive looking for Danish brands (27-29% of DK search-page users type one of the big third-party brand names versus 9-13% in SE) and Kuling gets only 28% of product views in DK against 53-58% in SE/FI. When Danes do see Kuling they buy it at least as readily as Swedes, and Kuling carries roughly twice the GP2 margin of the rest of the DK basket, so each point of mix moved to Kuling adds margin.",
+   "action": "Rank Kuling first on DK category and generic search pages (regntøj, flyverdragt, termotøj, gummistøvler), add Kuling cross-sell on Konges Sløjd / Wheat / Flöss brand pages, and raise the Kuling share of DK Shopping budget.",
+   "evidence": [
+    {
+     "claim": "Kuling share of GA4 product views Q3-26: DK 27.5% (121 704 of 442 007), NO 41.7%, FI 53.1%, SE 57.7%. Q2-26: DK 18.0%, NO 30.3%, FI 36.4%, SE 43.0%.",
+     "sql": "SELECT market, IF(date>='2026-07-01','q3','q2') q, CASE WHEN LOWER(item_brand)='kuling' THEN 'kuling' WHEN LOWER(item_brand)='stoy' THEN 'stoy' ELSE 'tp' END g, SUM(items_viewed) views, SUM(items_purchased) purch, ROUND(SUM(item_revenue)) rev, ROUND(100*SUM(items_purchased)/NULLIF(SUM(items_viewed),0),2) p_per_100v, ROUND(SUM(item_revenue)/NULLIF(SUM(items_viewed),0),1) rev_per_view FROM `claude-private-499703.babyshop_marts.agg_daily_kpis_by_brand` WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2,3 ORDER BY 1,2,3",
+     "n": 442007
+    },
+    {
+     "claim": "Kuling converts better per view in DK than in SE: 3.61 purchases and 13.3 SEK revenue per 100/1 views in DK versus 2.85 and 10.2 in SE (Q3-26); Q2-26 3.38 vs 3.14 and 10.9 vs 9.2 SEK.",
+     "sql": "SELECT market, IF(date>='2026-07-01','q3','q2') q, CASE WHEN LOWER(item_brand)='kuling' THEN 'kuling' WHEN LOWER(item_brand)='stoy' THEN 'stoy' ELSE 'tp' END g, SUM(items_viewed) views, SUM(items_purchased) purch, ROUND(SUM(item_revenue)) rev, ROUND(100*SUM(items_purchased)/NULLIF(SUM(items_viewed),0),2) p_per_100v, ROUND(SUM(item_revenue)/NULLIF(SUM(items_viewed),0),1) rev_per_view FROM `claude-private-499703.babyshop_marts.agg_daily_kpis_by_brand` WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2,3 ORDER BY 1,2,3",
+     "n": 4392
+    },
+    {
+     "claim": "Kuling share of Babyshop revenue Q3-26: DK 19.7%, NO 36.9%, FI 48.3%, SE 55.1%; DK has been the lowest of the four in each of the last seven quarters.",
+     "sql": "SELECT market, FORMAT_DATE('%Y-Q%Q',date) q, ROUND(SUM(revenue)/3) rev_m, ROUND(SUM(IF(LOWER(brand)='kuling',revenue,0))/SUM(revenue),3) kuling_share, ROUND(SUM(IF(LOWER(brand)='stoy',revenue,0))/SUM(revenue),3) stoy_share FROM `claude-private-499703.babyshop_marts.agg_daily_kuvio_products` WHERE date BETWEEN '2025-01-01' AND '2026-09-30' AND shop='babyshop' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2 ORDER BY 1,2",
+     "n": 28
+    },
+    {
+     "claim": "DK Oct 2025-Sep 2026: Kuling ladder-consistent GP2 margin 39.2% (103 520 on 264 041 SEK/month) versus 17.7% for everything else including Stoy (181 398 on 1 025 180).",
+     "sql": "WITH lad AS (SELECT market, SUM(gp1)-SUM(cost_shipping)-SUM(gp2) other_cost, SUM(revenue) lrev, SUM(gp2) lgp2 FROM `claude-private-499703.babyshop_marts.agg_daily_profit_ladder` WHERE date BETWEEN '2025-10-01' AND '2026-09-30' AND shop='babyshop' AND market IN ('SE','NO','FI','DK') GROUP BY 1), kp AS (SELECT market, LOWER(TRIM(brand))='kuling' is_k, category IN ('Functional Trainers','Rubber Boots','Snow Boots') is_fw, SUM(revenue) rev, SUM(gp1) gp1, SUM(shipping_cost) ship, SUM(supplement_cost) supp FROM `claude-private-499703.babyshop_marts.agg_daily_kuvio_products` WHERE date BETWEEN '2025-10-01' AND '2026-09-30' AND shop='babyshop' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2,3), kk AS (SELECT kp.market, ANY_VALUE(other_cost)/SUM(supp) kval, SUM(rev) tot FROM kp JOIN lad USING (market) GROUP BY 1) SELECT kp.market, is_k, is_fw, ROUND(rev/12) rev_m, ROUND(100*rev/tot,2) pct_of_market_rev, ROUND((gp1-ship-supp*kval)/12) gp2adj_m, ROUND((gp1-ship-supp*kval)/rev,3) gp2adj_margin, ROUND(kval,3) k FROM kp JOIN kk USING (market) ORDER BY 1,2,3",
+     "n": 4
+    },
+    {
+     "claim": "Third-party brand names are 26.7-28.7% of DK search-page users per month (Jul-Sep 2026) versus 9.2-13.4% in SE; 'kuling' is in 7.5-9.5% of DK search users versus 10.1-12.5% in SE.",
+     "sql": "WITH s AS ( SELECT date_day, CASE REGEXP_EXTRACT(pagePath, r'^/([a-z]{2}-[a-z]{2})/search/') WHEN 'sv-se' THEN 'SE' WHEN 'nb-no' THEN 'NO' WHEN 'fi-fi' THEN 'FI' WHEN 'da-dk' THEN 'DK' END AS market, TRIM(REGEXP_REPLACE(LOWER(REGEXP_EXTRACT(pagePath, r'^/[a-z]{2}-[a-z]{2}/search/([^/?]*)')), r'\\s+', ' ')) AS term, eventCount, totalUsers FROM `claude-private-499703.babyshop_raw.event_by_source_page_daily_native` WHERE date_day BETWEEN '2026-07-01' AND '2026-09-30' AND eventName = 'page_view' AND REGEXP_CONTAINS(pagePath, r'^/(sv-se|nb-no|fi-fi|da-dk)/search/') ) SELECT market, FORMAT_DATE('%m',date_day) m, SUM(totalUsers) u, ROUND(100*SUM(IF(STRPOS(term,'kuling')>0,totalUsers,0))/SUM(totalUsers),2) kuling_pct, ROUND(100*SUM(IF(REGEXP_CONTAINS(term, r'sko|stövl|støvl|sneaker|känga|kängor|kenk|kengä|saappa|lenkkar|tossu|støvle|boots|sandal|tofflor|tøfler'),totalUsers,0))/SUM(totalUsers),2) footwear_pct, ROUND(100*SUM(IF(REGEXP_CONTAINS(term, r'reima|konges|molo|wheat|mini rodini|bobo|liewood|joha|viking|didriksons|kavat|bugaboo|flöss|floss|marmar|mini a ture|name it|tretorn|new balance'),totalUsers,0))/SUM(totalUsers),2) top_tp_brand_pct FROM s GROUP BY 1,2 ORDER BY 1,2",
+     "n": 25712
+    },
+    {
+     "claim": "DK Shopping Q3-26: own brands get 42% of spend (50 619 of 121 047 SEK/month) and return 259 277 SEK ladder-consistent GP2 (5.1x); third-party brands get 58% and return 78 594 (1.1x). Q2-26: 3.5x versus 1.7x.",
+     "sql": "WITH lad AS (SELECT market, IF(date>='2026-07-01','q3','q2') q, SUM(gp1)-SUM(cost_shipping)-SUM(gp2) other_cost FROM `claude-private-499703.babyshop_marts.agg_daily_profit_ladder` WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND shop IN ('babyshop','lekmer') AND market IN ('SE','NO','FI','DK') GROUP BY 1,2), kp AS (SELECT market, IF(date>='2026-07-01','q3','q2') q, LOWER(TRIM(brand)) brand, SUM(revenue) rev, SUM(gp1) gp1, SUM(shipping_cost) ship, SUM(supplement_cost) supp, SUM(gp2) gp2_raw FROM `claude-private-499703.babyshop_marts.agg_daily_kuvio_products` WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2,3), k AS (SELECT kp.market, kp.q, ANY_VALUE(lad.other_cost)/SUM(kp.supp) k FROM kp JOIN lad USING (market,q) GROUP BY 1,2), p AS (SELECT kp.*, k.k, kp.gp1-kp.ship-kp.supp*k.k gp2_adj FROM kp JOIN k USING (market,q)), a AS (SELECT market, LOWER(TRIM(product_brand)) brand, IF(date>='2026-07-01','q3','q2') q, SUM(ad_spend) spend, SUM(clicks) clicks, SUM(conversion_value) cv FROM `claude-private-499703.babyshop_marts.agg_daily_kpis_by_gads_product` WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2,3), j AS (SELECT COALESCE(a.market,p.market) market, COALESCE(a.brand,p.brand) brand, COALESCE(a.q,p.q) q, IFNULL(spend,0) spend, IFNULL(cv,0) cv, IFNULL(rev,0) rev, IFNULL(gp1,0) gp1, IFNULL(gp2_adj,0) gp2, IFNULL(gp2_raw,0) gp2_raw FROM a FULL JOIN p USING (market, brand, q)) SELECT q, market, CASE WHEN brand IN ('kuling','stoy') THEN 'own' WHEN spend<1500 THEN 'tp_spend_lt_500pm' WHEN gp2<=0 THEN 'tp_gp2_neg' WHEN gp2<spend THEN 'tp_gp2_lt_spend' ELSE 'tp_ok' END grp, COUNT(*) brands, ROUND(SUM(spend)/3) spend_m, ROUND(SUM(cv)/3) gads_cv_m, ROUND(SUM(rev)/3) rev_m, ROUND(SUM(gp1)/3) gp1_m, ROUND(SUM(gp2)/3) gp2adj_m, ROUND(SUM(gp2_raw)/3) gp2raw_m FROM j GROUP BY 1,2,3 ORDER BY 2,1,3",
+     "n": 179
+    }
+   ],
+   "replication": "View-share gap and the better DK conversion per Kuling view both hold in Q2 2026 and Q3 2026; revenue-share gap holds since Q1 2025.",
+   "sizing": {
+    "driver": "margin",
+    "baseline_month_sek": 1289221,
+    "baseline_note": "DK Babyshop revenue, monthly average Oct 2025-Sep 2026 (agg_daily_kuvio_products, matches the ladder). Uplift is margin points on that revenue from shifting mix to Kuling: each 1 point of revenue moved from non-Kuling (17.7% GP2 margin) to Kuling (39.2%) adds 0.215 margin points. GP2 by brand is 'ladder-consistent': agg_daily_kuvio_products.gp1 - shipping_cost - supplement_cost x k, where k per market and period scales product-level supplement_cost down so that brand GP2 sums to agg_daily_profit_ladder.gp2 (k = 0.59-0.81). Raw product-level gp2 is 20-57% below the ladder.",
+    "fi_baseline_month_sek": 0,
+    "uplift_low": 0.0043,
+    "uplift_base": 0.0108,
+    "uplift_high": 0.0215,
+    "uplift_rationale": "Low/base/high = 2 / 5 / 10 points of DK revenue mix moved to Kuling. Ten points would take DK Kuling share to about 30%, still below Norway's 32% twelve-month share. Pure mix shift, no market growth assumed.",
+    "flow_through": 1.0,
+    "evidence_grade": "cross_market"
+   },
+   "effort": "S",
+   "owner": "merchandising",
+   "rollout": "market_specific",
+   "pilot": null,
+   "risks": "The non-Kuling margin includes Stoy (high margin), so the true third-party margin is lower and the estimate is conservative on margin, but the size of mix shift achievable is a judgement, not a measurement. DK shoppers may be genuinely brand-loyal to Danish labels; pushing Kuling over Konges Sløjd on its own brand pages could cost conversion. Kuling's higher purchase rate per view in DK may reflect self-selection of people who already know the brand.",
+   "curator_note": "Kuling's 19.7% share of DK revenue was re-queried by the curator and matches. The size of the mix shift is a judgement, not a measurement."
+  },
+  {
+   "lever": "brand-gap",
+   "scope": {
+    "markets": [
+     "SE",
+     "NO",
+     "FI"
+    ],
+    "category": "baby gear",
+    "brand": "Cybex, Stokke, Najell",
+    "segment": null
+   },
+   "title": "Re-list Cybex, Stokke and Najell: searched every week, nothing to sell",
+   "hypothesis": "About 770 search-page users a quarter type Cybex, Stokke or Najell and fewer than one in ten clicks any result, because Babyshop cleared these brands out in 2025. Gear brands we do carry earn about 140-190 SEK GP2 per searching user, far more than apparel brands (20-70 SEK), because of ticket size and low return rates.",
+   "action": "Buying to reopen Cybex and Stokke (car seats, strollers, high chairs) and Najell (carriers, baby nests) for SE and NO first; until then redirect these searches to the closest carried alternative (Bugaboo, Maxi-Cosi, Axkid, Ergobaby) instead of an unrelated result list.",
+   "evidence": [
+    {
+     "claim": "Jul-Sep 2026 search-page users: Cybex SE 172 / NO 120 / FI 39, Stokke SE 159 / NO 68, Najell SE 171 / NO 22 - 770 in total with click-through on results of 0.08-0.10 against a site average of 0.50-0.52. Volumes are stable between the first and second half of the quarter (e.g. Cybex SE 94 / 78).",
+     "sql": "WITH s AS ( SELECT date_day, CASE REGEXP_EXTRACT(pagePath, r'^/([a-z]{2}-[a-z]{2})/search/') WHEN 'sv-se' THEN 'SE' WHEN 'nb-no' THEN 'NO' WHEN 'fi-fi' THEN 'FI' WHEN 'da-dk' THEN 'DK' END AS market, TRIM(REGEXP_REPLACE(LOWER(REGEXP_EXTRACT(pagePath, r'^/[a-z]{2}-[a-z]{2}/search/([^/?]*)')), r'\\s+', ' ')) AS term, eventName, eventCount, totalUsers FROM `claude-private-499703.babyshop_raw.event_by_source_page_daily_native` WHERE date_day BETWEEN '2026-07-01' AND '2026-09-30' AND eventName IN ('page_view','view_item_list','select_item','add_to_cart') AND REGEXP_CONTAINS(pagePath, r'^/(sv-se|nb-no|fi-fi|da-dk)/search/') ), t AS ( SELECT market, term, SUM(IF(eventName='page_view',totalUsers,0)) u, SUM(IF(eventName='page_view',eventCount,0)) pv, SUM(IF(eventName='view_item_list',totalUsers,0)) vil_u, SUM(IF(eventName='select_item',totalUsers,0)) sel_u, SUM(IF(eventName='select_item',eventCount,0)) sel, SUM(IF(eventName='add_to_cart',eventCount,0)) atc, SUM(IF(eventName='page_view' AND date_day<'2026-08-16',totalUsers,0)) u_h1, SUM(IF(eventName='select_item' AND date_day<'2026-08-16',totalUsers,0)) sel_u_h1, SUM(IF(eventName='page_view' AND date_day>='2026-08-16',totalUsers,0)) u_h2, SUM(IF(eventName='select_item' AND date_day>='2026-08-16',totalUsers,0)) sel_u_h2 FROM s GROUP BY 1,2 ), n AS (SELECT market, REGEXP_EXTRACT(term, r'kuoma|lassie|metsola|kivat|kattnakken|thule|lillelam|cherrox|cybex|stokke|najell|mini a ture|miniature|marmar|bundgaard|nordbj|babblarna|lindberg|lego|bamse') b, SUM(u) u, SUM(sel_u) sel_u, SUM(u_h1) u_h1, SUM(u_h2) u_h2 FROM t GROUP BY 1,2 HAVING b IS NOT NULL), o AS (SELECT market, REGEXP_EXTRACT(TRIM(LOWER(search_term)), r'kuoma|lassie|metsola|kivat|kattnakken|thule|lillelam|cherrox|cybex|stokke|najell|mini a ture|miniature|marmar|bundgaard|nordbj|babblarna|lindberg|lego|bamse') b, SUM(total_users) u25 FROM `claude-private-499703.babyshop_marts.agg_daily_on_site_search` WHERE date BETWEEN '2025-04-24' AND '2025-06-30' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2 HAVING b IS NOT NULL) SELECT COALESCE(n.b,o.b) b, COALESCE(n.market,o.market) market, n.u u_q3_26, n.sel_u, ROUND(SAFE_DIVIDE(n.sel_u,n.u),2) ctr, n.u_h1, n.u_h2, o.u25 u_apr_jun_25 FROM n FULL JOIN o ON n.b=o.b AND n.market=o.market ORDER BY 1,2",
+     "n": 770
+    },
+    {
+     "claim": "Same brands were searched in Apr-Jun 2025 (older GA4 search-term data, about 20x smaller sample): Najell SE 60, Stokke SE 30 / NO 15, Cybex SE 25 / NO 18.",
+     "sql": "WITH s AS ( SELECT date_day, CASE REGEXP_EXTRACT(pagePath, r'^/([a-z]{2}-[a-z]{2})/search/') WHEN 'sv-se' THEN 'SE' WHEN 'nb-no' THEN 'NO' WHEN 'fi-fi' THEN 'FI' WHEN 'da-dk' THEN 'DK' END AS market, TRIM(REGEXP_REPLACE(LOWER(REGEXP_EXTRACT(pagePath, r'^/[a-z]{2}-[a-z]{2}/search/([^/?]*)')), r'\\s+', ' ')) AS term, eventName, eventCount, totalUsers FROM `claude-private-499703.babyshop_raw.event_by_source_page_daily_native` WHERE date_day BETWEEN '2026-07-01' AND '2026-09-30' AND eventName IN ('page_view','view_item_list','select_item','add_to_cart') AND REGEXP_CONTAINS(pagePath, r'^/(sv-se|nb-no|fi-fi|da-dk)/search/') ), t AS ( SELECT market, term, SUM(IF(eventName='page_view',totalUsers,0)) u, SUM(IF(eventName='page_view',eventCount,0)) pv, SUM(IF(eventName='view_item_list',totalUsers,0)) vil_u, SUM(IF(eventName='select_item',totalUsers,0)) sel_u, SUM(IF(eventName='select_item',eventCount,0)) sel, SUM(IF(eventName='add_to_cart',eventCount,0)) atc, SUM(IF(eventName='page_view' AND date_day<'2026-08-16',totalUsers,0)) u_h1, SUM(IF(eventName='select_item' AND date_day<'2026-08-16',totalUsers,0)) sel_u_h1, SUM(IF(eventName='page_view' AND date_day>='2026-08-16',totalUsers,0)) u_h2, SUM(IF(eventName='select_item' AND date_day>='2026-08-16',totalUsers,0)) sel_u_h2 FROM s GROUP BY 1,2 ), n AS (SELECT market, REGEXP_EXTRACT(term, r'kuoma|lassie|metsola|kivat|kattnakken|thule|lillelam|cherrox|cybex|stokke|najell|mini a ture|miniature|marmar|bundgaard|nordbj|babblarna|lindberg|lego|bamse') b, SUM(u) u, SUM(sel_u) sel_u, SUM(u_h1) u_h1, SUM(u_h2) u_h2 FROM t GROUP BY 1,2 HAVING b IS NOT NULL), o AS (SELECT market, REGEXP_EXTRACT(TRIM(LOWER(search_term)), r'kuoma|lassie|metsola|kivat|kattnakken|thule|lillelam|cherrox|cybex|stokke|najell|mini a ture|miniature|marmar|bundgaard|nordbj|babblarna|lindberg|lego|bamse') b, SUM(total_users) u25 FROM `claude-private-499703.babyshop_marts.agg_daily_on_site_search` WHERE date BETWEEN '2025-04-24' AND '2025-06-30' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2 HAVING b IS NOT NULL) SELECT COALESCE(n.b,o.b) b, COALESCE(n.market,o.market) market, n.u u_q3_26, n.sel_u, ROUND(SAFE_DIVIDE(n.sel_u,n.u),2) ctr, n.u_h1, n.u_h2, o.u25 u_apr_jun_25 FROM n FULL JOIN o ON n.b=o.b AND n.market=o.market ORDER BY 1,2",
+     "n": 148
+    },
+    {
+     "claim": "Not sellable today: Q3-26 sales were Cybex 3 units, Stokke 0, Najell 0; the last real volumes were below-cost clearance in Q3-25 (Najell 67 units at negative GP1, Stokke 11).",
+     "sql": "SELECT LOWER(TRIM(brand)) brand, FORMAT_DATE('%Y-Q%Q',date) q, ROUND(SUM(IF(market='SE',revenue,0))) se_rev, ROUND(SUM(IF(market='NO',revenue,0))) no_rev, ROUND(SUM(IF(market='FI',revenue,0))) fi_rev, ROUND(SUM(IF(market='DK',revenue,0))) dk_rev, ROUND(SUM(gp1)) gp1, ROUND(SUM(quantity)) units FROM `claude-private-499703.babyshop_marts.agg_daily_kuvio_products` WHERE date>='2024-11-01' AND REGEXP_CONTAINS(LOWER(brand), r'cybex|stokke|thule|najell|mini a ture|marmar|kivat|kattnakken|kuoma|lassie|metsola') GROUP BY 1,2 ORDER BY 1,2",
+     "n": 3
+    },
+    {
+     "claim": "Comparison brands (Bugaboo, Maxi-Cosi, Axkid, BeSafe, Doona, Joolz, Ergobaby, BabyBjörn, Voksi), Q3-26: median ladder-consistent GP2 per brand-searching user 154 SEK in SE (8 brands), 137 in NO (7 brands), 186 in FI (Bugaboo only); 22 apparel comparison brands give 24-68 SEK.",
+     "sql": "WITH s AS ( SELECT date_day, CASE REGEXP_EXTRACT(pagePath, r'^/([a-z]{2}-[a-z]{2})/search/') WHEN 'sv-se' THEN 'SE' WHEN 'nb-no' THEN 'NO' WHEN 'fi-fi' THEN 'FI' WHEN 'da-dk' THEN 'DK' END AS market, TRIM(REGEXP_REPLACE(LOWER(REGEXP_EXTRACT(pagePath, r'^/[a-z]{2}-[a-z]{2}/search/([^/?]*)')), r'\\s+', ' ')) AS term, eventCount, totalUsers FROM `claude-private-499703.babyshop_raw.event_by_source_page_daily_native` WHERE date_day BETWEEN '2026-07-01' AND '2026-09-30' AND eventName = 'page_view' AND REGEXP_CONTAINS(pagePath, r'^/(sv-se|nb-no|fi-fi|da-dk)/search/') ), t AS (SELECT market, term, SUM(totalUsers) u FROM s GROUP BY 1,2), lad AS (SELECT market, SUM(gp1)-SUM(cost_shipping)-SUM(gp2) other_cost FROM babyshop_marts.agg_daily_profit_ladder WHERE date BETWEEN '2026-07-01' AND '2026-09-30' AND shop='babyshop' AND market IN ('SE','NO','FI','DK') GROUP BY 1), kp AS (SELECT market, LOWER(TRIM(brand)) brand, SUM(revenue) rev, SUM(gp1) gp1, SUM(shipping_cost) ship, SUM(supplement_cost) supp FROM babyshop_marts.agg_daily_kuvio_products WHERE date BETWEEN '2026-07-01' AND '2026-09-30' AND shop='babyshop' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2), kk AS (SELECT kp.market, ANY_VALUE(other_cost)/SUM(supp) kval FROM kp JOIN lad USING (market) GROUP BY 1), b AS (SELECT kp.market, brand, rev, gp1-ship-supp*kk.kval gp2 FROM kp JOIN kk USING (market)), j AS (SELECT b.*, (SELECT SUM(u) FROM t WHERE t.market=b.market AND STRPOS(t.term,b.brand)>0) su FROM b WHERE brand IN ('bugaboo','maxi-cosi','axkid','besafe','doona','joolz','ergobaby','babybjörn','voksi','joha','gullkorn','wheat','flöss','huttelihut','konges sløjd','mini rodini','liewood','småfolk','garbo&friends','copenhagen colors','fub','little dutch','kavat','viking','didriksons','tretorn','molo','reima','new balance','bobo choses','scoot & ride','rice','elodie','cam cam','hunter')) SELECT CASE WHEN brand IN ('bugaboo','maxi-cosi','axkid','besafe','doona','joolz','ergobaby','babybjörn','voksi') THEN 'gear' ELSE 'apparel_other' END grp, market, COUNT(*) brands, SUM(su) su, ROUND(SUM(rev)) rev_q, ROUND(SUM(gp2)) gp2adj_q, ROUND(SUM(rev)/SUM(su)) rev_per_su, ROUND(SUM(gp2)/SUM(su)) gp2_per_su, ROUND(APPROX_QUANTILES(SAFE_DIVIDE(rev,su),2)[OFFSET(1)]) med_rev_per_su, ROUND(APPROX_QUANTILES(SAFE_DIVIDE(gp2,su),2)[OFFSET(1)]) med_gp2_per_su FROM j WHERE su>=20 GROUP BY 1,2 ORDER BY 1,2",
+     "n": 5386
+    }
+   ],
+   "replication": "Demand present in two periods (Apr-Jun 2025 and Jul-Sep 2026), in both halves of Q3 2026, and in both SE and NO.",
+   "sizing": {
+    "driver": "recovered",
+    "baseline_month_sek": 38970,
+    "baseline_note": "GP2 not earned: quarterly searching users for the three brands (SE 502, NO 210, FI 58) x median GP2 per brand-searching user of the carried gear brands in the same market and quarter (154 / 137 / 186 SEK), divided by 3. Thule (NO 218 users) is left out because 199 of them came in the second half of the quarter only.",
+    "fi_baseline_month_sek": 3596,
+    "uplift_low": 0.3,
+    "uplift_base": 0.5,
+    "uplift_high": 0.8,
+    "uplift_rationale": "A newly re-listed brand will not reach the search-to-sales ratio of established Bugaboo or Maxi-Cosi in year one, and the ratio credits all brand revenue (paid, organic, direct) to on-site searchers; base takes half.",
+    "flow_through": 1.0,
+    "evidence_grade": "cross_market"
+   },
+   "effort": "XL",
+   "owner": "buying",
+   "rollout": "market_specific",
+   "pilot": null,
+   "risks": "Babyshop exited these brands in 2025 and sold the stock below cost, so there may be a commercial reason (terms, selective distribution, capital tied in strollers) that the data cannot see. On-site search understates demand for brands people do not expect here and the comparison ratio overstates what search alone delivers; the two biases pull in opposite directions and neither is measured. FI figure rests on a single comparison brand.",
+   "curator_note": "Babyshop left these brands in 2025 and cleared the stock below cost. If that was a deliberate commercial decision, reject this item with the reason so it does not return."
+  },
+  {
+   "lever": "site-search-synonyms",
+   "scope": {
+    "markets": [
+     "SE",
+     "NO",
+     "FI",
+     "DK"
+    ],
+    "category": null,
+    "brand": null,
+    "segment": "on-site search users"
+   },
+   "title": "Fix the search terms that return poor or no results",
+   "hypothesis": "About half of search-page users click a result, but a set of common terms fail almost completely: short or ASCII spellings of brands ('konges', 'konges slojd', 'kongens sløjd', 'miniature'), everyday product words the catalogue names differently (NO 'pannebånd', 'parkdress'; FI 'kurahousut', 'kurahaalari', 'toppahanskat', 'välikausihaalari'; SE 'tunn mössa', 'fleece set'), and the long tail in DK. These are synonym and redirect entries, not assortment problems - the products exist.",
+   "action": "Add synonym/redirect rules in the search engine for the 248 head terms (>=20 users a quarter) with click-through under 0.30 (SE 147, NO 65, FI 21, DK 15; list in the SQL output), starting with the Konges Sløjd spellings and the NO/FI product-type words; review the list monthly from the same query.",
+   "evidence": [
+    {
+     "claim": "Jul-Sep 2026 search-page users (user-days) and share clicking a result: SE 200 407 / 0.516, NO 74 315 / 0.495, FI 28 248 / 0.511, DK 25 712 / 0.457. Users on terms where nobody clicked anything: SE 8.4%, NO 10.4%, FI 11.8%, DK 16.3%.",
+     "sql": "WITH s AS ( SELECT date_day, CASE REGEXP_EXTRACT(pagePath, r'^/([a-z]{2}-[a-z]{2})/search/') WHEN 'sv-se' THEN 'SE' WHEN 'nb-no' THEN 'NO' WHEN 'fi-fi' THEN 'FI' WHEN 'da-dk' THEN 'DK' END AS market, TRIM(REGEXP_REPLACE(LOWER(REGEXP_EXTRACT(pagePath, r'^/[a-z]{2}-[a-z]{2}/search/([^/?]*)')), r'\\s+', ' ')) AS term, eventName, eventCount, totalUsers FROM `claude-private-499703.babyshop_raw.event_by_source_page_daily_native` WHERE date_day BETWEEN '2026-07-01' AND '2026-09-30' AND eventName IN ('page_view','view_item_list','select_item','add_to_cart') AND REGEXP_CONTAINS(pagePath, r'^/(sv-se|nb-no|fi-fi|da-dk)/search/') ), t AS ( SELECT market, term, SUM(IF(eventName='page_view',totalUsers,0)) u, SUM(IF(eventName='page_view',eventCount,0)) pv, SUM(IF(eventName='view_item_list',totalUsers,0)) vil_u, SUM(IF(eventName='select_item',totalUsers,0)) sel_u, SUM(IF(eventName='select_item',eventCount,0)) sel, SUM(IF(eventName='add_to_cart',eventCount,0)) atc, SUM(IF(eventName='page_view' AND date_day<'2026-08-16',totalUsers,0)) u_h1, SUM(IF(eventName='select_item' AND date_day<'2026-08-16',totalUsers,0)) sel_u_h1, SUM(IF(eventName='page_view' AND date_day>='2026-08-16',totalUsers,0)) u_h2, SUM(IF(eventName='select_item' AND date_day>='2026-08-16',totalUsers,0)) sel_u_h2 FROM s GROUP BY 1,2 ) SELECT market, COUNT(*) terms, SUM(u) u, SUM(sel_u) sel_u, ROUND(SUM(sel_u)/SUM(u),3) ctr, SUM(IF(vil_u=0,u,0)) u_no_list, ROUND(SUM(IF(vil_u=0,u,0))/SUM(u),3) share_no_list, SUM(IF(sel_u=0,u,0)) u_no_click, ROUND(SUM(IF(sel_u=0,u,0))/SUM(u),3) share_no_click, ROUND(SUM(sel_u_h1)/SUM(u_h1),3) ctr_h1, ROUND(SUM(sel_u_h2)/SUM(u_h2),3) ctr_h2, SUM(IF(u>=20 AND SAFE_DIVIDE(sel_u,u)<0.30,u,0)) u_lowctr_head, SUM(IF(u>=20,u,0)) u_head, SUM(IF(u>=20,sel_u,0)) sel_head FROM t GROUP BY 1 ORDER BY 1",
+     "n": 328682
+    },
+    {
+     "claim": "Head terms (>=20 users) with click-through under 0.30 hold 8 615 SE, 4 008 NO, 912 FI and 882 DK users per quarter, at an average click-through of 0.15-0.20 against 0.49-0.56 for all head terms.",
+     "sql": "WITH s AS ( SELECT date_day, CASE REGEXP_EXTRACT(pagePath, r'^/([a-z]{2}-[a-z]{2})/search/') WHEN 'sv-se' THEN 'SE' WHEN 'nb-no' THEN 'NO' WHEN 'fi-fi' THEN 'FI' WHEN 'da-dk' THEN 'DK' END AS market, TRIM(REGEXP_REPLACE(LOWER(REGEXP_EXTRACT(pagePath, r'^/[a-z]{2}-[a-z]{2}/search/([^/?]*)')), r'\\s+', ' ')) AS term, eventName, eventCount, totalUsers FROM `claude-private-499703.babyshop_raw.event_by_source_page_daily_native` WHERE date_day BETWEEN '2026-07-01' AND '2026-09-30' AND eventName IN ('page_view','view_item_list','select_item','add_to_cart') AND REGEXP_CONTAINS(pagePath, r'^/(sv-se|nb-no|fi-fi|da-dk)/search/') ), t AS ( SELECT market, term, SUM(IF(eventName='page_view',totalUsers,0)) u, SUM(IF(eventName='page_view',eventCount,0)) pv, SUM(IF(eventName='view_item_list',totalUsers,0)) vil_u, SUM(IF(eventName='select_item',totalUsers,0)) sel_u, SUM(IF(eventName='select_item',eventCount,0)) sel, SUM(IF(eventName='add_to_cart',eventCount,0)) atc, SUM(IF(eventName='page_view' AND date_day<'2026-08-16',totalUsers,0)) u_h1, SUM(IF(eventName='select_item' AND date_day<'2026-08-16',totalUsers,0)) sel_u_h1, SUM(IF(eventName='page_view' AND date_day>='2026-08-16',totalUsers,0)) u_h2, SUM(IF(eventName='select_item' AND date_day>='2026-08-16',totalUsers,0)) sel_u_h2 FROM s GROUP BY 1,2 ) SELECT market, COUNT(*) terms, SUM(u) u, SUM(sel_u) sel_u, ROUND(SUM(sel_u)/SUM(u),3) ctr, SUM(IF(vil_u=0,u,0)) u_no_list, ROUND(SUM(IF(vil_u=0,u,0))/SUM(u),3) share_no_list, SUM(IF(sel_u=0,u,0)) u_no_click, ROUND(SUM(IF(sel_u=0,u,0))/SUM(u),3) share_no_click, ROUND(SUM(sel_u_h1)/SUM(u_h1),3) ctr_h1, ROUND(SUM(sel_u_h2)/SUM(u_h2),3) ctr_h2, SUM(IF(u>=20 AND SAFE_DIVIDE(sel_u,u)<0.30,u,0)) u_lowctr_head, SUM(IF(u>=20,u,0)) u_head, SUM(IF(u>=20,sel_u,0)) sel_head FROM t GROUP BY 1 ORDER BY 1",
+     "n": 14417
+    },
+    {
+     "claim": "Konges Sløjd spellings: 'konges sløjd' works (click-through 0.47-0.55, 6 574 users in four markets) but 'konges' shows a result list to only 27% of SE users (141 of 528; DK 53 of 162) and 'konges slojd' in FI to 3 of 59, 'kongens sløjd' NO to 6 of 57.",
+     "sql": "WITH s AS ( SELECT date_day, CASE REGEXP_EXTRACT(pagePath, r'^/([a-z]{2}-[a-z]{2})/search/') WHEN 'sv-se' THEN 'SE' WHEN 'nb-no' THEN 'NO' WHEN 'fi-fi' THEN 'FI' WHEN 'da-dk' THEN 'DK' END AS market, TRIM(REGEXP_REPLACE(LOWER(REGEXP_EXTRACT(pagePath, r'^/[a-z]{2}-[a-z]{2}/search/([^/?]*)')), r'\\s+', ' ')) AS term, eventName, eventCount, totalUsers FROM `claude-private-499703.babyshop_raw.event_by_source_page_daily_native` WHERE date_day BETWEEN '2026-07-01' AND '2026-09-30' AND eventName IN ('page_view','view_item_list','select_item','add_to_cart') AND REGEXP_CONTAINS(pagePath, r'^/(sv-se|nb-no|fi-fi|da-dk)/search/') ), t AS ( SELECT market, term, SUM(IF(eventName='page_view',totalUsers,0)) u, SUM(IF(eventName='page_view',eventCount,0)) pv, SUM(IF(eventName='view_item_list',totalUsers,0)) vil_u, SUM(IF(eventName='select_item',totalUsers,0)) sel_u, SUM(IF(eventName='select_item',eventCount,0)) sel, SUM(IF(eventName='add_to_cart',eventCount,0)) atc, SUM(IF(eventName='page_view' AND date_day<'2026-08-16',totalUsers,0)) u_h1, SUM(IF(eventName='select_item' AND date_day<'2026-08-16',totalUsers,0)) sel_u_h1, SUM(IF(eventName='page_view' AND date_day>='2026-08-16',totalUsers,0)) u_h2, SUM(IF(eventName='select_item' AND date_day>='2026-08-16',totalUsers,0)) sel_u_h2 FROM s GROUP BY 1,2 ) SELECT market, term, u, vil_u, sel_u, ROUND(SAFE_DIVIDE(sel_u,u),2) ctr FROM t WHERE REGEXP_CONTAINS(term, r'^kong') AND u>=20 ORDER BY market, u DESC",
+     "n": 7700
+    },
+    {
+     "claim": "Product words failing in both halves of the quarter: NO 'pannebånd' 281 users, click-through 0.11 (0.14 / 0.09); NO 'parkdress' 380, 0.23; SE 'tunn mössa' 381, 0.19; SE 'fleece set' + 'fleeceset' 420, 0.17-0.18; FI 'kuva haalari' 171, 0.12; FI 'kurahousut' 75, 0.12; DK 'miniature' 55, 0.00.",
+     "sql": "WITH s AS ( SELECT date_day, CASE REGEXP_EXTRACT(pagePath, r'^/([a-z]{2}-[a-z]{2})/search/') WHEN 'sv-se' THEN 'SE' WHEN 'nb-no' THEN 'NO' WHEN 'fi-fi' THEN 'FI' WHEN 'da-dk' THEN 'DK' END AS market, TRIM(REGEXP_REPLACE(LOWER(REGEXP_EXTRACT(pagePath, r'^/[a-z]{2}-[a-z]{2}/search/([^/?]*)')), r'\\s+', ' ')) AS term, eventName, eventCount, totalUsers FROM `claude-private-499703.babyshop_raw.event_by_source_page_daily_native` WHERE date_day BETWEEN '2026-07-01' AND '2026-09-30' AND eventName IN ('page_view','view_item_list','select_item','add_to_cart') AND REGEXP_CONTAINS(pagePath, r'^/(sv-se|nb-no|fi-fi|da-dk)/search/') ), t AS ( SELECT market, term, SUM(IF(eventName='page_view',totalUsers,0)) u, SUM(IF(eventName='page_view',eventCount,0)) pv, SUM(IF(eventName='view_item_list',totalUsers,0)) vil_u, SUM(IF(eventName='select_item',totalUsers,0)) sel_u, SUM(IF(eventName='select_item',eventCount,0)) sel, SUM(IF(eventName='add_to_cart',eventCount,0)) atc, SUM(IF(eventName='page_view' AND date_day<'2026-08-16',totalUsers,0)) u_h1, SUM(IF(eventName='select_item' AND date_day<'2026-08-16',totalUsers,0)) sel_u_h1, SUM(IF(eventName='page_view' AND date_day>='2026-08-16',totalUsers,0)) u_h2, SUM(IF(eventName='select_item' AND date_day>='2026-08-16',totalUsers,0)) sel_u_h2 FROM s GROUP BY 1,2 ) SELECT market, term, u, vil_u, sel_u, ROUND(SAFE_DIVIDE(sel_u,u),2) ctr, ROUND(SAFE_DIVIDE(sel_u_h1,u_h1),2) ctr_h1, ROUND(SAFE_DIVIDE(sel_u_h2,u_h2),2) ctr_h2 FROM t WHERE u >= CASE market WHEN 'SE' THEN 60 WHEN 'NO' THEN 35 ELSE 20 END AND SAFE_DIVIDE(sel_u,u) < 0.30 ORDER BY market, u DESC",
+     "n": 1763
+    },
+    {
+     "claim": "Search result clicks are 5.8% (SE), 6.5% (NO), 5.1% (FI) and 7.9% (DK) of all product-page views in Jul-Sep 2026, and 21-26% of all product-list clicks.",
+     "sql": "WITH e AS (SELECT CASE REGEXP_EXTRACT(pagePath, r'^/([a-z]{2}-[a-z]{2})/') WHEN 'sv-se' THEN 'SE' WHEN 'nb-no' THEN 'NO' WHEN 'fi-fi' THEN 'FI' WHEN 'da-dk' THEN 'DK' END market, REGEXP_CONTAINS(pagePath, r'^/[a-z]{2}-[a-z]{2}/search/') is_search, eventName, eventCount, totalUsers FROM `claude-private-499703.babyshop_raw.event_by_source_page_daily_native` WHERE date_day BETWEEN '2026-07-01' AND '2026-09-30' AND eventName IN ('page_view','select_item','view_item')) SELECT market, SUM(IF(is_search AND eventName='page_view',totalUsers,0)) search_users, SUM(IF(is_search AND eventName='select_item',eventCount,0)) search_select_item, SUM(IF(eventName='select_item',eventCount,0)) all_select_item, SUM(IF(eventName='view_item',eventCount,0)) all_view_item, ROUND(SUM(IF(is_search AND eventName='select_item',eventCount,0))/SUM(IF(eventName='view_item',eventCount,0)),4) search_share_of_pdp_views FROM e WHERE market IS NOT NULL GROUP BY 1; SELECT market, ROUND(SUM(gp2)/3) gp2_m FROM `claude-private-499703.babyshop_marts.agg_daily_profit_ladder` WHERE date BETWEEN '2026-07-01' AND '2026-09-30' AND shop='babyshop' AND market IN ('SE','NO','FI','DK') GROUP BY 1",
+     "n": 430812
+    }
+   ],
+   "replication": "The same terms fail in the first and second half of Q3 2026, and the pattern (5-8% of head-term users on failing terms) is present in all four markets.",
+   "sizing": {
+    "driver": "conversion",
+    "baseline_month_sek": 317401,
+    "baseline_note": "Search-attributable GP2: Q3-26 monthly Babyshop GP2 per market from agg_daily_profit_ladder x the share of product-page views that come from a search-result click (SE 3 208 279 x 5.84% = 187 465; NO 1 324 719 x 6.47% = 85 672; FI 398 642 x 5.05% = 20 131; DK 306 633 x 7.87% = 24 133). No extra weight for searchers' higher intent, so this is a conservative base.",
+    "fi_baseline_month_sek": 20131,
+    "uplift_low": 0.02,
+    "uplift_base": 0.04,
+    "uplift_high": 0.08,
+    "uplift_rationale": "Lifting the failing head terms to the average click-through would add 3.7% (SE) to 5.6% (NO) to search clicks; about half of those terms are fixable with synonyms (the rest are brands not carried or service words like 'retur'), and the long tail (24-48% of search users, click-through 0.39-0.45) adds a similar amount. Base +4% search clicks, converting at the average rate.",
+    "flow_through": 1.0,
+    "evidence_grade": "benchmark"
+   },
+   "effort": "S",
+   "owner": "tech",
+   "rollout": "ship_direct",
+   "pilot": null,
+   "risks": "Base case is only about 12 700 SEK/month - just above the floor - and rests on my estimate of how much of the click gap is recoverable, hence the benchmark grade. Purchases cannot be tied to a search term in the warehouse, so click-through is a proxy for conversion. If searchers convert at 2-3x the site average (common, but not measurable here) the baseline is understated by the same factor.",
+   "curator_note": "Only just above the floor. Purchases cannot be tied to a search term in the warehouse, so click-through stands in for conversion."
+  }
+ ],
+ "needs_data": [
+  {
+   "hypothesis": "Finnish shoppers want Kuoma, Lassie and Metsola (ledger lever local-brand-gap, FI).",
+   "missing_source": "Off-site demand: Search Console queries (agg_gsc_* marts are empty) or Google Ads Keyword Planner volumes for FI. On-site search cannot test it.",
+   "why_promising": "On-site search shows almost nothing (Kuoma 6, Lassie 1, Metsola 9 of 28 248 FI search users in Jul-Sep 2026; none in Apr-Jun 2025), but people rarely search a shop for brands they do not expect it to stock - even Polarn O. Pyret gets only 14 SE users. The on-site data therefore neither backs nor cleanly refutes the desk research; it does show that the ~35 FI users typing 'kuomu' find nothing useful (click-through 0.09)."
+  },
+  {
+   "hypothesis": "Searches with thin results lose sales, and searchers are worth more than their share of page views.",
+   "missing_source": "GA4 event-level export with search_term carried to purchase, or the site-search engine's own log with result counts. agg_daily_on_site_search stopped collecting terms after June 2025 (about 40 rows a month since); terms had to be rebuilt from /search/ page paths, which exist only from 2026-06-23.",
+   "why_promising": "Search result clicks are 21-26% of all product-list clicks, so even small conversion differences matter; today it can only be sized with a conservative page-view share."
+  },
+  {
+   "hypothesis": "Stock-outs and thin size runs on searched products (line of enquiry 2) cost GP2.",
+   "missing_source": "dim_product has no brand, title, product_type or category (all NULL for 213 517 rows) and agg_product_velocity has a single market 'default' with no sales, views, ad spend or lost_revenue_est populated; SKU-level stock x demand cannot be joined to anything searchable.",
+   "why_promising": "fct_stock_daily and fct_product_sales_daily exist, so the fix is a catalogue join, not new data."
+  },
+  {
+   "hypothesis": "Finnish product-type vocabulary (ledger lever fi-category-naming) costs organic and Shopping traffic, not just on-site search.",
+   "missing_source": "Search Console for babyshop.fi and Shopping search-term reports (gads_fi_*_keyword_view has 411 rows, keywords only).",
+   "why_promising": "On-site, most Finnish words already work (toppahaalari 0.57, välikausikengät 0.55, kurahanskat 0.66 click-through) and only a handful fail (kurahousut 0.12, kurahaalari - list shown to 4 of 25 users, toppahanskat 0.10, välikausihaalari 0.05, toppahousut 0.25: about 570 users a quarter, 2% of FI search users), worth under 1 000 SEK GP2/month through search alone. Whether the missing words matter depends on Google, which this lens cannot see."
+  }
+ ],
+ "checked_and_dropped": [
+  {
+   "idea": "local-brand-gap FI backed by on-site search (Kuoma, Lassie, Metsola)",
+   "why": "No support in the data: 16 search-page users in a quarter out of 28 248, and third-party apparel/footwear earns only 24 SEK GP2 per searching user in FI. Not refuted either (see needs_data). SQL: brand-gap query in candidate 'brand-gap'."
+  },
+  {
+   "idea": "fi-category-naming sized through on-site search",
+   "why": "Below floor: failing Finnish product-type terms are ~570 users/quarter (2% of FI search users) against FI search-attributable GP2 of ~20 000 SEK/month. 'Lumikengät' was searched by 1 user. Evidence passed to the curator in needs_data rather than as a re-sized candidate."
+  },
+  {
+   "idea": "Norwegian wool/knit brand gaps: Kivat (177 users), Kattnakken (106), Lillelam (92), Cherrox (62)",
+   "why": "Below floor: 437 users/quarter x 44 SEK GP2 per searching user (NO apparel comparison brands) = about 6 400 SEK/month for four new suppliers."
+  },
+  {
+   "idea": "Danish brand gaps: Mini A Ture (224 users incl. 'miniature'), MarMar Copenhagen (180), Bundgaard (35)",
+   "why": "Below floor: about 2 600 SEK/month at DK apparel ratio (19 SEK per searching user); both big ones were carried and cleared out below cost in 2025."
+  },
+  {
+   "idea": "Thule in NO (218 search users, click-through 0.00)",
+   "why": "Did not replicate: 199 of the 218 users came in the second half of the quarter and only 4 in Apr-Jun 2025; looks like a one-off (Urban Glide 3 launch or an external link)."
+  },
+  {
+   "idea": "Character/toy gaps in SE: Pippi (612), Lego (130), Babblarna (122), Bamse (119)",
+   "why": "Not clearly brand gaps (Pippi products exist, click-through 0.28); toy margins not separable and volumes give well under 10 000 SEK/month."
+  },
+  {
+   "idea": "Zero-result searches as a standalone item",
+   "why": "Only 1.2-1.6% of search-page users land on a term where no result list is shown; folded into site-search-synonyms."
+  },
+  {
+   "idea": "Seasonality timing: winter-coverall demand arriving before ads and assortment",
+   "why": "No lag found. Search for winter coveralls, category revenue and Shopping spend all start in the week of 20 July in SE/NO/FI in 2026 and 2025 and rise together."
+  },
+  {
+   "idea": "Stoy under-indexing in FI and NO (2-3% of Q3 revenue vs 8% SE, 15% DK)",
+   "why": "Mostly seasonal and category-driven (bikes, trikes); Q2 shares are 12% in FI and NO. Not tested further - would need category-level view data that item-level marts do not carry by brand x category."
+  },
+  {
+   "idea": "Adding more third-party apparel brands as a growth lever in general",
+   "why": "Third-party apparel earns 20-70 SEK GP2 per brand-searching user per quarter and 7-12% GP2 margin; no single uncarried apparel brand clears the floor."
+  },
+  {
+   "idea": "Exporting Finland's rain-coverall preference (11.1% of FI revenue vs 1.5% SE) to other markets",
+   "why": "Looks like a genuine local preference (one-piece vs two-piece rainwear), stable since Q3 2025; no mechanism to act on."
+  }
+ ],
+ "held_for_stage_two": [
+  {
+   "lever": "low-margin-brand-ad-spend",
+   "scope": {
+    "markets": [
+     "SE",
+     "NO",
+     "FI",
+     "DK"
+    ],
+    "category": null,
+    "brand": "third-party brands whose total GP2 is below their Google Shopping spend",
+    "segment": null
+   },
+   "title": "Stop Shopping spend on brands that earn less GP2 than their ad cost",
+   "hypothesis": "Third-party apparel brands carry 27-43% GP1 but after returns, shipping and handling only about 7-12% GP2, so a brand can look profitable to Google's bidding (conversion value is a profit proxy before those costs) while its entire GP2, including organic sales, is smaller than what is spent advertising it. These brands are not where demand is under-served; the same clicks are worth 3-5x more on Kuling and Stoy.",
+   "action": "Label the flagged brand-market pairs in the feed (custom label), move them to a low-priority campaign with a much higher ROAS target or exclude them from Shopping/PMax, starting with Reima in FI; re-check the flag each quarter. tROAS changes go through pipeline/apply_troas.py.",
+   "evidence": [
+    {
+     "claim": "71 third-party brand-market pairs had Shopping spend >= 500 SEK/month and total ladder-consistent GP2 below that spend in Q2-26. Out of sample in Q3-26 the same pairs took 186 393 SEK/month of Shopping spend and produced 33 309 SEK/month GP2 in total (SE 91 044 vs 7 998; NO 51 283 vs 5 572; FI 38 590 vs 25 728; DK 5 476 vs -5 989).",
+     "sql": "WITH lad AS (SELECT market, IF(date>='2026-07-01','q3','q2') q, SUM(gp1)-SUM(cost_shipping)-SUM(gp2) other_cost FROM `claude-private-499703.babyshop_marts.agg_daily_profit_ladder` WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND shop IN ('babyshop','lekmer') AND market IN ('SE','NO','FI','DK') GROUP BY 1,2), kp AS (SELECT market, IF(date>='2026-07-01','q3','q2') q, LOWER(TRIM(brand)) brand, SUM(revenue) rev, SUM(gp1) gp1, SUM(shipping_cost) ship, SUM(supplement_cost) supp, SUM(gp2) gp2_raw FROM `claude-private-499703.babyshop_marts.agg_daily_kuvio_products` WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2,3), k AS (SELECT kp.market, kp.q, ANY_VALUE(lad.other_cost)/SUM(kp.supp) k FROM kp JOIN lad USING (market,q) GROUP BY 1,2), p AS (SELECT kp.*, k.k, kp.gp1-kp.ship-kp.supp*k.k gp2_adj FROM kp JOIN k USING (market,q)), a AS (SELECT market, LOWER(TRIM(product_brand)) brand, IF(date>='2026-07-01','q3','q2') q, SUM(ad_spend) spend, SUM(clicks) clicks, SUM(conversion_value) cv FROM `claude-private-499703.babyshop_marts.agg_daily_kpis_by_gads_product` WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2,3), j AS (SELECT COALESCE(a.market,p.market) market, COALESCE(a.brand,p.brand) brand, COALESCE(a.q,p.q) q, IFNULL(spend,0) spend, IFNULL(cv,0) cv, IFNULL(rev,0) rev, IFNULL(gp1,0) gp1, IFNULL(gp2_adj,0) gp2, IFNULL(gp2_raw,0) gp2_raw FROM a FULL JOIN p USING (market, brand, q)), f AS (SELECT market, brand, SUM(IF(q='q2',spend,0)) s2, SUM(IF(q='q2',gp2,0)) g2, SUM(IF(q='q3',spend,0)) s3, SUM(IF(q='q3',gp2,0)) g3, SUM(IF(q='q3',rev,0)) r3, SUM(IF(q='q3',cv,0)) cv3, SUM(IF(q='q3',gp1,0)) gp1_3 FROM j WHERE brand NOT IN ('kuling','stoy') GROUP BY 1,2) SELECT 'persist_q2flag' t, market, '' brand, COUNT(*) n, COUNTIF(s3>=1500 AND g3<s3) still_q3, ROUND(SUM(s2)/3) s2_m, ROUND(SUM(g2)/3) g2_m, ROUND(SUM(s3)/3) s3_m, ROUND(SUM(g3)/3) g3_m, ROUND(SUM(r3)/3) r3_m, ROUND(SUM(cv3)/3) cv3_m, ROUND(SUM(gp1_3)/3) gp1_3m FROM f WHERE s2>=1500 AND g2<s2 GROUP BY 2 UNION ALL SELECT 'both_q_brand', market, brand, NULL, NULL, ROUND(s2/3), ROUND(g2/3), ROUND(s3/3), ROUND(g3/3), ROUND(r3/3), ROUND(cv3/3), ROUND(gp1_3/3) FROM f WHERE s2>=1500 AND g2<s2 AND s3>=1500 AND g3<s3 AND s3>=4500 ORDER BY 1,2,8 DESC",
+     "n": 71
+    },
+    {
+     "claim": "30 of the 71 pairs were flagged again in Q3-26 on their own numbers, e.g. Reima FI (34 856 spend vs 29 766 GP2 per month on 440 962 revenue; Q2: 10 268 vs 865), Molo SE (4 166 vs -26 793), Gullkorn NO (2 419 vs -27 577), Didriksons SE (7 778 vs 2 605).",
+     "sql": "WITH lad AS (SELECT market, IF(date>='2026-07-01','q3','q2') q, SUM(gp1)-SUM(cost_shipping)-SUM(gp2) other_cost FROM `claude-private-499703.babyshop_marts.agg_daily_profit_ladder` WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND shop IN ('babyshop','lekmer') AND market IN ('SE','NO','FI','DK') GROUP BY 1,2), kp AS (SELECT market, IF(date>='2026-07-01','q3','q2') q, LOWER(TRIM(brand)) brand, SUM(revenue) rev, SUM(gp1) gp1, SUM(shipping_cost) ship, SUM(supplement_cost) supp, SUM(gp2) gp2_raw FROM `claude-private-499703.babyshop_marts.agg_daily_kuvio_products` WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2,3), k AS (SELECT kp.market, kp.q, ANY_VALUE(lad.other_cost)/SUM(kp.supp) k FROM kp JOIN lad USING (market,q) GROUP BY 1,2), p AS (SELECT kp.*, k.k, kp.gp1-kp.ship-kp.supp*k.k gp2_adj FROM kp JOIN k USING (market,q)), a AS (SELECT market, LOWER(TRIM(product_brand)) brand, IF(date>='2026-07-01','q3','q2') q, SUM(ad_spend) spend, SUM(clicks) clicks, SUM(conversion_value) cv FROM `claude-private-499703.babyshop_marts.agg_daily_kpis_by_gads_product` WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2,3), j AS (SELECT COALESCE(a.market,p.market) market, COALESCE(a.brand,p.brand) brand, COALESCE(a.q,p.q) q, IFNULL(spend,0) spend, IFNULL(cv,0) cv, IFNULL(rev,0) rev, IFNULL(gp1,0) gp1, IFNULL(gp2_adj,0) gp2, IFNULL(gp2_raw,0) gp2_raw FROM a FULL JOIN p USING (market, brand, q)), f AS (SELECT market, brand, SUM(IF(q='q2',spend,0)) s2, SUM(IF(q='q2',gp2,0)) g2, SUM(IF(q='q3',spend,0)) s3, SUM(IF(q='q3',gp2,0)) g3, SUM(IF(q='q3',rev,0)) r3, SUM(IF(q='q3',cv,0)) cv3, SUM(IF(q='q3',gp1,0)) gp1_3 FROM j WHERE brand NOT IN ('kuling','stoy') GROUP BY 1,2) SELECT 'persist_q2flag' t, market, '' brand, COUNT(*) n, COUNTIF(s3>=1500 AND g3<s3) still_q3, ROUND(SUM(s2)/3) s2_m, ROUND(SUM(g2)/3) g2_m, ROUND(SUM(s3)/3) s3_m, ROUND(SUM(g3)/3) g3_m, ROUND(SUM(r3)/3) r3_m, ROUND(SUM(cv3)/3) cv3_m, ROUND(SUM(gp1_3)/3) gp1_3m FROM f WHERE s2>=1500 AND g2<s2 GROUP BY 2 UNION ALL SELECT 'both_q_brand', market, brand, NULL, NULL, ROUND(s2/3), ROUND(g2/3), ROUND(s3/3), ROUND(g3/3), ROUND(r3/3), ROUND(cv3/3), ROUND(gp1_3/3) FROM f WHERE s2>=1500 AND g2<s2 AND s3>=1500 AND g3<s3 AND s3>=4500 ORDER BY 1,2,8 DESC",
+     "n": 30
+    },
+    {
+     "claim": "Q3-26 by market, GP2 per Shopping SEK: own brands SE 3.9, NO 3.2, FI 4.2, DK 5.1; all third-party brands SE 1.3, NO 1.4, FI 1.2, DK 1.1.",
+     "sql": "WITH lad AS (SELECT market, IF(date>='2026-07-01','q3','q2') q, SUM(gp1)-SUM(cost_shipping)-SUM(gp2) other_cost FROM `claude-private-499703.babyshop_marts.agg_daily_profit_ladder` WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND shop IN ('babyshop','lekmer') AND market IN ('SE','NO','FI','DK') GROUP BY 1,2), kp AS (SELECT market, IF(date>='2026-07-01','q3','q2') q, LOWER(TRIM(brand)) brand, SUM(revenue) rev, SUM(gp1) gp1, SUM(shipping_cost) ship, SUM(supplement_cost) supp, SUM(gp2) gp2_raw FROM `claude-private-499703.babyshop_marts.agg_daily_kuvio_products` WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2,3), k AS (SELECT kp.market, kp.q, ANY_VALUE(lad.other_cost)/SUM(kp.supp) k FROM kp JOIN lad USING (market,q) GROUP BY 1,2), p AS (SELECT kp.*, k.k, kp.gp1-kp.ship-kp.supp*k.k gp2_adj FROM kp JOIN k USING (market,q)), a AS (SELECT market, LOWER(TRIM(product_brand)) brand, IF(date>='2026-07-01','q3','q2') q, SUM(ad_spend) spend, SUM(clicks) clicks, SUM(conversion_value) cv FROM `claude-private-499703.babyshop_marts.agg_daily_kpis_by_gads_product` WHERE date BETWEEN '2026-04-01' AND '2026-09-30' AND market IN ('SE','NO','FI','DK') GROUP BY 1,2,3), j AS (SELECT COALESCE(a.market,p.market) market, COALESCE(a.brand,p.brand) brand, COALESCE(a.q,p.q) q, IFNULL(spend,0) spend, IFNULL(cv,0) cv, IFNULL(rev,0) rev, IFNULL(gp1,0) gp1, IFNULL(gp2_adj,0) gp2, IFNULL(gp2_raw,0) gp2_raw FROM a FULL JOIN p USING (market, brand, q)) SELECT q, market, CASE WHEN brand IN ('kuling','stoy') THEN 'own' WHEN spend<1500 THEN 'tp_spend_lt_500pm' WHEN gp2<=0 THEN 'tp_gp2_neg' WHEN gp2<spend THEN 'tp_gp2_lt_spend' ELSE 'tp_ok' END grp, COUNT(*) brands, ROUND(SUM(spend)/3) spend_m, ROUND(SUM(cv)/3) gads_cv_m, ROUND(SUM(rev)/3) rev_m, ROUND(SUM(gp1)/3) gp1_m, ROUND(SUM(gp2)/3) gp2adj_m, ROUND(SUM(gp2_raw)/3) gp2raw_m FROM j GROUP BY 1,2,3 ORDER BY 2,1,3",
+     "n": 8
+    },
+    {
+     "claim": "Why product-level GP2 had to be rescaled: Q3-26 product-level supplement_cost is 1.2-1.6x the ladder's returns+payment+other cost (FI 634 186 vs 405 134 SEK/month), so raw product gp2 understates the ladder (FI 169 493 vs 398 642).",
+     "sql": "SELECT 'ladder' src, market, ROUND(SUM(revenue)/3) rev, ROUND(SUM(gp1)/3) gp1, ROUND(SUM(cost_returns)/3) returns_or_supplement, ROUND(SUM(cost_shipping)/3) ship, ROUND(SUM(cost_payment)/3) pay, ROUND(SUM(gp2)/3) gp2 FROM `claude-private-499703.babyshop_marts.agg_daily_profit_ladder` WHERE date BETWEEN '2026-07-01' AND '2026-09-30' AND shop='babyshop' AND market IN ('SE','NO','FI','DK') GROUP BY 2 UNION ALL SELECT 'kuvio_products', market, ROUND(SUM(revenue)/3), ROUND(SUM(gp1)/3), ROUND(SUM(supplement_cost)/3), ROUND(SUM(shipping_cost)/3), ROUND(SUM(extra_cost)/3), ROUND(SUM(gp2)/3) FROM `claude-private-499703.babyshop_marts.agg_daily_kuvio_products` WHERE date BETWEEN '2026-07-01' AND '2026-09-30' AND shop='babyshop' AND market IN ('SE','NO','FI','DK') GROUP BY 2 ORDER BY 2,1",
+     "n": 8
+    }
+   ],
+   "replication": "Flag set on Q2 2026, measured on Q3 2026 (out of sample), and present in all four Nordic markets.",
+   "sizing": {
+    "driver": "cost",
+    "baseline_month_sek": 186393,
+    "baseline_note": "Q3-26 monthly Google Shopping spend (agg_daily_kpis_by_gads_product, babyshop + lekmer accounts) on the 71 third-party brand-market pairs flagged on Q2-26 data. Meta catalogue spend on the same brands is not included. GP2 by brand is 'ladder-consistent': agg_daily_kuvio_products.gp1 - shipping_cost - supplement_cost x k, where k per market and period scales product-level supplement_cost down so that brand GP2 sums to agg_daily_profit_ladder.gp2 (k = 0.59-0.81). Raw product-level gp2 is 20-57% below the ladder.",
+    "fi_baseline_month_sek": 38590,
+    "uplift_low": 0.2,
+    "uplift_base": 0.4,
+    "uplift_high": 0.6,
+    "uplift_rationale": "Net GP3 gain as a share of the spend. Total GP2 of these brands is 18% of their Shopping spend, so even if every sale disappeared with the ads the net saving is at least 82% of whatever spend is cut. Base assumes half the spend is removed (0.5 x 0.82); low a quarter, high three quarters.",
+    "flow_through": 1.0,
+    "evidence_grade": "cross_market"
+   },
+   "effort": "S",
+   "owner": "marketing",
+   "rollout": "fi_pilot",
+   "pilot": {
+    "metric": "FI GP3 (GP2 minus ad spend) and FI Reima revenue",
+    "weeks": 4,
+    "control": "SE/NO/DK same period, where the flagged brands keep their current bidding",
+    "decision_rule": "Roll out if FI GP3 is flat or up versus control while Shopping spend on the flagged FI brands falls by at least half; stop if total FI orders fall more than 8% versus control."
+   },
+   "risks": "The k rescale assumes returns and handling costs are over-stated proportionally for every brand; if third-party returns really are as high as the product table says, the case is stronger, if lower it is weaker. Reima is the anchor brand for Finnish shoppers (22% of FI revenue): cutting its ads may lose baskets that also contain Kuling (FI-specific risk, with low brand reach). Some of these brands are being cleared below cost on purpose; the ads may be serving a stock goal rather than a profit goal. Belongs partly to the paid-media lens - de-duplicate."
+  }
+ ]
+}

@@ -1,0 +1,416 @@
+{
+ "lens": "crm",
+ "run_date": "2026-10-07",
+ "candidates": [
+  {
+   "lever": "second-order-flow",
+   "scope": {
+    "markets": [
+     "SE",
+     "NO",
+     "FI",
+     "DK"
+    ],
+    "category": null,
+    "brand": null,
+    "segment": "first-time buyers (babyshop)"
+   },
+   "title": "Build a post-purchase second-order flow for first-time buyers",
+   "hypothesis": "Only 20-27% of first-time Babyshop buyers in SE/NO/FI (10-12% in DK) order again within 180 days, and 38% of those second orders land inside the first 30 days. Voyado has Welcome, Abandoned Cart, Activation and Reactivation automations but nothing triggered by a first purchase, so new buyers only get the bulk campaign calendar in the window where a second order is most likely. Subscribed one-order customers reorder ~50% more often than unsubscribed or never-contacted ones, so email reach does move this metric.",
+   "action": "CRM builds a 3-step Voyado automation triggered by first delivered order (day 3 care/fit + complementary category, day 14 next-need by entry category, day 30 incentive only for non-returners), branched by entry category - bikes/toys buyers get a bridge into outdoor clothing and shoes. Run with a Voyado control group from day one.",
+   "evidence": [
+    {
+     "claim": "180-day second-order rate of first-observed-order cohorts on Babyshop: 2025Q4 SE 26.7% (n=31,766), NO 20.8% (14,266), FI 21.0% (4,113), DK 10.0% (3,671); 2026Q1 SE 25.8% (23,480), NO 21.7% (9,171), FI 19.5% (3,763), DK 12.0% (2,358).",
+     "sql": "/* new warehouse */ with o as (select customer_key, market, shop, order_date, revenue_net, order_seq_observed from babyshop_marts.fct_customer_orders where is_identified), f as (select customer_key, market, shop, order_date d1, revenue_net r1 from o where order_seq_observed=1 and order_date between '2025-10-01' and '2026-03-31'), j as (select f.customer_key, any_value(f.market) market, any_value(f.shop) shop, any_value(d1) d1, min(if(o.order_seq_observed>1, date_diff(o.order_date, f.d1, day), null)) days2, sum(if(o.order_seq_observed>1 and date_diff(o.order_date, f.d1, day)<=180, o.revenue_net, 0)) rev180 from f left join o using(customer_key) group by 1) select if(d1<'2026-01-01','A_2025Q4','B_2026Q1') coh, market, shop, count(*) n, round(countif(days2<=30)/count(*),4) r30, round(countif(days2<=90)/count(*),4) r90, round(countif(days2<=180)/count(*),4) r180, round(sum(rev180)/count(*)) rev180pc from j where market in ('SE','NO','FI','DK') group by 1,2,3 order by 3,1,2",
+     "n": 92588
+    },
+    {
+     "claim": "Timing: of second orders placed within 180 days, 18% come within 7 days, 27% within 14, 38-39% within 30, 54% within 60 and 65% within 90 (2025Q4: 12,670 second orders; 2026Q1: 9,082).",
+     "sql": "/* new warehouse */ with o as (select customer_key, order_date, order_seq_observed s from babyshop_marts.fct_customer_orders where is_identified and shop='babyshop' and market in ('SE','NO','FI','DK')), f as (select * from o where s=1 and order_date between '2025-10-01' and '2026-03-31'), s2 as (select * from o where s=2) select if(f.order_date<'2026-01-01','Q4','Q1') coh, count(*) n_first, countif(date_diff(s2.order_date,f.order_date,day)<=180) n2_180, countif(date_diff(s2.order_date,f.order_date,day)<=7) d7, countif(date_diff(s2.order_date,f.order_date,day)<=14) d14, countif(date_diff(s2.order_date,f.order_date,day)<=30) d30, countif(date_diff(s2.order_date,f.order_date,day)<=60) d60, countif(date_diff(s2.order_date,f.order_date,day)<=90) d90 from f left join s2 using(customer_key) group by 1",
+     "n": 21752
+    },
+    {
+     "claim": "Voyado automation inventory (all automation message names since 2025-08): Welcome step1/2, AbandonedCart, Activation 1/2, Reactivation 1/2, Bugaboo cross-sell (last send 2026-09-05, 533 sends). No post-purchase, size-up, replenishment, browse or birthday flow name exists.",
+     "sql": "/* old project */ select regexp_replace(messageName, r'[0-9]{3,}', '#') nm, count(*) msgs, sum(sent) sent, sum(unique_clickers) clickers, sum(attributed_orders) ord, round(sum(attributed_revenue_sek)) rev, min(date(first_delivery)) mn, max(date(last_delivery)) mx from voyado.campaign_performance where message_type='Automation' group by 1 order by sent desc limit 60",
+     "n": 505737
+    },
+    {
+     "claim": "Entry category splits the rate: first orders dominated by bikes/balance bikes/scooters repeat at 13.9% in 180 days (n=11,307, the 3rd largest entry category) and role-play toys 15.1% (2,079), vs 26.8% coveralls (17,498), 27.9% outerwear sets (7,261), 29.2% trainers (4,528), 31.0% fleece (2,101). Bikes: 12.7% in the Q4 cohort and 15.2% in Q1.",
+     "sql": "/* old project */ with sk as (select PartNo, any_value(ProductId) ProductId from norce.product_skus group by 1), pc as (select ProductId, any_value(CategoryId) CategoryId from norce.product_categories where IsPrimary group by 1), cat as (select sk.PartNo, split(c.DefaultFullName,' - ')[safe_offset(1)] l1, split(c.DefaultFullName,' - ')[safe_offset(2)] l2, split(c.DefaultFullName,' - ')[safe_offset(3)] l3 from sk join pc using(ProductId) join norce.dim_categories c on c.Id=pc.CategoryId), co as (select *, row_number() over(partition by customer_hash, shop order by order_date, order_id) seq from norce.customer_orders where market in ('SE','NO','FI','DK')), oc as (select i.OrderId order_id, concat(ifnull(l1,'?'),' / ',ifnull(l2,'?')) c, sum(i.LineAmount) amt from norce.order_items i join cat using(PartNo) group by 1,2), dom as (select order_id, array_agg(c order by amt desc limit 1)[offset(0)] dom_cat from oc group by 1), f as (select co.*, dom_cat from co left join dom using(order_id) where seq=1 and shop='babyshop' and order_date between '2025-10-01' and '2026-03-31'), j as (select f.customer_hash, any_value(f.dom_cat) dom_cat, any_value(f.order_date) d1, min(if(o.seq>1, date_diff(o.order_date,f.order_date,day),null)) days2, sum(if(o.seq>1 and date_diff(o.order_date,f.order_date,day)<=180,o.order_value,0)) rev180 from f left join co o on o.customer_hash=f.customer_hash and o.shop=f.shop group by 1) select dom_cat, count(*) n, round(countif(days2<=180)/count(*),3) r180, round(sum(rev180)/count(*)) rev180pc, round(countif(days2<=180 and d1<'2026-01-01')/nullif(countif(d1<'2026-01-01'),0),3) r180_q4, round(countif(days2<=180 and d1>='2026-01-01')/nullif(countif(d1>='2026-01-01'),0),3) r180_q1 from j group by 1 having n>=700 order by n desc",
+     "n": 84000
+    },
+    {
+     "claim": "Among customers with exactly one order before 2026-04-01, those who were subscribed Voyado contacts reordered in Apr-Sep 2026 at 21.5% (n=53,578) vs 15.0% for unsubscribed contacts (12,056) and 13.9% for buyers who were not Voyado contacts at all (48,539).",
+     "sql": "/* old project */ with co as (select * from norce.customer_orders where market in ('SE','NO','FI','DK') and shop='babyshop'), pre as (select customer_hash, any_value(market) market, count(*) n_pre from co where order_date<'2026-04-01' group by 1), post as (select customer_hash, count(*) n_post, sum(order_value) rev_post from co where order_date between '2026-04-01' and '2026-09-30' group by 1), v as (select customer_hash, min(registrationDateTime) reg, logical_or(is_subscribed) sub from voyado.contact_market group by 1) select if(n_pre=1,'1 order','2+ orders') pre_orders, case when v.reg < '2026-04-01' then if(sub,'contact_sub','contact_unsub') else 'no_contact_before_apr' end st, count(*) custs, round(countif(n_post>0)/count(*),4) reorder_rate, round(sum(ifnull(rev_post,0))/count(*)) rev_post_pc from pre left join post using(customer_hash) left join v using(customer_hash) group by 1,2 order by 1,2",
+     "n": 114173
+    },
+    {
+     "claim": "Baseline: second orders placed within 180 days of the first averaged 1.39M SEK/month net revenue in SE, 0.71M NO, 0.23M FI, 0.14M DK in Q3 2026 (Babyshop).",
+     "sql": "/* new warehouse */ select format_date('%Y-%m', order_date) m, market, count(*) n2, countif(days_since_prev_order<=180) n2_180, round(sum(if(days_since_prev_order<=180,revenue_net,0))) rev2_180 from babyshop_marts.fct_customer_orders where is_identified and shop='babyshop' and market in ('SE','NO','FI','DK') and order_seq_observed=2 and order_date between '2026-07-01' and '2026-09-30' group by 1,2 order by 2,1 ; /* new warehouse */ select market, shop, round(sum(revenue)/3) rev_m, round(sum(gp2)/3) gp2_m, round(safe_divide(sum(gp2),sum(revenue)),4) gp2m from babyshop_marts.agg_daily_profit_ladder where date between '2026-07-01' and '2026-09-30' and market in ('SE','NO','FI','DK') group by 1,2 order by 2,1",
+     "n": 15000
+    }
+   ],
+   "replication": "Second-order rates hold in two cohorts (2025Q4 and 2026Q1) and in all four Nordic markets; the entry-category gap holds in both cohorts; the subscribed vs non-subscribed gap holds in each market separately (SE 32.2/22.4/20.9%, NO 23.8/16.6/15.3%, FI 24.3/14.0/15.1%, DK 14.9/8.7/7.4% for subscribed/unsubscribed/non-contact, customers of any prior order count).",
+   "sizing": {
+    "driver": "repeat",
+    "baseline_month_sek": 588000,
+    "baseline_note": "Monthly GP2 from second orders placed within 180 days of the first order, Babyshop SE/NO/FI/DK, Q3 2026 average: net revenue from fct_customer_orders (order_seq_observed=2, days_since_prev_order<=180) = SE 1.390M, NO 0.709M, FI 0.233M, DK 0.137M, each multiplied by that market's Babyshop GP2 margin for Q3 2026 from agg_daily_profit_ladder (ratio of sums: SE 25.67%, NO 22.55%, FI 19.64%, DK 18.40%). Assumes second orders carry the market-average GP2 margin.",
+    "fi_baseline_month_sek": 45700,
+    "uplift_low": 0.03,
+    "uplift_base": 0.06,
+    "uplift_high": 0.1,
+    "uplift_rationale": "The observed gap between subscribed and non-emailed one-order customers is +50% relative, but most of that is self-selection and the flow only reaches the ~70% who are subscribed. 6% more second orders is roughly one eighth of that gap; high case assumes the bikes/toys branch closes a third of its distance to apparel.",
+    "flow_through": 0.95,
+    "evidence_grade": "cross_market"
+   },
+   "effort": "M",
+   "owner": "crm",
+   "rollout": "fi_pilot",
+   "pilot": {
+    "metric": "30-day and 90-day second-order rate of first-time buyers, flow vs Voyado control group",
+    "weeks": 6,
+    "control": "Randomised Voyado control group (20-30% of triggered contacts); SE/NO/DK same period as secondary control if run FI-only",
+    "decision_rule": "Roll out if the treated group's 30-day second-order rate is at least 8% (relative) above control with the interval excluding zero. FI alone gives ~1,400 first-time buyers a month and ~100 second orders in 30 days, which cannot detect a 6% move - run the holdout in all four markets at once and read FI as one stratum."
+   },
+   "risks": "History only starts June 2025, so 'first order' means first observed order; the cohorts include some returning customers who were quiet for 4-6+ months, which inflates the base rate slightly. The Voyado message export may not show flows built in another tool (e.g. transactional mails carrying recommendations: 648k transactional sends exist and were not inspected). Uplift is not measured. FI-specific: the EUR 129 free-shipping threshold and SEK/10 pricing make a small second basket less attractive in Finland, so FI may under-respond.",
+   "curator_note": "Second-order rates and the baseline revenue were re-queried by the curator and match. Finland alone cannot detect the base uplift, so the pilot is a contact-level holdout in all four markets with Finland read as one group."
+  },
+  {
+   "lever": "size-up-reminder",
+   "scope": {
+    "markets": [
+     "SE",
+     "NO",
+     "FI",
+     "DK"
+    ],
+    "category": "Outerwear, boots, seasonal footwear and swim",
+    "brand": null,
+    "segment": "last season's buyers of sized seasonal items"
+   },
+   "title": "Fire a next-size reminder to last season's outerwear and shoe buyers",
+   "hypothesis": "Children outgrow outerwear and shoes every year: customers who do come back for outerwear a year later buy a size that is on average 12 cm larger. Yet only 18% of autumn-2025 outerwear buyers have returned for anything in the same weeks of 2026, and no automation uses the purchased size or the purchase anniversary - they only receive the general campaign calendar.",
+   "action": "CRM builds a Voyado automation keyed on last year's purchase date and size for outerwear, boots, trainers, sandals and swimwear: 'X has probably grown out of size N - here is this season in size N+1/N+2', sent 2-3 weeks before the anniversary, with the same brand/model family first. Needs the purchased size (already in the Norce line name) exposed to Voyado.",
+   "evidence": [
+    {
+     "claim": "17,673 Nordic Babyshop customers bought outerwear between 1 Aug and 6 Oct 2025; 3,250 (18.4%) placed any order in the same window of 2026 and 1,889 (10.7%) bought outerwear again. 9,147 (52%) have not ordered anything since.",
+     "sql": "/* old project */ with sk as (select PartNo, any_value(ProductId) ProductId from norce.product_skus group by 1), pc as (select ProductId, any_value(CategoryId) CategoryId from norce.product_categories where IsPrimary group by 1), cat as (select sk.PartNo, split(c.DefaultFullName,' - ')[safe_offset(1)] l1, split(c.DefaultFullName,' - ')[safe_offset(2)] l2, split(c.DefaultFullName,' - ')[safe_offset(3)] l3 from sk join pc using(ProductId) join norce.dim_categories c on c.Id=pc.CategoryId), co as (select *, row_number() over(partition by customer_hash, shop order by order_date, order_id) seq from norce.customer_orders where market in ('SE','NO','FI','DK')), li as (select co.customer_hash, co.market, co.order_id, co.order_date, co.order_value, cat.l1, cat.l2, safe_cast(regexp_extract(i.ProductName, r'(\\d{2,3}) ?cm') as int64) size_cm from co join norce.order_items i on i.OrderId=co.order_id join cat using(PartNo) where co.shop='babyshop'), y1 as (select customer_hash, any_value(market) market, max(size_cm) sz1 from li where order_date between '2025-08-01' and '2025-10-06' and l1='Outerwear' group by 1), y2any as (select customer_hash, count(*) n, sum(order_value) rev from co where shop='babyshop' and order_date between '2026-08-01' and '2026-10-06' group by 1), y2ow as (select customer_hash, max(size_cm) sz2 from li where order_date between '2026-08-01' and '2026-10-06' and l1='Outerwear' group by 1), mid as (select customer_hash from co where shop='babyshop' and order_date between '2025-10-07' and '2026-07-31' group by 1) select market, count(*) ow_buyers_2025, countif(y2any.customer_hash is not null) back_any_2026, countif(y2ow.customer_hash is not null) back_ow, countif(sz2>sz1) bigger, countif(sz2 is not null and sz1 is not null) both_sized, round(avg(if(sz2>sz1, sz2-sz1, null)),1) avg_step_cm, round(sum(ifnull(y2any.rev,0))) rev_2026, countif(y2any.customer_hash is null and mid.customer_hash is null) silent_since from y1 left join y2any using(customer_hash) left join y2ow using(customer_hash) left join mid using(customer_hash) group by rollup(market) order by 1",
+     "n": 17673
+    },
+    {
+     "claim": "Of the returning outerwear buyers where both years' sizes parse from the line name (n=1,810), 1,352 (75%) bought a larger size, on average +12.3 cm - one to two size steps.",
+     "sql": "/* old project */ with sk as (select PartNo, any_value(ProductId) ProductId from norce.product_skus group by 1), pc as (select ProductId, any_value(CategoryId) CategoryId from norce.product_categories where IsPrimary group by 1), cat as (select sk.PartNo, split(c.DefaultFullName,' - ')[safe_offset(1)] l1, split(c.DefaultFullName,' - ')[safe_offset(2)] l2, split(c.DefaultFullName,' - ')[safe_offset(3)] l3 from sk join pc using(ProductId) join norce.dim_categories c on c.Id=pc.CategoryId), co as (select *, row_number() over(partition by customer_hash, shop order by order_date, order_id) seq from norce.customer_orders where market in ('SE','NO','FI','DK')), li as (select co.customer_hash, co.market, co.order_id, co.order_date, co.order_value, cat.l1, cat.l2, safe_cast(regexp_extract(i.ProductName, r'(\\d{2,3}) ?cm') as int64) size_cm from co join norce.order_items i on i.OrderId=co.order_id join cat using(PartNo) where co.shop='babyshop'), y1 as (select customer_hash, any_value(market) market, max(size_cm) sz1 from li where order_date between '2025-08-01' and '2025-10-06' and l1='Outerwear' group by 1), y2any as (select customer_hash, count(*) n, sum(order_value) rev from co where shop='babyshop' and order_date between '2026-08-01' and '2026-10-06' group by 1), y2ow as (select customer_hash, max(size_cm) sz2 from li where order_date between '2026-08-01' and '2026-10-06' and l1='Outerwear' group by 1), mid as (select customer_hash from co where shop='babyshop' and order_date between '2025-10-07' and '2026-07-31' group by 1) select market, count(*) ow_buyers_2025, countif(y2any.customer_hash is not null) back_any_2026, countif(y2ow.customer_hash is not null) back_ow, countif(sz2>sz1) bigger, countif(sz2 is not null and sz1 is not null) both_sized, round(avg(if(sz2>sz1, sz2-sz1, null)),1) avg_step_cm, round(sum(ifnull(y2any.rev,0))) rev_2026, countif(y2any.customer_hash is null and mid.customer_hash is null) silent_since from y1 left join y2any using(customer_hash) left join y2ow using(customer_hash) left join mid using(customer_hash) group by rollup(market) order by 1",
+     "n": 1810
+    },
+    {
+     "claim": "Same-season return rate by market for the outerwear cohort: SE 21.0% (n=11,646), FI 14.3% (1,879), NO 13.2% (3,689), DK 9.2% (459).",
+     "sql": "/* old project */ with sk as (select PartNo, any_value(ProductId) ProductId from norce.product_skus group by 1), pc as (select ProductId, any_value(CategoryId) CategoryId from norce.product_categories where IsPrimary group by 1), cat as (select sk.PartNo, split(c.DefaultFullName,' - ')[safe_offset(1)] l1, split(c.DefaultFullName,' - ')[safe_offset(2)] l2, split(c.DefaultFullName,' - ')[safe_offset(3)] l3 from sk join pc using(ProductId) join norce.dim_categories c on c.Id=pc.CategoryId), co as (select *, row_number() over(partition by customer_hash, shop order by order_date, order_id) seq from norce.customer_orders where market in ('SE','NO','FI','DK')), li as (select co.customer_hash, co.market, co.order_id, co.order_date, co.order_value, cat.l1, cat.l2, safe_cast(regexp_extract(i.ProductName, r'(\\d{2,3}) ?cm') as int64) size_cm from co join norce.order_items i on i.OrderId=co.order_id join cat using(PartNo) where co.shop='babyshop'), y1 as (select customer_hash, any_value(market) market, max(size_cm) sz1 from li where order_date between '2025-08-01' and '2025-10-06' and l1='Outerwear' group by 1), y2any as (select customer_hash, count(*) n, sum(order_value) rev from co where shop='babyshop' and order_date between '2026-08-01' and '2026-10-06' group by 1), y2ow as (select customer_hash, max(size_cm) sz2 from li where order_date between '2026-08-01' and '2026-10-06' and l1='Outerwear' group by 1), mid as (select customer_hash from co where shop='babyshop' and order_date between '2025-10-07' and '2026-07-31' group by 1) select market, count(*) ow_buyers_2025, countif(y2any.customer_hash is not null) back_any_2026, countif(y2ow.customer_hash is not null) back_ow, countif(sz2>sz1) bigger, countif(sz2 is not null and sz1 is not null) both_sized, round(avg(if(sz2>sz1, sz2-sz1, null)),1) avg_step_cm, round(sum(ifnull(y2any.rev,0))) rev_2026, countif(y2any.customer_hash is null and mid.customer_hash is null) silent_since from y1 left join y2any using(customer_hash) left join y2ow using(customer_hash) left join mid using(customer_hash) group by rollup(market) order by 1",
+     "n": 17673
+    },
+    {
+     "claim": "The pattern repeats in other sized seasonal categories: boots buyers Aug-6 Oct 2025 20.4% back in the same window (n=10,340); swim/sandal buyers 15 Jun-31 Jul 2025 14.2% back (6,107); trainers buyers 15 Jun-30 Sep 2025 28.5% back (7,399).",
+     "sql": "/* old project */ with sk as (select PartNo, any_value(ProductId) ProductId from norce.product_skus group by 1), pc as (select ProductId, any_value(CategoryId) CategoryId from norce.product_categories where IsPrimary group by 1), cat as (select sk.PartNo, split(c.DefaultFullName,' - ')[safe_offset(1)] l1, split(c.DefaultFullName,' - ')[safe_offset(2)] l2, split(c.DefaultFullName,' - ')[safe_offset(3)] l3 from sk join pc using(ProductId) join norce.dim_categories c on c.Id=pc.CategoryId), co as (select *, row_number() over(partition by customer_hash, shop order by order_date, order_id) seq from norce.customer_orders where market in ('SE','NO','FI','DK')), li as (select co.customer_hash, co.market, co.order_id, co.order_date, co.order_value, cat.l1, cat.l2, safe_cast(regexp_extract(i.ProductName, r'(\\d{2,3}) ?cm') as int64) size_cm from co join norce.order_items i on i.OrderId=co.order_id join cat using(PartNo) where co.shop='babyshop'), v as (select customer_hash, min(registrationDateTime) reg, logical_or(is_subscribed) sub from voyado.contact_market group by 1), y1 as (select customer_hash, 'A_outerwear_Aug1-Oct6' seg, date '2026-08-01' s, date '2026-10-06' e from li where order_date between '2025-08-01' and '2025-10-06' and l1='Outerwear' group by 1 union all select customer_hash, 'B_boots_Aug1-Oct6', date '2026-08-01', date '2026-10-06' from li where order_date between '2025-08-01' and '2025-10-06' and l2='Boots' group by 1 union all select customer_hash, 'C_swim_sandals_Jun15-Jul31', date '2026-06-15', date '2026-07-31' from li where order_date between '2025-06-15' and '2025-07-31' and l2 in ('Sandals','Swimwear and UV Clothing') group by 1 union all select customer_hash, 'D_trainers_Jun15-Sep30', date '2026-06-15', date '2026-09-30' from li where order_date between '2025-06-15' and '2025-09-30' and l2='Trainers' group by 1), r as (select y1.customer_hash, seg, count(o.order_id) n, sum(o.order_value) rev from y1 left join co o on o.customer_hash=y1.customer_hash and o.shop='babyshop' and o.order_date between s and e group by 1,2) select seg, case when v.reg<'2026-04-01' then if(sub,'contact_sub','contact_unsub') else 'no_contact' end st, count(*) custs, countif(n>0) back, round(countif(n>0)/count(*),4) back_rate, round(sum(ifnull(rev,0))) rev from r left join v using(customer_hash) group by rollup(seg, st) order by 1,2",
+     "n": 23846
+    },
+    {
+     "claim": "Email reach matters for this return: outerwear buyers who were subscribed contacts returned at 21.7% (n=9,807) vs 13.9% unsubscribed (1,562) and 14.4% not in Voyado (6,304); boots 23.9% vs 15.5% vs 16.0%.",
+     "sql": "/* old project */ with sk as (select PartNo, any_value(ProductId) ProductId from norce.product_skus group by 1), pc as (select ProductId, any_value(CategoryId) CategoryId from norce.product_categories where IsPrimary group by 1), cat as (select sk.PartNo, split(c.DefaultFullName,' - ')[safe_offset(1)] l1, split(c.DefaultFullName,' - ')[safe_offset(2)] l2, split(c.DefaultFullName,' - ')[safe_offset(3)] l3 from sk join pc using(ProductId) join norce.dim_categories c on c.Id=pc.CategoryId), co as (select *, row_number() over(partition by customer_hash, shop order by order_date, order_id) seq from norce.customer_orders where market in ('SE','NO','FI','DK')), li as (select co.customer_hash, co.market, co.order_id, co.order_date, co.order_value, cat.l1, cat.l2, safe_cast(regexp_extract(i.ProductName, r'(\\d{2,3}) ?cm') as int64) size_cm from co join norce.order_items i on i.OrderId=co.order_id join cat using(PartNo) where co.shop='babyshop'), v as (select customer_hash, min(registrationDateTime) reg, logical_or(is_subscribed) sub from voyado.contact_market group by 1), y1 as (select customer_hash, 'A_outerwear_Aug1-Oct6' seg, date '2026-08-01' s, date '2026-10-06' e from li where order_date between '2025-08-01' and '2025-10-06' and l1='Outerwear' group by 1 union all select customer_hash, 'B_boots_Aug1-Oct6', date '2026-08-01', date '2026-10-06' from li where order_date between '2025-08-01' and '2025-10-06' and l2='Boots' group by 1 union all select customer_hash, 'C_swim_sandals_Jun15-Jul31', date '2026-06-15', date '2026-07-31' from li where order_date between '2025-06-15' and '2025-07-31' and l2 in ('Sandals','Swimwear and UV Clothing') group by 1 union all select customer_hash, 'D_trainers_Jun15-Sep30', date '2026-06-15', date '2026-09-30' from li where order_date between '2025-06-15' and '2025-09-30' and l2='Trainers' group by 1), r as (select y1.customer_hash, seg, count(o.order_id) n, sum(o.order_value) rev from y1 left join co o on o.customer_hash=y1.customer_hash and o.shop='babyshop' and o.order_date between s and e group by 1,2) select seg, case when v.reg<'2026-04-01' then if(sub,'contact_sub','contact_unsub') else 'no_contact' end st, count(*) custs, countif(n>0) back, round(countif(n>0)/count(*),4) back_rate, round(sum(ifnull(rev,0))) rev from r left join v using(customer_hash) group by rollup(seg, st) order by 1,2",
+     "n": 28013
+    },
+    {
+     "claim": "No automation with a size, anniversary or season trigger exists in the Voyado message list.",
+     "sql": "/* old project */ select regexp_replace(messageName, r'[0-9]{3,}', '#') nm, count(*) msgs, sum(sent) sent, sum(unique_clickers) clickers, sum(attributed_orders) ord, round(sum(attributed_revenue_sek)) rev, min(date(first_delivery)) mn, max(date(last_delivery)) mx from voyado.campaign_performance where message_type='Automation' group by 1 order by sent desc limit 60",
+     "n": 505737
+    }
+   ],
+   "replication": "Holds in four product groups (outerwear, boots, swim/sandals, trainers), two seasons (summer and autumn) and all four markets; the subscribed vs non-emailed gap is the same size in each product group.",
+   "sizing": {
+    "driver": "repeat",
+    "baseline_month_sek": 211000,
+    "baseline_note": "GP2 from last season's same-category buyers who return in season, annualised. Outerwear cohort: 4.06M SEK net order value in 67 days (1 Aug-6 Oct 2026) = 1.82M per 30 days, assumed to hold for a 5-month autumn/winter season; swim/sandals cohort: 1.01M in 47 days = 0.65M per 30 days for a 2.5-month summer season; (1.82M x 5 + 0.65M x 2.5) / 12 = 0.89M SEK/month, times 23.7% (Babyshop SE+NO+FI+DK GP2 margin Q3 2026, ratio of sums from agg_daily_profit_ladder). Boots and trainers cohorts overlap with these customers and are NOT added. Order value is norce.customer_orders.order_value, which matches fct_customer_orders.revenue_net within 1-3% (9% low for NO).",
+    "fi_baseline_month_sek": 15200,
+    "uplift_low": 0.08,
+    "uplift_base": 0.15,
+    "uplift_high": 0.3,
+    "uplift_rationale": "Return rate today is 18%; subscribed customers return at 22% vs 14% for non-emailed ones on bulk campaigns alone (+50%). A size-specific trigger moving the return rate from 18.4% to ~21% is +15%; the high case is NO/FI/DK reaching SE's 21% plus a small SE gain.",
+    "flow_through": 1.0,
+    "evidence_grade": "cross_market"
+   },
+   "effort": "M",
+   "owner": "crm",
+   "rollout": "fi_pilot",
+   "pilot": {
+    "metric": "Share of last-season outerwear/boots buyers who order within 4 weeks of the reminder, treated vs Voyado control group",
+    "weeks": 6,
+    "control": "Randomised 30% control group within the trigger audience; SE/NO/DK cohorts as a secondary read",
+    "decision_rule": "Roll out if treated return rate beats control by at least 10% relative. FI has ~1,900 autumn outerwear buyers from last year (about 270 returners), so FI alone only detects a ~25%+ move - launch with the holdout in all markets and time it for October-November, when the larger Oct-Dec 2025 cohort hits its anniversary."
+   },
+   "risks": "The 2026 window is not finished (many 2025 buyers bought in Oct-Nov and will come back later), so 18% understates the full-season return rate; the comparison is like-for-like in window but the baseline annualisation (5-month winter, 2.5-month summer) is an assumption. Children also age out of the assortment and second-hand/hand-me-downs absorb part of the need. Size parsing covers only items with 'NN cm' in the line name. Subscribed vs non-subscribed is self-selected.",
+   "curator_note": "The baseline annualises an unfinished 2026 season on stated assumptions (5-month winter, 2.5-month summer); treat it as indicative until the season closes."
+  },
+  {
+   "lever": "crm-contact-backfill",
+   "scope": {
+    "markets": [
+     "SE",
+     "NO",
+     "FI",
+     "DK"
+    ],
+    "category": null,
+    "brand": null,
+    "segment": "buyers before April 2026 who are not Voyado contacts"
+   },
+   "title": "Load the 48,000 pre-April-2026 buyers who never reached Voyado",
+   "hypothesis": "Until about April 2026 only ~58% of Babyshop buyers were created as Voyado contacts; since then it is 100%. That leaves 47,990 Nordic customers (41M SEK of past orders) who cannot receive any campaign, reactivation or seasonal email. They reorder at the same rate as unsubscribed contacts, while comparable subscribed customers reorder ~50% more and spend ~70% more per head.",
+   "action": "CRM and legal establish the consent basis for these customers (soft opt-in for existing customers, with opt-out in every mail), then import the eligible ones from Norce order history into Voyado with purchase history, and enter them into the reactivation and seasonal flows. Keep a random 20% holdout.",
+   "evidence": [
+    {
+     "claim": "Share of Nordic Babyshop customers present in Voyado by month of their last order: 52-62% for every month from 2025-06 to 2026-03, 99-100% from 2026-04 onward (e.g. 2026-03: 59.7% of 17,511; 2026-05: 100% of 19,259).",
+     "sql": "/* old project */ with l as (select customer_hash, max(order_date) last_d from norce.customer_orders where shop='babyshop' and market in ('SE','NO','FI','DK') group by 1), v as (select customer_hash, logical_or(is_subscribed) sub from voyado.contact_market group by 1) select format_date('%Y-%m', last_d) m, count(*) custs, round(countif(v.customer_hash is not null)/count(*),3) in_voy, round(countif(sub)/count(*),3) sub from l left join v using(customer_hash) group by 1 order by 1",
+     "n": 231683
+    },
+    {
+     "claim": "47,990 customers with last order before 2026-04-01 have no Voyado contact: SE 28,163, NO 11,112, FI 4,415, DK 4,300; their past net order value is 41.0M SEK.",
+     "sql": "/* old project */ with l as (select customer_hash, any_value(market) market, max(order_date) last_d, sum(order_value) rev from norce.customer_orders where shop='babyshop' and market in ('SE','NO','FI','DK') group by 1), v as (select distinct customer_hash from voyado.contact_market) select market, count(*) pool, round(sum(rev)) hist_rev from l left join v using(customer_hash) where v.customer_hash is null and last_d<'2026-04-01' group by rollup(market) order by 1",
+     "n": 47990
+    },
+    {
+     "claim": "Reorder rate Apr-Sep 2026 of customers who had ordered before April: subscribed contacts 21.5% (one prior order, n=53,578) and 47.0% (2+ orders, n=21,329); not a contact before April 13.9% (48,539) and 36.7% (10,665); unsubscribed contacts 15.0% and 36.4%. Net order value per customer over the six months: 235 vs 139 SEK (one order), 743 vs 517 SEK (2+).",
+     "sql": "/* old project */ with co as (select * from norce.customer_orders where market in ('SE','NO','FI','DK') and shop='babyshop'), pre as (select customer_hash, any_value(market) market, count(*) n_pre from co where order_date<'2026-04-01' group by 1), post as (select customer_hash, count(*) n_post, sum(order_value) rev_post from co where order_date between '2026-04-01' and '2026-09-30' group by 1), v as (select customer_hash, min(registrationDateTime) reg, logical_or(is_subscribed) sub from voyado.contact_market group by 1) select if(n_pre=1,'1 order','2+ orders') pre_orders, case when v.reg < '2026-04-01' then if(sub,'contact_sub','contact_unsub') else 'no_contact_before_apr' end st, count(*) custs, round(countif(n_post>0)/count(*),4) reorder_rate, round(sum(ifnull(rev_post,0))/count(*)) rev_post_pc from pre left join post using(customer_hash) left join v using(customer_hash) group by 1,2 order by 1,2",
+     "n": 149299
+    },
+    {
+     "claim": "Same test restricted to customers already silent for 6+ months (last order before 2025-10-01): non-contacts reordered at 18.0% in SE (n=10,635) and 12.3% in NO/FI/DK (6,340), spending 171 and 143 SEK per head over six months; subscribed contacts 26.8% / 20.1% and 287 / 264 SEK.",
+     "sql": "/* old project */ with co as (select * from norce.customer_orders where market in ('SE','NO','FI','DK') and shop='babyshop'), pre as (select customer_hash, any_value(market) market from co where order_date<'2026-04-01' group by 1 having max(order_date)<'2025-10-01'), post as (select customer_hash, count(*) n_post, sum(order_value) rev_post from co where order_date between '2026-04-01' and '2026-09-30' group by 1), v as (select customer_hash, min(registrationDateTime) reg, logical_or(is_subscribed) sub from voyado.contact_market group by 1) select if(market='SE','SE','NO_FI_DK') mk, case when v.reg < '2026-04-01' then if(sub,'contact_sub','contact_unsub') else 'no_contact_before_apr' end st, count(*) custs, round(countif(n_post>0)/count(*),4) reorder_rate, round(sum(ifnull(rev_post,0))/count(*),1) rev_post_pc from pre left join post using(customer_hash) left join v using(customer_hash) group by 1,2 order by 1,2",
+     "n": 40070
+    },
+    {
+     "claim": "Per market, subscribed vs non-contact reorder rate Apr-Sep 2026: SE 32.2% vs 20.9%, NO 23.8% vs 15.3%, FI 24.3% vs 15.1%, DK 14.9% vs 7.4%.",
+     "sql": "/* old project */ with co as (select * from norce.customer_orders where market in ('SE','NO','FI','DK') and shop='babyshop'), pre as (select customer_hash, any_value(market) market, count(*) n_pre from co where order_date<'2026-04-01' group by 1), post as (select customer_hash, count(*) n_post, sum(order_value) rev_post from co where order_date between '2026-04-01' and '2026-09-30' group by 1), v as (select customer_hash, min(registrationDateTime) reg, logical_or(is_subscribed) sub from voyado.contact_market group by 1) select market, case when v.reg < '2026-04-01' then if(sub,'contact_sub','contact_unsub') else 'no_contact_before_apr' end st, count(*) custs, round(countif(n_post>0)/count(*),4) reorder_rate, round(sum(ifnull(rev_post,0))/count(*)) rev_post_pc from pre left join post using(customer_hash) left join v using(customer_hash) group by 1,2 order by 1,2",
+     "n": 149299
+    }
+   ],
+   "replication": "The contact gap is present in every last-order month from June 2025 to March 2026; the subscribed vs non-contact reorder gap holds in all four markets, for one-order and multi-order customers, and for the silent-6-months subset. Unsubscribed contacts match non-contacts in every cut, which is what you would expect if email reach rather than loyalty-programme membership drives part of the gap.",
+   "sizing": {
+    "driver": "repeat",
+    "baseline_month_sek": 314000,
+    "baseline_note": "Expected GP2 from the 47,990-customer pool without action: pool size x six-month net order value per head of comparable never-contacted customers who had been silent 6+ months (SE 171.2 SEK, NO/FI/DK 142.8 SEK) / 6 = 0.80M + 0.47M = 1.28M SEK/month, times Babyshop GP2 margin Apr-Sep 2026 from agg_daily_profit_ladder (SE 25.89%; NO 24.19%, FI 19.24%, DK 21.00% pool-weighted 22.4%). The pool ages, so this baseline decays over the following year - treat the result as a first-12-months figure.",
+    "fi_baseline_month_sek": 20200,
+    "uplift_low": 0.05,
+    "uplift_base": 0.12,
+    "uplift_high": 0.25,
+    "uplift_rationale": "Subscribed customers spend 68-85% more per head than non-contacts in the like-for-like silent cohort. Base case assumes roughly half the pool can lawfully be mailed and a third of the gap is causal (0.5 x 0.33 x ~0.75 = 0.12); high case assumes most are importable; low case assumes mostly selection.",
+    "flow_through": 0.9,
+    "evidence_grade": "cross_market"
+   },
+   "effort": "M",
+   "owner": "crm",
+   "rollout": "fi_pilot",
+   "pilot": {
+    "metric": "8-week reorder rate and revenue per imported customer vs a random not-imported holdout",
+    "weeks": 8,
+    "control": "Random 20-50% holdout of the eligible pool, same market",
+    "decision_rule": "Proceed with the remaining markets if imported customers reorder at least 10% (relative) more than holdout and the unsubscribe/complaint rate on the first two sends stays under 1%. The FI pool is 4,415 customers (~90 reorders in 8 weeks), too few to read alone - use FI as the legal and deliverability dry run and read the effect on the SE pool."
+   },
+   "risks": "Why these buyers were not created as contacts is not visible in the data: if they actively declined marketing they cannot be mailed and the opportunity shrinks to whatever soft opt-in allows per country (Finland and Denmark are stricter in practice than Sweden). The subscribed vs non-contact gap is self-selected; unsubscribed contacts behaving like non-contacts argues for a real email effect but does not prove it. A cold import can hurt sender reputation. Contact presence is read from today's Voyado export (registrationDateTime), so contacts deleted since would be counted as never-contacts.",
+   "curator_note": "Depends on a legal answer first: why these buyers were never created as contacts, and whether soft opt-in allows mailing them in each country. If it does not, reject this item."
+  },
+  {
+   "lever": "winter-kit-bundle",
+   "scope": {
+    "markets": [
+     "SE",
+     "NO",
+     "FI",
+     "DK"
+    ],
+    "category": "Outerwear / Winter Coveralls",
+    "brand": null,
+    "segment": "winter coverall baskets"
+   },
+   "title": "Sell the winter kit: prompt mittens, hat and boots on every coverall basket",
+   "hypothesis": "A winter coverall needs mittens, a hat/balaclava, a mid-layer and boots, but half or more of coverall orders leave without any of them, and only 2-3% come back for them within 30 days - the rest is bought elsewhere. Sweden attaches an accessory in 45-49% of coverall orders against 36-42% in Norway and 32-35% in Finland, with no reason for Finnish or Norwegian children to need fewer mittens.",
+   "action": "Merchandising adds a 'complete the winter kit' module on coverall product pages and in the cart (matching brand/colour mittens, balaclava, fleece, winter boots in the chosen size), and CRM adds the same block to the order confirmation / day-3 post-purchase mail for coverall orders with no accessory.",
+   "evidence": [
+    {
+     "claim": "Season 2025-26 (Aug-May), Babyshop orders containing a winter coverall: share that also contained mittens, hat, boots or a mid-layer was SE 48.5% (n=13,985), NO 41.5% (7,519), FI 34.9% (2,262).",
+     "sql": "/* old project */ with sk as (select PartNo, any_value(ProductId) ProductId from norce.product_skus group by 1), pc as (select ProductId, any_value(CategoryId) CategoryId from norce.product_categories where IsPrimary group by 1), cat as (select sk.PartNo, split(c.DefaultFullName,' - ')[safe_offset(1)] l1, split(c.DefaultFullName,' - ')[safe_offset(2)] l2, split(c.DefaultFullName,' - ')[safe_offset(3)] l3 from sk join pc using(ProductId) join norce.dim_categories c on c.Id=pc.CategoryId), co as (select *, row_number() over(partition by customer_hash, shop order by order_date, order_id) seq from norce.customer_orders where market in ('SE','NO','FI','DK')), ol as (select co.customer_hash, co.market, co.order_id, co.order_date, co.order_value, logical_or(l2='Coveralls' and l3='Winter Coveralls') cov, logical_or(l2='Gloves and Mittens') mit, logical_or(l2='Hats and Caps') hat, logical_or(l2='Boots') boots, logical_or(l2='Baselayers' or l2='Fleeces and Teddys') mid from co join norce.order_items i on i.OrderId=co.order_id join cat using(PartNo) where co.shop='babyshop' group by 1,2,3,4,5), c as (select * from ol where cov), fu as (select c.order_id, logical_or(o.mit or o.hat or o.boots or o.mid) any30 from c join ol o on o.customer_hash=c.customer_hash and o.order_id!=c.order_id and o.order_date between c.order_date and date_add(c.order_date, interval 30 day) group by 1) select if(c.order_date<'2026-06-01','season_2025_26','season_2026') season, market, count(*) cov_orders, round(avg(order_value)) aov, round(countif(mit)/count(*),3) mit_same, round(countif(hat)/count(*),3) hat_same, round(countif(boots)/count(*),3) boots_same, round(countif(mit or hat or boots or mid)/count(*),3) any_acc_same, round(countif(not (mit or hat or boots or mid) and any30)/count(*),3) any_later30, round(avg(if(mit or hat or boots or mid, order_value, null))) aov_with, round(avg(if(not(mit or hat or boots or mid), order_value, null))) aov_without from c left join fu using(order_id) where c.order_date>='2025-08-01' group by 1,2 order by 1,2",
+     "n": 23766
+    },
+    {
+     "claim": "Same cut for the 2026 season to date (Aug-6 Oct 2026): SE 44.7% (n=2,036), NO 36.4% (1,537), FI 32.4% (828).",
+     "sql": "/* old project */ with sk as (select PartNo, any_value(ProductId) ProductId from norce.product_skus group by 1), pc as (select ProductId, any_value(CategoryId) CategoryId from norce.product_categories where IsPrimary group by 1), cat as (select sk.PartNo, split(c.DefaultFullName,' - ')[safe_offset(1)] l1, split(c.DefaultFullName,' - ')[safe_offset(2)] l2, split(c.DefaultFullName,' - ')[safe_offset(3)] l3 from sk join pc using(ProductId) join norce.dim_categories c on c.Id=pc.CategoryId), co as (select *, row_number() over(partition by customer_hash, shop order by order_date, order_id) seq from norce.customer_orders where market in ('SE','NO','FI','DK')), ol as (select co.customer_hash, co.market, co.order_id, co.order_date, co.order_value, logical_or(l2='Coveralls' and l3='Winter Coveralls') cov, logical_or(l2='Gloves and Mittens') mit, logical_or(l2='Hats and Caps') hat, logical_or(l2='Boots') boots, logical_or(l2='Baselayers' or l2='Fleeces and Teddys') mid from co join norce.order_items i on i.OrderId=co.order_id join cat using(PartNo) where co.shop='babyshop' group by 1,2,3,4,5), c as (select * from ol where cov), fu as (select c.order_id, logical_or(o.mit or o.hat or o.boots or o.mid) any30 from c join ol o on o.customer_hash=c.customer_hash and o.order_id!=c.order_id and o.order_date between c.order_date and date_add(c.order_date, interval 30 day) group by 1) select if(c.order_date<'2026-06-01','season_2025_26','season_2026') season, market, count(*) cov_orders, round(avg(order_value)) aov, round(countif(mit)/count(*),3) mit_same, round(countif(hat)/count(*),3) hat_same, round(countif(boots)/count(*),3) boots_same, round(countif(mit or hat or boots or mid)/count(*),3) any_acc_same, round(countif(not (mit or hat or boots or mid) and any30)/count(*),3) any_later30, round(avg(if(mit or hat or boots or mid, order_value, null))) aov_with, round(avg(if(not(mit or hat or boots or mid), order_value, null))) aov_without from c left join fu using(order_id) where c.order_date>='2025-08-01' group by 1,2 order by 1,2",
+     "n": 4401
+    },
+    {
+     "claim": "Coverall orders with an accessory are worth 535 SEK more in SE (1,358 vs 823), 549 more in NO (1,422 vs 873) and 444 more in FI (1,445 vs 1,001) in 2025-26.",
+     "sql": "/* old project */ with sk as (select PartNo, any_value(ProductId) ProductId from norce.product_skus group by 1), pc as (select ProductId, any_value(CategoryId) CategoryId from norce.product_categories where IsPrimary group by 1), cat as (select sk.PartNo, split(c.DefaultFullName,' - ')[safe_offset(1)] l1, split(c.DefaultFullName,' - ')[safe_offset(2)] l2, split(c.DefaultFullName,' - ')[safe_offset(3)] l3 from sk join pc using(ProductId) join norce.dim_categories c on c.Id=pc.CategoryId), co as (select *, row_number() over(partition by customer_hash, shop order by order_date, order_id) seq from norce.customer_orders where market in ('SE','NO','FI','DK')), ol as (select co.customer_hash, co.market, co.order_id, co.order_date, co.order_value, logical_or(l2='Coveralls' and l3='Winter Coveralls') cov, logical_or(l2='Gloves and Mittens') mit, logical_or(l2='Hats and Caps') hat, logical_or(l2='Boots') boots, logical_or(l2='Baselayers' or l2='Fleeces and Teddys') mid from co join norce.order_items i on i.OrderId=co.order_id join cat using(PartNo) where co.shop='babyshop' group by 1,2,3,4,5), c as (select * from ol where cov), fu as (select c.order_id, logical_or(o.mit or o.hat or o.boots or o.mid) any30 from c join ol o on o.customer_hash=c.customer_hash and o.order_id!=c.order_id and o.order_date between c.order_date and date_add(c.order_date, interval 30 day) group by 1) select if(c.order_date<'2026-06-01','season_2025_26','season_2026') season, market, count(*) cov_orders, round(avg(order_value)) aov, round(countif(mit)/count(*),3) mit_same, round(countif(hat)/count(*),3) hat_same, round(countif(boots)/count(*),3) boots_same, round(countif(mit or hat or boots or mid)/count(*),3) any_acc_same, round(countif(not (mit or hat or boots or mid) and any30)/count(*),3) any_later30, round(avg(if(mit or hat or boots or mid, order_value, null))) aov_with, round(avg(if(not(mit or hat or boots or mid), order_value, null))) aov_without from c left join fu using(order_id) where c.order_date>='2025-08-01' group by 1,2 order by 1,2",
+     "n": 23766
+    },
+    {
+     "claim": "Customers who bought the coverall without accessories rarely return for them: only 3.3% in SE, 2.1% in NO and 1.7% in FI bought mittens/hat/boots/mid-layer in a separate order within 30 days.",
+     "sql": "/* old project */ with sk as (select PartNo, any_value(ProductId) ProductId from norce.product_skus group by 1), pc as (select ProductId, any_value(CategoryId) CategoryId from norce.product_categories where IsPrimary group by 1), cat as (select sk.PartNo, split(c.DefaultFullName,' - ')[safe_offset(1)] l1, split(c.DefaultFullName,' - ')[safe_offset(2)] l2, split(c.DefaultFullName,' - ')[safe_offset(3)] l3 from sk join pc using(ProductId) join norce.dim_categories c on c.Id=pc.CategoryId), co as (select *, row_number() over(partition by customer_hash, shop order by order_date, order_id) seq from norce.customer_orders where market in ('SE','NO','FI','DK')), ol as (select co.customer_hash, co.market, co.order_id, co.order_date, co.order_value, logical_or(l2='Coveralls' and l3='Winter Coveralls') cov, logical_or(l2='Gloves and Mittens') mit, logical_or(l2='Hats and Caps') hat, logical_or(l2='Boots') boots, logical_or(l2='Baselayers' or l2='Fleeces and Teddys') mid from co join norce.order_items i on i.OrderId=co.order_id join cat using(PartNo) where co.shop='babyshop' group by 1,2,3,4,5), c as (select * from ol where cov), fu as (select c.order_id, logical_or(o.mit or o.hat or o.boots or o.mid) any30 from c join ol o on o.customer_hash=c.customer_hash and o.order_id!=c.order_id and o.order_date between c.order_date and date_add(c.order_date, interval 30 day) group by 1) select if(c.order_date<'2026-06-01','season_2025_26','season_2026') season, market, count(*) cov_orders, round(avg(order_value)) aov, round(countif(mit)/count(*),3) mit_same, round(countif(hat)/count(*),3) hat_same, round(countif(boots)/count(*),3) boots_same, round(countif(mit or hat or boots or mid)/count(*),3) any_acc_same, round(countif(not (mit or hat or boots or mid) and any30)/count(*),3) any_later30, round(avg(if(mit or hat or boots or mid, order_value, null))) aov_with, round(avg(if(not(mit or hat or boots or mid), order_value, null))) aov_without from c left join fu using(order_id) where c.order_date>='2025-08-01' group by 1,2 order by 1,2",
+     "n": 23766
+    },
+    {
+     "claim": "Mittens specifically: in the same basket for 24.2% of SE coverall orders, 23.6% NO, 20.1% FI; boots 22.6% SE, 17.0% NO, 11.5% FI.",
+     "sql": "/* old project */ with sk as (select PartNo, any_value(ProductId) ProductId from norce.product_skus group by 1), pc as (select ProductId, any_value(CategoryId) CategoryId from norce.product_categories where IsPrimary group by 1), cat as (select sk.PartNo, split(c.DefaultFullName,' - ')[safe_offset(1)] l1, split(c.DefaultFullName,' - ')[safe_offset(2)] l2, split(c.DefaultFullName,' - ')[safe_offset(3)] l3 from sk join pc using(ProductId) join norce.dim_categories c on c.Id=pc.CategoryId), co as (select *, row_number() over(partition by customer_hash, shop order by order_date, order_id) seq from norce.customer_orders where market in ('SE','NO','FI','DK')), ol as (select co.customer_hash, co.market, co.order_id, co.order_date, co.order_value, logical_or(l2='Coveralls' and l3='Winter Coveralls') cov, logical_or(l2='Gloves and Mittens') mit, logical_or(l2='Hats and Caps') hat, logical_or(l2='Boots') boots, logical_or(l2='Baselayers' or l2='Fleeces and Teddys') mid from co join norce.order_items i on i.OrderId=co.order_id join cat using(PartNo) where co.shop='babyshop' group by 1,2,3,4,5), c as (select * from ol where cov), fu as (select c.order_id, logical_or(o.mit or o.hat or o.boots or o.mid) any30 from c join ol o on o.customer_hash=c.customer_hash and o.order_id!=c.order_id and o.order_date between c.order_date and date_add(c.order_date, interval 30 day) group by 1) select if(c.order_date<'2026-06-01','season_2025_26','season_2026') season, market, count(*) cov_orders, round(avg(order_value)) aov, round(countif(mit)/count(*),3) mit_same, round(countif(hat)/count(*),3) hat_same, round(countif(boots)/count(*),3) boots_same, round(countif(mit or hat or boots or mid)/count(*),3) any_acc_same, round(countif(not (mit or hat or boots or mid) and any30)/count(*),3) any_later30, round(avg(if(mit or hat or boots or mid, order_value, null))) aov_with, round(avg(if(not(mit or hat or boots or mid), order_value, null))) aov_without from c left join fu using(order_id) where c.order_date>='2025-08-01' group by 1,2 order by 1,2",
+     "n": 23766
+    }
+   ],
+   "replication": "The SE > NO > FI ordering of attach rate holds in both the 2025-26 season and the 2026 season to date, and for each accessory type separately (mittens, hats, boots).",
+   "sizing": {
+    "driver": "aov",
+    "baseline_month_sek": 547000,
+    "baseline_note": "GP2 of Babyshop orders containing a winter coverall, annualised: season 2025-26 net order value SE 15.13M, NO 8.28M, FI 2.61M, DK 1.61M (order count x average order value from norce.customer_orders) divided by 12, times each market's Babyshop GP2 margin for Q3 2026 from agg_daily_profit_ladder (SE 25.67%, NO 22.55%, FI 19.64%, DK 18.40%). Uses the market-average margin, not a coverall-specific one. The revenue is concentrated in Sep-Jan.",
+    "fi_baseline_month_sek": 42800,
+    "uplift_low": 0.01,
+    "uplift_base": 0.025,
+    "uplift_high": 0.05,
+    "uplift_rationale": "Closing NO's gap to SE (+7 points of attach x ~550 SEK) is +3.5% on NO coverall AOV; closing FI's (+13.6 points x ~444 SEK) is +5.2%; a 3-point gain in SE is +1.5%. Weighted by revenue that is ~2.5% if half of it is achieved everywhere.",
+    "flow_through": 1.3,
+    "evidence_grade": "cross_market"
+   },
+   "effort": "M",
+   "owner": "merchandising",
+   "rollout": "fi_pilot",
+   "pilot": {
+    "metric": "Share of winter-coverall orders containing mittens, hat, boots or mid-layer; coverall-order AOV",
+    "weeks": 6,
+    "control": "SE/NO/DK same period, and FI's own 2025 season (34.9%)",
+    "decision_rule": "Roll out if FI attach rate rises from ~33% to at least 38% (a 15% relative move) while SE/NO stay flat. FI has roughly 800-1,000 coverall orders in a 6-week autumn window, enough to see a 5-point move."
+   },
+   "risks": "Part of the SE lead may come from the free-shipping threshold (an SE coverall-only order averages 823 SEK against a 1,000 kr threshold, so mittens tip it over); in Finland a coverall-only order of ~1,000 SEK (~EUR 90-100) sits further below EUR 129, so the module should show the distance to free shipping - and its effect interacts with the existing fi-free-shipping-threshold lever. Accessory stock in matching sizes must be there in peak weeks. DK is included in the baseline but its coverall orders are skewed by a few very large baskets (average 1,993 SEK), so DK numbers were not used as evidence."
+  },
+  {
+   "lever": "abandoned-cart-flow",
+   "scope": {
+    "markets": [
+     "ALL"
+    ],
+    "category": null,
+    "brand": null,
+    "segment": "identified cart abandoners"
+   },
+   "title": "Add reminder steps to the one-step abandoned-cart flow",
+   "hypothesis": "The abandoned-cart automation only went live in July 2026 and immediately became the most productive mail per send (about 10 SEK attributed revenue per send against about 0.5 SEK for campaigns), but it is a single message. A second and third reminder reach people who did not open the first, at no media cost.",
+   "action": "CRM adds step 2 (about 24 h, social proof / low-stock) and step 3 (about 72 h, free-shipping or small incentive only for non-buyers) to BS_AUT_AbandonedCart in all languages, with exit on purchase and a control group on the new steps.",
+   "evidence": [
+    {
+     "claim": "BS_AUT_AbandonedCart delivered 12 mails in May and 33 in June 2026, then 15,845 in July, 18,410 in August and 18,027 in September - it effectively launched 2 July 2026.",
+     "sql": "/* old project */ select format_date('%Y-%m', deliveryDate) m, count(*) ac_deliveries, count(distinct d.contactId) contacts from voyado.deliveries d join voyado.marketing_messages m using(messageId) where m.messageName like '%AbandonedCart%' group by 1 order by 1",
+     "n": 56033
+    },
+    {
+     "claim": "Click-attributed orders from the flow: 165 orders / 168,717 SEK in July and 160 orders / 163,463 SEK for 1-26 August (receipt data ends 26 Aug) - about 10.6 SEK per delivered mail in both months.",
+     "sql": "/* old project */ select format_date('%Y-%m', a.createdOnDate) m, case when m.messageName like '%AbandonedCart%' then 'AC' when m.messageName like '%Welcome%' then 'Welcome' when m.messageName like '%eactivation%' then 'Reactivation' when m.message_type='Automation' then 'other_auto' else 'campaign' end flow, count(*) orders, round(sum(a.revenue_sek)) rev from voyado.attributed_receipts a join voyado.marketing_messages m on m.messageId=a.attributed_messageId where a.is_email_attributed and a.createdOnDate>='2026-06-01' and not in_broken_fx_window group by 1,2 order by 2,1",
+     "n": 325
+    },
+    {
+     "claim": "It is a single step: one message name and one workflow id; of 36,356 deliveries in Aug-Sep only 62 followed a previous cart mail to the same contact within 24 h and 1,775 within 1-4 days (repeat carts, not a sequence).",
+     "sql": "/* old project */ with d as (select d.contactId, d.deliveryDateTime t, lag(d.deliveryDateTime) over(partition by d.contactId order by d.deliveryDateTime) p from voyado.deliveries d join voyado.marketing_messages m using(messageId) where m.messageName like 'BS_AUT_AbandonedCart%' and d.deliveryDate between '2026-08-01' and '2026-09-30') select count(*) n, countif(p is null) first_in_window, countif(timestamp_diff(t,p,hour)<=24) within24h, countif(timestamp_diff(t,p,hour) between 25 and 96) d1_4, countif(timestamp_diff(t,p,hour)>96) later from d; select count(distinct messageName) names, count(distinct workflowId) workflows from voyado.marketing_messages where messageName like 'BS_AUT_AbandonedCart%'",
+     "n": 36356
+    },
+    {
+     "claim": "Reach is uneven: deliveries per 30 days against GA4 users who added to cart without purchasing in September (sampled funnel) - SE ~8,350 mails vs ~21,000 abandoners (40%), NO ~2,610 vs ~10,100 (26%), FI ~930 vs ~3,560 (26%), DK ~580 vs ~4,220 (14%).",
+     "sql": "/* old project */ select cm.market, count(*) deliveries, count(distinct d.contactId) contacts from voyado.deliveries d join voyado.marketing_messages m using(messageId) join voyado.contact_market cm using(contactId) where d.deliveryDate between '2026-07-10' and '2026-10-06' and m.messageName like 'BS_AUT_AbandonedCart%' and cm.market in ('SE','NO','FI','DK') group by 1; /* new warehouse */ select market, step_index, step_name, users, abandonments, sampled from babyshop_marts.agg_funnel_snapshots where is_current_version and breakdown='total' and scope_kind='market' and window_kind='d30' and window_end='2026-09-30' and market in ('SE','NO','FI','DK') and users>0 order by market, step_index",
+     "n": 36530
+    },
+    {
+     "claim": "In SE/NO/FI/DK between 1 June and 25 August 2026, automations were 2.8% of marketing sends (234,919 of 8.32M) but 15% of click-attributed email revenue (0.75M of 4.91M SEK): 3.2 SEK per send against 0.51 SEK for manual campaigns.",
+     "sql": "/* old project */ select market, message_type, sum(sent) sent, sum(attributed_orders) ord, round(sum(attributed_revenue_sek)) rev from voyado.email_daily where event_date between '2026-06-01' and '2026-08-25' and market in ('SE','NO','FI','DK') group by 1,2 order by 2,1",
+     "n": 8319752
+    }
+   ],
+   "replication": "The flow's revenue per send was stable across its first two months (July 10.6 SEK, 1-26 August ~10.5 SEK) and it delivers in all four Nordic markets; the single-step structure is the same in every market since it is one workflow.",
+   "sizing": {
+    "driver": "conversion",
+    "baseline_month_sek": 43300,
+    "baseline_note": "Monthly GP2 currently click-attributed to the abandoned-cart flow: July 168.7k SEK and August 163.5k for 26 days scaled to 195k for the month, average 182k SEK/month, times the all-market GP2 margin for Q3 2026 (23.8%, the Q3 baseline table in RULES.md). Voyado receipt revenue is treated as net; receipts stop on 2026-08-26 so September is not observed.",
+    "fi_baseline_month_sek": 3200,
+    "uplift_low": 0.15,
+    "uplift_base": 0.3,
+    "uplift_high": 0.5,
+    "uplift_rationale": "Outside rule of thumb: a second and third cart reminder typically add 30-50% to the first step's recovered revenue. Low case allows for the click-attributed baseline overstating incrementality.",
+    "flow_through": 0.9,
+    "evidence_grade": "benchmark"
+   },
+   "effort": "S",
+   "owner": "crm",
+   "rollout": "ship_direct",
+   "pilot": null,
+   "risks": "Baseline is last-click attribution, not incremental revenue - some of these carts would have converted anyway, and the flow has no control group. The FI figure is allocated by FI's 7.4% share of cart-mail deliveries. The reach comparison mixes mails with sampled GA4 users, so read the percentages as ordering, not levels. Base case is only just above the 10k floor.",
+   "curator_note": "Only just above the floor, and the baseline is click-attributed revenue without a control group."
+  }
+ ],
+ "needs_data": [
+  {
+   "hypothesis": "Lekmer-only buyers get no CRM at all and could be bridged into Babyshop: 25,905 of 45,928 Nordic Lekmer customers have never bought on Babyshop and only 1,905 of them exist in Voyado; yet 11-13% of new Lekmer customers place a first Babyshop order within 180 days unprompted (Dec 2025-Mar 2026 cohorts).",
+   "missing_source": "Whether Lekmer runs its own email platform (no Lekmer-named message exists in the Voyado export), and the consent basis for mailing Lekmer buyers from Babyshop. Lekmer new-customer volume is also erratic (500-800/month Apr-Jul 2026, 3,200 in Sep), so the shop's status needs confirming.",
+   "why_promising": "Babyshop orders from customers whose first purchase was on Lekmer ran at 1.4-1.9M SEK/month in Q3 2026 (the early cohorts are inflated by pre-June-2025 Babyshop customers, so the true bridge is smaller). A recurring flow on ~1,200 Lekmer-only new buyers a month sizes below the floor on its own; a one-off mailing to the 24k stock could be worth more but is not a monthly figure."
+  },
+  {
+   "hypothesis": "Bulk campaign email is incremental and frequency could be tuned by measured lift rather than attributed clicks.",
+   "missing_source": "Voyado deliveries before 2026-05-19. The only control groups in the export are from the July-August 2025 Superweek campaigns (about 5,000 SE contacts held out across seven sends, 71,984 control rows), but deliveries start in May 2026 so the treated recipients of those sends cannot be identified. A fresh control group on current campaigns would fix this.",
+   "why_promising": "Campaigns are 97% of sends and 85% of attributed email revenue (SE/NO/FI/DK, June-25 Aug 2026); a measured lift would also turn the subscribed vs non-subscribed gaps used in this lens from correlation into a causal number."
+  },
+  {
+   "hypothesis": "Browse-abandonment and back-in-stock triggers would add to the triggered-mail revenue.",
+   "missing_source": "Whether Voyado web tracking / product-view events are captured per contact (no browse event table in the export), and stock-notification sign-ups.",
+   "why_promising": "The cart flow shows ~10 SEK per send from launch; product-view audiences are several times larger than cart audiences (SE: 165k item viewers vs 32k cart adders in September)."
+  },
+  {
+   "hypothesis": "Voyado receipt and attribution data stopped on 2026-08-26, so September-October email revenue (including the first Kuling winter campaigns) cannot be read.",
+   "missing_source": "voyado.receipts / receipt_items sync - the sync_state shows 0 new rows since about 22 September and the last receipt date is 26 August.",
+   "why_promising": "Every email sizing above leans on attributed receipts; campaign_performance shows 0 attributed orders for all September campaigns only because of this gap."
+  },
+  {
+   "hypothesis": "First-order category should steer acquisition bidding: coverall/outerwear/trainer entrants are worth 300-380 SEK of repeat revenue in 180 days against 131 SEK for bike entrants.",
+   "missing_source": "Acquisition cost and channel per first-order category (new-customer orders joined to paid click source), which sits with the paid-media lens.",
+   "why_promising": "Bikes/balance bikes/scooters are the third largest entry category (11,307 first orders in six months) with half the 180-day repeat rate of apparel; if they are bought with the same tROAS the true return on them is lower than it looks."
+  }
+ ],
+ "checked_and_dropped": [
+  {
+   "idea": "Raise email opt-in at checkout in DK/FI (subscribed share of buyers since April 2026: SE 70.4%, NO 68.8%, FI 65.9%, DK 55.9%)",
+   "why": "Below floor: closing DK's 14-point gap adds ~1,200 subscribers per six months; at a third of the subscribed vs non-subscribed spend gap that is roughly 4k SEK GP2/month. Worth doing as hygiene, not as a ledger item."
+  },
+  {
+   "idea": "DK repeat-rate gap as a CRM problem (DK 180-day second-order rate 10-12% vs 20-27% elsewhere, replicated in two cohorts; subscribed DK customers also reorder at 14.9% vs 24-32%)",
+   "why": "Real and replicated, but no CRM mechanism found: campaign sends per subscriber (~3 a week) and attributed revenue per send (DK 0.50 vs SE 0.56 SEK) are in line with other markets. Looks like an assortment/price/competition issue for the market lens. DK data also contains a few very large repeat buyers (3+ order AOV 1,689 SEK)."
+  },
+  {
+   "idea": "Win-back flow for lapsed customers",
+   "why": "Already exists (BS_AUT_Reactivation_1/2, ~331k sends since July 2026, 99 attributed orders up to 26 Aug). With history starting June 2025, nobody can yet be observed 12-24 months lapsed, so a 12-24 month win-back cannot be sized. The contact-backfill candidate covers the part of the lapsed base the existing flow cannot reach."
+  },
+  {
+   "idea": "Welcome flow",
+   "why": "Exists and performs (step 1: 14,158 sends, 412 attributed orders, 551k SEK from June to 26 Aug). No gap found."
+  },
+  {
+   "idea": "New-parent life-stage flow from stroller / car-seat / baby-nest first purchases",
+   "why": "Below floor: ~245 stroller-led first orders a month with 449 SEK of 180-day repeat revenue each gives ~27k SEK GP2/month baseline; a 20% lift is ~5k. The Bugaboo accessory cross-sell automation that existed (533 sends, 0 attributed orders) stopped on 2026-09-05."
+  },
+  {
+   "idea": "Separate bridge flow for bike/toy entrants",
+   "why": "Folded into the second-order-flow candidate as a branch to avoid double counting. Stand-alone it would be ~85k SEK GP2/month baseline (15.4k toy-led first orders per six months x ~138 SEK repeat revenue) and ~17k at +20%."
+  },
+  {
+   "idea": "Replenishment reminders for consumables",
+   "why": "No consumable category of meaningful size in the order lines (pacifiers 359k and baby eat/drink 416k local-currency line value over 16 months); the fast-outgrown staples are covered by the size-up candidate."
+  },
+  {
+   "idea": "Lekmer repeat rate (180-day second-order rate 4-9% vs 20-27% on Babyshop)",
+   "why": "Not sizable without knowing Lekmer's CRM setup - moved to needs_data. Lekmer repeat GP2 is ~150k SEK/month in total, so even a large relative lift is small."
+  },
+  {
+   "idea": "Email frequency or market-level campaign performance gap",
+   "why": "No gap: sends per subscriber per week SE 3.5, NO 3.3, FI 3.2, DK 3.1; attributed revenue per send SE 0.56, FI 0.53, DK 0.50, NO 0.43 SEK (June-25 Aug 2026)."
+  },
+  {
+   "idea": "Product-attribute cuts from babyshop_marts.dim_product",
+   "why": "Data gap, not an idea: brand, product_type and category_root are empty for all 213,517 rows, so every category cut in this lens uses the old project's norce.product_categories instead (97.8% of line value mapped)."
+  }
+ ]
+}

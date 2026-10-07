@@ -59,18 +59,19 @@ def _slug(s) -> str:
 
 
 def fingerprint(lever: str, scope: dict) -> str:
-    """The de-duplication key: mechanism + where it applies.
+    """The de-duplication key: mechanism + markets + brand.
 
     Markets are sorted and ALL collapses to one token, so ["SE","NO"] and
-    ["NO","SE"] are the same opportunity. Free-text fields are slugged, so
-    casing and punctuation never create a second row."""
+    ["NO","SE"] are the same opportunity. Category and segment are left OUT on
+    purpose: they are free text that two runs word differently ("first-time
+    buyers" / "new customers"), which would split one opportunity into two. A
+    genuinely different mechanism gets a different lever slug instead."""
     markets = sorted({str(m).upper() for m in (scope.get("markets") or ["ALL"])})
     if "ALL" in markets:
         markets = ["ALL"]
     parts = [_slug(lever), "-".join(m.lower() for m in markets)]
-    for k in ("category", "brand", "segment"):
-        if scope.get(k):
-            parts.append(_slug(scope[k]))
+    if scope.get("brand"):
+        parts.append(_slug(scope["brand"]))
     fid = "--".join(p for p in parts if p)
     if len(fid) > 120:      # keep it a legible Firestore id
         fid = fid[:100] + "-" + hashlib.sha1(fid.encode()).hexdigest()[:8]

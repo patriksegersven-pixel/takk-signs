@@ -182,9 +182,10 @@ Write ONE JSON file to the path given in your brief, shaped:
 ```
 
 `lever` is a short kebab-case slug naming the mechanism, not the finding —
-it is half of the de-duplication key together with `scope`, so reuse an
-existing lever slug from the ledger extract in your brief when your candidate
-is the same mechanism. If your candidate matches an existing ledger item,
+the de-duplication key is `lever` + `scope.markets` + `scope.brand`
+(category and segment are descriptive only), so reuse an existing lever slug
+from the ledger extract in your brief when your candidate is the same
+mechanism, and use a different slug for a genuinely different one. If your candidate matches an existing ledger item,
 return it anyway with the SAME lever and scope and the new evidence — the
 curator will merge it. Never re-propose an item whose status is `rejected`
 unless the rejection reason no longer holds.

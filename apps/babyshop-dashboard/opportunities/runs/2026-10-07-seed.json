@@ -1,0 +1,147 @@
+{
+ "lens": "seed",
+ "run_date": "2026-10-07",
+ "candidates": [
+  {
+   "lever": "free-shipping-threshold",
+   "scope": {
+    "markets": [
+     "SE",
+     "NO",
+     "FI",
+     "DK"
+    ],
+    "category": null,
+    "brand": null,
+    "segment": null
+   },
+   "title": "Lower the free-shipping threshold in the Nordic markets",
+   "hypothesis": "The free-shipping threshold sits well above the typical basket (FI 129 € against an average order of about 84 €), so many shoppers either pay shipping on a small order or leave. A lower threshold should convert more of them, at the price of absorbing shipping on orders that used to pay it.",
+   "action": "Already running as a live test since 29–30 September 2026 in FI (69 €), SE, NO and DK. Read the result on orders/day and GP2/day on the Shipping Threshold Test page, then keep or revert per market.",
+   "evidence": [
+    {
+     "claim": "The Finland deep dive (28 Sep 2026) found the FI threshold at 129 € against 1 000 kr in Sweden, with three conflicting thresholds shown in the FI checkout.",
+     "sql": null,
+     "n": null
+    },
+    {
+     "claim": "The four Nordic markets earned 5.90M kr GP2 per month in Q3 2026 (SE 3.67M, NO 1.47M, FI 0.43M, DK 0.34M).",
+     "sql": "SELECT market, SUM(gp2)/3 FROM babyshop_marts.agg_daily_profit_ladder WHERE date BETWEEN '2026-07-01' AND '2026-09-30' AND market IN ('SE','NO','FI','DK') GROUP BY 1",
+     "n": 89793
+    }
+   ],
+   "replication": "The test runs in all four markets at once, so each market is a replication of the others.",
+   "sizing": {
+    "driver": "conversion",
+    "baseline_month_sek": 5898410,
+    "baseline_note": "Q3 2026 monthly GP2, SE + NO + FI + DK, both shops, from the profit ladder.",
+    "fi_baseline_month_sek": 426495,
+    "uplift_low": 0.01,
+    "uplift_base": 0.03,
+    "uplift_high": 0.06,
+    "uplift_rationale": "Placeholder range until the live test reads out; replace with the measured change in orders/day.",
+    "flow_through": 0.6,
+    "evidence_grade": "benchmark"
+   },
+   "effort": "S",
+   "owner": "logistics",
+   "rollout": "fi_pilot",
+   "pilot": {
+    "metric": "Orders per day and GP2 per day",
+    "weeks": 6,
+    "control": "Each market against its own clean baseline days (see the test page)",
+    "decision_rule": "Keep the lower threshold where GP2 per day is at or above baseline after the test period."
+   },
+   "risks": "More orders qualify for free shipping, so GP2 per order falls; the test has to show that volume more than pays for it. The flow-through of 0.6 is an assumption.",
+   "curator_note": "Seeded from the Finland deep dive so the lenses do not re-propose it. The uplift is a placeholder, not a finding."
+  },
+  {
+   "lever": "fi-category-naming",
+   "scope": {
+    "markets": [
+     "FI"
+    ],
+    "category": null,
+    "brand": "Kuling",
+    "segment": null
+   },
+   "title": "Rename Kuling products in Finland with the words Finns search for",
+   "hypothesis": "Kuling product names in Finland are translated from Swedish and miss the product-type words Finnish parents actually search for (toppahaalari, kurahaalari, välikausikengät). Products without those words match fewer organic and Shopping queries, which is part of why Kuling reaches far fewer people per inhabitant in Finland than in Sweden.",
+   "action": "Apply the renaming sheet already delivered on 28 September 2026 (404 of 531 Kuling products get a new type word) to the FI product names and feed, and fix the mistranslated category 'Lumikengät' (it means snowshoes).",
+   "evidence": [
+    {
+     "claim": "404 of 531 Kuling products in the FI catalogue lack the Finnish product-type word (naming review, 28 Sep 2026).",
+     "sql": null,
+     "n": 531
+    },
+    {
+     "claim": "Kuling earns about 205 000 kr GP2 per month in Finland (Q3 2026) against 2.28M kr in Sweden — 9% of Sweden's, where Finland's population is about half of Sweden's.",
+     "sql": "SELECT market, SUM(gp2)/3 FROM babyshop_marts.agg_daily_kuvio_products WHERE date BETWEEN '2026-07-01' AND '2026-09-30' AND market IN ('FI','SE') AND LOWER(brand)='kuling' GROUP BY 1",
+     "n": null
+    },
+    {
+     "claim": "The deep dive found the FI gap is mostly reach (2.9× fewer users per inhabitant) rather than conversion (1.2× worse), and FI Shopping loses 41% impression share on rank.",
+     "sql": null,
+     "n": null
+    }
+   ],
+   "replication": "The same translated-from-Swedish naming applies in NO and DK; not yet checked there.",
+   "sizing": {
+    "driver": "traffic",
+    "baseline_month_sek": 204885,
+    "baseline_note": "Q3 2026 monthly GP2 for Kuling in Finland, product-level P&L (agg_daily_kuvio_products).",
+    "fi_baseline_month_sek": 204885,
+    "uplift_low": 0.03,
+    "uplift_base": 0.06,
+    "uplift_high": 0.12,
+    "uplift_rationale": "Three quarters of the range would need new type words; a mid-single-digit traffic gain on the brand is a cautious read of a large reach gap. No measured effect yet.",
+    "flow_through": 1.0,
+    "evidence_grade": "benchmark"
+   },
+   "effort": "S",
+   "owner": "merchandising",
+   "rollout": "market_specific",
+   "risks": "The uplift is an assumption, and the season (winter outerwear) will move Kuling FI traffic at the same time, so the effect must be read against SE/NO/DK Kuling over the same weeks.",
+   "curator_note": "Seeded from the Finland deep dive. The demand lens found that most Finnish type words already work in on-site search (a handful fail, about 570 users a quarter), so the case rests on organic and Shopping traffic, which cannot be tested until Search Console data is in the warehouse. Brand GP2 here is the unscaled product-level figure."
+  },
+  {
+   "lever": "affiliate-programme",
+   "scope": {
+    "markets": [
+     "FI"
+    ],
+    "category": null,
+    "brand": null,
+    "segment": null
+   },
+   "title": "Open a Babyshop affiliate programme in Finland",
+   "hypothesis": "Babyshop has no affiliate programme in Finland, while affiliates drive about 5% of revenue in Sweden.",
+   "action": "Launch a Babyshop FI programme on Awin with the Swedish commission structure.",
+   "evidence": [
+    {
+     "claim": "Babyshop SE did 6.5M kr through Awin in 2026 to date; only Lekmer FI is on Awin in Finland (490 € in 2026).",
+     "sql": null,
+     "n": null
+    }
+   ],
+   "replication": "SE only.",
+   "sizing": {
+    "driver": "traffic",
+    "baseline_month_sek": 426495,
+    "baseline_note": "Q3 2026 monthly GP2, Finland, from the profit ladder.",
+    "fi_baseline_month_sek": 426495,
+    "uplift_low": 0.013,
+    "uplift_base": 0.021,
+    "uplift_high": 0.031,
+    "uplift_rationale": "Sweden's 5.2% affiliate revenue share times an incrementality of 25–60%.",
+    "flow_through": 1.0,
+    "evidence_grade": "cross_market"
+   },
+   "effort": "M",
+   "owner": "marketing",
+   "rollout": "market_specific",
+   "risks": "Commission is a marketing cost below GP2."
+  }
+ ],
+ "needs_data": []
+}
