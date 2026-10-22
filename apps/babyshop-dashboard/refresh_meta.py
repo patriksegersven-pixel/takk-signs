@@ -11,12 +11,21 @@ MARKET × PERIOD FILTERS (v4)
   every combination the filter bar can select is PRECOMPUTED here rather than
   queried on demand:
 
-    markets  all / SE / NO          periods  7 / 14 / 28 / 90 days
+    markets  all / SE / NO / FI / DK   periods  7 / 14 / 30 / 90 days
+    DPA      included / excluded (v5)
 
-  12 documents:
-    funnel_cache/<ws>__meta                  — the default (all, 7 d), kept at
-                                               the legacy id for compatibility
-    funnel_cache/<ws>__meta__<market>_<days> — the other 11
+  40 documents:
+    funnel_cache/<ws>__meta                  — the default (all, 7 d, DPA
+                                               included), kept at the legacy
+                                               id for compatibility
+    funnel_cache/<ws>__meta__<market>_<days> — the other 19 with DPA included
+    funnel_cache/<ws>__meta__<market>_<days>_nodpa
+                                             — all 20 again with every DPA /
+                                               catalog ad left out
+
+  "Last month" and "Month to date" in the tab are custom ranges (below), not
+  presets: a calendar month is a different length every month, and a preset
+  that is 31 days in October and 30 in November is not a preset.
 
   BigQuery is queried ONCE, at ad-day grain, over the longest span any
   combination needs (90 d + its 90 d comparison = 180 days) plus the per-ad
@@ -25,7 +34,7 @@ MARKET × PERIOD FILTERS (v4)
 
   Window semantics per period, so the 7-day preset behaves exactly as v3 did:
     7 d   current = L7,  leaderboards / rollups = L28
-    14/28/90 d  current = leaderboards = rollups = the selected period
+    14/30/90 d  current = leaderboards = rollups = the selected period
   The relevance floors scale with the window length (300 kr over 7 days is
   1 200 kr over 28), so "minimum spend" always means the same RATE of spend.
 
@@ -199,16 +208,20 @@ IMAGE_UA = ("Mozilla/5.0 (compatible; babyshop-dashboard meta-refresh; "
 WINDOW_DAYS  = int(os.environ.get("META_WINDOW_DAYS", "7"))
 LONG_DAYS    = int(os.environ.get("META_LONG_DAYS", "28"))
 SETTLE_DAYS  = int(os.environ.get("META_SETTLE_DAYS", "2"))
-MARKETS      = ["SE", "NO"]
+MARKETS      = ["SE", "NO", "FI", "DK"]
 
 # ── The filter grid ──────────────────────────────────────────────────────────
 # Every combination is precomputed into its own Firestore document. "all" is
-# SE+NO, i.e. exactly what v3 showed.
+# every market in MARKETS (SE+NO through v4, FI and DK since v5).
 MARKET_OPTIONS = ["all"] + MARKETS
 PERIOD_OPTIONS = [int(x) for x in
-                  os.environ.get("META_PERIODS", "7,14,28,90").split(",") if x.strip()]
+                  os.environ.get("META_PERIODS", "7,14,30,90").split(",") if x.strip()]
 DEFAULT_MARKET = "all"
 DEFAULT_DAYS   = WINDOW_DAYS
+# DPA / catalog in or out of EVERYTHING (KPI tiles, board, mix, rollups). The
+# ranked tables leave it out either way; this switch is for the totals.
+DPA_OPTIONS    = [True, False]
+DPA_LABEL      = "DPA / catalog"
 # The BigQuery scan has to cover the longest period AND its equally long
 # comparison period: 90 + 90 = 180 days back from the settled end date.
 MAX_DAYS       = max(PERIOD_OPTIONS)
@@ -229,15 +242,30 @@ MAX_SPAN_DAYS   = int(os.environ.get("META_MAX_SPAN_DAYS", "180"))
 WEEKLY_CAP_SPAN = int(os.environ.get("META_WEEKLY_CAP_SPAN", "90"))
 
 
-def combo_key(market: str, days: int) -> str:
+def combo_key(market: str, days: int, dpa: bool = True) -> str:
     """The Firestore document suffix for one combination.
 
     The default combination keeps the bare `__meta` id it has had since v1, so
     an older client (or a cached page) that asks for no filters still lands on
-    a real document."""
-    if market == DEFAULT_MARKET and days == DEFAULT_DAYS:
+    a real document. A DPA-excluded view is the same key plus `_nodpa`, so the
+    DPA-included ids are exactly the ones v4 wrote."""
+    if market == DEFAULT_MARKET and days == DEFAULT_DAYS and dpa:
         return DOC_KEY
-    return f"{DOC_KEY}__{market}_{days}"
+    return f"{DOC_KEY}__{market}_{days}" + ("" if dpa else "_nodpa")
+
+
+def combo_name(market: str, days: int, dpa: bool = True) -> str:
+    """The bundle key for one combination: `<market>_<days>[_nodpa]`."""
+    return f"{market}_{days}" + ("" if dpa else "_nodpa")
+
+
+def parse_combo(combo: str) -> tuple[str, int, bool]:
+    """Inverse of combo_name. A v4 bundle key (no suffix) reads as DPA in."""
+    dpa = not combo.endswith("_nodpa")
+    if not dpa:
+        combo = combo[:-len("_nodpa")]
+    market, days = combo.rsplit("_", 1)
+    return market, int(days), dpa
 
 # ── Relevance floors ─────────────────────────────────────────────────────────
 # Nothing is ranked below these. They are shown in the UI rather than applied
@@ -340,8 +368,8 @@ CAVEATS = [
     "media type is derived the same way — the creative object_type only "
     "distinguishes SHARE from VIDEO, so carousel, slideshow and DPA are read "
     "off the ad and campaign names",
-    "market is parsed from the ad name (SWE/SE, NOR/NO), falling back to the "
-    "staging campaign market — mixed SE+NO campaigns carry per-market ads and a "
+    "market is parsed from the ad name (SWE/SE, NOR/NO, FIN/FI, DNK/DK), then "
+    "from the campaign name for FI/DK, then from the staging campaign market — mixed SE+NO campaigns carry per-market ads and a "
     "campaign-level map puts them all in one country",
     "purchases are pixel website purchases at Meta's attribution, so they do "
     "not reconcile to Norce orders and are not comparable to the KV tab",
@@ -362,7 +390,7 @@ CAVEATS = [
 ]
 
 DEFINITIONS = {
-    "spend":     "Meta ad_spend, SEK, SE+NO ads only",
+    "spend":     "Meta ad_spend, SEK, SE / NO / FI / DK ads",
     "purchases": "attributed website purchases (pixel), Meta 7d click / 1d view; "
                  "action_type offsite_conversion.fb_pixel_purchase",
     "cpa":       "spend ÷ purchases (ratio of sums, never an average of per-row cpa)",
@@ -430,8 +458,8 @@ DEFINITIONS = {
     "ctr_index_acct":  "the group's link CTR ÷ the account average link CTR",
     "hook_index_acct": "the group's hook rate ÷ the account average hook rate "
                        "over VIDEO ads only, on both sides of the ratio",
-    "filters":   "market (all / SE / NO) and period (7 / 14 / 28 / 90 days) are "
-                 "precomputed combinations, not live queries; the window shown "
+    "filters":   "market (all / SE / NO / FI / DK), period (7 / 14 / 30 / 90 "
+                 "days) and DPA in / out are precomputed combinations, not live queries; the window shown "
                  "beside the controls is the exact date range in force",
     "rising":    "first spend within the last " + str(RISING_DAYS) + " days, "
                  "ranked by L28 purchases",
@@ -560,6 +588,13 @@ DERIVE = r"""
     CASE
       WHEN REGEXP_CONTAINS(ad_name, r'(?i)(^|[ \-])(SWE|SE)([ \-]|$)') THEN 'SE'
       WHEN REGEXP_CONTAINS(ad_name, r'(?i)(^|[ \-])(NOR|NO)([ \-]|$)') THEN 'NO'
+      WHEN REGEXP_CONTAINS(ad_name, r'(?i)(^|[ \-])(FIN|FI)([ \-]|$)') THEN 'FI'
+      WHEN REGEXP_CONTAINS(ad_name, r'(?i)(^|[ \-])(DNK|DK)([ \-]|$)') THEN 'DK'
+      -- FI / DK campaigns are single-market ("KIR | FI-Kuling-evergreen"), so
+      -- the campaign name is a safe second source for them. SE and NO keep
+      -- the staging market as their fallback, exactly as through v4.
+      WHEN REGEXP_CONTAINS(campaign_name, r'(?i)(^|[ \-|])(FIN|FI)([ \-]|$)') THEN 'FI'
+      WHEN REGEXP_CONTAINS(campaign_name, r'(?i)(^|[ \-|])(DNK|DK)([ \-]|$)') THEN 'DK'
       ELSE market END                                    AS mk,
     CASE
       WHEN UPPER(ad_name) LIKE 'DPA%'
@@ -1720,7 +1755,7 @@ def _window(days: int) -> dict:
     `l28_from` / `l28_to` keep their v1 names but now mean "the LONG window",
     which is 28 days on the 7-day preset (exactly what v3 did) and the selected
     period on every other. Keeping the key names means the payload shape is
-    identical across all 12 combinations and across versions."""
+    identical across every combination and across versions."""
     end_d = _end_date()
     start_d = end_d - datetime.timedelta(days=days - 1)
     long_days = LONG_DAYS if days == DEFAULT_DAYS else days
@@ -1805,7 +1840,7 @@ def fetch_rows(start, end, window_from=None) -> dict:
 def build_combo(rows: dict, market: str, start, end, prev_start=None,
                 prev_end=None, long_days: int | None = None,
                 days: int | None = None, generated_at: str | None = None,
-                custom: bool = False) -> dict:
+                custom: bool = False, include_dpa: bool = True) -> dict:
     """One payload: one market over one date range, out of `rows`.
 
     The ONLY place a payload is assembled. A preset is this function over the
@@ -1821,7 +1856,10 @@ def build_combo(rows: dict, market: str, start, end, prev_start=None,
                             presets do; only the 7-day preset passes 28 here)
       days                  the `filters.days` echo: an int for a preset, None
                             for a custom range, which is how the page tells
-                            them apart"""
+                            them apart
+      include_dpa           False drops every DPA / catalog ad from every
+                            window before anything is summed, so the tiles,
+                            the board, the mix and the rollups all agree"""
     start, end = _as_date(start), _as_date(end)
     span = (end - start).days + 1
     prev_start = (_as_date(prev_start) if prev_start is not None
@@ -1833,7 +1871,7 @@ def build_combo(rows: dict, market: str, start, end, prev_start=None,
 
     # `l28_*` keep their v1 names but mean "the LONG window": 28 days on the
     # 7-day preset, the selected span everywhere else. Keeping the key names
-    # means one payload shape across all 12 presets, custom ranges and versions.
+    # means one payload shape across every preset, custom ranges and versions.
     win = {
         "from": start.isoformat(), "to": end.isoformat(),
         "prev_from": prev_start.isoformat(), "prev_to": prev_end.isoformat(),
@@ -1860,6 +1898,9 @@ def build_combo(rows: dict, market: str, start, end, prev_start=None,
     long_rows = (cur if long_days == span
                  else _window_rows(by_ad, dims, d(win["l28_from"]),
                                    d(win["l28_to"]), markets))
+    if not include_dpa:
+        cur, prev, long_rows = ([r for r in rs if r["media_type"] != DPA_LABEL]
+                                for rs in (cur, prev, long_rows))
 
     kpis = {"combined": _with_deltas(_kpis(cur), _kpis(prev))}
     for m in markets:
@@ -1954,11 +1995,13 @@ def build_combo(rows: dict, market: str, start, end, prev_start=None,
             "prev_from": win["prev_from"],
             "prev_to": win["prev_to"],
             "custom": True,
+            "dpa": include_dpa,
             "available_markets": MARKET_OPTIONS,
             "available_days": PERIOD_OPTIONS,
         } if custom else {
             "market": market,
             "days": days,
+            "dpa": include_dpa,
             "available_markets": MARKET_OPTIONS,
             "available_days": PERIOD_OPTIONS,
         }),
@@ -1976,7 +2019,8 @@ def build_combo(rows: dict, market: str, start, end, prev_start=None,
     }
 
 
-def build_one(market: str, days: int, rows: dict, generated_at: str) -> dict:
+def build_one(market: str, days: int, rows: dict, generated_at: str,
+              include_dpa: bool = True) -> dict:
     """One PRESET combination: `build_combo` over the dates `_window` computes.
 
     Kept as its own name because the preset window rule — 7 days ranks against
@@ -1986,10 +2030,12 @@ def build_one(market: str, days: int, rows: dict, generated_at: str) -> dict:
     return build_combo(rows, market, win["from"], win["to"],
                        prev_start=win["prev_from"], prev_end=win["prev_to"],
                        long_days=win["long_days"], days=days,
-                       generated_at=generated_at, custom=False)
+                       generated_at=generated_at, custom=False,
+                       include_dpa=include_dpa)
 
 
-def build_custom(market: str, start, end, db=None) -> tuple[dict, dict]:
+def build_custom(market: str, start, end, db=None,
+                 include_dpa: bool = True) -> tuple[dict, dict]:
     """One custom range, fetched and built. The service's entire live path.
 
     Scans [start − span, end] so the comparison period is in the same pull, and
@@ -2003,7 +2049,8 @@ def build_custom(market: str, start, end, db=None) -> tuple[dict, dict]:
     start, end = _as_date(start), _as_date(end)
     span = (end - start).days + 1
     rows = fetch_rows(start - datetime.timedelta(days=span), end, window_from=start)
-    payload = build_combo(rows, market, start, end, custom=True)
+    payload = build_combo(rows, market, start, end, custom=True,
+                          include_dpa=include_dpa)
     t_img = time.time()
     present = mirror_index(payload, db)
     if present:
@@ -2018,8 +2065,8 @@ def build_custom(market: str, start, end, db=None) -> tuple[dict, dict]:
 def build_all() -> dict:
     """Every preset combination, out of one BigQuery scan.
 
-    Returns {"combos": {"<market>_<days>": payload}, "_image_jobs": [...]}.
-    META_OUT writes this bundle whole so a META_IN replay can produce all 12
+    Returns {"combos": {"<market>_<days>[_nodpa]": payload}, "_image_jobs": [...]}.
+    META_OUT writes this bundle whole so a META_IN replay can produce all 40
     documents from one file."""
     scan = _scan_window()
     generated_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -2035,7 +2082,9 @@ def build_all() -> dict:
     combos = {}
     for market in MARKET_OPTIONS:
         for days in PERIOD_OPTIONS:
-            combos[f"{market}_{days}"] = build_one(market, days, rows, generated_at)
+            for dpa in DPA_OPTIONS:
+                combos[combo_name(market, days, dpa)] = build_one(
+                    market, days, rows, generated_at, include_dpa=dpa)
 
     # The fetch list for the image mirror, built from the ads that SPENT in the
     # longest window — the union of every combination's creatives. Carried on
@@ -2052,7 +2101,7 @@ def build_all() -> dict:
 
 
 # ── Document size ────────────────────────────────────────────────────────────
-# 12 documents now, and the 90-day ones carry every ad that spent in three
+# 40 documents now, and the 90-day ones carry every ad that spent in three
 # months rather than in one week. Trimming is ordered cheapest-loss-first and
 # every step is recorded in the payload, because a table that silently drops
 # rows is worse than a small one that says it did.
@@ -2121,8 +2170,7 @@ def write_firestore(combos: dict) -> dict:
     db = firestore.Client(project=FIRESTORE_PROJECT, credentials=_credentials())
     sizes: dict[str, int] = {}
     for combo, payload in combos.items():
-        market, days = combo.rsplit("_", 1)
-        key = combo_key(market, int(days))
+        key = combo_key(*parse_combo(combo))
         n, trimmed = _fit(payload, combo)
         if trimmed:
             payload["sources"]["trimmed"] = trimmed
@@ -2176,17 +2224,16 @@ def main():
         print(f"   images skipped ({len(jobs)} candidates) — "
               f"{'META_SKIP_IMAGES' if SKIP_IMAGES else 'SKIP_FIRESTORE'}")
 
-    default = combos[f"{DEFAULT_MARKET}_{DEFAULT_DAYS}"]
+    default = combos[combo_name(DEFAULT_MARKET, DEFAULT_DAYS)]
     if skip_fs:
         where = "(skipped)"
         sizes = {}
         for combo, p in combos.items():
-            market, days = combo.rsplit("_", 1)
             n, trimmed = _fit(p, combo)
             if trimmed:
                 p["sources"]["trimmed"] = trimmed
                 n = _payload_bytes(p)
-            sizes[combo_key(market, int(days))] = n
+            sizes[combo_key(*parse_combo(combo))] = n
     else:
         sizes = write_firestore(combos)
         where = f"{COLLECTION}/{WORKSPACE}__{DOC_KEY} +{len(sizes) - 1}"
@@ -2214,8 +2261,7 @@ def main():
 
 def combos_trimmed(combos: dict, key: str) -> str:
     for combo, p in combos.items():
-        market, days = combo.rsplit("_", 1)
-        if combo_key(market, int(days)) == key:
+        if combo_key(*parse_combo(combo)) == key:
             return "; ".join((p.get("sources") or {}).get("trimmed") or [])
     return ""
 

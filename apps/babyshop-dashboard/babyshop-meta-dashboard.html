@@ -93,7 +93,7 @@
        contract for a wide table. */
     .card.tbl.roll table { min-width:1180px; }
     .card.tbl.roll th, .card.tbl.roll td { padding-left:10px; padding-right:10px; }
-    /* The two top-5 cards sit side by side, and table-tools adds a filter
+    /* The top-5 cards sit two to a row, and table-tools adds a filter
        caret to every header — at 14px cell padding the ROAS column fell off
        the right edge of the card in the default view. */
     .two .card.tbl th, .two .card.tbl td, .three .card.tbl th, .three .card.tbl td { padding-left:10px; padding-right:10px; }
@@ -259,8 +259,8 @@
     .fail { text-align:center; color:var(--down); font-size:13px; padding:40px 0; }
 
     /* ── Filter bar ────────────────────────────────────────────────────────
-       Market and period. Neither queries anything: the refresh job precomputes
-       all 12 combinations into their own snapshots, so a switch is one fetch
+       Market, period and DPA. None queries anything: the refresh job
+       precomputes all 40 combinations into their own snapshots, so a switch is one fetch
        of one document and a re-render. The window dates sit beside the
        controls because "28 days" means nothing without the two dates it
        actually covers — and the settle offset makes them non-obvious. */
@@ -325,6 +325,8 @@
             border:1px solid var(--border); border-radius:6px; padding:6px 10px; cursor:pointer; white-space:nowrap; }
     .sdir:hover { border-color:var(--accent); color:var(--accent); }
     .sdir:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+    .seg button:disabled { opacity:.4; cursor:default; }
+    .seg button:disabled:hover { background:transparent; color:var(--muted); }
 
     /* Sortable headers. The arrow is a ::after on the <th>, which the shared
        table-tools funnel button sits beside — padding-right leaves it room.
@@ -419,13 +421,14 @@
 <script src="/nav.js"></script>
 
 <main>
-  <div class="page-title">Creative analysis · SE + NO</div>
+  <div class="page-title">Creative analysis · SE, NO, FI, DK</div>
   <div class="page-sub" id="pageSub">Creative analysis · Meta, ad level</div>
 
-  <!-- Market and period. The presets are precomputed snapshots, not live
-       queries — see the method box. "Custom" is the exception: it reveals two
-       date inputs and queries BigQuery when Apply is pressed. The state lives
-       in the URL (?market=SE&days=28, or ?market=SE&from=…&to=…) so a view can
+  <!-- Market, period and DPA. The presets are precomputed snapshots, not live
+       queries — see the method box. "Custom", "Last month" and "Month to date"
+       are the exception: they query BigQuery for a date range. The state lives
+       in the URL (?market=SE&days=30, or ?market=SE&from=…&to=…, plus &dpa=0
+       when DPA is excluded) so a view can
        be linked, and in localStorage so a return visit lands where the reader
        left. -->
   <div class="filters" id="filters" hidden>
@@ -443,6 +446,10 @@
       <label class="flabel" for="cTo">To</label>
       <input class="dinput" type="date" id="cTo" aria-label="Custom range, last day">
       <button type="button" class="fbtn" id="cApply">Apply</button>
+    </div>
+    <div class="fgroup">
+      <span class="flabel" data-help="filter_dpa">DPA / catalog</span>
+      <div class="seg" id="segDpa" role="group" aria-label="DPA / catalog ads"></div>
     </div>
     <div class="floading" id="floading" hidden><span class="spin"></span><span id="floadingTxt"></span></div>
     <div class="fwin" id="fwin" role="status" aria-live="polite"></div>
@@ -473,7 +480,7 @@
     <div class="card-head">
       <div>
         <h3 data-help="market">By market</h3>
-        <div class="csub">Market is read from the ad name (SWE/NOR), not from the campaign market flag — mixed SE+NO campaigns carry ads for both.</div>
+        <div class="csub">Market is read from the ad name (SWE/NOR/FIN/DK), not from the campaign market flag — mixed SE+NO campaigns carry ads for both.</div>
       </div>
     </div>
     <div class="tbl-scroll">
@@ -603,30 +610,12 @@
     </div>
   </div>
 
-  <!-- Stacked, not three-across: with the four index columns these tables are
-       16 wide, and a third of the page cannot show them without turning every
-       one into a sideways scroll. -->
-  <div class="card tbl stack roll">
-    <div class="card-head"><div><h3 data-help="tag">By concept tag</h3><div class="csub">From the ad-naming convention</div></div></div>
-    <div class="tbl-scroll"><table id="rollTag" class="sortable" data-tools data-export-ignore=".help" data-export-name="meta-by-tag"></table></div>
-  </div>
-  <div class="card tbl stack roll">
-    <div class="card-head"><div><h3 data-help="media_type">By media type</h3><div class="csub">Video, still, carousel, DPA</div></div></div>
-    <div class="tbl-scroll"><table id="rollMedia" class="sortable" data-tools data-export-ignore=".help" data-export-name="meta-by-media"></table></div>
-  </div>
+  <!-- The by-tag and by-media-type tables (and their cross) were dropped in
+       v5: the donuts and the two CPA charts above already say what they said.
+       Promo vs evergreen has no chart of its own, so its table stays. -->
   <div class="card tbl stack roll">
     <div class="card-head"><div><h3 data-help="promo">Promo vs evergreen</h3><div class="csub">Discount language in the ad, campaign or copy</div></div></div>
     <div class="tbl-scroll"><table id="rollPromo" class="sortable" data-tools data-export-ignore=".help" data-export-name="meta-by-promo"></table></div>
-  </div>
-
-  <div class="card tbl stack roll" id="crossCard" hidden>
-    <div class="card-head">
-      <div>
-        <h3 data-help="tag_media">Concept tag × media type</h3>
-        <div class="csub" id="crossSub"></div>
-      </div>
-    </div>
-    <div class="tbl-scroll"><table id="rollCross" class="sortable" data-tools data-export-ignore=".help" data-export-name="meta-tag-x-media"></table></div>
   </div>
 
 
@@ -635,6 +624,13 @@
       <div class="section-title">Best performing creatives<span class="section-tag" id="topTag">Top 5 / market</span></div>
       <div class="section-sub" id="topSub"></div>
     </div>
+  </div>
+
+  <!-- Re-ranked in the page from the creatives board's rows, so "highest
+       spend" means the highest-spending eligible ad, not the highest-spending
+       of the five cheapest. -->
+  <div class="sortbar" id="topSort">
+    <span class="sblabel" data-help="top_sort">Rank by</span>
   </div>
 
   <div class="two">
@@ -656,6 +652,30 @@
       </div>
       <div class="tbl-scroll">
         <table id="topNO" data-tools data-export-ignore=".help" data-export-name="meta-top-no">
+          <thead><tr><th class="rank"></th><th></th><th class="cre" data-help="creative">Creative</th><th data-help="spend">Spend</th><th data-help="purchases">Purchases</th><th data-help="cpa">CPA</th><th data-help="roas">ROAS*</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card tbl" id="topCardFI">
+      <div class="card-head">
+        <div style="display:flex;align-items:center;gap:9px"><span class="emblem">FI</span><h3>Finland, top 5</h3></div>
+      </div>
+      <div class="tbl-scroll">
+        <table id="topFI" data-tools data-export-ignore=".help" data-export-name="meta-top-fi">
+          <thead><tr><th class="rank"></th><th></th><th class="cre" data-help="creative">Creative</th><th data-help="spend">Spend</th><th data-help="purchases">Purchases</th><th data-help="cpa">CPA</th><th data-help="roas">ROAS*</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card tbl" id="topCardDK">
+      <div class="card-head">
+        <div style="display:flex;align-items:center;gap:9px"><span class="emblem">DK</span><h3>Denmark, top 5</h3></div>
+      </div>
+      <div class="tbl-scroll">
+        <table id="topDK" data-tools data-export-ignore=".help" data-export-name="meta-top-dk">
           <thead><tr><th class="rank"></th><th></th><th class="cre" data-help="creative">Creative</th><th data-help="spend">Spend</th><th data-help="purchases">Purchases</th><th data-help="cpa">CPA</th><th data-help="roas">ROAS*</th></tr></thead>
           <tbody></tbody>
         </table>
@@ -771,7 +791,7 @@
      reason; re-measure them when the account changes shape. */
   var HELP = {
     spend: { label: 'Spend', what:
-      'Meta’s ad spend for the ad, summed over the window, SEK, SE and NO ads only ' +
+      'Meta’s ad spend for the ad, summed over the window, SEK, for the selected markets ' +
       '(stg_meta__ads_insights.spend). Every cost figure on this page is a ratio of sums ' +
       'over this column — nothing averages a per-day or per-ad ratio.', how:
       'The denominator under CPA, CPM and cost per LPV, and the weight behind every ranking. ' +
@@ -929,8 +949,9 @@
       'this column.' },
 
     market: { label: 'Market', what:
-      'Parsed from the AD-NAME token (SWE/SE → SE, NOR/NO → NO), falling back to the staging campaign ' +
-      'market only when the name carries no token. Deliberately not dim_campaign_market.', how:
+      'Parsed from the AD-NAME token (SWE/SE → SE, NOR/NO → NO, FIN/FI → FI, DNK/DK → DK). With no ' +
+      'token, a FI / DK campaign name decides (those campaigns are single-market), and otherwise the ' +
+      'staging campaign market. Deliberately not dim_campaign_market.', how:
       'The campaign-level map is wrong here: "KIR | SE+NO-BS-offers" carries separate SE and NO ads, ' +
       'and mapping it by campaign moves ~5 700 kr into SE and pushes a row out of the NO top 5. Costs ' +
       'differ by market by nearly 3× on CPA (14,67 vs 40,22 kr), so never compare an ad across ' +
@@ -1001,7 +1022,7 @@
       'believing a cell.' },
 
     media_type_mix: { label: 'Media type mix', what:
-      'Spend share by derived media type over the last 7 days, SE+NO. Same derivation as the Media ' +
+      'Spend share by derived media type over the selected window and markets. Same derivation as the Media ' +
       'type column — read off the ad and campaign names, not from a Meta field.', how:
       'The mix question: is the budget where the performance is. Read it against the "By media type" ' +
       'table above rather than on its own — a format taking 30 % of spend at twice the CPA is the ' +
@@ -1009,7 +1030,7 @@
       'excluded from every ranked table.' },
 
     media_format_mix: { label: 'Concept mix', what:
-      'Spend share by concept tag over the last 7 days, SE+NO — the ad-naming convention, not a Meta ' +
+      'Spend share by concept tag over the selected window and markets — the ad-naming convention, not a Meta ' +
       'field.', how:
       'Shows how much of the week’s budget each production style carried. Trap: the "Untagged / ' +
       'legacy" slice is the one to watch — it is not a style, it is ads whose names broke the ' +
@@ -1033,24 +1054,43 @@
     /* ── v4: filters, sorting, and the account-relative indices ───────────── */
 
     filter_market: { label: 'Market filter', what:
-      'All (SE + NO), Sweden only, or Norway only. Market is read from the AD-NAME token, not from ' +
+      'All (SE + NO + FI + DK) or one market. Market is read from the AD-NAME token, not from ' +
       'the campaign market flag, so a mixed "SE+NO" campaign is split correctly between the two.', how:
-      'Switch to a single market before comparing any cost figure: SE and NO run nearly 3× apart on ' +
+      'Switch to a single market before comparing any cost figure: SE and NO alone run nearly 3× apart on ' +
       'CPA, so an "All" CPA is a weighted blend that describes neither. Nothing is recalculated when ' +
       'you switch — every combination is precomputed by the nightly job and read as one document. ' +
       'Trap: the spend floors are absolute, so a single-market view has fewer ads clearing them; the ' +
       'floor in force is printed under each table.' },
 
     filter_period: { label: 'Period filter', what:
-      '7, 14, 28 or 90 days, always ending 2 days ago so Meta’s attribution has settled. The KPI ' +
-      'deltas compare against the equally long window immediately before. On 7 days the leaderboards ' +
-      'and the effectiveness tables use 28 days (as they always have); on 14, 28 and 90 they use the ' +
-      'selected period.', how:
+      '7, 14, 30 or 90 days, always ending 2 days ago so Meta’s attribution has settled, or a ' +
+      'calendar month: Last month is the whole previous month, Month to date runs from the 1st to the ' +
+      'latest settled day. The KPI deltas compare against the equally long window immediately before. ' +
+      'On 7 days the leaderboards and the effectiveness tables use 28 days (as they always have); on ' +
+      'every other setting they use the selected period.', how:
       'Short windows read creative freshness, long windows read whether a concept holds up. The ' +
       'relevance floors scale with the window — 300 kr over 7 days is 1 200 kr over 28 — so a ranking ' +
       'means the same thing at every setting. Trap: the fatigue indices still compare against the ad’s ' +
       'own BASELINE WEEK, so on a 90-day period you are comparing a 90-day average against a single ' +
-      'week; read the Trend column rather than the index at long settings.' },
+      'week; read the Trend column rather than the index at long settings. The two month buttons are ' +
+      'live queries like Custom (a month is not a fixed length), so they take a few seconds.' },
+
+    filter_dpa: { label: 'DPA / catalog filter', what:
+      'Included (the default) or Excluded. Excluded drops every DPA / catalog ad — dynamic product ' +
+      'ads built from the feed — from EVERY number on the page: the KPI tiles, the market table, the ' +
+      'creatives board, the mix donuts, the CPA charts and the recently-uploaded list.', how:
+      'Use Excluded to read the hand-made creative work on its own: DPA clicks about four times as ' +
+      'hard as anything briefed, so it lifts the blended link CTR and lowers the blended CPA. The ' +
+      'top-5 tables and the leaderboards leave DPA out either way. Trap: Excluded spend is not total ' +
+      'Meta spend any more — switch back before quoting a budget figure.' },
+
+    top_sort: { label: 'Rank by', what:
+      'What the top-5 tables are ranked on: CPA (lowest first by default), spend, purchases or ' +
+      'platform ROAS. The arrow button flips the direction, so "lowest spend" or "fewest purchases" ' +
+      'are one click away.', how:
+      'The tables are re-ranked from every eligible ad in the window — at least the spend floor, at ' +
+      'least one purchase, DPA / catalog excluded — not re-sorted from the five already shown. So ' +
+      '"highest spend" is the five biggest spenders in the market, whatever their CPA.' },
 
     filter_custom: { label: 'Custom date range', what:
       'Any [from, to] inside the feed’s history, up to 180 days, ending at the latest settled day. ' +
@@ -1731,6 +1771,85 @@
     }).join('');
   }
 
+  /* ── Top 5 per market, re-ranked in the page ─────────────────────────────
+     The pool is the creatives board (every ad that spent in the window) under
+     the same gate the job applies to its own top 5: the window's spend floor,
+     at least one purchase, DPA / catalog out. Ranking that pool here is what
+     lets "highest spend" mean the market's biggest eligible spenders rather
+     than a re-sort of the five cheapest. A missing value always sorts last. */
+  var TOP_MARKETS = ['SE', 'NO', 'FI', 'DK'];
+  var TOP_SORTS = [
+    { k: 'cpa',       label: 'CPA',       dir: 'asc'  },
+    { k: 'spend',     label: 'Spend',     dir: 'desc' },
+    { k: 'purchases', label: 'Purchases', dir: 'desc' },
+    { k: 'roas',      label: 'ROAS',      dir: 'desc' }
+  ];
+  var topSort = { k: 'cpa', dir: 'asc' };
+
+  function topRows(rows, m, floor) {
+    var sgn = topSort.dir === 'asc' ? 1 : -1, k = topSort.k;
+    return rows.filter(function (r) {
+      return r.market === m && r.media_type !== 'DPA / catalog' &&
+             (r.spend || 0) >= floor && (r.purchases || 0) > 0;
+    }).sort(function (a, b) {
+      var x = a[k], y = b[k];
+      if (x == null || y == null) return x == null ? (y == null ? 0 : 1) : -1;
+      return sgn * (x - y) || (b.spend || 0) - (a.spend || 0);
+    }).slice(0, 5);
+  }
+
+  function renderTops(d) {
+    var s = d.sources || {}, w = d.window || {};
+    var markets = s.markets || ['SE', 'NO'];
+    var rows = (d.fatigue || {}).rows || [];
+    var floor = s.min_spend || 0;
+    TOP_MARKETS.forEach(function (m) {
+      var on = markets.indexOf(m) >= 0;
+      $('topCard' + m).hidden = !on;
+      if (on) renderTop('top' + m, topRows(rows, m, floor));
+    });
+    var def = TOP_SORTS.filter(function (t) { return t.k === topSort.k; })[0];
+    var hi = topSort.dir === 'desc';
+    var how = topSort.k === 'cpa'
+      ? (hi ? 'highest cost per purchase (CPA)' : 'lowest cost per purchase (CPA)')
+      : (hi ? 'highest ' : 'lowest ') + def.label.toLowerCase();
+    $('topSub').textContent = 'Ranked by ' + how + ' over ' + w.from + ' – ' + w.to +
+      ', among ads with at least ' + int(floor) + ' kr spend and one purchase. ' +
+      (topSort.k === 'roas' ? 'ROAS is Meta’s platform figure, not GM-verified. '
+                            : 'Platform ROAS is shown as context. ') +
+      'DPA / catalog is excluded.';
+    Array.prototype.forEach.call($('topSort').querySelectorAll('.schip'), function (b) {
+      b.setAttribute('aria-pressed', b.dataset.k === topSort.k ? 'true' : 'false');
+    });
+    $('topDir').textContent = hi ? '↓ Highest first' : '↑ Lowest first';
+  }
+
+  function buildTopSort() {
+    var bar = $('topSort');
+    bar.insertAdjacentHTML('beforeend',
+      TOP_SORTS.map(function (t) {
+        return '<button type="button" class="schip" data-k="' + t.k + '" aria-pressed="false">' +
+               esc(t.label) + '</button>';
+      }).join('') +
+      '<button type="button" class="sdir" id="topDir">↑ Lowest first</button>');
+    bar.addEventListener('click', function (e) {
+      var chip = e.target.closest('.schip');
+      if (chip) {
+        // Same gesture as the board's chips: the active chip reverses, a new
+        // one starts in the direction it is naturally read (CPA low, rest high).
+        var t = TOP_SORTS.filter(function (x) { return x.k === chip.dataset.k; })[0];
+        topSort = t.k === topSort.k
+          ? { k: t.k, dir: topSort.dir === 'desc' ? 'asc' : 'desc' }
+          : { k: t.k, dir: t.dir };
+      } else if (e.target.closest('#topDir')) {
+        topSort = { k: topSort.k, dir: topSort.dir === 'desc' ? 'asc' : 'desc' };
+      } else {
+        return;
+      }
+      if (SNAP) renderTops(SNAP);
+    });
+  }
+
   function renderRecent(rows) {
     var tb = $('recentTable').tBodies[0];
     if (!rows.length) {
@@ -1956,7 +2075,8 @@
     // `win: true` — the note IS the window, so it has to be written at render
     // time. It was a literal "Last 7 days" through v4 and stayed that way at
     // every other period; a custom range makes the mistake unmissable.
-    { k: 'spend',     label: 'Spend, SE+NO',       fmt: kr,   note: '', win: true, spot: true },
+    // The label names the market set; render() writes it per payload.
+    { k: 'spend',     label: 'Spend',              fmt: kr,   note: '', win: true, spot: true },
     { k: 'purchases', label: 'Purchases (attributed)', fmt: int, note: 'Website purchases, pixel' },
     { k: 'cpa',       label: 'Blended CPA',        fmt: kr2,  note: 'Spend / purchases' },
     { k: 'roas',      label: 'Platform ROAS',      fmt: roas, note: 'Context, not GM-verified' },
@@ -2035,7 +2155,7 @@
                  ') — ads whose names do not follow the convention and so cannot be bucketed.');
     }
     if (!find(tags, 'Partnership')) {
-      parts.push('No ad in the active SE/NO set is tagged "Partnership".');
+      parts.push('No ad in the selected market set is tagged "Partnership".');
     }
     return parts.join(' ');
   }
@@ -2079,7 +2199,7 @@
      baseline, completion, cost per LPV, the ranking floors …) are appended
      underneath rather than dropped. */
   var METHOD_ORDER = [
-    'filter_market', 'filter_period', 'filter_custom', 'sort',
+    'filter_market', 'filter_period', 'filter_custom', 'filter_dpa', 'sort', 'top_sort',
     'spend', 'purchases', 'cpa', 'roas', 'cpm', 'ctr', 'link_ctr',
     'hook_rate', 'hold_rate', 'lpv_rate', 'frequency', 'saves_shares_per_1k',
     'status', 'trend', 'ctr_index', 'hook_index', 'cpa_index',
@@ -2161,6 +2281,8 @@
     var markets = s.markets || ['SE', 'NO'];
     var single = markets.length === 1;
     CUSTOM = fl.custom === true;
+    var noDpa = fl.dpa === false;
+    TILES[0].label = 'Spend, ' + (single ? markets[0] : markets.join('+')) + (noDpa ? ', excl. DPA' : '');
     IMG_LABELS = s.image_labels || {};
 
     $('pageSub').textContent = 'Creative analysis · ' + (s.account_label || 'Meta') + ' · ad level';
@@ -2211,10 +2333,6 @@
       ' (' + int(w.long_days) + ' days). "Ads" is there so a row built on one creative is ' +
       'visible as such, and every index column compares the row against the account average ' +
       'for this same window — above 1,00× is better, CPA included.' + sameWin;
-    $('topSub').textContent = 'Ranked by lowest cost per purchase (CPA) over ' + w.from +
-      ' – ' + w.to + ', minimum ' + int(s.min_spend) +
-      ' kr spend for statistical relevance. Platform ROAS is shown as context, ' +
-      'not as the ranking basis. DPA / catalog is excluded.';
     $('recentSub').textContent = 'Ads created ' + w.from + ' to ' + w.to +
       ' that delivered. Ranked by attributed purchases in the window.';
     $('recentNote').textContent = 'New concepts only: an ad whose name already existed on an older ' +
@@ -2231,16 +2349,7 @@
 
     var ro = d.rollups || {};
     var avg = ro.averages || {};
-    renderRollup('rollTag', ro.by_tag || [], 'Concept tag', 'tag');
-    renderRollup('rollMedia', ro.by_media_type || [], 'Media type', 'media_type');
     renderRollup('rollPromo', ro.by_promo || [], 'Type', 'promo');
-    $('crossCard').hidden = !(ro.by_tag_media || []).length;
-    if ((ro.by_tag_media || []).length) {
-      $('crossSub').textContent = 'Only cells above the ' + int(s.min_spend_l28) +
-        ' kr floor are shown — below it the cross is a list of one-ad curiosities. ' +
-        'The index columns still compare against the whole account, not against the surviving cells.';
-      renderRollup('rollCross', ro.by_tag_media, 'Tag × media type', 'tag_media');
-    }
     renderBarChart('chartTag', 'chartTagNote', ro.by_tag || [], avg.by_tag, 'concept tags');
     renderBarChart('chartMedia', 'chartMediaNote', ro.by_media_type || [], avg.by_media_type,
                    'media types');
@@ -2254,12 +2363,7 @@
     // A single-market view hides the other market's card rather than showing
     // an empty one: "no SE ad qualified" and "SE was not asked for" are
     // different statements and the table cannot tell them apart.
-    var top = d.top_creatives || {};
-    ['SE', 'NO'].forEach(function (m) {
-      var on = markets.indexOf(m) >= 0;
-      $('topCard' + m).hidden = !on;
-      if (on) renderTop('top' + m, top[m] || []);
-    });
+    renderTops(d);
     renderRecent(d.recent || []);
     renderMethod(d);
 
@@ -2277,7 +2381,7 @@
     if (window.TableTools) {
       window.TableTools.enhance($('fatigueTable'),
         { numericColumns: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] });
-      ['rollTag', 'rollMedia', 'rollPromo', 'rollCross'].forEach(function (id) {
+      ['rollPromo'].forEach(function (id) {
         window.TableTools.enhance($(id),
           { numericColumns: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] });
       });
@@ -2355,11 +2459,13 @@
   });
 
   /* ── Filters ──────────────────────────────────────────────────────────────
-     Market × period, plus a custom date range. Nothing is computed here and
-     nothing is filtered in the browser.
+     Market × period × DPA, plus custom / calendar-month date ranges. Nothing
+     is computed here and nothing is filtered in the browser (the top-5
+     re-ranking above is the one exception, and it only re-orders rows the
+     payload already carries).
 
      A PRESET is one GET of one precomputed Firestore document: the refresh job
-     builds all 12 combinations nightly, so a switch is a read and a re-render.
+     builds all 40 combinations nightly, so a switch is a read and a re-render.
      That is what keeps this a snapshot tab — filtering client-side would mean
      shipping every period in every document.
 
@@ -2375,11 +2481,12 @@
        2. localStorage, so a return visit lands where the reader left;
        3. the defaults the payload itself declares.
      Every change writes 1 and 2. */
-  var MARKET_LABELS = { all: 'All', SE: 'SE', NO: 'NO' };
+  var MARKET_LABELS = { all: 'All', SE: 'SE', NO: 'NO', FI: 'FI', DK: 'DK' };
   var LS_KEY = 'meta.filters.v4';
   var DEFAULTS = { market: 'all', days: 7 };
-  var OPTS = { markets: ['all', 'SE', 'NO'], days: [7, 14, 28, 90] };
-  var state = { market: DEFAULTS.market, days: DEFAULTS.days, custom: false, from: '', to: '' };
+  var OPTS = { markets: ['all', 'SE', 'NO', 'FI', 'DK'], days: [7, 14, 30, 90] };
+  var state = { market: DEFAULTS.market, days: DEFAULTS.days, custom: false, from: '', to: '',
+                dpa: true };
   var inflight = 0;
   /* The bounds on a custom range, mirrored from refresh_meta.py so the inputs
      cannot offer a date the server will reject. The SERVER is the authority —
@@ -2402,10 +2509,36 @@
   }
   function isDate(s) { return !!(s && ISO_RE.test(s) && !isNaN(Date.parse(s))); }
 
+  /* The two calendar-month buttons are custom ranges with dates the page
+     works out. `mprev` is the whole previous month (clipped to the last
+     settled day on the 1st–2nd); `mcur` runs from the 1st to the last settled
+     day, and does not exist until the 1st itself has settled. */
+  var MONTHS = [{ v: 'mprev', label: 'Last month' }, { v: 'mcur', label: 'Month to date' }];
+  function monthRange(kind) {
+    var now = new Date(), last = lastSettled();
+    if (kind === 'mcur') {
+      var f = isoDay(new Date(now.getFullYear(), now.getMonth(), 1));
+      return f <= last ? { from: f, to: last } : null;
+    }
+    var to = isoDay(new Date(now.getFullYear(), now.getMonth(), 0));
+    return { from: isoDay(new Date(now.getFullYear(), now.getMonth() - 1, 1)),
+             to: to > last ? last : to };
+  }
+  function monthKind(from, to) {
+    for (var i = 0; i < MONTHS.length; i++) {
+      var r = monthRange(MONTHS[i].v);
+      if (r && r.from === from && r.to === to) return MONTHS[i].v;
+    }
+    return null;
+  }
+
   function readState() {
-    var out = { market: DEFAULTS.market, days: DEFAULTS.days, custom: false, from: '', to: '' };
+    var out = { market: DEFAULTS.market, days: DEFAULTS.days, custom: false, from: '', to: '',
+                dpa: true };
     function take(src, get) {
       if (OPTS.markets.indexOf(get(src, 'market')) >= 0) out.market = get(src, 'market');
+      if (get(src, 'dpa') === '0') out.dpa = false;
+      else if (get(src, 'dpa') === '1') out.dpa = true;
       var f = get(src, 'from'), t = get(src, 'to');
       // A range only counts when BOTH ends are real dates: half a range is a
       // half-typed one, and it must not silently become a query.
@@ -2421,7 +2554,7 @@
     var qs = new URLSearchParams(location.search);
     // The URL wins over the remembered choice: a pasted link must show what
     // its sender saw. An unknown value is ignored rather than 404ing the view.
-    if (qs.get('market') || qs.get('days') || qs.get('from') || qs.get('to')) {
+    if (qs.get('market') || qs.get('days') || qs.get('from') || qs.get('to') || qs.get('dpa')) {
       take(qs, function (o, k) { return o.get(k) || ''; });
     }
     return out;
@@ -2434,8 +2567,8 @@
     // custom view by having two dates) would restore it on the next visit.
     try {
       localStorage.setItem(LS_KEY, JSON.stringify(
-        state.custom ? { market: state.market, from: state.from, to: state.to }
-                     : { market: state.market, days: state.days }));
+        state.custom ? { market: state.market, from: state.from, to: state.to, dpa: state.dpa ? 1 : 0 }
+                     : { market: state.market, days: state.days, dpa: state.dpa ? 1 : 0 }));
     } catch (e) { /* private mode, cleared storage — the URL still carries it */ }
     var qs = new URLSearchParams(location.search);
     qs.set('market', state.market);
@@ -2443,6 +2576,7 @@
     // carry a preset AND a range and leave the reader guessing which won.
     if (state.custom) { qs.set('from', state.from); qs.set('to', state.to); qs.delete('days'); }
     else { qs.set('days', String(state.days)); qs.delete('from'); qs.delete('to'); }
+    if (state.dpa) qs.delete('dpa'); else qs.set('dpa', '0');
     // replaceState, not pushState: the filters are a view of one page, not a
     // history of pages, and Back should leave the tab rather than walk the
     // reader through every setting they tried.
@@ -2457,14 +2591,35 @@
     $('segDays').innerHTML = OPTS.days.map(function (d) {
       return '<button type="button" data-v="' + d + '" aria-pressed="false">' + d + ' days</button>';
     }).join('') +
+      MONTHS.map(function (m) {
+        return '<button type="button" data-v="' + m.v + '" aria-pressed="false"' +
+               (monthRange(m.v) ? '' : ' disabled title="The 1st of this month has not settled yet"') +
+               '>' + esc(m.label) + '</button>';
+      }).join('') +
       '<button type="button" data-v="custom" aria-pressed="false">Custom</button>';
+    $('segDpa').innerHTML =
+      '<button type="button" data-v="1" aria-pressed="false">Included</button>' +
+      '<button type="button" data-v="0" aria-pressed="false">Excluded</button>';
+    $('segDpa').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (b && (b.dataset.v === '1') !== state.dpa) { state.dpa = b.dataset.v === '1'; load(); }
+    });
     $('segMarket').addEventListener('click', function (e) {
       var b = e.target.closest('button');
       if (b && b.dataset.v !== state.market) { state.market = b.dataset.v; load(); }
     });
     $('segDays').addEventListener('click', function (e) {
       var b = e.target.closest('button');
-      if (!b) return;
+      if (!b || b.disabled) return;
+      var mr = monthRange(b.dataset.v);
+      if (b.dataset.v === 'mprev' || b.dataset.v === 'mcur') {
+        if (!mr) return;
+        state.custom = true; state.from = mr.from; state.to = mr.to;
+        $('cFrom').value = mr.from; $('cTo').value = mr.to;
+        showCustom(false);
+        load();
+        return;
+      }
       if (b.dataset.v === 'custom') {
         // Reveal the inputs; do NOT query. Nothing is selected yet, and the
         // reader has to name a range before anything can be scanned.
@@ -2527,10 +2682,19 @@
     Array.prototype.forEach.call($('segMarket').children, function (b) {
       b.setAttribute('aria-pressed', b.dataset.v === state.market ? 'true' : 'false');
     });
+    // A month range typed into Custom by hand stays "Custom" while the date
+    // inputs are open; the month button lights only when the inputs are shut.
+    var open = !$('customRange').hidden;
+    var mk = state.custom ? monthKind(state.from, state.to) : null;
     Array.prototype.forEach.call($('segDays').children, function (b) {
-      var on = b.dataset.v === 'custom' ? state.custom
-                                        : (!state.custom && +b.dataset.v === state.days);
+      var v = b.dataset.v;
+      var on = v === 'custom' ? state.custom && (open || !mk)
+             : (v === 'mprev' || v === 'mcur') ? !open && mk === v
+             : (!state.custom && +v === state.days);
       b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    Array.prototype.forEach.call($('segDpa').children, function (b) {
+      b.setAttribute('aria-pressed', (b.dataset.v === '1') === state.dpa ? 'true' : 'false');
     });
   }
 
@@ -2571,6 +2735,7 @@
         '&from=' + encodeURIComponent(state.from) + '&to=' + encodeURIComponent(state.to)
       : '/api/meta?market=' + encodeURIComponent(state.market) +
         '&days=' + encodeURIComponent(state.days);
+    if (!state.dpa) url += '&dpa=0';
     setBusy(true, state.custom
       ? 'Querying BigQuery for ' + state.from + ' – ' + state.to + '…'
       : '');
@@ -2603,11 +2768,14 @@
           state.custom = true;
           state.from = got.from; state.to = got.to;
           $('cFrom').value = got.from; $('cTo').value = got.to;
-          showCustom(true);
+          showCustom(!monthKind(got.from, got.to));
         } else if (OPTS.days.indexOf(+got.days) >= 0) {
           state.custom = false;
           state.days = +got.days;
         }
+        // An older snapshot set may not have the DPA-excluded document yet,
+        // in which case the server answers with DPA in — follow it.
+        if (typeof got.dpa === 'boolean') state.dpa = got.dpa;
         if (got.available_markets && got.available_markets.length) {
           OPTS.markets = got.available_markets;
           OPTS.days = got.available_days || OPTS.days;
@@ -2634,11 +2802,12 @@
   if (state.custom) {
     $('cFrom').value = state.from;
     $('cTo').value = state.to;
-    showCustom(true);
+    showCustom(!monthKind(state.from, state.to));
   }
   // Built before the first render: renderFatigue applies the default sort and
   // marks the matching chip, so the chips have to exist by then.
   buildSortBar();
+  buildTopSort();
   load();
 })();
 </script>

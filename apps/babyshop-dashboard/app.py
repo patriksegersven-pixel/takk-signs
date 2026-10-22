@@ -713,8 +713,8 @@ def api_bundles(_: str = Depends(verify)):
 # too many of them to precompute — so it is answered live from BigQuery by
 # refresh_meta.build_custom(), the same function the nightly job's presets are
 # built with. See _api_meta_live below.
-META_MARKETS = ("all", "SE", "NO")
-META_DAYS = (7, 14, 28, 90)
+META_MARKETS = ("all", "SE", "NO", "FI", "DK")
+META_DAYS = (7, 14, 30, 90)
 META_DEFAULT_MARKET = "all"
 META_DEFAULT_DAYS = 7
 
@@ -802,7 +802,7 @@ def _meta_range(date_from: str, date_to: str):
     return start, end
 
 
-def _api_meta_live(market: str, date_from: str, date_to: str):
+def _api_meta_live(market: str, date_from: str, date_to: str, dpa: bool = True):
     """One custom range, computed live from BigQuery.
 
     Credentials come from refresh_meta._credentials(): ADC in production, i.e.
@@ -817,7 +817,7 @@ def _api_meta_live(market: str, date_from: str, date_to: str):
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 
-    key = (market, start.isoformat(), end.isoformat())
+    key = (market, start.isoformat(), end.isoformat(), dpa)
     hit = _meta_live_get(key)
     if hit is not None:
         payload, age = hit
@@ -841,7 +841,8 @@ def _api_meta_live(market: str, date_from: str, date_to: str):
             # the image mirror's index by id — the service never writes there
             # and never fetches from Meta's CDN; mirroring stays the job's work.
             from funnel_client import get_firestore_db
-            payload, st = rm.build_custom(market, start, end, db=get_firestore_db())
+            payload, st = rm.build_custom(market, start, end, db=get_firestore_db(),
+                                          include_dpa=dpa)
         except Exception as e:
             print(f"ERROR /api/meta live {market} {key[1]}..{key[2]}: "
                   f"{type(e).__name__}: {e}", flush=True)
@@ -860,16 +861,18 @@ def _api_meta_live(market: str, date_from: str, date_to: str):
         return payload
 
 
-def _meta_cache_key(market: str, days: int) -> str:
-    if market == META_DEFAULT_MARKET and days == META_DEFAULT_DAYS:
+def _meta_cache_key(market: str, days: int, dpa: bool = True) -> str:
+    """Mirrors refresh_meta.combo_key — keep the two in step."""
+    if market == META_DEFAULT_MARKET and days == META_DEFAULT_DAYS and dpa:
         return "meta"
-    return f"meta__{market}_{days}"
+    return f"meta__{market}_{days}" + ("" if dpa else "_nodpa")
 
 
 @app.get("/api/meta")
 def api_meta(market: str = META_DEFAULT_MARKET, days: str = str(META_DEFAULT_DAYS),
              date_from: str = Query("", alias="from"),
              date_to: str = Query("", alias="to"),
+             dpa: str = "1",
              _: str = Depends(verify)):
     """Meta creatives snapshot (written to Firestore by refresh_meta.py).
 
@@ -887,11 +890,16 @@ def api_meta(market: str = META_DEFAULT_MARKET, days: str = str(META_DEFAULT_DAY
     shape and `filters.custom = true`. Bad input is a 400 and a failed query a
     502, both `{"error": "…"}` — the page prints the message next to the date
     inputs, which is more use than a default view the reader did not ask for.
-    `from`/`to` are aliased because `from` is a Python keyword."""
+    `from`/`to` are aliased because `from` is a Python keyword.
+
+    `dpa=0` serves the same view with every DPA / catalog ad left out of every
+    number (a preset reads its `_nodpa` document, a custom range filters live).
+    Anything else means DPA included, the v4 behaviour."""
     if market not in META_MARKETS:
         market = META_DEFAULT_MARKET
+    include_dpa = dpa.strip() != "0"
     if date_from or date_to:
-        return _api_meta_live(market, date_from.strip(), date_to.strip())
+        return _api_meta_live(market, date_from.strip(), date_to.strip(), include_dpa)
 
     from funnel_client import get_cache
 
@@ -909,7 +917,12 @@ def api_meta(market: str = META_DEFAULT_MARKET, days: str = str(META_DEFAULT_DAY
     cache = None
     try:
         cache = get_cache()
-        data = cache.get(_meta_cache_key(market, days))
+        data = cache.get(_meta_cache_key(market, days, include_dpa))
+        # A `_nodpa` document the job has not written yet: the same view with
+        # DPA in beats the default view. `filters.dpa` stays absent/true on
+        # it, and the page follows what the payload says it is.
+        if data is None and not include_dpa:
+            data = cache.get(_meta_cache_key(market, days))
     except Exception as e:
         print(f"ERROR /api/meta: {type(e).__name__}: {e}", flush=True)
         data = None
@@ -928,6 +941,7 @@ def api_meta(market: str = META_DEFAULT_MARKET, days: str = str(META_DEFAULT_DAY
         # letting the page think its request was honoured.
         data.setdefault("filters", {"market": META_DEFAULT_MARKET,
                                     "days": META_DEFAULT_DAYS})
+        data["filters"].setdefault("dpa", True)
         data["filters"]["available_markets"] = list(META_MARKETS)
         data["filters"]["available_days"] = list(META_DAYS)
         return data
@@ -936,11 +950,12 @@ def api_meta(market: str = META_DEFAULT_MARKET, days: str = str(META_DEFAULT_DAY
         "sources": {"insights": None, "ads": None, "creatives": None,
                     "marts": None, "account_id": None,
                     "account_label": None, "attribution": "7d_click,1d_view",
-                    "markets": ["SE", "NO"], "all_markets": ["SE", "NO"],
+                    "markets": ["SE", "NO", "FI", "DK"],
+                    "all_markets": ["SE", "NO", "FI", "DK"],
                     "min_spend": 300,
                     "min_spend_l28": 1000, "images": "",
                     "instagram_coverage": {}},
-        "filters": {"market": market, "days": days,
+        "filters": {"market": market, "days": days, "dpa": include_dpa,
                     "available_markets": list(META_MARKETS),
                     "available_days": list(META_DAYS)},
         "window": {"from": None, "to": None, "prev_from": None,
@@ -953,7 +968,7 @@ def api_meta(market: str = META_DEFAULT_MARKET, days: str = str(META_DEFAULT_DAY
         "leaderboards": {}, "rollups": {"by_tag": [], "by_media_type": [],
                                         "by_promo": [], "by_tag_media": [],
                                         "averages": {}, "index_metrics": []},
-        "top_creatives": {"SE": [], "NO": []}, "recent": [],
+        "top_creatives": {"SE": [], "NO": [], "FI": [], "DK": []}, "recent": [],
         "caveats": ["no Meta snapshot yet — refresh_meta.py has not run"],
     }
 
