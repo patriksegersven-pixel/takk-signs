@@ -263,8 +263,9 @@
   function renderMonthly() {
     const M = S.monthly, cars = ['DHL','Bring','UPS','Posti','Airmee'];
     const ds = cars.map(c => ({ type:'bar', label:c + ' (estimate)', data:M.map(m => m.model[c] || 0), backgroundColor:CAR_COL[c], stack:'est' }));
-    ds.push({ type:'line', label:'Business Central (4336)', data:M.map(m => { const v = Object.values(m.ledger).reduce((a, b) => a + b, 0); return v || null; }), borderColor:'#1B2839', backgroundColor:'#1B2839', borderWidth:2, pointRadius:3, tension:.2 });
-    ds.push({ type:'line', label:'Kuvio flat rates', data:M.map(m => m.kuvio_flat), borderColor:'#B93A22', backgroundColor:'#B93A22', borderDash:[5, 4], borderWidth:2, pointRadius:2, tension:.2 });
+    // Lines get their own stack ids: on a stacked axis Chart.js would otherwise pile them onto each other.
+    ds.push({ type:'line', label:'Business Central (4336)', data:M.map(m => { const v = Object.values(m.ledger).reduce((a, b) => a + b, 0); return v || null; }), borderColor:'#1B2839', backgroundColor:'#1B2839', borderWidth:2, pointRadius:3, tension:.2, stack:'ledger' });
+    ds.push({ type:'line', label:'Kuvio flat rates', data:M.map(m => m.kuvio_flat), borderColor:'#B93A22', backgroundColor:'#B93A22', borderDash:[5, 4], borderWidth:2, pointRadius:2, tension:.2, stack:'flat' });
     mChart && mChart.destroy();
     mChart = new Chart($('mChart'), { data:{ labels:M.map(m => mshort(m.month)), datasets:ds },
       options:{ maintainAspectRatio:false, interaction:{ mode:'index', intersect:false },
