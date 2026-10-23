@@ -146,6 +146,7 @@ SOS_HTML       = STATIC_DIR / "babyshop-sos-dashboard.html"
 META_HTML      = STATIC_DIR / "babyshop-meta-dashboard.html"
 ECOM_HTML      = STATIC_DIR / "babyshop-ecom-dashboard.html"
 OPPS_HTML      = STATIC_DIR / "babyshop-opportunities.html"
+SHIPPING_HTML  = STATIC_DIR / "babyshop-shipping-cost.html"
 EXEC_PL_HTML   = STATIC_DIR / "babyshop-exec-pl.html"
 DAILY_PERF_HTML = STATIC_DIR / "babyshop-daily-perf.html"
 TABLE_TOOLS_JS = STATIC_DIR / "table-tools.js"
@@ -245,6 +246,11 @@ def ecom_dashboard(_: str = Depends(verify)):
 @app.get("/babyshop-opportunities.html")
 def opportunities_dashboard(_: str = Depends(verify)):
     return FileResponse(OPPS_HTML, media_type="text/html")
+
+
+@app.get("/babyshop-shipping-cost.html")
+def shipping_cost_dashboard(_: str = Depends(verify)):
+    return FileResponse(SHIPPING_HTML, media_type="text/html")
 
 
 # Shared table filtering + export module, used by <script src="/table-tools.js">
@@ -406,6 +412,49 @@ def api_shipping_test(market: str | None = None, _: str = Depends(verify)):
         return JSONResponse({"error": f"unknown market {market!r}; one of {p.get('markets_order')}"},
                             status_code=400)
     return {**{k: v for k, v in p.items() if k != "markets"}, "market": m, "data": p["markets"][m]}
+
+
+@app.get("/api/shipping")
+def api_shipping(_: str = Depends(verify)):
+    """Shipping cost tab summary: one Firestore document, `funnel_cache/{workspace}__shipping`,
+    written weekly by the shipping-cost model after it recalibrates against the carriers'
+    invoices (outside this repo; see shipping_cost.py). 503 until the first publish."""
+    from funnel_client import get_cache
+
+    try:
+        data = get_cache().get("shipping")
+    except Exception as e:
+        print(f"ERROR /api/shipping: {type(e).__name__}: {e}", flush=True)
+        return JSONResponse({"error": "the shipping snapshot could not be read — try again shortly"}, status_code=503)
+    if data is None:
+        return JSONResponse({"error": "no shipping-cost snapshot yet — the model has not published one"}, status_code=503)
+    return data
+
+
+_SHIPPING_ORDER_PARAMS = ("from", "to", "project", "country", "carrier", "method", "source", "q",
+                          "min_cost", "max_cost", "min_kg", "max_kg", "sort", "dir", "limit", "offset")
+
+
+@app.get("/api/shipping/orders")
+def api_shipping_orders(request: Request, _: str = Depends(verify)):
+    """Order-level shipping cost, filtered live in BigQuery (shipping_cost.order_costs).
+    Filters: from/to (order date), project, country, carrier, method, source (comma lists),
+    q (order numbers), min/max_cost, min/max_kg; sort/dir/limit (≤500)/offset.
+    `format=csv` returns the whole filtered set (≤100k rows) as a download."""
+    import shipping_cost
+
+    p = {k: request.query_params.get(k) for k in _SHIPPING_ORDER_PARAMS}
+    try:
+        if request.query_params.get("format") == "csv":
+            body = shipping_cost.export_orders_csv(p)
+            return Response(body, media_type="text/csv",
+                            headers={"Content-Disposition": 'attachment; filename="shipping-cost-orders.csv"'})
+        return shipping_cost.query_orders(p)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:
+        print(f"ERROR /api/shipping/orders: {type(e).__name__}: {e}", flush=True)
+        return JSONResponse({"error": "the order query failed — try again shortly"}, status_code=502)
 
 
 @app.get("/api/fi-shipping-test")

@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shipping cost · Babyshop</title>
+  <link rel="icon" type="image/svg+xml" href="/babyshop-favicon.svg">
+  <link rel="stylesheet" href="/brand.css">
+  <!-- Vendored: the usual CDNs are unreachable on the client network. -->
+  <script src="/chart.umd.js"></script>
+  <!-- Shared column filters + CSV/Sheets export. -->
+  <script src="/table-tools.js"></script>
+  <style>
+    /* Tokens, header chrome and the card/table floor come from brand.css. This block is the page layer only. */
+    :root { --accent:#235837; --accent-bg:#EAF2EC; --accent-dark:#1A4429; }
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:var(--font); background:var(--bg); color:var(--body); min-height:100vh; -webkit-font-smoothing:antialiased; font-variant-numeric:tabular-nums; }
+    main { max-width:1380px; margin:0 auto; padding:26px 32px 56px; }
+    .page-title { font-size:21px; font-weight:700; color:var(--h); letter-spacing:-.3px; }
+    .page-sub { font-size:12px; color:var(--muted); margin-top:3px; line-height:1.5; max-width:980px; }
+    section { scroll-margin-top:118px; }
+    .jump { position:sticky; top:60px; z-index:150; background:var(--bg); display:flex; gap:4px; flex-wrap:wrap; padding:9px 0 8px; margin-top:8px; border-bottom:1px solid var(--border-lt); }
+    .jump a { font-size:11.5px; font-weight:600; color:var(--muted); text-decoration:none; padding:4px 10px; border-radius:12px; white-space:nowrap; }
+    .jump a:hover { color:var(--accent-dark); background:var(--accent-bg); }
+    .notes { margin-top:12px; font-size:11.5px; line-height:1.55; color:#6E4A12; background:var(--warn-bg); border:1px solid #EBD8B6; border-radius:var(--r); padding:9px 14px; }
+    .notes ul { margin-left:16px; } .notes[hidden] { display:none; }
+    .section-head { margin:30px 0 14px; }
+    .section-title { font-size:15px; font-weight:700; color:var(--h); letter-spacing:-.2px; display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+    .section-tag { font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--accent); background:var(--accent-bg); border-radius:3px; padding:2px 7px; white-space:nowrap; }
+    .section-sub { font-size:12px; color:var(--muted); margin-top:4px; max-width:980px; line-height:1.55; }
+    .glance { margin-top:18px; background:var(--card); border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:14px 20px; }
+    .glance h3 { font-size:10px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+    .glance ul { list-style:none; display:grid; grid-template-columns:1fr 1fr; gap:9px 34px; }
+    .glance li { font-size:13px; line-height:1.5; color:var(--body); padding-left:15px; position:relative; }
+    .glance li::before { content:''; position:absolute; left:0; top:8px; width:6px; height:6px; border-radius:50%; background:var(--muted); }
+    .glance li.bad::before { background:var(--down); } .glance li.good::before { background:var(--up); } .glance li.act::before { background:var(--brand-coral); }
+    .glance b { color:var(--h); font-weight:600; display:block; }
+    .glance span { font-size:12px; color:var(--muted); }
+    .kpi-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; }
+    .kpi { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:14px 14px 12px; min-width:0; }
+    .kpi .k { font-size:10px; font-weight:600; letter-spacing:.07em; color:var(--muted); text-transform:uppercase; margin-bottom:8px; }
+    .kpi .v { font-size:23px; font-weight:700; color:var(--h); letter-spacing:-.5px; line-height:1.1; white-space:nowrap; }
+    .kpi .n { font-size:10.5px; color:var(--muted); margin-top:7px; line-height:1.45; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:20px 22px; }
+    .card h3 { font-size:14px; font-weight:600; color:var(--h); }
+    .card .csub { color:var(--muted); font-size:11px; margin-top:2px; line-height:1.5; max-width:860px; }
+    .card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+    .card-tools { display:flex; align-items:center; gap:8px 12px; flex-wrap:wrap; }
+    .two { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    .stack { margin-top:20px; }
+    .card.tbl { padding:0; overflow:hidden; }
+    .card.tbl .card-head { padding:16px 20px 12px; margin-bottom:0; border-bottom:1px solid var(--border); align-items:center; }
+    .tbl-scroll { overflow-x:auto; }
+    .tbl-note { padding:9px 20px; font-size:11px; color:var(--muted); line-height:1.5; border-top:1px solid var(--border-lt); }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:right; padding:8px 11px; font-size:12.5px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+    th.lbl, td.lbl { text-align:left; }
+    thead th { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); border-bottom:1px solid var(--border); background:var(--card); }
+    tbody td { font-weight:500; color:var(--body); border-bottom:1px solid var(--border-lt); }
+    tbody tr:last-child td { border-bottom:none; }
+    tbody tr:hover td { background-image:linear-gradient(rgba(27,40,57,.025),rgba(27,40,57,.025)); }
+    td.strong { color:var(--h); font-weight:700; } td.dim { color:var(--muted); }
+    td.empty { text-align:center; color:var(--muted); padding:26px 12px; font-weight:400; }
+    tr.total td { font-weight:700; color:var(--h); background:#FCFBF9; border-bottom:1px solid var(--border); }
+    .chip { display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; padding:3px 7px; border-radius:3px; white-space:nowrap; line-height:1; }
+    .chip.inv { background:var(--up-bg); color:var(--up); } .chip.est { background:var(--border-lt); color:#6B7078; }
+    .chart-box { position:relative; height:290px; }
+    .chart-note { font-size:11px; color:var(--muted); margin-top:9px; line-height:1.5; }
+    .filters { display:flex; align-items:center; gap:10px 18px; flex-wrap:wrap; background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:11px 16px; }
+    .fgroup { display:flex; align-items:center; gap:8px; }
+    .flabel { font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+    .seg { display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:var(--border-lt); }
+    .seg button { appearance:none; border:0; background:transparent; font:600 12px/1 var(--font); color:var(--muted); padding:7px 12px; cursor:pointer; border-right:1px solid var(--border); white-space:nowrap; }
+    .seg button:last-child { border-right:0; }
+    .seg button:hover { color:var(--h); background:#fff; }
+    .seg button[aria-pressed="true"] { background:var(--accent); color:#fff; }
+    .tinput { font:500 12px/1 var(--font); color:var(--h); background:var(--card); border:1px solid var(--border); border-radius:6px; padding:7px 9px; }
+    .tinput:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+    select.tinput { padding:6px 8px; font-weight:600; }
+    select[multiple].tinput { height:76px; min-width:150px; font-weight:500; }
+    .tinput.n { width:80px; text-align:right; } .tinput.q { width:200px; }
+    .fbtn { appearance:none; font:700 12px/1 var(--font); color:#fff; background:var(--accent); border:1px solid var(--accent); border-radius:6px; padding:8px 14px; cursor:pointer; }
+    .fbtn.ghost { background:var(--card); color:var(--body); border-color:var(--border); }
+    .fbtn:disabled { opacity:.5; cursor:default; }
+    .fwin { flex:1 1 100%; font-size:11.5px; color:var(--muted); line-height:1.55; border-top:1px solid var(--border-lt); padding-top:9px; }
+    .fwin b { color:var(--h); font-weight:600; }
+    .pager { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 20px; border-top:1px solid var(--border-lt); font-size:11.5px; color:var(--muted); }
+    .pager b { color:var(--h); }
+    th.sortable { cursor:pointer; user-select:none; } th.sortable:hover { color:var(--h); }
+    th.sorted { color:var(--accent); }
+    .ferr { font-size:11.5px; color:var(--down); font-weight:600; }
+    .pending { text-align:center; color:var(--muted); font-size:13px; padding:60px 0 30px; }
+    .fail { margin-top:18px; background:var(--down-bg); color:var(--down); border:1px solid #F0CBBE; border-radius:var(--r); padding:12px 16px; font-size:12.5px; font-weight:600; }
+    .defs { font-size:12.5px; line-height:1.6; color:var(--body); }
+    .defs dt { font-weight:700; color:var(--h); margin-top:10px; } .defs dd { margin-left:0; }
+    [hidden] { display:none !important; }
+    @media (max-width:1100px) { .kpi-grid { grid-template-columns:repeat(2,1fr); } .two, .glance ul { grid-template-columns:1fr; } main { padding:20px 16px 48px; } }
+  </style>
+</head>
+<body>
+<header id="app-header" data-page="shipping"></header>
+<template data-header-extra>
+  <div class="refresh-pill" id="refreshPill" title=""></div>
+</template>
+<script src="/nav.js"></script>
+
+<main>
+  <div class="page-title">Shipping cost per order</div>
+  <div class="page-sub">What outbound freight actually costs per order, market, delivery method and order — estimated per order from the delivery choice in Norce and the basket's weight and volume, priced with each carrier's own rates and invoice lines, and calibrated every week against the carriers' invoices in Business Central. Outbound freight only; return freight, customs and pick &amp; pack are not included.</div>
+
+  <div class="pending" id="pending" hidden>No shipping-cost snapshot yet. The page fills in once the shipping-cost model has published its first run.</div>
+  <div class="fail" id="failed" hidden></div>
+
+  <div id="content" hidden>
+    <nav class="jump" aria-label="Sections">
+      <a href="#s-insights">Insights</a><a href="#s-trend">Trend</a><a href="#s-carriers">Carriers</a>
+      <a href="#s-markets">Per market</a><a href="#s-methods">Market × method</a><a href="#s-orders">Orders</a><a href="#s-defs">How it is calculated</a>
+    </nav>
+    <div class="notes" id="notes" hidden></div>
+
+    <section id="s-insights">
+      <div class="glance"><h3 id="glanceTitle">Insights</h3><ul id="glance"></ul></div>
+      <div class="section-head"><div class="section-title">Key figures <span class="section-tag" id="kpiTag"></span></div>
+        <div class="section-sub">For the calibration window: the latest three months that every carrier has fully invoiced in Business Central.</div></div>
+      <div class="kpi-grid" id="kpis"></div>
+    </section>
+
+    <section id="s-trend">
+      <div class="section-head"><div class="section-title">Estimate against invoices and Kuvio</div>
+        <div class="section-sub">Monthly: the order-level estimate (by order month) against what the carriers invoiced in Business Central (by booking month, account 4336) and Kuvio's flat per-market rates. Daily: the estimate per order day — the daily view of shipping cost for following profitability.</div></div>
+      <div class="two">
+        <div class="card"><div class="card-head"><div><h3>Per month</h3><div class="csub">SEK, outbound freight</div></div></div>
+          <div class="chart-box"><canvas id="mChart" role="img" aria-label="Monthly shipping cost chart"></canvas></div>
+          <div class="chart-note" id="mNote"></div></div>
+        <div class="card"><div class="card-head"><div><h3>Per day</h3><div class="csub" id="dSub"></div></div>
+          <div class="card-tools"><div class="seg" id="segDaily"><button data-v="cost" aria-pressed="true">Total</button><button data-v="cpo">Per order</button></div></div></div>
+          <div class="chart-box"><canvas id="dChart" role="img" aria-label="Daily shipping cost chart"></canvas></div>
+          <div class="chart-note">Stacked by carrier. The latest days fill in as orders are processed.</div></div>
+      </div>
+    </section>
+
+    <section id="s-carriers">
+      <div class="section-head"><div class="section-title">Carriers <span class="section-tag" id="carTag"></span></div>
+        <div class="section-sub">How each carrier's cost is built, and how much of it comes straight from the carrier's own invoice lines.</div></div>
+      <div class="card tbl"><div class="tbl-scroll"><table id="carTable"></table></div></div>
+    </section>
+
+    <section id="s-markets">
+      <div class="section-head"><div class="section-title">Tables</div>
+        <div class="section-sub">The period applies to the market and market × method tables. Every column has a filter (▾ in the header) and both tables export to CSV or Sheets.</div></div>
+      <div class="filters" id="pfilters">
+        <div class="fgroup"><span class="flabel">Period</span><div class="seg" id="segPeriod"></div></div>
+        <div class="fgroup"><label class="flabel" for="mFrom">From</label><select class="tinput" id="mFrom"></select>
+          <label class="flabel" for="mTo">To</label><select class="tinput" id="mTo"></select></div>
+        <div class="fgroup"><span class="flabel">Site</span><div class="seg" id="segSite"><button data-v="all" aria-pressed="true">All</button><button data-v="babyshop">Babyshop</button><button data-v="lekmer">Lekmer</button></div></div>
+        <div class="fwin" id="pwin"></div>
+      </div>
+      <div class="card tbl stack">
+        <div class="card-head"><div><h3>Estimated shipping cost per market</h3><div class="csub">One row per website market (slug), with the Kuvio website, WID and the cost in the website's currency — the numbers to set in Kuvio.</div></div>
+          <div class="card-tools"><span id="mkTools"></span></div></div>
+        <div class="tbl-scroll"><table id="mkTable" data-export-name="shipping-cost-per-market"></table></div>
+        <div class="tbl-note">Cost per order = total estimated outbound freight ÷ orders in the period. Website currency at fixed rates (<span id="fxNote"></span>). "From invoice" is the share of orders whose cost comes from the carrier's own invoice line rather than an estimate.</div>
+      </div>
+    </section>
+
+    <section id="s-methods">
+      <div class="card tbl stack">
+        <div class="card-head"><div><h3>Market × delivery method</h3><div class="csub">Same period. The delivery method is the customer's choice at checkout (Norce delivery mode); orders before mid-June 2026 have none and are assigned the market's usual method.</div></div>
+          <div class="card-tools"><span id="mmTools"></span></div></div>
+        <div class="tbl-scroll"><table id="mmTable" data-export-name="shipping-cost-per-market-method"></table></div>
+      </div>
+    </section>
+
+    <section id="s-orders">
+      <div class="section-head"><div class="section-title">Orders</div>
+        <div class="section-sub">Every order with its estimated outbound shipping cost. Filters run on the full order set (not just this page); sort by clicking a column header.</div></div>
+      <div class="filters" id="ofilters">
+        <div class="fgroup"><label class="flabel" for="oFrom">Order date</label><input class="tinput" type="date" id="oFrom"><span class="flabel">–</span><input class="tinput" type="date" id="oTo"></div>
+        <div class="fgroup"><label class="flabel" for="oQ">Order no</label><input class="tinput q" id="oQ" placeholder="e.g. 2242133, 2245308" inputmode="numeric"></div>
+        <div class="fgroup"><label class="flabel" for="oProj">Project</label><select class="tinput" id="oProj" multiple></select></div>
+        <div class="fgroup"><label class="flabel" for="oCtry">Country</label><select class="tinput" id="oCtry" multiple></select></div>
+        <div class="fgroup"><label class="flabel" for="oCar">Carrier</label><select class="tinput" id="oCar" multiple></select></div>
+        <div class="fgroup"><label class="flabel" for="oMeth">Method</label><select class="tinput" id="oMeth" multiple></select></div>
+        <div class="fgroup"><label class="flabel" for="oSrc">Source</label><select class="tinput" id="oSrc"><option value="">All</option><option>carrier invoice</option><option>estimate</option></select></div>
+        <div class="fgroup"><span class="flabel">Cost SEK</span><input class="tinput n" id="oMin" placeholder="min" inputmode="decimal"><input class="tinput n" id="oMax" placeholder="max" inputmode="decimal"></div>
+        <div class="fgroup"><button class="fbtn" id="oApply">Apply</button><button class="fbtn ghost" id="oReset">Reset</button><a class="fbtn ghost" id="oCsv" href="#" download>Export CSV</a></div>
+        <div class="fwin" id="owin">Hold Ctrl / ⌘ to pick several values in a list.</div>
+      </div>
+      <div class="card tbl stack">
+        <div class="tbl-scroll"><table id="oTable"></table></div>
+        <div class="pager"><button class="fbtn ghost" id="oPrev">‹ Previous</button><button class="fbtn ghost" id="oNext">Next ›</button><span id="oPage"></span><span class="ferr" id="oErr" hidden></span></div>
+      </div>
+    </section>
+
+    <section id="s-defs">
+      <div class="section-head"><div class="section-title">How it is calculated</div></div>
+      <div class="card"><dl class="defs" id="defs">
+        <dt>Carrier and method</dt><dd>From the delivery mode the customer chose at checkout (Norce, via Ingrid). Orders without one (before mid-June 2026) get the market's usual method; a Swedish item of 20 kg or more goes Home Delivery.</dd>
+        <dt>Basket weight and size</dt><dd>Gross weight and package dimensions per item from Norce, times quantity. DHL and Bring bill on volume when the parcel is light but bulky, so size matters as much as weight.</dd>
+        <dt>Price per order</dt><dd>Bring, Posti and Airmee: the amount on the carrier's invoice line for that order where it exists, otherwise the average actual cost for the market, method and weight band. DHL: what DHL billed per order for the same parcel volume (or weight), including split parcels and fuel. UPS: UPS's negotiated rate for the country, service and weight.</dd>
+        <dt>Calibration</dt><dd>Each week the estimate is scaled so each carrier's total matches its outbound freight booked in Business Central (account 4336) for the latest three fully invoiced months. Posti only counts the web-order share of its invoice; Airmee is not scaled (its fixed monthly amount is kept out of the per-order cost).</dd>
+        <dt>Not included</dt><dd>Return freight (4338), customs (4335), pick &amp; pack and packaging.</dd>
+      </dl></div>
+    </section>
+  </div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const fmt = (v, d = 0) => v == null || !isFinite(v) ? '–' : Number(v).toLocaleString('sv-SE', { minimumFractionDigits:d, maximumFractionDigits:d });
+  const pct = (v, d = 1) => v == null || !isFinite(v) ? '–' : fmt(v, d) + ' %';
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const mlabel = m => MONTHS[+m.slice(5) - 1] + ' ' + m.slice(0, 4);
+  const mshort = m => MONTHS[+m.slice(5) - 1] + (m.slice(5) === '01' ? ' ' + m.slice(0, 4) : '');
+  const CAR_COL = { DHL:'#C9A227', Bring:'#2F6E8F', UPS:'#6B4E2E', Posti:'#ED7558', Airmee:'#235837', Other:'#8C9098' };
+  let S = null, period = null, site = 'all', mChart = null, dChart = null, dMode = 'cost';
+
+  fetch('/api/shipping', { credentials:'same-origin' }).then(async r => {
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 503) { $('pending').hidden = false; if (j.error) $('pending').textContent = j.error; return; }
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    S = j; render();
+  }).catch(e => { $('failed').hidden = false; $('failed').textContent = 'Could not load the shipping-cost snapshot: ' + e.message; });
+
+  function render() {
+    $('content').hidden = false;
+    const pill = $('refreshPill');
+    if (pill) { pill.textContent = 'Orders through ' + S.orders_through + ' · calibrated on ' + S.cal_label;
+                pill.title = 'Published ' + S.generated_at + (S.bc && S.bc.ledger_loaded ? ' · Business Central ledger loaded ' + S.bc.ledger_loaded : ''); }
+    if (S.warnings && S.warnings.length) { $('notes').hidden = false; $('notes').innerHTML = '<ul>' + S.warnings.map(w => '<li>' + esc(w) + '</li>').join('') + '</ul>'; }
+    $('glanceTitle').textContent = 'Insights · ' + S.cal_label;
+    $('glance').innerHTML = S.insights.map(i => `<li class="${esc(i.t)}"><b>${esc(i.h)}</b><span>${esc(i.b)}</span></li>`).join('');
+    $('fxNote').textContent = Object.entries(S.fx).filter(([k]) => k !== 'SEK').map(([k, v]) => `1 ${k} = ${v} SEK`).join(', ');
+    renderKpis(); renderMonthly(); renderDaily(); renderCarriers(); setupPeriod(); setupOrders();
+  }
+
+  // ── KPIs (calibration window) ───────────────────────────────────────────────
+  function sumRows(rows, cols, pred) {
+    const ix = Object.fromEntries(cols.map((c, i) => [c, i])), t = { orders:0, cost:0, kg:0, items:0, rev:0, actual_orders:0 };
+    rows.forEach(r => { if (pred(r, ix)) for (const k in t) t[k] += r[ix[k]] || 0; });
+    return t;
+  }
+  function renderKpis() {
+    const cal = new Set(S.cal_months), mc = S.market_month_cols;
+    const t = sumRows(S.market_month, mc, (r, ix) => cal.has(r[ix.month]));
+    const flat = S.monthly.filter(m => cal.has(m.month)).reduce((a, m) => a + (m.kuvio_flat || 0), 0);
+    const led = S.monthly.filter(m => cal.has(m.month)).reduce((a, m) => a + Object.values(m.ledger).reduce((x, y) => x + y, 0), 0);
+    $('kpiTag').textContent = S.cal_label;
+    const tiles = [
+      ['Cost per order', fmt(t.cost / t.orders, 1) + ' SEK', fmt(t.orders) + ' orders'],
+      ['Shipping cost', fmt(t.cost / 1e6, 2) + ' M SEK', 'Business Central: ' + fmt(led / 1e6, 2) + ' M SEK'],
+      ['Share of revenue', pct(100 * t.cost / t.rev), 'outbound freight ÷ order revenue (SEK)'],
+      ['Kuvio flat rates', flat ? pct(100 * (flat / t.cost - 1), 0) : '–', flat ? fmt(flat / 1e6, 2) + ' M SEK booked by Kuvio' : 'no Kuvio data'],
+      ['Priced from invoices', pct(100 * t.actual_orders / t.orders, 0), 'of orders carry the amount the carrier invoiced for that order (Bring, Posti, Airmee); the rest are estimates'],
+    ];
+    $('kpis').innerHTML = tiles.map(([k, v, n]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${esc(n)}</div></div>`).join('');
+  }
+
+  // ── Charts ──────────────────────────────────────────────────────────────────
+  function renderMonthly() {
+    const M = S.monthly, cars = ['DHL','Bring','UPS','Posti','Airmee'];
+    const ds = cars.map(c => ({ type:'bar', label:c + ' (estimate)', data:M.map(m => m.model[c] || 0), backgroundColor:CAR_COL[c], stack:'est' }));
+    ds.push({ type:'line', label:'Business Central (4336)', data:M.map(m => { const v = Object.values(m.ledger).reduce((a, b) => a + b, 0); return v || null; }), borderColor:'#1B2839', backgroundColor:'#1B2839', borderWidth:2, pointRadius:3, tension:.2 });
+    ds.push({ type:'line', label:'Kuvio flat rates', data:M.map(m => m.kuvio_flat), borderColor:'#B93A22', backgroundColor:'#B93A22', borderDash:[5, 4], borderWidth:2, pointRadius:2, tension:.2 });
+    mChart && mChart.destroy();
+    mChart = new Chart($('mChart'), { data:{ labels:M.map(m => mshort(m.month)), datasets:ds },
+      options:{ maintainAspectRatio:false, interaction:{ mode:'index', intersect:false },
+        scales:{ x:{ stacked:true, grid:{ display:false } }, y:{ stacked:true, ticks:{ callback:v => fmt(v / 1e6, 1) + ' M' } } },
+        plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, font:{ size:10 } } }, tooltip:{ callbacks:{ label:c => c.dataset.label + ': ' + fmt(c.raw) + ' SEK' } } } } });
+    const last = M[M.length - 1];
+    $('mNote').innerHTML = `Business Central books invoices when they arrive, so a month's bar and line differ by timing; over the calibration window they match by construction. The latest month(s) have no invoices yet. Return freight (4338) and customs (4335) are not in either: ${esc(mlabel(last.month))} so far ${fmt(last.ledger_returns)} and ${fmt(last.ledger_customs)} SEK in the ledger.`;
+  }
+  function renderDaily() {
+    const D = S.daily, cars = ['DHL','Bring','UPS','Posti','Airmee'];
+    $('dSub').textContent = 'Last ' + D.length + ' days, SEK' + (dMode === 'cpo' ? ' per order' : '');
+    const ds = dMode === 'cost'
+      ? cars.map(c => ({ type:'bar', label:c, data:D.map(d => (d.by || {})[c] || 0), backgroundColor:CAR_COL[c], stack:'s' }))
+      : [{ type:'line', label:'Cost per order', data:D.map(d => d.orders ? d.cost / d.orders : null), borderColor:'#235837', backgroundColor:'#235837', borderWidth:2, pointRadius:0, tension:.25 }];
+    dChart && dChart.destroy();
+    dChart = new Chart($('dChart'), { data:{ labels:D.map(d => d.date.slice(5)), datasets:ds },
+      options:{ maintainAspectRatio:false, interaction:{ mode:'index', intersect:false },
+        scales:{ x:{ stacked:dMode === 'cost', grid:{ display:false }, ticks:{ maxTicksLimit:12 } }, y:{ stacked:dMode === 'cost', ticks:{ callback:v => fmt(v) } } },
+        plugins:{ legend:{ display:dMode === 'cost', position:'bottom', labels:{ boxWidth:10, font:{ size:10 } } }, tooltip:{ callbacks:{ label:c => c.dataset.label + ': ' + fmt(c.raw, dMode === 'cpo' ? 1 : 0) + ' SEK' } } } } });
+  }
+  $('segDaily').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return;
+    dMode = b.dataset.v; [...$('segDaily').children].forEach(x => x.setAttribute('aria-pressed', x === b)); renderDaily(); });
+
+  function renderCarriers() {
+    $('carTag').textContent = S.cal_label;
+    const rows = S.carriers.map(c => `<tr><td class="lbl strong">${esc(c.carrier)}</td><td>${fmt(c.orders)}</td><td class="strong">${fmt(c.cost_per_order, 1)}</td>
+      <td>${c.ledger_per_order != null ? fmt(c.ledger_per_order, 1) : '–'}</td><td>${c.factor != null ? '×' + fmt(c.factor, 3) : '–'}</td><td>${pct(c.actual_share, 0)}</td>
+      <td class="lbl" style="white-space:normal;min-width:320px">${esc(c.basis)}</td></tr>`).join('');
+    $('carTable').innerHTML = `<thead><tr><th class="lbl">Carrier</th><th>Orders</th><th>Cost / order SEK</th><th>Ledger / order SEK</th><th>Calibration</th><th>From invoice</th><th class="lbl">How the cost is built</th></tr></thead><tbody>${rows}</tbody>`;
+  }
+
+  // ── Period + market tables ──────────────────────────────────────────────────
+  function setupPeriod() {
+    const months = [...new Set(S.market_month.map(r => r[2]))].sort();
+    const opts = months.map(m => `<option value="${m}">${mlabel(m)}</option>`).join('');
+    $('mFrom').innerHTML = opts; $('mTo').innerHTML = opts;
+    const now = months[months.length - 1], prev = months[months.length - 2] || now, ytd = months.filter(m => m.slice(0, 4) === now.slice(0, 4));
+    const presets = [['cal', 'Calibration window', S.cal_months[0], S.cal_months[S.cal_months.length - 1]], ['mtd', 'This month', now, now],
+                     ['prev', 'Last month', prev, prev], ['ytd', 'Year to date', ytd[0], now]];
+    $('segPeriod').innerHTML = presets.map(p => `<button data-a="${p[2]}" data-b="${p[3]}">${p[1]}</button>`).join('');
+    $('segPeriod').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setPeriod(b.dataset.a, b.dataset.b); });
+    $('mFrom').onchange = $('mTo').onchange = () => setPeriod($('mFrom').value, $('mTo').value);
+    $('segSite').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; site = b.dataset.v;
+      [...$('segSite').children].forEach(x => x.setAttribute('aria-pressed', x === b)); renderTables(); });
+    setPeriod(presets[0][2], presets[0][3]);
+  }
+  function setPeriod(a, b) {
+    if (a > b) [a, b] = [b, a];
+    period = [a, b]; $('mFrom').value = a; $('mTo').value = b;
+    [...$('segPeriod').children].forEach(x => x.setAttribute('aria-pressed', x.dataset.a === a && x.dataset.b === b));
+    renderTables();
+  }
+  const siteOf = p => p.startsWith('lekmer') ? 'Lekmer' : 'Babyshop';
+  const inPeriod = m => m >= period[0] && m <= period[1];
+  const siteOk = p => site === 'all' || p.startsWith(site);
+  function mapFor(proj, ctry) { return S.mapping[proj + '|' + ctry] || {}; }
+  function inCur(sek, cur) { const r = S.fx[cur || 'SEK']; return r ? sek / r : null; }
+
+  let mkTT = null, mmTT = null;
+  function renderTables() {
+    const mc = S.market_month_cols, ix = Object.fromEntries(mc.map((c, i) => [c, i]));
+    const g = new Map();
+    S.market_month.forEach(r => {
+      if (!inPeriod(r[ix.month]) || !siteOk(r[ix.project])) return;
+      const k = r[ix.project] + '|' + r[ix.country];
+      const a = g.get(k) || { project:r[ix.project], country:r[ix.country], orders:0, cost:0, kg:0, rev:0, act:0 };
+      a.orders += r[ix.orders]; a.cost += r[ix.cost]; a.kg += r[ix.kg]; a.rev += r[ix.rev]; a.act += r[ix.actual_orders]; g.set(k, a);
+    });
+    const rows = [...g.values()].sort((x, y) => y.orders - x.orders);
+    const tot = rows.reduce((t, a) => ({ orders:t.orders + a.orders, cost:t.cost + a.cost, kg:t.kg + a.kg, rev:t.rev + a.rev, act:t.act + a.act }), { orders:0, cost:0, kg:0, rev:0, act:0 });
+    $('pwin').innerHTML = `<b>${mlabel(period[0])}${period[0] !== period[1] ? ' – ' + mlabel(period[1]) : ''}</b> · ${fmt(tot.orders)} orders · ${fmt(tot.cost)} SEK · <b>${fmt(tot.cost / tot.orders, 1)} SEK per order</b>`
+      + (period[1] > S.cal_months[S.cal_months.length - 1] ? ' · months after the calibration window use its factors until their invoices are booked' : '');
+    const body = rows.map(a => { const m = mapFor(a.project, a.country), cpo = a.cost / a.orders;
+      return `<tr><td class="lbl">${siteOf(a.project)}</td><td class="lbl">${esc(m.slug || '')}</td><td class="lbl">${esc(m.country || a.country)}</td><td class="lbl">${esc(a.country)}</td>
+        <td class="lbl">${esc(a.project)}</td><td class="lbl">${esc(m.website || '')}</td><td class="lbl">${esc(m.wid || '')}</td><td class="lbl">${esc(m.cur || '')}</td>
+        <td>${fmt(a.orders)}</td><td class="strong">${fmt(cpo, 2)}</td><td>${fmt(inCur(cpo, m.cur), 2)}</td><td>${fmt(a.kg / a.orders, 2)}</td>
+        <td>${pct(100 * a.cost / a.rev)}</td><td>${pct(100 * a.act / a.orders, 0)}</td><td>${fmt(a.cost)}</td></tr>`; }).join('');
+    $('mkTable').innerHTML = `<thead><tr><th class="lbl">Site</th><th class="lbl">Slug</th><th class="lbl">Country</th><th class="lbl">Code</th><th class="lbl">Norce project</th><th class="lbl">Website</th><th class="lbl">WID</th><th class="lbl">Currency</th>
+      <th>Orders</th><th>Cost / order SEK</th><th>Cost / order website cur.</th><th>Avg basket kg</th><th>% of revenue</th><th>From invoice</th><th>Total cost SEK</th></tr></thead>
+      <tbody>${body || '<tr><td class="empty" colspan="15">No orders in this period.</td></tr>'}</tbody>`;
+    mkTT = enhance($('mkTable'), 'mkTools', mkTT);
+
+    const nc = S.method_month_cols, jx = Object.fromEntries(nc.map((c, i) => [c, i]));
+    const h = new Map(), mt = new Map();
+    S.method_month.forEach(r => {
+      if (!inPeriod(r[jx.month]) || !siteOk(r[jx.project])) return;
+      const k = [r[jx.project], r[jx.country], r[jx.carrier], r[jx.method]].join('|');
+      const a = h.get(k) || { project:r[jx.project], country:r[jx.country], carrier:r[jx.carrier], method:r[jx.method], orders:0, cost:0, kg:0, act:0 };
+      a.orders += r[jx.orders]; a.cost += r[jx.cost]; a.kg += r[jx.kg]; a.act += r[jx.actual_orders]; h.set(k, a);
+      const mk = r[jx.project] + '|' + r[jx.country]; mt.set(mk, (mt.get(mk) || 0) + r[jx.orders]);
+    });
+    const r2 = [...h.values()].sort((x, y) => (mt.get(y.project + '|' + y.country) - mt.get(x.project + '|' + x.country)) || (y.orders - x.orders));
+    const b2 = r2.map(a => { const m = mapFor(a.project, a.country), cpo = a.cost / a.orders;
+      return `<tr><td class="lbl">${siteOf(a.project)}</td><td class="lbl">${esc(m.slug || '')}</td><td class="lbl">${esc(m.country || a.country)}</td><td class="lbl">${esc(a.project)}</td>
+        <td class="lbl">${esc(a.carrier)}</td><td class="lbl">${esc(a.method)}</td><td>${fmt(a.orders)}</td><td>${pct(100 * a.orders / mt.get(a.project + '|' + a.country), 1)}</td>
+        <td class="strong">${fmt(cpo, 2)}</td><td>${fmt(inCur(cpo, m.cur), 2)}</td><td class="lbl">${esc(m.cur || '')}</td><td>${fmt(a.kg / a.orders, 2)}</td><td>${pct(100 * a.act / a.orders, 0)}</td><td>${fmt(a.cost)}</td></tr>`; }).join('');
+    $('mmTable').innerHTML = `<thead><tr><th class="lbl">Site</th><th class="lbl">Slug</th><th class="lbl">Country</th><th class="lbl">Norce project</th><th class="lbl">Carrier</th><th class="lbl">Method</th>
+      <th>Orders</th><th>Share of market</th><th>Cost / order SEK</th><th>Cost / order website cur.</th><th class="lbl">Currency</th><th>Avg basket kg</th><th>From invoice</th><th>Total cost SEK</th></tr></thead>
+      <tbody>${b2 || '<tr><td class="empty" colspan="14">No orders in this period.</td></tr>'}</tbody>`;
+    mmTT = enhance($('mmTable'), 'mmTools', mmTT);
+  }
+  function enhance(table, toolsId, prev) {
+    if (prev || !window.TableTools) return prev;
+    try { return window.TableTools.enhance(table, { toolbar:$(toolsId), scroll:true, filters:true, maxRows:25 }) || true; } catch (e) { return true; }
+  }
+
+  // ── Orders (server-side filtering) ──────────────────────────────────────────
+  const OCOLS = [['order_no','Order no','lbl'],['order_date','Date','lbl'],['project','Norce project','lbl'],['country','Country','lbl'],['carrier','Carrier','lbl'],['method','Method','lbl'],
+                 ['basket_kg','Basket kg',''],['items','Items',''],['cost_sek','Cost SEK',''],['source','Source','lbl'],['invoice_amount_sek','Invoiced SEK',''],['calibration_factor','Calibration',''],['revenue_sek','Revenue SEK','']];
+  const OQ = { sort:'order_date', dir:'desc', offset:0, limit:100 };
+  function setupOrders() {
+    const projs = [...new Set(S.market_month.map(r => r[0]))].sort(), ctrys = [...new Set(S.market_month.map(r => r[1]))].sort();
+    const cars = [...new Set(S.method_month.map(r => r[2]))].sort(), meths = [...new Set(S.method_month.map(r => r[3]))].sort();
+    const opt = v => `<option value="${esc(v)}">${esc(v)}</option>`;
+    $('oProj').innerHTML = projs.map(opt).join(''); $('oCtry').innerHTML = ctrys.map(opt).join('');
+    $('oCar').innerHTML = cars.map(opt).join(''); $('oMeth').innerHTML = meths.map(opt).join('');
+    const to = S.orders_through, from = new Date(new Date(to).getTime() - 29 * 864e5).toISOString().slice(0, 10);
+    $('oFrom').value = from; $('oTo').value = to;
+    $('oApply').onclick = () => { OQ.offset = 0; loadOrders(); };
+    $('oReset').onclick = () => { ['oQ','oMin','oMax'].forEach(i => $(i).value = ''); ['oProj','oCtry','oCar','oMeth'].forEach(i => [...$(i).options].forEach(o => o.selected = false));
+                                  $('oSrc').value = ''; $('oFrom').value = from; $('oTo').value = to; OQ.offset = 0; loadOrders(); };
+    $('oQ').addEventListener('keydown', e => { if (e.key === 'Enter') { OQ.offset = 0; loadOrders(); } });
+    $('oPrev').onclick = () => { OQ.offset = Math.max(0, OQ.offset - OQ.limit); loadOrders(); };
+    $('oNext').onclick = () => { OQ.offset += OQ.limit; loadOrders(); };
+    loadOrders();
+  }
+  function orderParams() {
+    const sel = id => [...$(id).selectedOptions].map(o => o.value).join(',');
+    const p = { from:$('oFrom').value, to:$('oTo').value, q:$('oQ').value.trim(), project:sel('oProj'), country:sel('oCtry'), carrier:sel('oCar'),
+                method:sel('oMeth'), source:$('oSrc').value, min_cost:$('oMin').value.trim(), max_cost:$('oMax').value.trim() };
+    return Object.fromEntries(Object.entries(p).filter(([, v]) => v));
+  }
+  let oSeq = 0;
+  function loadOrders() {
+    const base = orderParams(), q = new URLSearchParams({ ...base, sort:OQ.sort, dir:OQ.dir, limit:OQ.limit, offset:OQ.offset });
+    $('oCsv').href = '/api/shipping/orders?' + new URLSearchParams({ ...base, format:'csv' });
+    const seq = ++oSeq; $('oErr').hidden = true; $('oApply').disabled = true; $('oPage').textContent = 'Loading…';
+    fetch('/api/shipping/orders?' + q, { credentials:'same-origin' }).then(async r => {
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      if (seq === oSeq) renderOrders(j);
+    }).catch(e => { if (seq === oSeq) { $('oErr').hidden = false; $('oErr').textContent = e.message; $('oPage').textContent = ''; } })
+      .finally(() => { if (seq === oSeq) $('oApply').disabled = false; });
+  }
+  function renderOrders(j) {
+    const t = j.total, ix = Object.fromEntries(j.columns.map((c, i) => [c, i]));
+    const head = OCOLS.map(([k, l, c]) => `<th class="${c} sortable${OQ.sort === k ? ' sorted' : ''}" data-k="${k}">${l}${OQ.sort === k ? (OQ.dir === 'asc' ? ' ▲' : ' ▼') : ''}</th>`).join('');
+    const totRow = t.orders ? `<tr class="total"><td class="lbl" colspan="6">${fmt(t.orders)} orders · ${fmt(t.cost_sek / t.orders, 2)} SEK per order</td><td>${fmt(t.basket_kg / t.orders, 2)}</td><td></td>
+      <td>${fmt(t.cost_sek)}</td><td class="lbl">${pct(100 * t.invoiced_orders / t.orders, 0)} invoiced</td><td></td><td></td><td>${fmt(t.revenue_sek)}</td></tr>` : '';
+    const body = j.rows.map(r => `<tr>${OCOLS.map(([k, , c]) => { const v = r[ix[k]];
+      if (k === 'source') return `<td class="lbl"><span class="chip ${v === 'carrier invoice' ? 'inv' : 'est'}">${esc(v)}</span></td>`;
+      if (k === 'basket_kg') return `<td>${fmt(v, 2)}</td>`; if (k === 'calibration_factor') return `<td class="dim">${v != null ? '×' + fmt(v, 3) : '–'}</td>`;
+      if (k === 'cost_sek') return `<td class="strong">${fmt(v, 2)}</td>`; if (k === 'invoice_amount_sek' || k === 'revenue_sek') return `<td>${v == null ? '<span class="dim">–</span>' : fmt(v, 2)}</td>`;
+      if (k === 'items') return `<td>${fmt(v)}</td>`; return `<td class="${c}">${esc(v)}</td>`; }).join('')}</tr>`).join('');
+    $('oTable').innerHTML = `<thead><tr>${head}</tr></thead><tbody>${totRow}${body || '<tr><td class="empty" colspan="13">No orders match these filters.</td></tr>'}</tbody>`;
+    $('oTable').querySelectorAll('th.sortable').forEach(th => th.onclick = () => {
+      const k = th.dataset.k; OQ.dir = OQ.sort === k && OQ.dir === 'desc' ? 'asc' : 'desc'; OQ.sort = k; OQ.offset = 0; loadOrders(); });
+    const a = t.orders ? j.offset + 1 : 0, b = Math.min(j.offset + j.rows.length, t.orders);
+    $('oPage').innerHTML = `Rows <b>${fmt(a)}–${fmt(b)}</b> of <b>${fmt(t.orders)}</b>` + (t.from ? ` · order dates ${t.from} – ${t.to}` : '');
+    $('oPrev').disabled = j.offset === 0; $('oNext').disabled = b >= t.orders;
+  }
+})();
+</script>
+</body>
+</html>
