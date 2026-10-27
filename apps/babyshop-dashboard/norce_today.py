@@ -83,7 +83,7 @@ import httpx
 # per-API permission; API access comes from the integration user's resources.
 BASE_URL  = os.environ.get("NORCE_BASE_URL", "https://babyshop.api-se.norce.tech")
 TOKEN_URL = os.environ.get("NORCE_TOKEN_URL", f"{BASE_URL}/identity/1.0/connect/token")
-QUERY_URL = os.environ.get("NORCE_QUERY_URL", f"{BASE_URL}/commerce/query/2.0")
+QUERY_URL = os.environ.get("NORCE_QUERY_URL", f"{BASE_URL}/commerce/query/3.0")
 SCOPE     = os.environ.get("NORCE_SCOPE", "prod")
 
 CLIENT_ID     = os.environ.get("NORCE_CLIENT_ID")

@@ -106,7 +106,7 @@ from google.cloud import bigquery
 # on the integration user. Both documented at docs.norce.io.
 NORCE_BASE_URL  = os.environ.get("NORCE_BASE_URL", "https://babyshop.api-se.norce.tech")
 NORCE_TOKEN_URL = os.environ.get("NORCE_TOKEN_URL", f"{NORCE_BASE_URL}/identity/1.0/connect/token")
-NORCE_QUERY_URL = os.environ.get("NORCE_QUERY_URL", f"{NORCE_BASE_URL}/commerce/query/2.0")
+NORCE_QUERY_URL = os.environ.get("NORCE_QUERY_URL", f"{NORCE_BASE_URL}/commerce/query/3.0")
 NORCE_SCOPE     = os.environ.get("NORCE_SCOPE", "prod")
 
 NORCE_CLIENT_ID     = os.environ.get("NORCE_CLIENT_ID")
