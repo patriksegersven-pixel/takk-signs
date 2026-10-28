@@ -218,7 +218,8 @@ def _access_token() -> str:
 
 
 def _get(url: str, params: dict[str, Any] | None, app_id: int | None) -> dict:
-    """One GET with auth + the applicationId header, retrying 429/5xx."""
+    """One GET with auth + the applicationId header, retrying 429/5xx and
+    transport errors (connect/read timeouts, dropped connections)."""
     headers = {"Authorization": f"Bearer {_access_token()}", "Accept": "application/json"}
     if app_id is not None:
         # Documented as `applicationId` (or `application-id`); it sets the
@@ -226,8 +227,19 @@ def _get(url: str, params: dict[str, Any] | None, app_id: int | None) -> dict:
         headers["applicationId"] = str(app_id)
     delay = 2.0
     for attempt in range(6):
-        with httpx.Client(timeout=HTTP_TIMEOUT) as c:
-            r = c.get(url, params=params, headers=headers)
+        try:
+            with httpx.Client(timeout=HTTP_TIMEOUT) as c:
+                r = c.get(url, params=params, headers=headers)
+        except httpx.TransportError as e:
+            # A ConnectTimeout on Products/Variants killed the first v3 run
+            # (2026-10-27); without this the whole task restarts from scratch.
+            if attempt == 5:
+                raise
+            print(f"   .. {type(e).__name__} on {url}, retry {attempt + 1}/5 in {delay:.0f}s",
+                  flush=True)
+            time.sleep(delay)
+            delay *= 2
+            continue
         if r.status_code == 200:
             return r.json()
         if r.status_code in (429, 500, 502, 503, 504) and attempt < 5:
