@@ -55,6 +55,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import math
 import os
 import sys
 
@@ -116,9 +117,15 @@ def plan_from_recs(min_spend: float, min_move_pct: float, classes: tuple[str, ..
             why_not.append((r.customer_name, r.strategy_name, skip))
             continue
         capped = max(-STEP_CAP_PCT, min(STEP_CAP_PCT, move_pct))
+        # Round to 2 dp TOWARD the current target: round() on a capped step can land
+        # past the cap (2.18 × 1.2 = 2.616 → 2.62 = +20.2 %) and the guard in main()
+        # then blocks the row. The inner round(…, 6) strips float noise first so an
+        # exact 2.64 does not ceil to 2.65.
+        raw = round(cur * (1 + capped / 100) * 100, 6)
+        new_target = (math.floor(raw) if capped > 0 else math.ceil(raw)) / 100
         plan.append({"customer_id": cid, "campaign_id": str(r.strategy_id),
                      "name": f"{r.customer_name} {r.strategy_name}",
-                     "new_target": round(cur * (1 + capped / 100), 2),
+                     "new_target": new_target,
                      "rec_final": rec, "clipped": abs(capped) < abs(move_pct) - 1e-9})
     if why_not:
         print(f"--from-recs skipped {len(why_not)} campaign(s):")
