@@ -3466,25 +3466,36 @@ function bdRenderChart(ctx){
     (ctx.partial ? ` · ${BD_MONTHS[ctx.curM]} actual is month-to-date` : ``);
 }
 
-/* Derived row: target COS % = marketing ÷ gross sales (gross, before returns).
- * In actual months the badge is actual COS minus target, in percentage points. */
-function bdCosRow(mkt, gross, tracked, ctx){
-  if (!gross) return '';
-  const cos = (m, g) => (m!=null && g) ? m/g : null;
+/* Derived ratio rows under a P&L line: num ÷ den, targets from BUDGET.
+ *  - Target COS % = marketing ÷ gross sales (gross, before returns).
+ *  - GM1–GM3 % = GP1–GP3 ÷ net sales (after returns).
+ * Where both sides are tracked live (COS only — net sales has no actual), actual
+ * months get a badge: actual ratio minus target, in percentage points. */
+const BD_RATIO_ROWS = {
+  marketing: { label:'Target COS %', sub:'of gross sales', den:'gross_sales', lowerIsGood:true },
+  gp1:       { label:'GM1 %',        sub:'of net sales',   den:'net_sales' },
+  gp2:       { label:'GM2 %',        sub:'of net sales',   den:'net_sales' },
+  gp3:       { label:'GM3 %',        sub:'of net sales',   den:'net_sales' },
+};
+function bdRatioRow(key, num, tracked, ctx){
+  const r = BD_RATIO_ROWS[key], den = BUDGET.lines[r.den];
+  if (!den) return '';
+  const ratio = (n, d) => (n!=null && d) ? n/d : null;
   const pct = c => c==null ? '—' : fmtPct(c);
-  let row = `<tr class="pl-ratio"><td class="pl-line">Target COS % <span class="pl-sub">of gross sales</span></td>`;
+  let row = `<tr class="pl-ratio"><td class="pl-line">${r.label} <span class="pl-sub">${r.sub}</span></td>`;
   for (let i=0;i<12;i++){
-    const tc = cos(mkt.monthly[i], gross.monthly[i]);
-    const ac = cos(tracked.marketing?.actual[i], tracked.gross_sales?.actual[i]);
+    const tc = ratio(num.monthly[i], den.monthly[i]);
+    const ac = ratio(tracked[key]?.actual[i], tracked[r.den]?.actual[i]);
     let cls='', varHtml='';
     if (tc!=null && ac!=null && i<ctx.curM){
       const pp = (ac - tc)*100;
-      varHtml = `<span class="pl-var ${pp<=0?'up':'down'}">${pp>=0?'+':''}${pp.toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})}pp</span>`;
+      const good = r.lowerIsGood ? pp<=0 : pp>=0;
+      varHtml = `<span class="pl-var ${good?'up':'down'}">${pp>=0?'+':''}${pp.toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})}pp</span>`;
       cls = 'pl-tracked';
     }
     row += `<td class="${cls}">${pct(tc)}${varHtml}</td>`;
   }
-  return row + `<td class="pl-fy">${pct(cos(mkt.fy, gross.fy))}</td></tr>`;
+  return row + `<td class="pl-fy">${pct(ratio(num.fy, den.fy))}</td></tr>`;
 }
 
 function bdRenderTable(ctx){
@@ -3519,7 +3530,7 @@ function bdRenderTable(ctx){
     const fy = ln.fy==null ? null : (ln.is_cost ? -ln.fy : ln.fy);
     row += `<td class="pl-fy${ln.is_cost?' pl-neg':''}">${fy==null?'—':fmtSEK(fy)}</td></tr>`;
     body += row;
-    if (key==='marketing') body += bdCosRow(ln, BUDGET.lines.gross_sales, tracked, ctx);
+    if (BD_RATIO_ROWS[key]) body += bdRatioRow(key, ln, tracked, ctx);
   }
   document.getElementById('pl-body').innerHTML = body;
 }
