@@ -573,6 +573,8 @@
     .pl-table .pl-var { font-size: 9.5px; font-weight: 700; margin-left: 5px; }
     .pl-table .pl-var.up { color: var(--up); }
     .pl-table .pl-var.down { color: var(--down); }
+    .pl-table tr.pl-ratio td { color: var(--muted); font-style: italic; }
+    .pl-table tr.pl-ratio .pl-sub { font-size: 9.5px; margin-left: 4px; }
   </style>
 </head>
 <body>
@@ -3464,6 +3466,27 @@ function bdRenderChart(ctx){
     (ctx.partial ? ` · ${BD_MONTHS[ctx.curM]} actual is month-to-date` : ``);
 }
 
+/* Derived row: target COS % = marketing ÷ gross sales (gross, before returns).
+ * In actual months the badge is actual COS minus target, in percentage points. */
+function bdCosRow(mkt, gross, tracked, ctx){
+  if (!gross) return '';
+  const cos = (m, g) => (m!=null && g) ? m/g : null;
+  const pct = c => c==null ? '—' : fmtPct(c);
+  let row = `<tr class="pl-ratio"><td class="pl-line">Target COS % <span class="pl-sub">of gross sales</span></td>`;
+  for (let i=0;i<12;i++){
+    const tc = cos(mkt.monthly[i], gross.monthly[i]);
+    const ac = cos(tracked.marketing?.actual[i], tracked.gross_sales?.actual[i]);
+    let cls='', varHtml='';
+    if (tc!=null && ac!=null && i<ctx.curM){
+      const pp = (ac - tc)*100;
+      varHtml = `<span class="pl-var ${pp<=0?'up':'down'}">${pp>=0?'+':''}${pp.toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})}pp</span>`;
+      cls = 'pl-tracked';
+    }
+    row += `<td class="${cls}">${pct(tc)}${varHtml}</td>`;
+  }
+  return row + `<td class="pl-fy">${pct(cos(mkt.fy, gross.fy))}</td></tr>`;
+}
+
 function bdRenderTable(ctx){
   const hasAct = TOTAL_2026.revenue;
   const dstat = i => (hasAct[i]!=null && i<=ctx.curM) ? 'Actual' : 'Forecast';
@@ -3496,6 +3519,7 @@ function bdRenderTable(ctx){
     const fy = ln.fy==null ? null : (ln.is_cost ? -ln.fy : ln.fy);
     row += `<td class="pl-fy${ln.is_cost?' pl-neg':''}">${fy==null?'—':fmtSEK(fy)}</td></tr>`;
     body += row;
+    if (key==='marketing') body += bdCosRow(ln, BUDGET.lines.gross_sales, tracked, ctx);
   }
   document.getElementById('pl-body').innerHTML = body;
 }
