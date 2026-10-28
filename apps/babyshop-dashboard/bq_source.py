@@ -198,20 +198,61 @@ KVD = ("SUM(rev) rev, SUM(rev)-COALESCE(SUM(ret),0) net_rev, "
 # rest-of-world bucket that the export has keyed two ways — 'ROW EUR' through
 # 2026-05-07 and NULL from 2026-05-08. PROD_MARKET_OTHER folds both into one
 # stable option, so the series does not break at the re-keying.
+#
+# Since the 2026-10-28 Funnel fix the NULL rows from 2026-05-08 carry the
+# Kuvio country ('KR', 'DE', …); before that date the bucket is 'ROW EUR' and
+# has no country. Single countries are offered as options too (prod_markets).
 PROD_MARKETS      = ("SE", "NO", "DK", "FI")
 PROD_MARKET_OTHER = "Other"
+PROD_COUNTRY_RX   = __import__("re").compile(r"^[A-Z]{2}$")
+# A country becomes a selectable option with at least this share of the last
+# PROD_OPTIONS_DAYS of product revenue (KR, KZ, DE, US, NL, … at 2026-10).
+PROD_OPTIONS_MIN_SHARE = float(os.environ.get("PROD_OPTIONS_MIN_SHARE", "0.002"))
+PROD_OPTIONS_DAYS      = 90
+PROD_OPTIONS_MAX       = 25
+_prod_opts_cache: dict = {}
+
+def prod_markets() -> list[str]:
+    """The Product tab's market options: the core four, the countries above
+    PROD_OPTIONS_MIN_SHARE of recent product revenue (largest first), then
+    PROD_MARKET_OTHER. Cached for an hour; the core list if the query fails."""
+    hit = _prod_opts_cache.get("v")
+    if hit and time.time() - hit[0] < 3600:
+        return hit[1]
+    end = datetime.date.today()
+    try:
+        rows = _rows(f"""
+            SELECT market_level_1_kv m, SUM(kv_revenue_product) rev
+            FROM `{BQ_TABLE}`
+            WHERE Date BETWEEN @start AND @end AND kv_revenue_product IS NOT NULL
+            GROUP BY m""",
+            [bigquery.ScalarQueryParameter("start", "DATE",
+                                           end - datetime.timedelta(days=PROD_OPTIONS_DAYS)),
+             bigquery.ScalarQueryParameter("end", "DATE", end)])
+    except Exception as e:
+        print(f"WARN prod_markets: {type(e).__name__}: {e}", flush=True)
+        return list(PROD_MARKETS) + [PROD_MARKET_OTHER]
+    total = sum(float(r["rev"] or 0) for r in rows) or 1.0
+    extra = sorted((r for r in rows
+                    if r["m"] and r["m"] not in PROD_MARKETS and PROD_COUNTRY_RX.match(r["m"])
+                    and float(r["rev"] or 0) / total >= PROD_OPTIONS_MIN_SHARE),
+                   key=lambda r: -float(r["rev"] or 0))
+    opts = (list(PROD_MARKETS) + [r["m"] for r in extra][:PROD_OPTIONS_MAX]
+            + [PROD_MARKET_OTHER])
+    _prod_opts_cache["v"] = (time.time(), opts)
+    return opts
 
 def _pr_market_cond(market, alias=""):
     """SQL predicate scoping rows to one product market, or None for all markets.
 
-    The value is checked against the whitelist and only constants are
-    interpolated, so no caller-supplied text reaches the SQL. The same predicate
-    fits KV rows: there the rest-of-world bucket is every per-country market
-    ('DE', 'KZ', …), which `NOT IN` the core four catches as well."""
+    The value is checked against the whitelist or a two-capital-letter pattern,
+    so no caller-supplied text beyond [A-Z]{2} reaches the SQL. The same
+    predicate fits KV rows: there the rest-of-world bucket is every per-country
+    market ('DE', 'KZ', …), which `NOT IN` the core four catches as well."""
     if not market:
         return None
     col = f"{alias}market_level_1_kv"
-    if market in PROD_MARKETS:
+    if market in PROD_MARKETS or PROD_COUNTRY_RX.match(market):
         return f"{col} = '{market}'"
     if market == PROD_MARKET_OTHER:
         core = "','".join(PROD_MARKETS)

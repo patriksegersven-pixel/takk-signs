@@ -488,7 +488,7 @@
         <option value="NO">NO</option>
         <option value="DK">DK</option>
         <option value="FI">FI</option>
-        <option value="Other" title="Every market outside SE / NO / DK / FI">Other</option>
+        <option value="Other" title="Every market outside SE / NO / DK / FI">Other (all non-Nordic)</option>
       </select>
     </div>
     <div class="filter-group">
@@ -1607,6 +1607,28 @@ async function setMarket(val) {
   loadBreakdown();
 }
 document.getElementById('f-market').addEventListener('change', e => setMarket(e.target.value));
+
+/* The options beyond the static core four + Other: every country with a real
+ * share of product revenue (/api/product-markets). Countries exist from
+ * 2026-05-08 only — earlier rest-of-world revenue has no country. */
+(async function loadMarketOptions() {
+  const sel = document.getElementById('f-market');
+  try {
+    const res = await fetch('/api/product-markets', { cache: 'no-store' });
+    const d = res.ok ? await res.json() : null;
+    if (!d || !Array.isArray(d.markets) || !d.markets.length) return;
+    const core = d.core || ['SE', 'NO', 'DK', 'FI'], other = d.other || 'Other';
+    const opt = (v, label, title) => `<option value="${v}"${title ? ` title="${title}"` : ''}>${label}</option>`;
+    const countries = d.markets.filter(m => m !== other && !core.includes(m));
+    sel.innerHTML = opt('', 'All markets')
+      + d.markets.filter(m => core.includes(m)).map(m => opt(m, m)).join('')
+      + (countries.length ? '<optgroup label="Other countries (from 8 May 2026)">'
+          + countries.map(m => opt(m, m, 'Product data by country exists from 2026-05-08; earlier rest-of-world revenue has no country')).join('')
+          + '</optgroup>' : '')
+      + opt(other, 'Other (all non-Nordic)', 'Every market outside ' + core.join(' / '));
+    sel.value = marketFilter;
+  } catch (e) { /* keep the static options */ }
+})();
 
 /* ─── Custom searchable dropdown (for long lists like brands) ── */
 class SearchSelect {

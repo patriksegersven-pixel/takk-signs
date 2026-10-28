@@ -1431,7 +1431,7 @@ def api_breakdown(dataset: str, start: str, end: str, cstart: str, cend: str,
     all markets while the KPI cards show one.
 
     For dataset=product only `market` applies, and it takes the product market
-    options (bq_source.PROD_MARKETS + PROD_MARKET_OTHER)."""
+    options (bq_source.prod_markets: core four, single countries, 'Other')."""
     import datetime as _dt
     try:
         import bq_source as bs
@@ -1467,6 +1467,15 @@ _PRODUCT_MARKET_TTL = 15 * 60
 _product_market_cache: dict = {}
 
 
+@app.get("/api/product-markets")
+def api_product_markets(_: str = Depends(verify)):
+    """The Product tab's market options (bq_source.prod_markets): core four,
+    countries with a meaningful share of product revenue, then 'Other'."""
+    import bq_source as bs
+    return {"markets": bs.prod_markets(), "core": list(bs.PROD_MARKETS),
+            "other": bs.PROD_MARKET_OTHER}
+
+
 @app.get("/api/product-market")
 def api_product_market(market: str, _: str = Depends(verify)):
     """Product daily series (2025 → yesterday) for ONE market, computed live from
@@ -1475,9 +1484,12 @@ def api_product_market(market: str, _: str = Depends(verify)):
     category tables come from /api/breakdown?dataset=product&market=…"""
     import time as _time
     import bq_source as bs
-    if market not in bs.PROD_MARKETS + (bs.PROD_MARKET_OTHER,):
-        return JSONResponse({"error": "unknown market",
-                             "markets": list(bs.PROD_MARKETS) + [bs.PROD_MARKET_OTHER]},
+    try:
+        bs._pr_market_cond(market)
+        if not market:
+            raise ValueError("market is required")
+    except ValueError:
+        return JSONResponse({"error": "unknown market", "markets": bs.prod_markets()},
                             status_code=400)
     hit = _product_market_cache.get(market)
     if hit and _time.time() - hit[0] < _PRODUCT_MARKET_TTL:
