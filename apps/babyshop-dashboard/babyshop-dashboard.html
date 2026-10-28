@@ -573,6 +573,7 @@
     .pl-table .pl-var { font-size: 9.5px; font-weight: 700; margin-left: 5px; }
     .pl-table .pl-var.up { color: var(--up); }
     .pl-table .pl-var.down { color: var(--down); }
+    .pl-table .pl-var.mtd { color: var(--muted); }
     .pl-table tr.pl-ratio td { color: var(--muted); font-style: italic; }
     .pl-table tr.pl-ratio .pl-sub { font-size: 9.5px; margin-left: 4px; }
   </style>
@@ -908,7 +909,7 @@
     <div class="chart-header" style="margin-bottom:12px">
       <div>
         <div class="chart-title">Full-year P&amp;L targets</div>
-        <div class="chart-sub">Group forecast · costs shown negative · <span style="color:var(--accent)">shaded rows</span> reconcile with dashboard data (live variance shown in actual months)</div>
+        <div class="chart-sub">Group forecast · costs shown negative · <span style="color:var(--accent)">shaded rows</span> reconcile with dashboard data (variance vs target in actual months; current month is MTD vs the full-month target)</div>
       </div>
       <div id="pl-tools"></div>
     </div>
@@ -3477,6 +3478,13 @@ const BD_RATIO_ROWS = {
   gp2:       { label:'GM2 %',        sub:'of net sales',   den:'net_sales' },
   gp3:       { label:'GM3 %',        sub:'of net sales',   den:'net_sales' },
 };
+/* Actual for month i: closed months use the monthly KV figure, the current month
+ * its month-to-date (compared against the FULL month target). Future: none. */
+function bdActAt(t, i, ctx){
+  if (!t || i>ctx.curM) return null;
+  return i===ctx.curM ? (t.mtd || null) : t.actual[i];
+}
+
 function bdRatioRow(key, num, tracked, ctx){
   const r = BD_RATIO_ROWS[key], den = BUDGET.lines[r.den];
   if (!den) return '';
@@ -3485,9 +3493,9 @@ function bdRatioRow(key, num, tracked, ctx){
   let row = `<tr class="pl-ratio"><td class="pl-line">${r.label} <span class="pl-sub">${r.sub}</span></td>`;
   for (let i=0;i<12;i++){
     const tc = ratio(num.monthly[i], den.monthly[i]);
-    const ac = ratio(tracked[key]?.actual[i], tracked[r.den]?.actual[i]);
+    const ac = ratio(bdActAt(tracked[key], i, ctx), bdActAt(tracked[r.den], i, ctx));
     let cls='', varHtml='';
-    if (tc!=null && ac!=null && i<ctx.curM){
+    if (tc!=null && ac!=null){
       const pp = (ac - tc)*100;
       const good = r.lowerIsGood ? pp<=0 : pp>=0;
       varHtml = `<span class="pl-var ${good?'up':'down'}">${pp>=0?'+':''}${pp.toLocaleString('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1})}pp</span>`;
@@ -3500,9 +3508,9 @@ function bdRatioRow(key, num, tracked, ctx){
 
 function bdRenderTable(ctx){
   const hasAct = TOTAL_2026.revenue;
-  const dstat = i => (hasAct[i]!=null && i<=ctx.curM) ? 'Actual' : 'Forecast';
+  const dstat = i => i===ctx.curM ? 'MTD' : (hasAct[i]!=null && i<ctx.curM) ? 'Actual' : 'Forecast';
   let h = `<th class="pl-line">P&amp;L line · SEK</th>`;
-  for(let i=0;i<12;i++) h += `<th class="pl-mon-head ${dstat(i)==='Actual'?'pl-actual':''}" data-status="${dstat(i)}">${BD_MONTHS[i]}</th>`;
+  for(let i=0;i<12;i++) h += `<th class="pl-mon-head ${dstat(i)!=='Forecast'?'pl-actual':''}" data-status="${dstat(i)}">${BD_MONTHS[i]}</th>`;
   h += `<th class="pl-fy">FY 2026</th>`;
   document.getElementById('pl-head').innerHTML = h;
 
@@ -3519,10 +3527,13 @@ function bdRenderTable(ctx){
       const shown = v==null ? null : (ln.is_cost ? -v : v);
       let cls = ln.is_cost ? 'pl-neg' : '';
       let varHtml='';
-      if (t && i<ctx.curM && t.actual[i]!=null && v!=null && v!==0){
-        const vr = (t.actual[i] - v)/v;
+      const a = bdActAt(t, i, ctx);
+      if (a!=null && v!=null && v!==0){
+        const vr = (a - v)/v;
         const good = key==='marketing' ? vr<=0 : vr>=0;
-        varHtml = `<span class="pl-var ${good?'up':'down'}">${vr>=0?'+':''}${(vr*100).toFixed(0)}%</span>`;
+        // MTD vs a full-month target is short by design: show it uncoloured.
+        const tone = i===ctx.curM ? 'mtd' : good ? 'up' : 'down';
+        varHtml = `<span class="pl-var ${tone}">${vr>=0?'+':''}${(vr*100).toFixed(0)}%</span>`;
         cls += ' pl-tracked';
       }
       row += `<td class="${cls}">${shown==null?'—':fmtSEK(shown)}${varHtml}</td>`;
