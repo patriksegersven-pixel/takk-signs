@@ -188,6 +188,14 @@
       <div class="card tbl"><div class="tbl-scroll"><table id="mkTable" data-export-name="search-markets"></table></div></div>
     </section>
 
+    <section id="s-countries" hidden>
+      <div class="section-head">
+        <div class="section-title">Countries</div>
+        <div class="section-sub">Searches by the visitor's country (GA4), for the selected market. "Other" in the table above is split out here.</div>
+      </div>
+      <div class="card tbl"><div class="tbl-scroll"><table id="ctTable" data-export-name="search-countries"></table></div></div>
+    </section>
+
     <section id="s-brands">
       <div class="section-head">
         <div class="section-title">Brands and the rest</div>
@@ -246,7 +254,9 @@
 <script>
 (function () {
   'use strict';
-  const MARKETS = ['all', 'SE', 'NO', 'DK', 'FI'];
+  // Replaced by meta.market_options (the job's grid) once a payload arrives.
+  let MARKETS = ['all', 'SE', 'NO', 'DK', 'FI'];
+  const MK_RE = /^[A-Z]{2}$/;
   const DAYS = [7, 28, 90];
   const RISE_MIN = 10;
   const $ = id => document.getElementById(id);
@@ -261,12 +271,13 @@
 
   let state = { market: 'all', days: 28 };
   try { Object.assign(state, JSON.parse(sessionStorage.getItem('searchTab') || '{}')); } catch (e) { /* defaults */ }
-  if (!MARKETS.includes(state.market)) state.market = 'all';
+  if (state.market !== 'all' && !MK_RE.test(String(state.market))) state.market = 'all';
   if (!DAYS.includes(state.days)) state.days = 28;
   let D = null, inflight = 0, chart = null, trShown = 50, trSort = ['count', 'desc'];
 
   function segs() {
-    $('segMarket').innerHTML = MARKETS.map(m => '<button type="button" data-m="' + m + '">' + esc(mkName(m)) + '</button>').join('');
+    const mks = MARKETS.includes(state.market) ? MARKETS : MARKETS.concat([state.market]);
+    $('segMarket').innerHTML = mks.map(m => '<button type="button" data-m="' + m + '">' + esc(mkName(m)) + '</button>').join('');
     $('segDays').innerHTML = DAYS.map(d => '<button type="button" data-d="' + d + '">' + d + ' days</button>').join('');
     $('segMarket').onclick = e => { const b = e.target.closest('button'); if (b) { state.market = b.dataset.m; load(); } };
     $('segDays').onclick = e => { const b = e.target.closest('button'); if (b) { state.days = +b.dataset.d; load(); } };
@@ -302,6 +313,10 @@
         if (status === 503 && !D) { $('pending').hidden = false; return; }
         if (status !== 200) { $('ferr').textContent = j.error || ('Request failed (' + status + ')'); $('ferr').hidden = false; return; }
         D = j; $('pending').hidden = true; $('failed').hidden = true; $('content').hidden = false;
+        state.market = j.meta.market;          // the server falls back to 'all' for a market it has no snapshot for
+        const mo = j.meta.market_options;
+        if (Array.isArray(mo) && mo.length && mo.join() !== MARKETS.join()) MARKETS = mo.slice();
+        segs(); markSegs();
         trShown = 50;
         render();
       })
@@ -339,7 +354,7 @@
     $('notes').hidden = !notes.length;
     $('notes').innerHTML = notes.length ? '<ul>' + notes.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>' : '';
     const rows = termRows();
-    renderKpis(rows); renderGlance(rows); renderTrend(); renderMarkets(); renderBrands(rows); renderTerms(rows); renderZero(rows);
+    renderKpis(rows); renderGlance(rows); renderTrend(); renderMarkets(); renderCountries(); renderBrands(rows); renderTerms(rows); renderZero(rows);
   }
 
   function delta(cur, prev, inverse) {
@@ -418,6 +433,17 @@
     const total = rows.length > 1 ? line('All markets', { cur: c, prev: D.totals.prev }, 'total') : '';
     $('mkTable').innerHTML = head + '<tbody>' + total + body + '</tbody>';
     enhance($('mkTable'), null);
+  }
+
+  function renderCountries() {
+    const rows = D.by_country, c = D.totals.cur, prevOk = D.meta.prev_available;
+    $('s-countries').hidden = !Array.isArray(rows);
+    if (!Array.isArray(rows)) return;
+    const head = '<thead><tr><th class="lbl">Country</th><th>Searches</th><th>Share</th>' + (prevOk ? '<th>Change</th>' : '') + '</tr></thead>';
+    const body = rows.map(r => '<tr><td class="lbl strong">' + esc(r.country === 'UNKNOWN' ? 'Unknown' : r.country) + '</td><td>' + fmtInt(r.cur.searches) +
+      '</td><td>' + fmtPct(div(r.cur.searches, c.searches), 1) + '</td>' + (prevOk ? '<td>' + (delta(r.cur.searches, r.prev.searches) || '–') + '</td>' : '') + '</tr>').join('');
+    $('ctTable').innerHTML = head + '<tbody>' + body + '</tbody>';
+    enhance($('ctTable'), null);
   }
 
   function blist(el, items, max) {

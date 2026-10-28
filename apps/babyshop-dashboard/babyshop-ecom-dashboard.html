@@ -791,7 +791,11 @@
 
   /* ── State ────────────────────────────────────────────────────────────── */
   const LS_KEY = 'ecom.filters.v1';
-  const OPTS = { markets: ['all', 'SE', 'NO', 'DK', 'FI'], days: [7, 28, 90] };
+  // markets: replaced by meta.market_options once a payload arrives (the job's grid:
+  // the core four plus every market with >= 1 % of sessions).
+  const CORE_MARKETS = ['SE', 'NO', 'DK', 'FI'];
+  const OPTS = { markets: ['all'].concat(CORE_MARKETS), days: [7, 28, 90] };
+  const MK_RE = /^[A-Z]{2}$/;
   const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
   let state = { market: 'all', days: 28, custom: false, from: '', to: '', cmp: 'prev' };
   let D = null, inflight = 0, chart = null, lastGood = null;
@@ -805,7 +809,7 @@
     const hasUrl = q.has('market') || q.has('days') || q.has('from');
     const src = hasUrl ? { market: q.get('market'), days: q.get('days'), from: q.get('from'), to: q.get('to'), cmp: q.get('cmp') } : saved;
     const m = String(src.market || '').toUpperCase();
-    if (m === 'ALL') s.market = 'all'; else if (OPTS.markets.indexOf(m) > 0) s.market = m;
+    if (m === 'ALL') s.market = 'all'; else if (MK_RE.test(m)) s.market = m;   // the server falls back if it has no such snapshot
     if (ISO_RE.test(src.from || '') && ISO_RE.test(src.to || '') && src.from <= src.to) { s.custom = true; s.from = src.from; s.to = src.to; }
     else if (OPTS.days.indexOf(+src.days) >= 0) s.days = +src.days;
     if (src.cmp === 'yoy') s.cmp = 'yoy';
@@ -825,7 +829,8 @@
       (it.disabled ? ' disabled' : '') + (it.title ? ' title="' + esc(it.title) + '"' : '') + '>' + esc(it.label) + '</button>').join('');
   }
   function markSegs() {
-    $('segMarket').innerHTML = segHTML(OPTS.markets.map(m => ({ v: m, label: m === 'all' ? 'All' : m })), state.market);
+    const mks = OPTS.markets.indexOf(state.market) >= 0 ? OPTS.markets : OPTS.markets.concat([state.market]);
+    $('segMarket').innerHTML = segHTML(mks.map(m => ({ v: m, label: m === 'all' ? 'All' : m, title: m === 'all' || CORE_MARKETS.indexOf(m) >= 0 ? '' : 'Outside the Nordics — shown, but not benchmarked' })), state.market);
     $('segDays').innerHTML = segHTML(OPTS.days.map(d => ({ v: d, label: d + ' days' })).concat([{ v: 'custom', label: 'Custom' }]), state.custom ? 'custom' : state.days);
     const hasYoy = !!(D && D.totals && D.totals.yoy);
     $('segCmp').innerHTML = segHTML([
@@ -903,9 +908,10 @@
           return;
         }
         D = data;
+        if (!state.custom && Array.isArray(meta.market_options) && meta.market_options.length) OPTS.markets = meta.market_options.slice();
         // Follow what the server actually served, so the pressed buttons never claim another view.
         const gm = String(meta.market || '');
-        if (gm.toLowerCase() === 'all') state.market = 'all'; else if (OPTS.markets.indexOf(gm.toUpperCase()) > 0) state.market = gm.toUpperCase();
+        if (gm.toLowerCase() === 'all') state.market = 'all'; else if (MK_RE.test(gm.toUpperCase())) state.market = gm.toUpperCase();
         if (!state.custom && OPTS.days.indexOf(+meta.days) >= 0) state.days = +meta.days;
         lastGood = Object.assign({}, state);
         setPill(meta.generated_at);
@@ -1220,7 +1226,7 @@
      shown for completeness but never benchmarked or called out: they have no
      local storefront effort behind them and convert at a fraction of the
      Nordic rate, so they would win every "weakest market" contest. */
-  function coreMarkets() { const m = D && D.meta && D.meta.markets; return Array.isArray(m) && m.length ? m : OPTS.markets.slice(1); }
+  function coreMarkets() { const m = D && D.meta && D.meta.markets; return Array.isArray(m) && m.length ? m : CORE_MARKETS; }
   function isCore(k) { return coreMarkets().indexOf(k) >= 0; }
   function isOtherMarket(r) { return !r.total && !r.nordic && !isCore(r.key); }
   function nordicAgg() {

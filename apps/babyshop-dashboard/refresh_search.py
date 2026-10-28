@@ -8,9 +8,16 @@ documents) and shares its BigQuery plumbing, market buckets and windows, so the
 two tabs can never disagree on what "SE, last 28 days" means.
 
 PRESETS
-    markets  all / SE / NO / DK / FI        periods  7 / 28 / 90 days
+    markets  all + the E-com grid (SE / NO / DK / FI + every market with >= 1 %
+             of sessions, see refresh_ecom.discover_grid)
+    periods  7 / 28 / 90 days
 
-  15 documents:  funnel_cache/<ws>__search__<market>_<days>
+  3 × (1 + grid) documents:  funnel_cache/<ws>__search__<market>_<days>
+
+COUNTRIES
+  The mart's `market` only resolves the configured markets; every other country
+  is 'unknown'. A `country` column (ISO2 from GA4 countryId) is being added
+  upstream. Probed like search_zero_results: present → by_country fills in.
 
 TRACKING START
   view_search_results was effectively untracked until GTM version 274 went live
@@ -77,6 +84,10 @@ BRAND_LOOKBACK_DAYS = 120
 BRAND_MIN_VIEWS     = 50
 BRAND_MIN_LEN       = 3   # shorter brand names match too many unrelated words
 
+# The run's market grid (refresh_ecom.discover_grid), set by build_all before
+# the fetch; every query bucketing by market passes it as @grid.
+_GRID: list[str] = list(MARKETS)
+
 T_SEARCH  = _e.T_SEARCH
 T_CHANNEL = _e.T_CHANNEL
 T_BRAND   = _e.T_BRAND
@@ -94,6 +105,34 @@ def zero_available(stats) -> bool:
         return False
 
 
+def country_available(stats) -> bool:
+    """True once the connector adds the GA4 country to the mart."""
+    try:
+        q(f"select country from {T_SEARCH} t where false", {}, stats)
+        return True
+    except Exception:
+        return False
+
+
+def q_countries(windows, stats):
+    """Searches per (window, market bucket incl. 'all', country)."""
+    win, p = _e._win_sql(windows)
+    return q(f"""
+    with win as ({win}),
+    a as (
+      select w.days as days, {_e._mkt_sql()} as m,
+             coalesce(nullif(upper(t.country), ''), 'UNKNOWN') as k,
+             sum(if(t.date between w.cf and w.ct, t.event_count, 0)) as c,
+             sum(if(t.date between w.pf and w.pt, t.event_count, 0)) as p
+      from {T_SEARCH} t cross join win w
+      where t.date between @lo and @hi and t.date between w.pf and w.ct
+      group by 1, 2, 3)
+    select days, m, k, c, p from a where m != '{OTHER}'
+    union all
+    select days, 'all', k, sum(c), sum(p) from a group by days, k""",
+             dict(p, grid=_GRID), stats)
+
+
 def _zero_cols(zero: bool, cond: str) -> str:
     if not zero:
         return "cast(null as int64)", "cast(null as int64)"
@@ -104,7 +143,7 @@ def _zero_cols(zero: bool, cond: str) -> str:
 def q_terms(windows, zero, stats):
     """Top terms per (window, market bucket) plus 'all' with a per-market split."""
     win, p = _e._win_sql(windows)
-    p["n"] = TERMS_SCAN
+    p.update({"n": TERMS_SCAN, "grid": _GRID})
     cz, cu = _zero_cols(zero, "t.date between w.cf and w.ct")
     return q(f"""
     with win as ({win}),
@@ -151,7 +190,7 @@ def q_totals(windows, zero, stats):
            count(distinct if(prv, k, null)) as p_terms,
            {cz} as cz, {cu} as cu
     from b
-    group by grouping sets ((days, m), (days))""", p, stats)
+    group by grouping sets ((days, m), (days))""", dict(p, grid=_GRID), stats)
 
 
 def q_daily(lo, hi, zero, stats):
@@ -161,11 +200,11 @@ def q_daily(lo, hi, zero, stats):
            {cz} as zero, {cu} as unknown
     from {T_SEARCH} t
     where t.date between @lo and @hi
-    group by 1, 2""", {"lo": lo, "hi": hi}, stats)
+    group by 1, 2""", {"lo": lo, "hi": hi, "grid": _GRID}, stats)
 
 
 def q_sessions(lo, hi, site, stats):
-    p = {"lo": lo, "hi": hi}
+    p = {"lo": lo, "hi": hi, "grid": _GRID}
     if site:
         p["site"] = site
     return q(f"""
@@ -193,6 +232,7 @@ def fetch(windows: list[dict]) -> dict:
     out: dict = {"notes": []}
     zero = zero_available(stats)
     out["zero"] = zero
+    out["country"] = country_available(stats)
     try:
         site, _, notes = _e.discover_site(lo, hi, stats)
         out["notes"] += notes
@@ -203,7 +243,8 @@ def fetch(windows: list[dict]) -> dict:
                      ("totals", lambda: q_totals(windows, zero, stats)),
                      ("daily", lambda: q_daily(lo, hi, zero, stats)),
                      ("sessions", lambda: q_sessions(lo, hi, site, stats)),
-                     ("brands", lambda: q_brands(hi, stats))):
+                     ("brands", lambda: q_brands(hi, stats)),
+                     ("countries", lambda: q_countries(windows, stats) if out["country"] else None)):
         try:
             out[name] = fn()
         except Exception as e:
@@ -284,7 +325,7 @@ def build_combo(data: dict, market: str, w: dict, generated_at: str, match) -> d
         d += datetime.timedelta(days=1)
 
     by_market = []
-    for m in (MARKETS + [OTHER]) if market == "all" else [market]:
+    for m in (_GRID + [OTHER]) if market == "all" else [market]:
         r = next((x for x in data.get("totals") or []
                   if x["days"] == days and not x["is_all"] and x["m_raw"] == m), None)
         by_market.append({
@@ -295,6 +336,14 @@ def build_combo(data: dict, market: str, w: dict, generated_at: str, match) -> d
             "prev": {"searches": pv(r and r["p"]),
                      "sessions": _sum_days(sessions, w["pf"], w["pt"], m, "sessions")
                      if prev_ok else None}})
+
+    # null until the mart carries `country` (see COUNTRIES above).
+    by_country = None
+    if data.get("countries") is not None:
+        by_country = sorted(
+            ({"country": r["k"], "cur": {"searches": _n(r["c"])}, "prev": {"searches": pv(r["p"])}}
+             for r in data["countries"] if r["days"] == days and r["m"] == market and r["c"]),
+            key=lambda x: -(x["cur"]["searches"] or 0))
 
     rows = [r for r in data.get("terms") or [] if r["days"] == days and r["m"] == market]
     rows.sort(key=lambda r: (-(r["c"] or 0), r["k"]))
@@ -325,12 +374,15 @@ def build_combo(data: dict, market: str, w: dict, generated_at: str, match) -> d
                  "tracking_start": TRACKING_START.isoformat(),
                  "tracked_from": tracked_from.isoformat(),
                  "prev_available": prev_ok, "zero_available": zero,
+                 "country_available": bool(data.get("country")),
+                 "market_options": ["all"] + list(_GRID),
                  "brand_matched_searches": sum(b["cur"] for b in brands.values()),
                  "terms_scanned": len(rows), "generated_at": generated_at,
                  "notes": notes},
         "totals": totals,
         "daily": daily,
         "by_market": by_market,
+        "by_country": by_country,
         "terms": terms,
         "brands": brand_rows,
     }
@@ -340,6 +392,8 @@ def build_all() -> dict:
     end = _e.last_complete_day()
     windows = [_e.preset_window(d, end) for d in PERIOD_OPTIONS]
     generated_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    global _GRID
+    _GRID = _e.discover_grid(end, _e._Stats())
     # Count only tracked days: the pre-GTM days hold the old 404 /search?q= hits.
     data = fetch([dict(w, cf=max(w["cf"], TRACKING_START)) for w in windows])
     print(f"   search fetch through {end}: {data['queries']} queries, "
@@ -348,7 +402,7 @@ def build_all() -> dict:
                       for k in ("terms", "totals", "daily", "sessions", "brands")), flush=True)
     match = brand_matcher(data.get("brands"))
     return {"combos": {f"{m}_{w['days']}": build_combo(data, m, w, generated_at, match)
-                       for m in MARKET_OPTIONS for w in windows}}
+                       for m in ["all"] + _GRID for w in windows}}
 
 
 # ── Write ────────────────────────────────────────────────────────────────────

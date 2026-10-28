@@ -8,9 +8,12 @@ query JOB is billed to this dashboard's own project, the DATA lives in
 claude-private-499703 (babyshop_marts / babyshop_staging), read cross-project.
 
 PRESETS
-    markets  all / SE / NO / DK / FI        periods  7 / 28 / 90 days
+    markets  all + the grid: SE / NO / DK / FI plus every other warehouse
+             market with >= GRID_MIN_SHARE of sessions (discover_grid; US and
+             GB as of 2026-10)
+    periods  7 / 28 / 90 days
 
-  15 documents:  funnel_cache/<ws>__ecom__<market>_<days>
+  3 × (1 + grid) documents:  funnel_cache/<ws>__ecom__<market>_<days>
 
   Each carries a current period, the equally long period before it and the
   same dates 364 days earlier (weekday-aligned YoY). The payload holds raw
@@ -105,12 +108,20 @@ FIRESTORE_PROJECT = os.environ.get("FIRESTORE_PROJECT", "project-a7ade44e-e7e3-4
 DOC_BUDGET_BYTES = 900_000
 
 # ── The filter grid ──────────────────────────────────────────────────────────
-MARKETS        = ["SE", "NO", "DK", "FI"]
+MARKETS        = ["SE", "NO", "DK", "FI"]   # the core (Nordic) markets: benchmarked, always on
 MARKET_OPTIONS = ["all"] + MARKETS
 PERIOD_OPTIONS = [7, 28, 90]
 DEFAULT_MARKET = "all"
 DEFAULT_DAYS   = 28
-OTHER          = "Other"          # every warehouse market that is not one of MARKETS
+OTHER          = "Other"          # every warehouse market outside the grid
+# The grid = MARKETS plus every other warehouse market holding at least
+# GRID_MIN_SHARE of the sessions in the last GRID_LOOKBACK_DAYS (US, GB, …).
+# Discovered per run, so a country the warehouse starts resolving joins the
+# selector on its own. 'unknown' and friends never qualify.
+GRID_MIN_SHARE     = float(os.environ.get("ECOM_GRID_MIN_SHARE", "0.01"))
+GRID_LOOKBACK_DAYS = 28
+GRID_MAX           = 20
+NOT_A_MARKET       = ("UNKNOWN", "DEFAULT", "UNMAPPED", "ROW", "EU", "")
 
 # GA4 keeps revising the trailing ~72 h. The window still ends yesterday (the
 # last COMPLETE day); the page greys the restated tail.
@@ -189,15 +200,15 @@ T_SEARCH   = _t(MARTS_DATASET, "agg_daily_on_site_search")
 T_FUNNEL   = _t(MARTS_DATASET, "agg_funnel_snapshots")
 T_ITEMS_SRC = _t(STAGING_DATASET, "stg_ga4__items_by_source_daily")
 
-# The market bucket, in SQL and in Python — must agree.
-_MKT_LIST = ", ".join(f"'{m}'" for m in MARKETS)
+# The market bucket. Every query that uses it carries @grid (the run's grid,
+# see discover_grid) — _grid_param() sets it.
 def _mkt_sql(alias: str = "t") -> str:
-    return (f"case when upper({alias}.market) in ({_MKT_LIST}) "
+    return (f"case when upper({alias}.market) in unnest(@grid) "
             f"then upper({alias}.market) else '{OTHER}' end")
 
-def market_bucket(raw) -> str:
-    m = str(raw or "").strip().upper()
-    return m if m in MARKETS else OTHER
+
+def _grid_param(grid) -> list[str]:
+    return [str(m) for m in (grid or MARKETS)]
 
 
 def market_key(raw) -> str:
@@ -366,6 +377,32 @@ def _site_sql(site, alias: str = "t") -> str:
 
 
 # ── Queries ──────────────────────────────────────────────────────────────────
+def discover_grid(end, stats, site=None) -> list[str]:
+    """MARKETS plus every other warehouse market with at least GRID_MIN_SHARE of
+    the sessions over the GRID_LOOKBACK_DAYS up to `end`, by size. Falls back to
+    MARKETS alone if the query fails — the tab then simply has fewer buttons."""
+    p = {"lo": end - datetime.timedelta(days=GRID_LOOKBACK_DAYS - 1), "hi": end}
+    if site:
+        p["site"] = site
+    try:
+        rows = q(f"""
+            select upper(t.market) as market, sum(t.ga4_sessions) as sessions
+            from {T_CHANNEL} t
+            where t.date between @lo and @hi{_site_sql(site)}
+            group by 1 order by 2 desc""", p, stats)
+    except Exception as e:
+        _log_fail("market grid discovery", e)
+        return list(MARKETS)
+    total = sum(int(r["sessions"] or 0) for r in rows) or 1
+    extra = [str(r["market"]) for r in rows
+             if str(r["market"] or "") not in MARKETS
+             and str(r["market"] or "") not in NOT_A_MARKET
+             and int(r["sessions"] or 0) / total >= GRID_MIN_SHARE]
+    grid = list(MARKETS) + extra[:max(0, GRID_MAX - len(MARKETS))]
+    print(f"   market grid: {', '.join(grid)}", flush=True)
+    return grid
+
+
 def discover_site(lo, hi, stats) -> tuple[str | None, list[str], list[str]]:
     """(site to filter on | None, all sites seen, notes)."""
     rows = q(f"""
@@ -462,9 +499,9 @@ _LP_C = ["c_sessions", "c_engaged_sessions", "c_engaged_denom", "c_page_views",
          "p_engaged_denom"]
 
 
-def q_landing(windows, site, only, stats, with_events=True):
+def q_landing(windows, site, only, stats, with_events=True, grid=None):
     win, p = _win_sql(windows)
-    p.update({"only": only, "n": LANDING_TOP})
+    p.update({"only": only, "n": LANDING_TOP, "grid": _grid_param(grid)})
     if site:
         p["site"] = site
     cols = ", ".join(_LP_C)
@@ -526,13 +563,13 @@ _I_C = [f"{pre}_{k}" for pre in ("c", "p") for k in I_KEYS]
 
 
 def q_items_keyed(table, key_col, windows, only, stats, *, top, min_views=0,
-                  with_name=False, market_top=0):
+                  with_name=False, market_top=0, grid=None):
     """Brands / categories / products: one row per (window, market slice, key).
 
     `market_top` > 0 also returns kind='bm' rows — the top N keys of the 'all'
     slice broken out per market (brand_by_market)."""
     win, p = _win_sql(windows)
-    p.update({"only": only, "n": top, "minv": min_views})
+    p.update({"only": only, "n": top, "minv": min_views, "grid": _grid_param(grid)})
     sel = ",\n             ".join(
         [f"sum(if(t.date between w.cf and w.ct, t.{k}, null)) as c_{k}" for k in I_KEYS]
         + [f"sum(if(t.date between w.pf and w.pt, t.{k}, null)) as p_{k}" for k in I_KEYS])
@@ -575,9 +612,9 @@ def q_items_keyed(table, key_col, windows, only, stats, *, top, min_views=0,
              p, stats)
 
 
-def q_search(windows, only, stats):
+def q_search(windows, only, stats, grid=None):
     win, p = _win_sql(windows)
-    p.update({"only": only, "n": SEARCH_TOP})
+    p.update({"only": only, "n": SEARCH_TOP, "grid": _grid_param(grid)})
     return q(f"""
     with win as ({win}),
     a as (
@@ -754,12 +791,14 @@ def q_products(windows, only, stats):
 
 
 # ── The one fetch ────────────────────────────────────────────────────────────
-def fetch(windows: list[dict], only: str = "") -> dict:
+def fetch(windows: list[dict], only: str = "", grid=None) -> dict:
     """Everything BigQuery is asked for, for a set of windows.
 
     `only` = '' returns every market slice (the job); a market name restricts
     the keyed scans to that slice (the service's custom range). The day-grain
-    scans always carry every market — by_market needs them regardless."""
+    scans always carry every market — by_market needs them regardless. `grid`
+    is the set of markets the keyed scans slice by (default MARKETS)."""
+    grid = _grid_param(grid)
     stats = _Stats()
     notes: list[str] = []
     ranges = []
@@ -784,10 +823,10 @@ def fetch(windows: list[dict], only: str = "") -> dict:
 
     def landing():
         try:
-            return q_landing(windows, site, only, stats, with_events=True)
+            return q_landing(windows, site, only, stats, with_events=True, grid=grid)
         except Exception as e:
             _log_fail("landing pages (with events)", e)
-            rows = q_landing(windows, site, only, stats, with_events=False)
+            rows = q_landing(windows, site, only, stats, with_events=False, grid=grid)
             notes.append("Landing-page add-to-cart and purchase events are unavailable; "
                          "sessions and engagement are shown.")
             return rows
@@ -800,10 +839,11 @@ def fetch(windows: list[dict], only: str = "") -> dict:
         "landing":    (landing, "Landing pages"),
         "brands":     (lambda: q_items_keyed(T_BRAND, "item_brand", windows, only, stats,
                                              top=BRANDS_MAX, min_views=BRANDS_MIN_VIEWS,
-                                             market_top=BRAND_MARKET_TOP), "Brands"),
+                                             market_top=BRAND_MARKET_TOP, grid=grid),
+                       "Brands"),
         "products":   (lambda: q_products(windows, only, stats),
                        "Products and categories"),
-        "search":     (lambda: q_search(windows, only, stats), "On-site search"),
+        "search":     (lambda: q_search(windows, only, stats, grid=grid), "On-site search"),
         "funnel":     (lambda: q_funnel(site, stats), "The user funnel"),
     }
     out: dict = {}
@@ -835,7 +875,7 @@ def fetch(windows: list[dict], only: str = "") -> dict:
              or "none"), flush=True)
 
     print("   query seconds: " + ", ".join(f"{k} {v}" for k, v in timings.items()), flush=True)
-    out.update({"site": site, "sites": sites, "notes": notes, "ranges": ranges,
+    out.update({"site": site, "sites": sites, "notes": notes, "ranges": ranges, "grid": grid,
                 "bytes_processed": stats.bytes, "queries": stats.queries,
                 "elapsed": round(time.time() - stats.t0, 2)})
     return out
@@ -1097,10 +1137,10 @@ def _build_funnel(data, market: str, kind: str):
         # A country-split property carries per-market rows as scope 'market';
         # a one-property-per-market client carries them as that property's 'all'.
         scoped = [r for r in rows if r.get("scope_kind") == "market"
-                  and market_bucket(r.get("market")) == market]
+                  and str(r.get("market") or "").upper() == market]
         if not scoped:
             scoped = [r for r in rows if r.get("scope_kind") == "all"
-                      and market_bucket(r.get("market")) == market]
+                      and str(r.get("market") or "").upper() == market]
     if not scoped:
         return None, None, [f"No {kind} user funnel is available for this market."]
 
@@ -1281,6 +1321,9 @@ def build_combo(data: dict, market: str, w: dict, *, days: int | None = None,
             "cur": {"from": _iso(w["cf"]), "to": _iso(w["ct"])},
             "prev": {"from": _iso(w["pf"]), "to": _iso(w["pt"])},
             "markets": present,
+            # What the market selector offers: the core markets plus the run's
+            # grid (meta.markets stays the core set the tab benchmarks).
+            "market_options": ["all"] + list(data.get("grid") or MARKETS),
             "data_through": _iso(data_through),
             "restated_days": RESTATED_DAYS,
             "funnel_window": fw,
@@ -1313,7 +1356,8 @@ def build_custom(market: str, start, end) -> tuple[dict, dict]:
     response, which must be shape-identical to a preset snapshot."""
     start, end = _as_date(start), _as_date(end)
     w = _window(start, end)
-    data = fetch([w], only=market)
+    grid = list(MARKETS) + ([market] if market not in MARKET_OPTIONS else [])
+    data = fetch([w], only=market, grid=grid)
     payload = build_combo(data, market, w, custom=True)
     _fit(payload, f"custom {market} {start}..{end}")
     stats = {"bytes_processed": data["bytes_processed"], "elapsed": data["elapsed"],
@@ -1326,7 +1370,8 @@ def build_all() -> dict:
     end = last_complete_day()
     windows = [preset_window(d, end) for d in PERIOD_OPTIONS]
     generated_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    data = fetch(windows)
+    grid = discover_grid(end, _Stats())
+    data = fetch(windows, grid=grid)
     print(f"   fetch through {end}: {data['queries']} queries, "
           f"{data['bytes_processed'] / 1e9:.2f} GB scanned in {data['elapsed']}s, "
           f"site={data['site']!r}; rows: "
@@ -1335,7 +1380,7 @@ def build_all() -> dict:
                                 "products", "search", "funnel")),
           flush=True)
     combos = {}
-    for market in MARKET_OPTIONS:
+    for market in ["all"] + grid:
         for w in windows:
             combos[f"{market}_{w['days']}"] = build_combo(
                 data, market, w, days=w["days"], generated_at=generated_at)

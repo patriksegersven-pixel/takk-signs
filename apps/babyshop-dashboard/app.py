@@ -23,6 +23,7 @@ locally.
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import threading
 import time
@@ -1038,7 +1039,18 @@ def api_meta(market: str = META_DEFAULT_MARKET, days: str = str(META_DEFAULT_DAY
 # two identical requests run ONE scan) as its own instance: sharing Meta's
 # dicts would let an E-com range evict a Meta range, and this tab must not
 # change how that one behaves.
-ECOM_MARKETS = ("all", "SE", "NO", "DK", "FI")
+ECOM_MARKETS = ("all", "SE", "NO", "DK", "FI")   # always written; the job adds grid markets
+ECOM_MARKET_RX = re.compile(r"^[A-Z]{2}$")
+
+
+def _ecom_market(market: str) -> str:
+    """'all', a core market, or any other two-letter market (the job's grid
+    decides which of those have a snapshot); anything else → the default."""
+    m = (market or "").strip()
+    if m.lower() == "all":
+        return "all"
+    m = m.upper()
+    return m if ECOM_MARKET_RX.match(m) else ECOM_DEFAULT_MARKET
 ECOM_DAYS = (7, 28, 90)
 ECOM_DEFAULT_MARKET = "all"
 ECOM_DEFAULT_DAYS = 28
@@ -1171,8 +1183,7 @@ def api_ecom(market: str = ECOM_DEFAULT_MARKET, days: str = str(ECOM_DEFAULT_DAY
     Unlike /api/meta there is no empty skeleton: a snapshot that does not exist
     yet is a 503 `{"error": "…"}`. Every number on this tab is a ratio of sums,
     and a skeleton of nulls would render as a page of dashes with no reason."""
-    if market not in ECOM_MARKETS:
-        market = ECOM_DEFAULT_MARKET
+    market = _ecom_market(market)
     if date_from or date_to:
         return _api_ecom_live(market, date_from.strip(), date_to.strip())
 
@@ -1187,6 +1198,10 @@ def api_ecom(market: str = ECOM_DEFAULT_MARKET, days: str = str(ECOM_DEFAULT_DAY
 
     try:
         data = get_cache().get(f"ecom__{market}_{days_n}")
+        if data is None and market not in ECOM_MARKETS:
+            # A market that has dropped out of the grid (or never was in it):
+            # serve the default; meta.market says what was served.
+            data = get_cache().get(f"ecom__{ECOM_DEFAULT_MARKET}_{days_n}")
     except Exception as e:
         print(f"ERROR /api/ecom: {type(e).__name__}: {e}", flush=True)
         return JSONResponse(
@@ -1205,8 +1220,7 @@ def api_search(market: str = ECOM_DEFAULT_MARKET, days: str = str(ECOM_DEFAULT_D
     """Internal search payload (shape: refresh_search.build_combo()), written by
     the ecom-refresh job. Same market/period grid and fallbacks as /api/ecom;
     snapshots only — no live custom ranges."""
-    if market not in ECOM_MARKETS:
-        market = ECOM_DEFAULT_MARKET
+    market = _ecom_market(market)
     try:
         days_n = int(days)
     except (TypeError, ValueError):
@@ -1218,6 +1232,8 @@ def api_search(market: str = ECOM_DEFAULT_MARKET, days: str = str(ECOM_DEFAULT_D
 
     try:
         data = get_cache().get(f"search__{market}_{days_n}")
+        if data is None and market not in ECOM_MARKETS:
+            data = get_cache().get(f"search__{ECOM_DEFAULT_MARKET}_{days_n}")
     except Exception as e:
         print(f"ERROR /api/search: {type(e).__name__}: {e}", flush=True)
         return JSONResponse(
