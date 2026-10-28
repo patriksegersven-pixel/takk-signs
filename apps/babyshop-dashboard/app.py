@@ -145,6 +145,7 @@ BUNDLES_HTML   = STATIC_DIR / "babyshop-bundles-dashboard.html"
 SOS_HTML       = STATIC_DIR / "babyshop-sos-dashboard.html"
 META_HTML      = STATIC_DIR / "babyshop-meta-dashboard.html"
 ECOM_HTML      = STATIC_DIR / "babyshop-ecom-dashboard.html"
+SEARCH_HTML    = STATIC_DIR / "babyshop-search-dashboard.html"
 OPPS_HTML      = STATIC_DIR / "babyshop-opportunities.html"
 SHIPPING_HTML  = STATIC_DIR / "babyshop-shipping-cost.html"
 EXEC_PL_HTML   = STATIC_DIR / "babyshop-exec-pl.html"
@@ -241,6 +242,11 @@ def meta_dashboard(_: str = Depends(verify)):
 @app.get("/babyshop-ecom-dashboard.html")
 def ecom_dashboard(_: str = Depends(verify)):
     return FileResponse(ECOM_HTML, media_type="text/html")
+
+
+@app.get("/babyshop-search-dashboard.html")
+def search_dashboard(_: str = Depends(verify)):
+    return FileResponse(SEARCH_HTML, media_type="text/html")
 
 
 @app.get("/babyshop-opportunities.html")
@@ -1189,6 +1195,37 @@ def api_ecom(market: str = ECOM_DEFAULT_MARKET, days: str = str(ECOM_DEFAULT_DAY
     if data is None:
         return JSONResponse(
             {"error": f"no E-com snapshot yet for {market} / {days_n} days — the "
+                      "ecom-refresh job has not written it"}, status_code=503)
+    return data
+
+
+@app.get("/api/search")
+def api_search(market: str = ECOM_DEFAULT_MARKET, days: str = str(ECOM_DEFAULT_DAYS),
+               _: str = Depends(verify)):
+    """Internal search payload (shape: refresh_search.build_combo()), written by
+    the ecom-refresh job. Same market/period grid and fallbacks as /api/ecom;
+    snapshots only — no live custom ranges."""
+    if market not in ECOM_MARKETS:
+        market = ECOM_DEFAULT_MARKET
+    try:
+        days_n = int(days)
+    except (TypeError, ValueError):
+        days_n = ECOM_DEFAULT_DAYS
+    if days_n not in ECOM_DAYS:
+        days_n = ECOM_DEFAULT_DAYS
+
+    from funnel_client import get_cache
+
+    try:
+        data = get_cache().get(f"search__{market}_{days_n}")
+    except Exception as e:
+        print(f"ERROR /api/search: {type(e).__name__}: {e}", flush=True)
+        return JSONResponse(
+            {"error": "the search snapshot could not be read — try again shortly"},
+            status_code=503)
+    if data is None:
+        return JSONResponse(
+            {"error": f"no search snapshot yet for {market} / {days_n} days — the "
                       "ecom-refresh job has not written it"}, status_code=503)
     return data
 

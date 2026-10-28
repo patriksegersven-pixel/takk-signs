@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Internal search · Babyshop</title>
+  <link rel="icon" type="image/svg+xml" href="/babyshop-favicon.svg">
+  <link rel="stylesheet" href="/brand.css">
+  <!-- Vendored: the usual CDNs are unreachable on the client network. -->
+  <script src="/chart.umd.js"></script>
+  <script src="/table-tools.js"></script>
+  <style>
+    /* Tokens, header chrome and the card/table floor come from brand.css; the
+       page layer follows babyshop-ecom-dashboard.html so the two tabs match. */
+    :root { --accent:#235837; --accent-bg:#EAF2EC; --accent-dark:#1A4429; }
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+    html { font-size:16px; scroll-behavior:smooth; }
+    body { font-family:var(--font); background:var(--bg); color:var(--body); min-height:100vh; -webkit-font-smoothing:antialiased; font-variant-numeric:tabular-nums; }
+    main { max-width:1380px; margin:0 auto; padding:26px 32px 56px; }
+    .page-title { font-size:21px; font-weight:700; color:var(--h); letter-spacing:-.3px; }
+    .page-sub { font-size:12px; color:var(--muted); margin-top:3px; line-height:1.5; max-width:900px; }
+    section { scroll-margin-top:118px; }
+
+    .filters { display:flex; align-items:center; gap:10px 22px; flex-wrap:wrap; margin-top:16px; background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:11px 16px; }
+    .fgroup { display:flex; align-items:center; gap:9px; }
+    .flabel { font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+    .seg { display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:var(--border-lt); }
+    .seg button { appearance:none; border:0; background:transparent; font:600 12px/1 var(--font); color:var(--muted); padding:7px 13px; cursor:pointer; border-right:1px solid var(--border); white-space:nowrap; }
+    .seg button:last-child { border-right:0; }
+    .seg button:hover { color:var(--h); background:#fff; }
+    .seg button[aria-pressed="true"] { background:var(--accent); color:#fff; }
+    .seg button:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+    .filters.busy { opacity:.55; pointer-events:none; }
+    .fwin { flex:1 1 100%; font-size:11.5px; color:var(--muted); line-height:1.55; border-top:1px solid var(--border-lt); padding-top:9px; }
+    .fwin b { color:var(--h); font-weight:600; }
+    .ferr { font-size:11.5px; color:var(--down); font-weight:600; }
+
+    .jump { position:sticky; top:60px; z-index:150; background:var(--bg); display:flex; gap:4px; flex-wrap:wrap; padding:9px 0 8px; margin-top:8px; border-bottom:1px solid var(--border-lt); }
+    .jump a { font-size:11.5px; font-weight:600; color:var(--muted); text-decoration:none; padding:4px 10px; border-radius:12px; white-space:nowrap; }
+    .jump a:hover { color:var(--accent-dark); background:var(--accent-bg); }
+
+    .notes { margin-top:12px; font-size:11.5px; line-height:1.55; color:#6E4A12; background:var(--warn-bg); border:1px solid #EBD8B6; border-radius:var(--r); padding:9px 14px; }
+    .notes ul { margin-left:16px; }
+    .notes[hidden] { display:none; }
+
+    .section-head { margin:30px 0 14px; }
+    .section-title { font-size:15px; font-weight:700; color:var(--h); letter-spacing:-.2px; }
+    .section-sub { font-size:12px; color:var(--muted); margin-top:4px; max-width:940px; line-height:1.55; }
+
+    .glance { margin-top:18px; background:var(--card); border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:14px 20px; }
+    .glance h3 { font-size:10px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+    .glance ul { list-style:none; display:grid; grid-template-columns:1fr 1fr; gap:7px 34px; }
+    .glance li { font-size:13px; line-height:1.5; color:var(--body); padding-left:15px; position:relative; }
+    .glance li::before { content:''; position:absolute; left:0; top:8px; width:6px; height:6px; border-radius:50%; background:var(--muted); }
+    .glance li.act::before { background:var(--brand-coral); } .glance li.good::before { background:var(--up); }
+    .glance b { color:var(--h); font-weight:600; }
+
+    .kpi-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; }
+    .kpi { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:14px 14px 12px; min-width:0; }
+    .kpi .k { font-size:10px; font-weight:600; letter-spacing:.07em; color:var(--muted); text-transform:uppercase; margin-bottom:8px; }
+    .kpi .v { font-size:23px; font-weight:700; color:var(--h); letter-spacing:-.5px; line-height:1.1; white-space:nowrap; }
+    .kpi .v.na { font-size:14px; color:var(--muted); font-weight:600; letter-spacing:0; white-space:normal; }
+    .kpi .n { font-size:10px; color:var(--muted); margin-top:7px; line-height:1.45; }
+    .d { display:inline-block; margin-top:7px; font-size:10.5px; font-weight:600; padding:2px 6px; border-radius:10px; white-space:nowrap; }
+    .d.up { background:var(--up-bg); color:var(--up); } .d.down { background:var(--down-bg); color:var(--down); } .d.flat { background:var(--border-lt); color:var(--muted); }
+
+    .card { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-sm); padding:20px 22px; }
+    .card h3 { font-size:14px; font-weight:600; color:var(--h); }
+    .card .csub { color:var(--muted); font-size:11px; margin-top:2px; line-height:1.5; max-width:820px; }
+    .card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+    .card-tools { display:flex; align-items:center; gap:8px 12px; flex-wrap:wrap; }
+    .two { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    .card.tbl { padding:0; overflow:hidden; }
+    .card.tbl .card-head { padding:16px 20px 12px; margin-bottom:0; border-bottom:1px solid var(--border); align-items:center; }
+    .tbl-scroll { overflow-x:auto; }
+    .tbl-foot { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 20px; border-top:1px solid var(--border-lt); font-size:11.5px; color:var(--muted); }
+    .tbl-foot button { appearance:none; border:1px solid var(--border); background:var(--card); border-radius:var(--r-sm); font:600 11px/1.4 var(--font); color:var(--body); padding:4px 9px; cursor:pointer; }
+    .tbl-foot button:hover { color:var(--accent); border-color:var(--accent); }
+    .tbl-foot button:disabled { opacity:.45; cursor:default; }
+
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:right; padding:9px 12px; font-size:13px; white-space:nowrap; }
+    th.lbl, td.lbl { text-align:left; }
+    thead th { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); border-bottom:1px solid var(--border); background:var(--card); }
+    tbody td { font-weight:500; color:var(--body); border-bottom:1px solid var(--border-lt); }
+    tbody tr:last-child td { border-bottom:none; }
+    tbody tr:hover td { background-image:linear-gradient(rgba(27,40,57,.025),rgba(27,40,57,.025)); }
+    td.strong { color:var(--h); font-weight:700; }
+    td.dim { color:var(--muted); }
+    td.empty { text-align:center; color:var(--muted); padding:26px 12px; font-weight:400; }
+    tr.total td { font-weight:700; color:var(--h); border-bottom:1px solid var(--border); background:#FCFBF9; }
+    td.term { white-space:normal; min-width:180px; max-width:360px; color:var(--h); font-weight:600; overflow-wrap:anywhere; }
+    th.sortable { cursor:pointer; user-select:none; }
+    th.sortable:hover { color:var(--h); }
+    th.sort-asc, th.sort-desc { color:var(--accent); }
+    th.sort-asc::after { content:' ▲'; } th.sort-desc::after { content:' ▼'; }
+    .chip { display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; padding:3px 7px; border-radius:3px; white-space:nowrap; line-height:1; margin-left:6px; vertical-align:1px; }
+    .chip.brand { background:var(--accent-bg); color:var(--accent-dark); }
+    .chip.new { background:var(--brand-lime); color:var(--brand-ink); }
+    .chip.rise { background:var(--up-bg); color:var(--up); }
+    .chip.zero { background:var(--down-bg); color:var(--down); }
+    .bar { display:inline-block; height:8px; border-radius:2px; background:var(--accent); opacity:.75; vertical-align:middle; }
+    .mk { font-size:11px; color:var(--muted); }
+    .tinput { font:500 12px/1 var(--font); color:var(--h); background:var(--card); border:1px solid var(--border); border-radius:6px; padding:7px 9px; width:210px; }
+    .tinput:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+    .chk { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--body); cursor:pointer; }
+    .chk input { accent-color:var(--accent); }
+
+    .blist { list-style:none; }
+    .blist li { display:grid; grid-template-columns:minmax(0,150px) minmax(0,1fr) 64px 56px; gap:10px; align-items:center; padding:6px 0; border-bottom:1px solid var(--border-lt); font-size:12.5px; }
+    .blist li:last-child { border-bottom:0; }
+    .blist .t { color:var(--h); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-transform:capitalize; }
+    .blist .track { display:block; background:var(--border-lt); border-radius:3px; height:10px; }
+    .blist .fill { display:block; background:var(--accent); height:100%; border-radius:3px; min-width:2px; }
+    .blist .n { text-align:right; font-weight:700; color:var(--h); }
+    .blist .s { text-align:right; color:var(--muted); font-size:11.5px; }
+    .chart-box { position:relative; height:280px; }
+    .chart-note { font-size:11px; color:var(--muted); margin-top:9px; line-height:1.5; }
+    .na-card { font-size:12.5px; line-height:1.6; color:var(--body); border-style:dashed; box-shadow:none; background:transparent; }
+    .na-card b { color:var(--h); }
+    .na-card ul { margin:6px 0 0 18px; }
+    .defs td, .defs th { white-space:normal; text-align:left; font-size:12px; padding:7px 12px; vertical-align:top; }
+    .defs td:first-child { font-weight:600; color:var(--h); white-space:nowrap; }
+    .defs code { font:500 11.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color:var(--accent-dark); background:var(--accent-bg); border-radius:3px; padding:1px 5px; }
+    .pending { text-align:center; color:var(--muted); font-size:13px; padding:60px 0 30px; }
+    .fail { margin-top:18px; background:var(--down-bg); color:var(--down); border:1px solid #F0CBBE; border-radius:var(--r); padding:12px 16px; font-size:12.5px; font-weight:600; }
+    [hidden] { display:none !important; }
+
+    @media (max-width:1180px) { .kpi-grid { grid-template-columns:repeat(3,1fr); } }
+    @media (max-width:980px) { .two { grid-template-columns:1fr; } .glance ul { grid-template-columns:1fr; } }
+    @media (max-width:700px) {
+      main { padding:20px 14px 44px; }
+      .kpi-grid { grid-template-columns:repeat(2,1fr); }
+      .jump { position:static; }
+      .blist li { grid-template-columns:minmax(0,110px) minmax(0,1fr) 54px; } .blist .s { display:none; }
+    }
+    @media (prefers-reduced-motion:reduce) { * { transition:none !important; animation:none !important; } html { scroll-behavior:auto; } }
+  </style>
+</head>
+<body>
+<header id="app-header" data-page="search"></header>
+<template data-header-extra>
+  <div class="refresh-pill" id="refreshPill" title=""></div>
+</template>
+<script src="/nav.js"></script>
+
+<main>
+  <div class="page-title">Internal search insights</div>
+  <div class="page-sub">What visitors type into the site search, how often they search, and which brands and products they ask for. Source: GA4 <code>view_search_results</code> events sent by GTM since 27 Oct 2026. The term is what the visitor typed, lower-cased.</div>
+
+  <div class="filters" id="filters">
+    <div class="fgroup"><span class="flabel">Market</span><div class="seg" id="segMarket" role="group" aria-label="Market"></div></div>
+    <div class="fgroup"><span class="flabel">Period</span><div class="seg" id="segDays" role="group" aria-label="Period"></div></div>
+    <div class="ferr" id="ferr" role="alert" hidden></div>
+    <div class="fwin" id="fwin" role="status" aria-live="polite"></div>
+  </div>
+
+  <div class="pending" id="pending" hidden>No search snapshot yet. This page fills in after the next <code>ecom-refresh</code> run.</div>
+  <div class="fail" id="failed" hidden></div>
+
+  <div id="content" hidden>
+    <nav class="jump" aria-label="Sections">
+      <a href="#s-kpi">KPIs</a><a href="#s-trend">Trend</a><a href="#s-markets">Markets</a><a href="#s-brands">Brands</a>
+      <a href="#s-terms">Search terms</a><a href="#s-zero">Zero results</a><a href="#s-defs">How to read this</a>
+    </nav>
+    <div class="notes" id="notes" hidden></div>
+
+    <div class="glance" id="glance"><h3>At a glance</h3><ul id="glanceList"></ul></div>
+
+    <section id="s-kpi">
+      <div class="section-head"><div class="section-title">Search usage</div></div>
+      <div class="kpi-grid" id="kpis"></div>
+    </section>
+
+    <section id="s-trend">
+      <div class="section-head">
+        <div class="section-title">Daily searches</div>
+        <div class="section-sub">Searches per day (bars) and searches per 100 sessions (line). A sudden drop to near zero usually means the tracking broke, not that people stopped searching.</div>
+      </div>
+      <div class="card"><div class="chart-box"><canvas id="trendChart" aria-label="Daily searches and search rate"></canvas></div><div class="chart-note" id="trendNote"></div></div>
+    </section>
+
+    <section id="s-markets">
+      <div class="section-head">
+        <div class="section-title">Markets</div>
+        <div class="section-sub">How much each market relies on search. Search rate = searches per 100 GA4 sessions; a high rate can mean visitors do not find things by browsing.</div>
+      </div>
+      <div class="card tbl"><div class="tbl-scroll"><table id="mkTable" data-export-name="search-markets"></table></div></div>
+    </section>
+
+    <section id="s-brands">
+      <div class="section-head">
+        <div class="section-title">Brands and the rest</div>
+        <div class="section-sub">A search counts as a brand search when a brand Babyshop sells appears in it as whole words (<i>konges sløjd swim</i> → Konges Sløjd). Everything else is a product, category or other search.</div>
+      </div>
+      <div class="two">
+        <div class="card"><div class="card-head"><div><h3>Most searched brands</h3><div class="csub" id="brSub"></div></div></div><ul class="blist" id="brList"></ul></div>
+        <div class="card"><div class="card-head"><div><h3>Most searched non-brand terms</h3><div class="csub">Products, categories and needs. Candidates for landing pages, navigation labels and synonyms.</div></div></div><ul class="blist" id="nbList"></ul></div>
+      </div>
+    </section>
+
+    <section id="s-terms">
+      <div class="section-head">
+        <div class="section-title">Search terms</div>
+        <div class="section-sub" id="termsSub"></div>
+      </div>
+      <div class="card tbl">
+        <div class="card-head">
+          <div><h3>Top search terms</h3><div class="csub" id="trSub"></div></div>
+          <div class="card-tools">
+            <label class="chk"><input type="checkbox" id="trNonBrand"> Non-brand only</label>
+            <input class="tinput" type="search" id="trQ" placeholder="Filter terms…" aria-label="Filter search terms">
+            <span id="trTools"></span>
+          </div>
+        </div>
+        <div class="tbl-scroll"><table id="trTable" data-export-name="search-terms"></table></div>
+        <div class="tbl-foot"><span id="trCount"></span><button type="button" id="trMore">Show more</button></div>
+      </div>
+    </section>
+
+    <section id="s-zero">
+      <div class="section-head">
+        <div class="section-title">Searches that find nothing</div>
+        <div class="section-sub">Terms where the results page showed 0 products: demand Babyshop is not meeting, or a synonym and spelling problem.</div>
+      </div>
+      <div id="zeroBox"></div>
+    </section>
+
+    <section id="s-defs">
+      <div class="section-head"><div class="section-title">How to read this</div></div>
+      <div class="card tbl"><table class="defs"><tbody>
+        <tr><td>Searches</td><td><code>view_search_results</code> events: one per results page a visitor reaches by searching. Paging and filtering a result list are not counted again; a reload is.</td></tr>
+        <tr><td>Search term</td><td>What the visitor typed, lower-cased (the site may auto-correct it; the results shown are for the corrected query).</td></tr>
+        <tr><td>Search rate</td><td>Searches per 100 GA4 sessions in the same market and days. Searches cover every storefront, sessions the Babyshop one.</td></tr>
+        <tr><td>Unique terms</td><td>Distinct terms searched in the period.</td></tr>
+        <tr><td>Brand search</td><td>The term contains, as whole words, a brand with product views on the site in the last 120 days.</td></tr>
+        <tr><td>Rising / new</td><td>Rising: at least 10 searches and +50 % or more vs the previous period. New: not searched in the previous period. Shown only when the previous period lies entirely after tracking started.</td></tr>
+        <tr><td>Other market</td><td>Every GA4 country outside SE, NO, DK and FI (mostly unattributed traffic, GB, US).</td></tr>
+        <tr><td>Data freshness</td><td>Snapshot written daily by the <code>ecom-refresh</code> job; periods end yesterday. GA4 revises the last ~3 days.</td></tr>
+        <tr><td>Not covered</td><td>Autocomplete clicks that go straight to a product page, searches that leave before results load, visitors who block GA4. Search → purchase is not linked in this data.</td></tr>
+      </tbody></table></div>
+    </section>
+  </div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  const MARKETS = ['all', 'SE', 'NO', 'DK', 'FI'];
+  const DAYS = [7, 28, 90];
+  const RISE_MIN = 10;
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const ok = v => typeof v === 'number' && isFinite(v);
+  const div = (a, b) => ok(a) && ok(b) && b > 0 ? a / b : null;
+  const fmtInt = v => ok(v) ? Math.round(v).toLocaleString('sv-SE') : '–';
+  const fmtNum = (v, d) => ok(v) ? v.toLocaleString('sv-SE', { minimumFractionDigits: d, maximumFractionDigits: d }) : '–';
+  const fmtPct = (v, d = 1) => ok(v) ? fmtNum(v * 100, d) + ' %' : '–';
+  const cap = s => String(s || '').replace(/(^|\s)\S/g, c => c.toUpperCase());
+  const mkName = m => ({ all: 'All markets', Other: 'Other' })[m] || m;
+
+  let state = { market: 'all', days: 28 };
+  try { Object.assign(state, JSON.parse(sessionStorage.getItem('searchTab') || '{}')); } catch (e) { /* defaults */ }
+  if (!MARKETS.includes(state.market)) state.market = 'all';
+  if (!DAYS.includes(state.days)) state.days = 28;
+  let D = null, inflight = 0, chart = null, trShown = 50, trSort = ['count', 'desc'];
+
+  function segs() {
+    $('segMarket').innerHTML = MARKETS.map(m => '<button type="button" data-m="' + m + '">' + esc(mkName(m)) + '</button>').join('');
+    $('segDays').innerHTML = DAYS.map(d => '<button type="button" data-d="' + d + '">' + d + ' days</button>').join('');
+    $('segMarket').onclick = e => { const b = e.target.closest('button'); if (b) { state.market = b.dataset.m; load(); } };
+    $('segDays').onclick = e => { const b = e.target.closest('button'); if (b) { state.days = +b.dataset.d; load(); } };
+  }
+  function markSegs() {
+    document.querySelectorAll('#segMarket button').forEach(b => b.setAttribute('aria-pressed', b.dataset.m === state.market));
+    document.querySelectorAll('#segDays button').forEach(b => b.setAttribute('aria-pressed', +b.dataset.d === state.days));
+  }
+
+  function setPill(generatedAt) {
+    const pill = $('refreshPill');
+    if (!pill) return;
+    pill.className = 'refresh-pill';
+    if (!generatedAt) return;
+    const ageH = (Date.now() - new Date(generatedAt).getTime()) / 36e5;
+    if (ageH > 30) {
+      pill.textContent = 'snapshot ' + (ageH > 72 ? Math.round(ageH / 24) + 'd' : Math.round(ageH) + 'h') + ' old';
+      pill.title = 'the daily ecom-refresh may have failed';
+      pill.classList.add('show', 'stale');
+    }
+  }
+
+  function load() {
+    const seq = ++inflight;
+    markSegs();
+    try { sessionStorage.setItem('searchTab', JSON.stringify(state)); } catch (e) { /* private mode */ }
+    $('filters').classList.add('busy'); $('ferr').hidden = true;
+    fetch('/api/search?market=' + encodeURIComponent(state.market) + '&days=' + state.days, { credentials: 'same-origin' })
+      .then(r => r.json().then(j => ({ status: r.status, j })))
+      .then(({ status, j }) => {
+        if (seq !== inflight) return;
+        $('filters').classList.remove('busy');
+        if (status === 503 && !D) { $('pending').hidden = false; return; }
+        if (status !== 200) { $('ferr').textContent = j.error || ('Request failed (' + status + ')'); $('ferr').hidden = false; return; }
+        D = j; $('pending').hidden = true; $('failed').hidden = true; $('content').hidden = false;
+        trShown = 50;
+        render();
+      })
+      .catch(e => {
+        if (seq !== inflight) return;
+        $('filters').classList.remove('busy');
+        $('failed').textContent = 'Could not load the search data: ' + e.message; $('failed').hidden = false;
+      });
+  }
+
+  /* ── Derived numbers ─────────────────────────────────────────────────── */
+  function termRows() {
+    const prevOk = D.meta.prev_available, tot = D.totals.cur.searches;
+    return (D.terms || []).map(t => {
+      const c = t.cur.count, p = prevOk ? (t.prev.count || 0) : null;
+      const g = ok(p) && p > 0 ? (c - p) / p * 100 : null;
+      const top = t.markets ? Object.entries(t.markets).sort((a, b) => b[1] - a[1])[0] : null;
+      return {
+        term: t.term, brand: t.brand, count: c, share: div(c, tot), prev: p, growth: g,
+        isNew: prevOk && p === 0, rising: prevOk && c >= RISE_MIN && (p === 0 || (ok(g) && g >= 50)),
+        zero: t.cur.zero, zeroRate: div(t.cur.zero, c), top: top ? top[0] : null,
+        topShare: top ? div(top[1], c) : null,
+      };
+    });
+  }
+
+  function render() {
+    const m = D.meta;
+    setPill(m.generated_at);
+    const from = m.tracked_from, to = m.cur.to;
+    $('fwin').innerHTML = '<b>' + esc(mkName(m.market)) + '</b> · <b>' + esc(from) + ' – ' + esc(to) + '</b>' +
+      (from !== m.cur.from ? ' (the ' + m.days + '-day period starts ' + esc(m.cur.from) + ', but search tracking started ' + esc(m.tracking_start) + ')' : '') +
+      (m.prev_available ? ' · compared with ' + esc(m.prev.from) + ' – ' + esc(m.prev.to) : ' · no comparison yet: the previous period is from before tracking started');
+    const notes = m.notes || [];
+    $('notes').hidden = !notes.length;
+    $('notes').innerHTML = notes.length ? '<ul>' + notes.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>' : '';
+    const rows = termRows();
+    renderKpis(rows); renderGlance(rows); renderTrend(); renderMarkets(); renderBrands(rows); renderTerms(rows); renderZero(rows);
+  }
+
+  function delta(cur, prev, inverse) {
+    if (!ok(cur) || !ok(prev) || prev === 0) return '';
+    const g = (cur - prev) / prev * 100, cls = Math.abs(g) < 2 ? 'flat' : ((g > 0) !== !!inverse ? 'up' : 'down');
+    return '<span class="d ' + cls + '">' + (g > 0 ? '+' : '') + fmtNum(g, 0) + ' % vs prev</span>';
+  }
+
+  function renderKpis(rows) {
+    const c = D.totals.cur, p = D.totals.prev, days = D.daily.length || 1;
+    const rate = div(c.searches, c.sessions), prate = div(p.searches, p.sessions);
+    const brandShare = div(D.meta.brand_matched_searches, c.searches);
+    const tiles = [
+      { k: 'Searches', v: fmtInt(c.searches), d: delta(c.searches, p.searches), n: fmtInt(div(c.searches, days)) + ' per day' },
+      { k: 'Search rate', v: ok(rate) ? fmtNum(rate * 100, 1) : '–', d: delta(rate, prate), n: 'searches per 100 sessions (' + fmtInt(c.sessions) + ' sessions)' },
+      { k: 'Unique terms', v: fmtInt(c.terms), d: delta(c.terms, p.terms), n: fmtNum(div(c.searches, c.terms), 1) + ' searches per term' },
+      { k: 'Brand searches', v: fmtPct(brandShare, 0), d: '', n: 'of searches name a brand Babyshop sells' },
+      { k: 'Top 10 terms', v: fmtPct(div(rows.slice(0, 10).reduce((a, r) => a + (r.count || 0), 0), c.searches), 0), d: '', n: 'of all searches; the rest is a long tail' },
+      D.meta.zero_available
+        ? { k: 'Zero results', v: fmtPct(div(c.zero, c.searches)), d: '', n: fmtInt(c.zero) + ' searches showed 0 products' }
+        : { k: 'Zero results', v: 'Not imported yet', na: true, d: '', n: 'Tracked on the site; reaches the warehouse with the GA4 connector update' },
+    ];
+    $('kpis').innerHTML = tiles.map(t => '<div class="kpi"><div class="k">' + t.k + '</div><div class="v' + (t.na ? ' na' : '') + '">' + t.v + '</div>' + t.d + '<div class="n">' + t.n + '</div></div>').join('');
+  }
+
+  function renderGlance(rows) {
+    const out = [], c = D.totals.cur;
+    if (rows[0]) out.push({ cls: '', h: 'Most searched: <b>' + esc(rows.slice(0, 3).map(r => r.term).join(', ')) + '</b> (' + fmtInt(rows.slice(0, 3).reduce((a, r) => a + r.count, 0)) + ' searches).' });
+    const nb = rows.filter(r => !r.brand).slice(0, 3);
+    if (nb.length) out.push({ cls: 'act', h: 'Top product / category searches: <b>' + esc(nb.map(r => r.term).join(', ')) + '</b>. Check that each has a clear category page and menu entry.' });
+    if (D.meta.market === 'all') {
+      const mk = (D.by_market || []).filter(r => r.market !== 'Other' && ok(div(r.cur.searches, r.cur.sessions)))
+        .sort((a, b) => div(b.cur.searches, b.cur.sessions) - div(a.cur.searches, a.cur.sessions));
+      if (mk.length > 1) out.push({ cls: '', h: '<b>' + esc(mk[0].market) + '</b> searches most (' + fmtNum(div(mk[0].cur.searches, mk[0].cur.sessions) * 100, 1) + ' per 100 sessions), <b>' + esc(mk[mk.length - 1].market) + '</b> least (' + fmtNum(div(mk[mk.length - 1].cur.searches, mk[mk.length - 1].cur.sessions) * 100, 1) + ').' });
+    }
+    const rising = rows.filter(r => r.rising).sort((a, b) => (b.count - (b.prev || 0)) - (a.count - (a.prev || 0))).slice(0, 3);
+    if (rising.length) out.push({ cls: 'good', h: 'Rising: <b>' + esc(rising.map(r => r.term).join(', ')) + '</b>.' });
+    else if (!D.meta.prev_available) out.push({ cls: '', h: 'Rising and new terms appear once a full previous period has been tracked (from ' + esc(addDays(D.meta.tracking_start, 2 * D.meta.days)) + ' for this period length).' });
+    if (D.meta.zero_available && ok(c.zero)) out.push({ cls: 'act', h: '<b>' + fmtPct(div(c.zero, c.searches)) + '</b> of searches found nothing. See <a href="#s-zero">Searches that find nothing</a>.' });
+    $('glanceList').innerHTML = out.map(o => '<li class="' + o.cls + '">' + o.h + '</li>').join('');
+  }
+  function addDays(iso, n) { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+
+  function renderTrend() {
+    const ds = D.daily || [];
+    const labels = ds.map(r => r.date.slice(5));
+    const bars = ds.map(r => ok(r.searches) ? r.searches : null);
+    const line = ds.map(r => { const v = div(r.searches, r.sessions); return ok(v) ? +(v * 100).toFixed(2) : null; });
+    const css = getComputedStyle(document.documentElement);
+    const accent = css.getPropertyValue('--accent').trim() || '#235837';
+    const coral = css.getPropertyValue('--brand-coral').trim() || '#ED7558';
+    if (chart) chart.destroy();
+    chart = new Chart($('trendChart'), {
+      data: { labels, datasets: [
+        { type: 'bar', label: 'Searches', data: bars, backgroundColor: accent, borderRadius: 3, yAxisID: 'y', order: 2, maxBarThickness: 36 },
+        { type: 'line', label: 'Per 100 sessions', data: line, borderColor: coral, backgroundColor: coral, pointRadius: ds.length > 40 ? 0 : 3, tension: .25, yAxisID: 'y2', order: 1, spanGaps: true },
+      ] },
+      options: { maintainAspectRatio: false, animation: false, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 10, font: { size: 11 } } } },
+        scales: { x: { grid: { display: false }, ticks: { font: { size: 10.5 }, maxRotation: 0, autoSkip: true } },
+          y: { beginAtZero: true, ticks: { font: { size: 10.5 } }, title: { display: true, text: 'Searches', font: { size: 10.5 } } },
+          y2: { beginAtZero: true, position: 'right', grid: { display: false }, ticks: { font: { size: 10.5 } }, title: { display: true, text: 'Per 100 sessions', font: { size: 10.5 } } } } },
+    });
+    $('trendNote').textContent = ds.length < 7 ? 'Only ' + ds.length + ' tracked day' + (ds.length === 1 ? '' : 's') + ' so far; the trend fills in as data arrives.' : '';
+  }
+
+  function renderMarkets() {
+    const rows = D.by_market || [], c = D.totals.cur, prevOk = D.meta.prev_available, zero = D.meta.zero_available;
+    const head = '<thead><tr><th class="lbl">Market</th><th>Searches</th><th>Share</th><th>Sessions</th><th>Per 100 sessions</th>' +
+      (prevOk ? '<th>Change</th>' : '') + '<th>Unique terms</th><th>Searches / term</th>' + (zero ? '<th>Zero results</th>' : '') + '</tr></thead>';
+    const line = (name, r, cls) => '<tr class="' + (cls || '') + '"><td class="lbl strong">' + esc(name) + '</td><td>' + fmtInt(r.cur.searches) +
+      '</td><td>' + fmtPct(div(r.cur.searches, c.searches), 0) + '</td><td>' + fmtInt(r.cur.sessions) + '</td><td class="strong">' + fmtNum(ok(div(r.cur.searches, r.cur.sessions)) ? div(r.cur.searches, r.cur.sessions) * 100 : null, 1) +
+      '</td>' + (prevOk ? '<td>' + (delta(r.cur.searches, r.prev.searches) || '–') + '</td>' : '') + '<td>' + fmtInt(r.cur.terms) + '</td><td>' + fmtNum(div(r.cur.searches, r.cur.terms), 1) + '</td>' +
+      (zero ? '<td>' + fmtPct(div(r.cur.zero, r.cur.searches)) + '</td>' : '') + '</tr>';
+    const body = rows.map(r => line(mkName(r.market), r)).join('');
+    const total = rows.length > 1 ? line('All markets', { cur: c, prev: D.totals.prev }, 'total') : '';
+    $('mkTable').innerHTML = head + '<tbody>' + total + body + '</tbody>';
+    enhance($('mkTable'), null);
+  }
+
+  function blist(el, items, max) {
+    $(el).innerHTML = items.length ? items.map(i => '<li><span class="t" title="' + esc(i.label) + '">' + esc(i.label) + '</span><span class="track"><span class="fill" style="width:' + Math.max(1, i.v / max * 100).toFixed(1) + '%"></span></span><span class="n">' + fmtInt(i.v) + '</span><span class="s">' + esc(i.s || '') + '</span></li>').join('')
+      : '<li><span class="t" style="color:var(--muted)">No data</span></li>';
+  }
+  function renderBrands(rows) {
+    const c = D.totals.cur, br = (D.brands || []).slice(0, 15);
+    blist('brList', br.map(b => ({ label: cap(b.brand), v: b.cur, s: fmtPct(div(b.cur, c.searches), 0) })), br.length ? br[0].cur : 1);
+    $('brSub').textContent = fmtPct(div(D.meta.brand_matched_searches, c.searches), 0) + ' of all searches name a brand. Bars: searches including brand + product terms ("kuling vinterskor").';
+    const nb = rows.filter(r => !r.brand).slice(0, 15);
+    blist('nbList', nb.map(r => ({ label: r.term, v: r.count, s: fmtPct(r.share, 1) })), nb.length ? nb[0].count : 1);
+  }
+
+  function renderTerms(all) {
+    const prevOk = D.meta.prev_available, zero = D.meta.zero_available, isAll = D.meta.market === 'all';
+    const q = ($('trQ').value || '').trim().toLowerCase(), nb = $('trNonBrand').checked;
+    let rows = all.filter(r => (!q || r.term.includes(q)) && (!nb || !r.brand));
+    const cols = [
+      { id: 'term', label: 'Search term', lbl: true, v: r => r.term },
+      { id: 'count', label: 'Searches', v: r => r.count },
+      { id: 'share', label: 'Share', v: r => r.share },
+    ];
+    if (prevOk) cols.push({ id: 'prev', label: 'Previous', v: r => r.prev }, { id: 'growth', label: 'Change', v: r => r.growth });
+    if (isAll) cols.push({ id: 'top', label: 'Top market', v: r => r.top });
+    if (zero) cols.push({ id: 'zeroRate', label: 'Zero results', v: r => r.zeroRate });
+    const sc = cols.find(c => c.id === trSort[0]) || cols[1], dir = trSort[1] === 'asc' ? 1 : -1;
+    rows.sort((a, b) => {
+      const x = sc.v(a), y = sc.v(b);
+      if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1;
+      return (typeof x === 'string' ? x.localeCompare(y) : x - y) * dir;
+    });
+    const maxC = Math.max(1, ...all.map(r => r.count || 0));
+    const cell = (c, r) => {
+      switch (c.id) {
+        case 'term': return '<td class="lbl term">' + esc(r.term) + (r.brand ? '<span class="chip brand">brand</span>' : '') + (r.isNew && r.rising ? '<span class="chip new">new</span>' : r.rising ? '<span class="chip rise">rising</span>' : '') + (zero && r.zero && r.zero === r.count ? '<span class="chip zero">0 results</span>' : '') + '</td>';
+        case 'count': return '<td class="strong"><span class="bar" style="width:' + Math.max(2, r.count / maxC * 60).toFixed(0) + 'px"></span> ' + fmtInt(r.count) + '</td>';
+        case 'share': return '<td>' + fmtPct(r.share, 1) + '</td>';
+        case 'prev': return '<td class="dim">' + fmtInt(r.prev) + '</td>';
+        case 'growth': return '<td>' + (r.isNew ? '<span class="d up">new</span>' : ok(r.growth) ? '<span class="d ' + (r.growth > 2 ? 'up' : r.growth < -2 ? 'down' : 'flat') + '">' + (r.growth > 0 ? '+' : '') + fmtNum(r.growth, 0) + ' %</span>' : '–') + '</td>';
+        case 'top': return '<td class="mk">' + esc(r.top ? mkName(r.top) : '–') + (ok(r.topShare) && r.topShare < 1 ? ' · ' + fmtPct(r.topShare, 0) : '') + '</td>';
+        case 'zeroRate': return '<td>' + fmtPct(r.zeroRate, 0) + '</td>';
+      }
+      return '<td></td>';
+    };
+    const head = '<thead><tr>' + cols.map(c => '<th data-col="' + c.id + '" class="sortable' + (c.lbl ? ' lbl' : '') + (c.id === sc.id ? ' sort-' + trSort[1] : '') + '">' + c.label + '</th>').join('') + '</tr></thead>';
+    const shown = rows.slice(0, trShown);
+    const body = shown.length ? shown.map(r => '<tr>' + cols.map(c => cell(c, r)).join('') + '</tr>').join('')
+      : '<tr><td class="empty" colspan="' + cols.length + '">No terms match.</td></tr>';
+    $('trTable').innerHTML = head + '<tbody>' + body + '</tbody>';
+    $('trCount').textContent = 'Showing ' + Math.min(trShown, rows.length) + ' of ' + rows.length + ' terms' + (D.meta.terms_scanned > all.length ? ' (top ' + all.length + ' of ' + fmtInt(D.totals.cur.terms) + ' unique terms in this snapshot)' : '');
+    $('trMore').disabled = trShown >= rows.length;
+    $('trSub').innerHTML = 'By searches' + (prevOk ? ', vs the previous period. <span class="chip rise">rising</span> = at least ' + RISE_MIN + ' searches and +50 % or more; <span class="chip new">new</span> = not searched before.' : '. Comparison and rising terms appear once a full previous period is tracked.');
+    $('termsSub').textContent = 'Every term, in the words visitors use. Use the filter to look up a brand or product; tick "Non-brand only" to see what people look for when they do not know the brand.';
+    enhance($('trTable'), $('trTools'));
+  }
+
+  function renderZero(all) {
+    if (!D.meta.zero_available) {
+      $('zeroBox').innerHTML = '<div class="card na-card"><b>Measured on the site, not imported yet.</b> The search tag sends whether each search showed 0 products (<code>search_zero_results</code>) and how many it showed (<code>search_results_count</code>). The warehouse\'s GA4 import does not carry those two fields yet; an update to the connector is in progress. When it lands this section fills in automatically.<ul><li>Until then: GA4 → Explore → <b>Internal search – terms</b>, tab <b>Zero results</b>.</li><li>Days before the import update will stay empty here; GA4 keeps them.</li></ul></div>';
+      return;
+    }
+    const rows = all.filter(r => (r.zero || 0) > 0).sort((a, b) => b.zero - a.zero).slice(0, 50);
+    $('zeroBox').innerHTML = '<div class="card tbl"><div class="card-head"><div><h3>Top zero-result terms</h3><div class="csub">Searches that showed 0 products. Fix with a synonym, a redirect to the right category, or a range decision.</div></div><div class="card-tools"><span id="zrTools"></span></div></div><div class="tbl-scroll"><table id="zrTable" data-export-name="search-zero-results"><thead><tr><th class="lbl">Search term</th><th>Zero-result searches</th><th>All searches</th><th>Share zero</th></tr></thead><tbody>' +
+      (rows.length ? rows.map(r => '<tr><td class="lbl term">' + esc(r.term) + '</td><td class="strong">' + fmtInt(r.zero) + '</td><td>' + fmtInt(r.count) + '</td><td>' + fmtPct(r.zeroRate, 0) + '</td></tr>').join('') : '<tr><td class="empty" colspan="4">No zero-result searches among the top terms.</td></tr>') +
+      '</tbody></table></div></div>';
+    enhance($('zrTable'), $('zrTools'));
+  }
+
+  function enhance(table, toolbar) {
+    if (!window.TableTools || table._tt) return;
+    try { table._tt = window.TableTools.enhance(table, { toolbar: toolbar || undefined, scroll: false, filters: false, exportIgnore: '.chip,.bar' }) || true; } catch (e) { /* export is a nicety */ }
+  }
+
+  $('trTable').addEventListener('click', e => {
+    const th = e.target.closest('th[data-col]'); if (!th) return;
+    const id = th.dataset.col;
+    trSort = trSort[0] === id ? [id, trSort[1] === 'asc' ? 'desc' : 'asc'] : [id, id === 'term' || id === 'top' ? 'asc' : 'desc'];
+    renderTerms(termRows());
+  });
+  $('trQ').addEventListener('input', () => { trShown = 50; renderTerms(termRows()); });
+  $('trNonBrand').addEventListener('change', () => { trShown = 50; renderTerms(termRows()); });
+  $('trMore').addEventListener('click', () => { trShown += 100; renderTerms(termRows()); });
+
+  segs();
+  load();
+})();
+</script>
+</body>
+</html>

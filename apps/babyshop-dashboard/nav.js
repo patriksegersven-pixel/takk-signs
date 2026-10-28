@@ -46,6 +46,7 @@
     { id:'kv',        title:'KV Overview',       href:'/babyshop-dashboard.html',           group:'core',     subtitle:'KV Performance Dashboard' },
     { id:'products',  title:'Products',          href:'/babyshop-product-dashboard.html',   group:'core',     subtitle:'Product Performance Dashboard' },
     { id:'ecom',      title:'E-com Funnel',      href:'/babyshop-ecom-dashboard.html',      group:'core',     subtitle:'E-commerce Funnel & Conversion' },
+    { id:'search',    title:'Internal search',   href:'/babyshop-search-dashboard.html',    group:'core',     subtitle:'Internal Search Insights' },
     { id:'customers', title:'Customer Insights', href:'/babyshop-customer-dashboard.html',  group:'core',     subtitle:'Customer Insights' },
     { id:'segments',  title:'Segments',          href:'/babyshop-segments-dashboard.html',  group:'core',     subtitle:'Customer Segments' },
     { id:'sos',       title:'Share of Search',   href:'/babyshop-sos-dashboard.html',       group:'core',     subtitle:'Share of Search' },

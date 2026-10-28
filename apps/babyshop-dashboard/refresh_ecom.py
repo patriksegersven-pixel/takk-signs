@@ -1463,6 +1463,15 @@ def main(argv=None):
     for note in m["notes"]:
         print(f"     note: {note}")
 
+    # The Internal search tab's documents ride on this job (same warehouse
+    # access, same schedule). Its own failure must never fail the E-com run.
+    if not args.custom and not os.environ.get("ECOM_IN") and not os.environ.get("SKIP_SEARCH"):
+        try:
+            import refresh_search
+            refresh_search.run(dry=dry)
+        except Exception as e:
+            _log_fail("internal search snapshot", e)
+
 
 if __name__ == "__main__":
     main()
