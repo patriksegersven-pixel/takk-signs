@@ -194,7 +194,7 @@
 
     <section id="s-fulfil" hidden>
       <div class="section-head"><div class="section-title">Pick &amp; pack and packaging <span class="section-tag" id="fTag"></span></div>
-        <div class="section-sub">Warehouse handling at PostNord TPL, separate from freight: pick &amp; pack at the contract rate per item sold, and packaging (boxes and filler) from PostNord TPL's invoices in Business Central spread per order. Both are checked against what Business Central booked (4497 pick &amp; pack, 4450 packaging).</div></div>
+        <div class="section-sub">Warehouse handling at PostNord TPL, separate from freight: pick &amp; pack at the contract rate per unique item in the order (several of the same item are charged once), and packaging (boxes and filler) from PostNord TPL's invoices in Business Central spread per order. Both are checked against what Business Central booked (4497 pick &amp; pack, 4450 packaging).</div></div>
       <div class="glance" style="margin-top:0"><h3>Pick &amp; pack insights</h3><ul id="fGlance"></ul></div>
       <div class="kpi-grid stack" id="fKpis"></div>
       <div class="two stack">
@@ -216,7 +216,7 @@
         <dt>Price per order</dt><dd>Bring, Posti and Airmee: the amount on the carrier's invoice line for that order where it exists, otherwise the average actual cost for the market, method and weight band. DHL: what DHL billed per order for the same parcel volume (or weight), including split parcels and fuel. UPS: UPS's negotiated rate for the country, service and weight.</dd>
         <dt>Calibration</dt><dd>Each week the estimate is scaled so each carrier's total matches its outbound freight booked in Business Central (account 4336) for the latest three fully invoiced months. Posti only counts the web-order share of its invoice; Airmee is not scaled (its fixed monthly amount is kept out of the per-order cost).</dd>
         <dt>Not included in freight</dt><dd>Return freight (4338) and customs (4335). Pick &amp; pack and packaging are shown in their own section and never added to the freight figures.</dd>
-        <dt>Pick &amp; pack</dt><dd>Items sold in the order (Norce quantity) × the PostNord TPL contract rate per item. Checked monthly against account 4497 (3PL outbound) on PostNord TPL's invoices; PostNord invoices once a month, for that month.</dd>
+        <dt>Pick &amp; pack</dt><dd>Unique items in the order (distinct SKUs in Norce; several of the same item are charged once) × the PostNord TPL contract rate per unique item. Checked monthly against account 4497 (3PL outbound) on PostNord TPL's invoices; PostNord invoices once a month, for that month.</dd>
         <dt>Packaging</dt><dd>Boxes and filler: account 4450 on PostNord TPL's invoices for the latest three invoiced months ÷ orders in those months, applied as a flat amount per order. Other suppliers' packaging costs are left out.</dd>
       </dl></div>
     </section>
@@ -265,18 +265,18 @@
     const o = W.reduce((a, m) => a + m.orders, 0), it = W.reduce((a, m) => a + m.items, 0);
     const pc = W.reduce((a, m) => a + m.pick_contract, 0), pl = W.reduce((a, m) => a + (m.pick_ledger || 0), 0), kl = W.reduce((a, m) => a + (m.pack_ledger || 0), 0);
     const tiles = [
-      ['Pick & pack / order', fmt(pc / o, 1) + ' SEK', fmt(F.pick_rate_item, 2) + ' SEK per item (contract) × ' + fmt(it / o, 2) + ' items'],
+      ['Pick & pack / order', fmt(pc / o, 1) + ' SEK', fmt(F.pick_rate_item, 2) + ' SEK per unique item (contract) × ' + fmt(it / o, 2) + ' unique items'],
       ['Packaging / order', fmt(F.packaging_per_order, 1) + ' SEK', 'boxes and filler, ' + fmt(kl) + ' SEK on PostNord TPL invoices'],
       ['Handling / order', fmt(pc / o + F.packaging_per_order, 1) + ' SEK', 'pick & pack + packaging, on top of freight'],
-      ['Invoiced per item', fmt(F.ledger_per_item, 2) + ' SEK', 'Business Central 4497 ÷ items sold; contract ' + fmt(F.pick_rate_item, 2)],
-      ['Pick & pack invoiced', fmt(pl / 1e6, 2) + ' M SEK', 'contract × items: ' + fmt(pc / 1e6, 2) + ' M SEK (' + pct(100 * (pl / pc - 1), 0) + ')'],
+      ['Invoiced per unique item', fmt(F.ledger_per_item, 2) + ' SEK', 'Business Central 4497 ÷ unique items; contract ' + fmt(F.pick_rate_item, 2)],
+      ['Pick & pack invoiced', fmt(pl / 1e6, 2) + ' M SEK', 'contract × unique items: ' + fmt(pc / 1e6, 2) + ' M SEK (' + pct(100 * (pl / pc - 1), 0) + ')'],
     ];
     $('fKpis').innerHTML = tiles.map(([k, v, n]) => `<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${esc(n)}</div></div>`).join('');
 
     const M = F.monthly;
     fChart && fChart.destroy();
     fChart = new Chart($('fChart'), { data:{ labels:M.map(m => mshort(m.month)), datasets:[
-        { type:'bar', label:'Pick & pack (contract × items)', data:M.map(m => m.pick_contract), backgroundColor:'#235837', stack:'c' },
+        { type:'bar', label:'Pick & pack (contract × unique items)', data:M.map(m => m.pick_contract), backgroundColor:'#235837', stack:'c' },
         { type:'bar', label:'Packaging (4450)', data:M.map(m => m.pack_ledger), backgroundColor:'#C9A227', stack:'c' },
         { type:'line', label:'Pick & pack invoiced (4497)', data:M.map(m => m.pick_ledger), borderColor:'#1B2839', backgroundColor:'#1B2839', borderWidth:2, pointRadius:3, tension:.2, stack:'l', order:0 } ].map((d, i) => i < 2 ? { ...d, order:1 } : d) },
       options:{ maintainAspectRatio:false, interaction:{ mode:'index', intersect:false },
@@ -299,20 +299,20 @@
       const m = r[ix.month]; if (m < a || m > b) return;
       const k = r[ix.project] + '|' + r[ix.country];
       const x = g.get(k) || { project:r[ix.project], country:r[ix.country], orders:0, items:0 };
-      x.orders += r[ix.orders]; x.items += r[ix.items]; g.set(k, x);
+      x.orders += r[ix.orders]; x.items += r[ix.skus != null ? ix.skus : ix.items]; g.set(k, x);
     });
     const rows = [...g.values()].sort((x, y) => y.orders - x.orders), rate = F.pick_rate_item, pk = F.packaging_per_order;
     const tot = rows.reduce((t, x) => ({ orders:t.orders + x.orders, items:t.items + x.items }), { orders:0, items:0 });
-    $('fSub').textContent = `${mlabel(a)}${a !== b ? ' – ' + mlabel(b) : ''} · ${fmt(tot.orders)} orders · ${fmt(tot.items)} items`;
+    $('fSub').textContent = `${mlabel(a)}${a !== b ? ' – ' + mlabel(b) : ''} · ${fmt(tot.orders)} orders · ${fmt(tot.items)} unique items`;
     const body = rows.map(x => { const m = mapFor(x.project, x.country), pp = rate * x.items / x.orders, all = pp + pk;
       return `<tr><td class="lbl">${siteOf(x.project)}</td><td class="lbl">${esc(m.slug || '')}</td><td class="lbl">${esc(m.country || x.country)}</td><td class="lbl">${esc(x.project)}</td>
         <td>${fmt(x.orders)}</td><td>${fmt(x.items / x.orders, 2)}</td><td>${fmt(pp, 2)}</td><td>${fmt(pk, 2)}</td><td class="strong">${fmt(all, 2)}</td>
         <td>${fmt(inCur(all, m.cur), 2)}</td><td class="lbl">${esc(m.cur || '')}</td><td>${fmt(all * x.orders)}</td></tr>`; }).join('');
-    $('fTable').innerHTML = `<thead><tr><th class="lbl">Site</th><th class="lbl">Slug</th><th class="lbl">Country</th><th class="lbl">Norce project</th><th>Orders</th><th>Items / order</th>
+    $('fTable').innerHTML = `<thead><tr><th class="lbl">Site</th><th class="lbl">Slug</th><th class="lbl">Country</th><th class="lbl">Norce project</th><th>Orders</th><th>Unique items / order</th>
       <th>Pick &amp; pack / order SEK</th><th>Packaging / order SEK</th><th>Handling / order SEK</th><th>Handling / order website cur.</th><th class="lbl">Currency</th><th>Total SEK</th></tr></thead>
       <tbody>${body || '<tr><td class="empty" colspan="12">No orders in this period.</td></tr>'}</tbody>`;
     fTT = enhance($('fTable'), 'fTools', fTT);
-    $('fTblNote').textContent = `Pick & pack = ${fmt(rate, 2)} SEK per item sold; packaging = ${fmt(pk, 2)} SEK per order (${F.label} average). Freight is not included.`;
+    $('fTblNote').textContent = `Pick & pack = ${fmt(rate, 2)} SEK per unique item in the order; packaging = ${fmt(pk, 2)} SEK per order (${F.label} average). Freight is not included.`;
   }
 
   // ── KPIs (calibration window) ───────────────────────────────────────────────
