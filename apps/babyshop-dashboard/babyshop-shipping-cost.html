@@ -348,9 +348,13 @@
     mChart = new Chart($('mChart'), { data:{ labels:M.map(m => mshort(m.month)), datasets:ds },
       options:{ maintainAspectRatio:false, interaction:{ mode:'index', intersect:false },
         scales:{ x:{ stacked:true, grid:{ display:false } }, y:{ stacked:true, ticks:{ callback:v => fmt(v / 1e6, 1) + ' M' } } },
-        plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, font:{ size:10 } } }, tooltip:{ callbacks:{ label:c => c.dataset.label + ': ' + fmt(c.raw) + ' SEK' } } } } });
+        plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, font:{ size:10 } } }, tooltip:{ callbacks:{ label:c => {
+          const s = c.dataset.label + ': ' + fmt(c.raw) + ' SEK', m = M[c.dataIndex];
+          // Kuvio vs the estimate on the same days (differs from the bar only in a month Kuvio has not caught up with)
+          return c.dataset.stack === 'flat' && c.raw && m.model_kuvio_days ? s + ' (estimate same days ' + fmt(m.model_kuvio_days) + ', ' + pct(100 * (c.raw / m.model_kuvio_days - 1), 0) + ')' : s;
+        } } } } } });
     const last = M[M.length - 1];
-    $('mNote').innerHTML = `Business Central books invoices when they arrive, so a month's bar and line differ by timing; over the calibration window they match by construction. The latest month(s) have no invoices yet. Return freight (4338) and customs (4335) are not in either: ${esc(mlabel(last.month))} so far ${fmt(last.ledger_returns)} and ${fmt(last.ledger_customs)} SEK in the ledger.`;
+    $('mNote').innerHTML = `Business Central books invoices when they arrive, so a month's bar and line differ by timing; over the calibration window they match by construction. The latest month(s) have no invoices yet. Kuvio's line covers orders through ${esc(S.kuvio_through || '–')}, compared with the estimate on the same days. Return freight (4338) and customs (4335) are not in either: ${esc(mlabel(last.month))} so far ${fmt(last.ledger_returns)} and ${fmt(last.ledger_customs)} SEK in the ledger.`;
   }
   function renderDaily() {
     const D = S.daily, cars = ['DHL','Bring','UPS','Posti','Airmee'];
