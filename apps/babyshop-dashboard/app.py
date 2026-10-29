@@ -435,6 +435,11 @@ def api_shipping(_: str = Depends(verify)):
         return JSONResponse({"error": "the shipping snapshot could not be read — try again shortly"}, status_code=503)
     if data is None:
         return JSONResponse({"error": "no shipping-cost snapshot yet — the model has not published one"}, status_code=503)
+    # Firestore rejects arrays of arrays, so the publisher stores these row tables as JSON strings
+    import json
+    for k in ("market_month", "method_month"):
+        if isinstance(data.get(k), str):
+            data[k] = json.loads(data[k])
     return data
 
 
