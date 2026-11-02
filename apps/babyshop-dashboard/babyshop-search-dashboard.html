@@ -375,7 +375,7 @@
       { k: 'Top 10 terms', v: fmtPct(div(rows.slice(0, 10).reduce((a, r) => a + (r.count || 0), 0), c.searches), 0), d: '', n: 'of all searches; the rest is a long tail' },
       D.meta.zero_available
         ? { k: 'Zero results', v: fmtPct(div(c.zero, c.searches)), d: '', n: fmtInt(c.zero) + ' searches showed 0 products' }
-        : { k: 'Zero results', v: 'Not imported yet', na: true, d: '', n: 'Tracked on the site; reaches the warehouse with the GA4 connector update' },
+        : { k: 'Zero results', v: 'Not imported yet', na: true, d: '', n: 'Tracked on the site; could not be read for this snapshot' },
     ];
     $('kpis').innerHTML = tiles.map(t => '<div class="kpi"><div class="k">' + t.k + '</div><div class="v' + (t.na ? ' na' : '') + '">' + t.v + '</div>' + t.d + '<div class="n">' + t.n + '</div></div>').join('');
   }
@@ -503,10 +503,12 @@
 
   function renderZero(all) {
     if (!D.meta.zero_available) {
-      $('zeroBox').innerHTML = '<div class="card na-card"><b>Measured on the site, not imported yet.</b> The search tag sends whether each search showed 0 products (<code>search_zero_results</code>) and how many it showed (<code>search_results_count</code>). The warehouse\'s GA4 import does not carry those two fields yet; an update to the connector is in progress. When it lands this section fills in automatically.<ul><li>Until then: GA4 → Explore → <b>Internal search – terms</b>, tab <b>Zero results</b>.</li><li>Days before the import update will stay empty here; GA4 keeps them.</li></ul></div>';
+      $('zeroBox').innerHTML = '<div class="card na-card"><b>Not available in this snapshot.</b> The search tag sends whether each search showed 0 products (<code>search_zero_results</code>), and the refresh reads it from GA4, but that read failed this time. The next refresh tries again.<ul><li>Meanwhile: GA4 → Explore → <b>Internal search – terms</b>, tab <b>Zero results</b>.</li></ul></div>';
       return;
     }
-    const rows = all.filter(r => (r.zero || 0) > 0).sort((a, b) => b.zero - a.zero).slice(0, 50);
+    const rows = (D.zero_terms
+      ? D.zero_terms.map(z => ({ term: z.term, zero: z.zero, count: z.count, zeroRate: div(z.zero, z.count) }))
+      : all.filter(r => (r.zero || 0) > 0).sort((a, b) => b.zero - a.zero)).slice(0, 50);
     $('zeroBox').innerHTML = '<div class="card tbl"><div class="card-head"><div><h3>Top zero-result terms</h3><div class="csub">Searches that showed 0 products. Fix with a synonym, a redirect to the right category, or a range decision.</div></div><div class="card-tools"><span id="zrTools"></span></div></div><div class="tbl-scroll"><table id="zrTable" data-export-name="search-zero-results"><thead><tr><th class="lbl">Search term</th><th>Zero-result searches</th><th>All searches</th><th>Share zero</th></tr></thead><tbody>' +
       (rows.length ? rows.map(r => '<tr><td class="lbl term">' + esc(r.term) + '</td><td class="strong">' + fmtInt(r.zero) + '</td><td>' + fmtInt(r.count) + '</td><td>' + fmtPct(r.zeroRate, 0) + '</td></tr>').join('') : '<tr><td class="empty" colspan="4">No zero-result searches among the top terms.</td></tr>') +
       '</tbody></table></div></div>';

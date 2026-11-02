@@ -30,16 +30,23 @@ TRACKING START
 
 ZERO RESULTS
   The GTM tag also sends search_zero_results (yes / no / unknown) and
-  search_results_count. The warehouse's GA4 connector does not import them yet
-  (henkkaBB/agents PR pending). This module probes the mart for a
-  `search_zero_results` column on every run: absent → meta.zero_available is
-  false and every zero/unknown field is null; present → they fill in with no
-  code change here.
+  search_results_count. The warehouse's GA4 connector does not import them, so
+  this module probes the mart for a `search_zero_results` column on every run:
+    • present → the SQL below counts zero / unknown searches;
+    • absent  → the yes / unknown events are read straight from the GA4 Data
+      API (ga4_zero) and laid over the mart's rows (apply_ga4_zero). The market
+      bucket is GA4's countryId, as in the mart (Babyshop's country_map).
+  Both fail → meta.zero_available is false and every zero/unknown field is null.
+  zero_terms lists the top zero-result terms per document, whether or not they
+  are among the top searched terms.
 
 SOURCES (claude-private-499703)
   babyshop_marts.agg_daily_on_site_search     date × market × term → event_count
   babyshop_marts.agg_daily_kpis_by_channel    GA4 sessions (search rate denominator)
   babyshop_marts.agg_daily_kpis_by_brand      brand names (brand-demand matching)
+  GA4 Data API, property SEARCH_GA4_PROPERTY  zero / unknown searches (see above);
+    the runtime SA needs Viewer on the property. Locally set SEARCH_GA4_SA to a
+    service account with that access; its token is minted by impersonation.
 
 The search mart has no client_site column, so searches cover every storefront
 while sessions are the discovered Babyshop site's (refresh_ecom.discover_site);
@@ -77,8 +84,13 @@ OTHER          = _e.OTHER
 TRACKING_START = datetime.date.fromisoformat(
     os.environ.get("SEARCH_TRACKING_START", "2026-10-27"))
 
+GA4_PROPERTY = os.environ.get("SEARCH_GA4_PROPERTY", "409012121")
+GA4_SCOPE    = "https://www.googleapis.com/auth/analytics.readonly"
+GA4_PAGE     = 100000
+
 TERMS_SCAN  = 5000   # terms per (window, market) pulled for brand matching
 TERMS_TOP   = 400    # terms per document
+ZERO_TOP    = 100    # zero_terms per document
 BRANDS_TOP  = 100
 BRAND_LOOKBACK_DAYS = 120
 BRAND_MIN_VIEWS     = 50
@@ -224,6 +236,103 @@ def q_brands(hi, stats):
               "minv": BRAND_MIN_VIEWS}, stats)
 
 
+# ── Zero results from the GA4 Data API ───────────────────────────────────────
+def _ga4_token() -> str:
+    """The runtime SA's ADC token with the Analytics scope; locally, a token
+    minted for SEARCH_GA4_SA by impersonation (the user ADC lacks the scope)."""
+    sa = os.environ.get("SEARCH_GA4_SA")
+    if sa:
+        import subprocess
+        return subprocess.check_output(
+            ["gcloud", "auth", "print-access-token", f"--impersonate-service-account={sa}",
+             f"--scopes={GA4_SCOPE}"], stderr=subprocess.DEVNULL).decode().strip()
+    import google.auth
+    import google.auth.transport.requests
+    creds, _ = google.auth.default(scopes=[GA4_SCOPE])
+    creds.refresh(google.auth.transport.requests.Request())
+    return creds.token
+
+
+def _ga4_report(token: str, body: dict) -> list[list[str]]:
+    """runReport, every page; each row is its dimension values plus eventCount."""
+    import requests
+
+    url = f"https://analyticsdata.googleapis.com/v1beta/properties/{GA4_PROPERTY}:runReport"
+    out, offset = [], 0
+    while True:
+        r = requests.post(url, json=dict(body, limit=GA4_PAGE, offset=offset),
+                          headers={"Authorization": f"Bearer {token}"}, timeout=120)
+        if r.status_code != 200:
+            raise RuntimeError(f"GA4 runReport {r.status_code}: {r.text[:300]}")
+        j = r.json()
+        rows = j.get("rows") or []
+        out += [[d["value"] for d in x["dimensionValues"]] + [int(x["metricValues"][0]["value"])]
+                for x in rows]
+        offset += len(rows)
+        if not rows or offset >= int(j.get("rowCount") or 0):
+            return out
+
+
+def ga4_zero(windows: list[dict]) -> dict:
+    """Zero-result (yes) and unknown searches, from GA4:
+      daily  [date, countryId, flag, n]            every tracked day of the run
+      terms  [window days, countryId, term, flag, n] per current window"""
+    token = _ga4_token()
+    flt = {"andGroup": {"expressions": [
+        {"filter": {"fieldName": "eventName",
+                    "stringFilter": {"value": "view_search_results"}}},
+        {"filter": {"fieldName": "customEvent:search_zero_results",
+                    "inListFilter": {"values": ["yes", "unknown"]}}}]}}
+    dims = lambda *names: [{"name": n} for n in names]  # noqa: E731
+    lo = max(min(w["cf"] for w in windows), TRACKING_START)
+    hi = max(w["ct"] for w in windows)
+    daily = _ga4_report(token, {
+        "dateRanges": [{"startDate": lo.isoformat(), "endDate": hi.isoformat()}],
+        "dimensions": dims("date", "countryId", "customEvent:search_zero_results"),
+        "metrics": [{"name": "eventCount"}], "dimensionFilter": flt})
+    # GA4 takes at most four date ranges per request and adds a dateRange
+    # dimension naming each, so one request covers every window.
+    terms = _ga4_report(token, {
+        "dateRanges": [{"startDate": max(w["cf"], TRACKING_START).isoformat(),
+                        "endDate": w["ct"].isoformat(), "name": str(w["days"])}
+                       for w in windows],
+        "dimensions": dims("countryId", "searchTerm", "customEvent:search_zero_results"),
+        "metrics": [{"name": "eventCount"}], "dimensionFilter": flt})
+    return {"daily": [[datetime.datetime.strptime(d, "%Y%m%d").date(), c, f, n]
+                      for d, c, f, n in daily],
+            # the dateRange dimension comes last, after the requested ones
+            "terms": [[int(r), c, t, f, n] for c, t, f, r, n in terms]}
+
+
+def apply_ga4_zero(data: dict, windows: list[dict], g: dict) -> None:
+    """Fill the cz / cu (and daily zero / unknown) fields the mart left null.
+    Totals come from the daily rows, so they are not capped by the term list."""
+    def bucket(country):
+        c = (country or "").upper()
+        return c if c in _GRID else OTHER
+
+    day = {}   # (date, bucket) → [yes, unknown]
+    for d, c, f, n in g["daily"]:
+        day.setdefault((d, bucket(c)), [0, 0])[f != "yes"] += n
+    term = {}  # (days, bucket, term) → [yes, unknown]
+    for days, c, t, f, n in g["terms"]:
+        for m in (bucket(c), "all"):
+            term.setdefault((days, m, t), [0, 0])[f != "yes"] += n
+
+    for r in data.get("daily") or []:
+        r["zero"], r["unknown"] = day.get((_e._as_date(r["date"]), r["m"]), (0, 0))
+    for r in data.get("totals") or []:
+        w = next(x for x in windows if x["days"] == r["days"])
+        cf, ct = max(w["cf"], TRACKING_START), w["ct"]
+        vals = [v for (d, m), v in day.items()
+                if cf <= d <= ct and (r["is_all"] or m == r["m_raw"])]
+        r["cz"], r["cu"] = sum(v[0] for v in vals), sum(v[1] for v in vals)
+    for r in data.get("terms") or []:
+        r["cz"], r["cu"] = term.get((r["days"], r["m"], r["k"]), (0, 0))
+    data["zero_terms"] = [{"days": days, "m": m, "k": t, "cz": v[0], "cu": v[1]}
+                          for (days, m, t), v in term.items() if v[0]]
+
+
 def fetch(windows: list[dict]) -> dict:
     """Every section is wrapped: a failure nulls THAT section and adds a note."""
     stats = _e._Stats()
@@ -232,6 +341,7 @@ def fetch(windows: list[dict]) -> dict:
     out: dict = {"notes": []}
     zero = zero_available(stats)
     out["zero"] = zero
+    out["zero_source"] = "warehouse" if zero else None
     out["country"] = country_available(stats)
     try:
         site, _, notes = _e.discover_site(lo, hi, stats)
@@ -251,6 +361,12 @@ def fetch(windows: list[dict]) -> dict:
             _e._log_fail(f"search {name}", e)
             out[name] = None
             out["notes"].append(f"The {name} query failed; that part of the tab is empty.")
+    if not zero:
+        try:
+            apply_ga4_zero(out, windows, ga4_zero(windows))
+            out["zero"], out["zero_source"] = True, "ga4"
+        except Exception as e:
+            _e._log_fail("search zero results from GA4", e)
     out.update({"bytes_processed": stats.bytes, "queries": stats.queries,
                 "elapsed": round(time.time() - stats.t0, 1), "site": site})
     return out
@@ -292,8 +408,8 @@ def build_combo(data: dict, market: str, w: dict, generated_at: str, match) -> d
     zero = data["zero"]
     notes = list(data["notes"])
     if not zero:
-        notes.append("Zero-result searches are tracked on the site but not yet imported "
-                     "into the warehouse.")
+        notes.append("Zero-result searches are tracked on the site but could not be read "
+                     "for this snapshot.")
     if w["cf"] < TRACKING_START:
         notes.append(f"Search tracking started {TRACKING_START.isoformat()}; earlier days "
                      "in this period have (almost) no searches.")
@@ -367,6 +483,16 @@ def build_combo(data: dict, market: str, w: dict, generated_at: str, match) -> d
         if not prev_ok:
             b["prev"] = None
 
+    # Top zero-result terms, with all searches for the term where the scanned
+    # rows know it (a rare term outside them gets count null).
+    zero_terms = None
+    if zero:
+        counts = {r["k"]: r["c"] for r in rows}
+        src = ([z for z in data["zero_terms"] if z["days"] == days and z["m"] == market]
+               if data.get("zero_terms") is not None else [r for r in rows if r.get("cz")])
+        zero_terms = [{"term": z["k"], "zero": _n(z["cz"]), "count": _n(counts.get(z["k"]))}
+                      for z in sorted(src, key=lambda z: (-z["cz"], z["k"]))[:ZERO_TOP]]
+
     return {
         "meta": {"market": market, "days": days,
                  "cur": {"from": w["cf"].isoformat(), "to": w["ct"].isoformat()},
@@ -374,6 +500,7 @@ def build_combo(data: dict, market: str, w: dict, generated_at: str, match) -> d
                  "tracking_start": TRACKING_START.isoformat(),
                  "tracked_from": tracked_from.isoformat(),
                  "prev_available": prev_ok, "zero_available": zero,
+                 "zero_source": data.get("zero_source"),
                  "country_available": bool(data.get("country")),
                  "market_options": ["all"] + list(_GRID),
                  "brand_matched_searches": sum(b["cur"] for b in brands.values()),
@@ -384,6 +511,7 @@ def build_combo(data: dict, market: str, w: dict, generated_at: str, match) -> d
         "by_market": by_market,
         "by_country": by_country,
         "terms": terms,
+        "zero_terms": zero_terms,
         "brands": brand_rows,
     }
 
