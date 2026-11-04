@@ -19,11 +19,13 @@ of the range is on offer) per market, judged on GP2. Four blocks:
                 order from the Funnel export. See NOTES below.
   3. width      Per category: share of revenue sold on offer, realised depth,
                 and the share of in-stock SKUs on markdown in the feed.
-  4. stock      Hero products (top 50 per market by 14-day revenue + products
-                on markdown among the best sellers) with shared stock, days of
-                cover at 14-day pace and at last year's Black Week pace, broken
-                sizes, and Google Shopping spend (last 7 days) on out-of-stock
-                and low-cover SKUs from the Google Ads API (read-only).
+  4. stock      bm_offers_stock.py: hero products with shared stock, cover,
+                "sells out before Black Week", GP2 per unit, and Shopping spend
+                on days a SKU was actually out of stock (daily snapshots).
+
+Babyshop and Lekmer: every block is keyed by brand (all|babyshop|lekmer) and
+rows carry a `brand` field; stock is one shared pool, so product rows are
+brand "all" with per-brand revenue and spend nested.
 
 Every block degrades on its own: a missing credential or a failed source puts
 a note in the payload and leaves that block empty instead of failing the build.
@@ -47,10 +49,12 @@ import bm_common as bm
 NORCE = f"{bm.GCP_PROJECT}.norce"
 FUNNEL = os.environ.get("BQ_TABLE", "babyshop-funnel-data.bs_funnel_export.funnel_data")
 MARKETS = bm.MARKETS
-APP_ID = {"SE": 1244, "NO": 1264, "FI": 1265, "DK": 1266}
+BRANDS = ["babyshop", "lekmer"]
+# Norce application ids, for the primary price list (cost) per order line.
+APP_ID = {"babyshop-se": 1244, "babyshop-no": 1264, "babyshop-fi": 1265, "babyshop-dk": 1266,
+          "lekmer-se": 1272, "lekmer-no": 1273, "lekmer-fi": 1274, "lekmer-dk": 1275}
 SHIPPING_PART_NO = "1000014"
 OFFER_MIN_DEPTH = 0.01           # a line ≥1 % under its standard price is "on offer"
-LOW_COVER_DAYS = 7
 HERO_N = 50
 
 AIRTABLE_BASE = "appzISMBB4Gr3LQIv"
@@ -60,8 +64,6 @@ OFFER_TYPES = {"Main Offer", "Supporting Offer", "Weekend Treat", "Free shipping
 MARKET_TAGS = {"ALL": MARKETS, "NORDICS": MARKETS, "SWEDEN": ["SE"], "NORWAY": ["NO"],
                "EU": ["FI", "DK"], "excl SE": ["NO", "FI", "DK"],
                "excl UK": MARKETS, "excl SK": MARKETS}
-
-ADS_ACCOUNTS = {"SE": "4851485396", "NO": "8623945183", "FI": "6161399704", "DK": "2054294342"}
 
 NOTES = [
     "Full price = Norce's PriceStandard on the order line (the RRP ex VAT on ~99 % of lines). "
@@ -73,11 +75,16 @@ NOTES = [
     "(last 28 days), spread over an order's lines by revenue. Returns sit inside that per-order "
     "cost, so offer and full-price lines carry the same return cost; if offer items are "
     "returned more, offer GP2 is overstated.",
-    "Stock is one shared pool (Channable feed units_for_sale), so days of cover use sales in "
-    "ALL markets. A SKU that sold in the last 14 days but is missing from the feed counts as "
+    "Stock is one shared pool for Babyshop and Lekmer (Channable feed units_for_sale), so "
+    "days of cover use sales in ALL markets and both brands. A SKU that sold in the last 14 days but is missing from the feed counts as "
     "sold out (Channable drops out-of-stock items). 'Short by Cyber Monday' = units needed at "
     "today's pace until Black Week, then at last year's Black Week multiple of that pace "
     "(LY Black Week units/day ÷ the same 14-day window a year earlier), minus stock.",
+    "Shopping spend counts as 'out of stock' only for days the SKU was out of stock: from the "
+    "daily stock snapshot (norce.bm_stock_daily, first snapshot of the day, from 4 Nov) and no "
+    "sale that day; before that, inferred as 'out of stock now and after its last Norce sale'. "
+    "Spend that sold the last units is not counted. 'Sells out before Black Week' = in stock now, "
+    "days of cover below the days left to 23 Nov at the 14-day pace.",
     "Depth and scope of calendar offers are parsed from the campaign name and brief: the "
     "calendar has no depth field. Realised depth in the tables is what customers actually got.",
 ]
@@ -205,8 +212,9 @@ def build_calendar(today: datetime.date, brands: set[str]) -> tuple[list, list]:
     offers, context = [], []
     for rec in _airtable_records(today):
         f = rec["fields"]
-        sf = f.get("Storefront") or []
-        if not ({"Babyshop", "KULING PB"} & set(sf)):
+        sf = set(f.get("Storefront") or [])
+        brands_ = (["babyshop"] if {"Babyshop", "KULING PB"} & sf else []) + (["lekmer"] if "Lekmer" in sf else [])
+        if not brands_:
             continue
         start, end = f.get("Start date"), f.get("End date")
         if not start or not end or end < start:
@@ -215,13 +223,13 @@ def build_calendar(today: datetime.date, brands: set[str]) -> tuple[list, list]:
         status = ("live" if start <= today.isoformat() <= end else
                   "upcoming" if start > today.isoformat() else "ended")
         markets = _markets(f.get("Markets to push in"))
-        base = {"id": rec["id"], "name": name, "start": start, "end": end, "status": status,
+        base = {"id": rec["id"], "brand": brands_[0], "name": name, "start": start, "end": end, "status": status,
                 "type": f.get("Campaign Type"), "markets": markets,
                 "hidden": bool(f.get("Hide campaign")) or "(paused)" in name.lower()}
         is_offer = f.get("Campaign Type") in OFFER_TYPES or bool(f.get("Offer type"))
         if not is_offer:
             if status != "ended":
-                context.append(base)
+                context += [{**base, "id": f"{rec['id']}:{b}", "brand": b} for b in brands_]
             continue
         text = " ".join(str(f.get(k) or "") for k in ("Campaign", "Campaign Brief", "Product list name"))
         dep = _depth(text)
@@ -239,10 +247,12 @@ def build_calendar(today: datetime.date, brands: set[str]) -> tuple[list, list]:
                 warn.append("empty brief")
             if not markets:
                 warn.append("no markets set")
-        offers.append({**base, "offer_type": f.get("Offer type"), "depth": dep,
-                       "scope": scope, "scope_label": scope_label, "code": code,
-                       "landing": (f.get("Landing Page") or "").strip() or None,
-                       "warnings": warn})
+        for b in brands_:          # one row per storefront, so the brand filter is exact
+            offers.append({**base, "id": f"{rec['id']}:{b}", "brand": b,
+                           "offer_type": f.get("Offer type"), "depth": dep,
+                           "scope": scope, "scope_label": scope_label, "code": code,
+                           "landing": (f.get("Landing Page") or "").strip() or None,
+                           "warnings": warn})
     key = {"live": 0, "upcoming": 1, "ended": 2}
     offers.sort(key=lambda o: (key[o["status"]], o["start"], o["name"]))
     context.sort(key=lambda o: (key[o["status"]], o["start"]))
@@ -251,13 +261,15 @@ def build_calendar(today: datetime.date, brands: set[str]) -> tuple[list, list]:
 
 # ── 2. Offer economics ───────────────────────────────────────────────────────
 def _cost_to_serve(today: datetime.date) -> dict:
-    """SEK per order between GP1 and GP2, per market, from the Funnel export."""
+    """SEK per order between GP1 and GP2, per brand × market ("babyshop:SE"),
+    from the Funnel export (shop_new = Babyshop / Lekmer)."""
     rows = _q(f"""
-      SELECT market_level_1_kv m, SUM(kv_gp1) gp1, SUM(kv_gp2) gp2, SUM(kv_transactions) tx
-      FROM `{FUNNEL}` WHERE Date BETWEEN @a AND @b AND shop_new = 'Babyshop'
-        AND market_level_1_kv IN UNNEST(@ms) GROUP BY m""",
+      SELECT LOWER(shop_new) s, market_level_1_kv m, SUM(kv_gp1) gp1, SUM(kv_gp2) gp2,
+             SUM(kv_transactions) tx
+      FROM `{FUNNEL}` WHERE Date BETWEEN @a AND @b AND shop_new IN ('Babyshop', 'Lekmer')
+        AND market_level_1_kv IN UNNEST(@ms) GROUP BY s, m""",
               a=today - D(28), b=today - D(1), ms=MARKETS)
-    return {r["m"]: (r["gp1"] - r["gp2"]) / r["tx"] for r in rows if r["tx"]}
+    return {f"{r['s']}:{r['m']}": (r["gp1"] - r["gp2"]) / r["tx"] for r in rows if r["tx"]}
 
 
 _COST_SQL = f"""
@@ -267,7 +279,8 @@ _COST_SQL = f"""
     FROM `{NORCE}.sku_costs` sc2 LEFT JOIN `{NORCE}.dim_currencies` cur ON cur.Id = sc2.CurrencyId
     GROUP BY sc2.PartNo),
   lines AS (
-    SELECT l.OrderId, l.market, DATE(l.OrderDate, 'Europe/Stockholm') d, l.PartNo, l.QtyOrdered q,
+    SELECT l.OrderId, l.market, l.brand, CONCAT(l.brand, ':', l.market) k,
+      DATE(l.OrderDate, 'Europe/Stockholm') d, l.PartNo, l.QtyOrdered q,
       l.LineAmount * fx.to_sek rev,
       IFNULL(l.DiscountAmount, 0) * fx.to_sek code,
       GREATEST(IFNULL(NULLIF({{full}}, 0) * l.QtyOrdered, 0),
@@ -275,8 +288,8 @@ _COST_SQL = f"""
       COALESCE(sc.CostUnit * cfx.to_sek, fb.f.cu * ffx.to_sek) * l.QtyOrdered cogs
     FROM `{NORCE}.bm_offer_lines` l
     LEFT JOIN `{NORCE}.currency_rates` fx ON fx.currency_id = l.CurrencyId
-    LEFT JOIN `{NORCE}.dim_price_lists` pl ON pl.ApplicationId = CASE l.market
-      {' '.join(f"WHEN '{m}' THEN {a}" for m, a in APP_ID.items())} END
+    LEFT JOIN `{NORCE}.dim_price_lists` pl ON pl.ApplicationId = CASE l.app_key
+      {' '.join(f"WHEN '{k}' THEN {a}" for k, a in APP_ID.items())} END
     LEFT JOIN `{NORCE}.sku_costs` sc ON sc.PartNo = l.PartNo AND sc.PriceListId = pl.PriceListId
     LEFT JOIN `{NORCE}.currency_rates` cfx ON cfx.currency_id = sc.CurrencyId
     LEFT JOIN fb ON fb.PartNo = l.PartNo
@@ -291,28 +304,46 @@ def _economics_rows(a: datetime.date, b: datetime.date) -> list[dict]:
     from bm_offers_norce import FULL_UNIT
     sql = "WITH " + _COST_SQL.format(full=FULL_UNIT) + """,
       orders AS (
-        SELECT OrderId, ANY_VALUE(market) m, ANY_VALUE(d) d, SUM(rev) rev,
+        SELECT OrderId, ANY_VALUE(k) k, ANY_VALUE(brand) b, ANY_VALUE(market) m, ANY_VALUE(d) d, SUM(rev) rev,
           SUM(IF(off, rev, 0)) rev_off, SUM(full_val) full_val, SUM(IF(off, full_val, 0)) full_off,
           SUM(code) code, SUM(IF(cogs IS NOT NULL, rev, 0)) rev_c, SUM(cogs) cogs,
           SUM(IF(off AND cogs IS NOT NULL, rev, 0)) rev_c_off, SUM(IF(off, cogs, 0)) cogs_off,
           SUM(q) units
         FROM tagged GROUP BY OrderId)
-      SELECT CAST(d AS STRING) d, m, rev_off >= 0.5 * rev AS offer_order, COUNT(*) orders,
+      SELECT CAST(d AS STRING) d, k, b, m, rev_off >= 0.5 * rev AS offer_order, COUNT(*) orders,
         SUM(rev) rev, SUM(rev_off) rev_off, SUM(full_val) full_val, SUM(full_off) full_off,
         SUM(code) code, SUM(rev_c) rev_c, SUM(IFNULL(cogs, 0)) cogs, SUM(rev_c_off) rev_c_off,
         SUM(IFNULL(cogs_off, 0)) cogs_off, SUM(SAFE_DIVIDE(rev_off, rev)) off_orders_eq,
         SUM(units) units
-      FROM orders GROUP BY d, m, offer_order"""
+      FROM orders GROUP BY d, k, b, m, offer_order"""
     return _q(sql, a=a, b=b)
 
 
-def _category_rows(a: datetime.date, b: datetime.date) -> list[dict]:
+def _sku_rows(a: datetime.date, b: datetime.date) -> list[dict]:
+    """Per PartNo × brand × market: offer revenue/depth (width table) and the
+    inputs for GP2 per unit (hero products)."""
     from bm_offers_norce import FULL_UNIT
-    sql = "WITH " + _COST_SQL.format(full=FULL_UNIT) + """
-      SELECT PartNo p, market m, SUM(rev) rev, SUM(IF(off, rev, 0)) rev_off,
-             SUM(IF(off, full_val, 0)) full_off
-      FROM tagged GROUP BY p, m"""
+    sql = "WITH " + _COST_SQL.format(full=FULL_UNIT) + """,
+      t2 AS (SELECT *, rev / SUM(rev) OVER (PARTITION BY OrderId) share FROM tagged)
+      SELECT PartNo p, k, brand b, market m, SUM(rev) rev, SUM(IF(off, rev, 0)) rev_off,
+             SUM(IF(off, full_val, 0)) full_off, SUM(IF(cogs IS NOT NULL, rev, 0)) rev_c,
+             SUM(IFNULL(cogs, 0)) cogs, SUM(q) units, SUM(share) ord_eq
+      FROM t2 GROUP BY p, k, b, m"""
     return _q(sql, a=a, b=b)
+
+
+def _sku_econ(rows: list[dict], cts: dict) -> dict:
+    """PartNo → {units, gp2} over both brands; uncosted SKUs take their
+    brand × market's costed margin."""
+    mk = defaultdict(lambda: [0.0, 0.0])
+    for r in rows:
+        mk[r["k"]][0] += r["rev_c"]; mk[r["k"]][1] += r["cogs"]
+    out = defaultdict(lambda: {"units": 0.0, "gp2": 0.0})
+    for r in rows:
+        mg = (1 - r["cogs"] / r["rev_c"]) if r["rev_c"] else (1 - _div(mk[r["k"]][1], mk[r["k"]][0]) if mk[r["k"]][0] else 0)
+        out[r["p"]]["units"] += r["units"]
+        out[r["p"]]["gp2"] += r["rev"] * mg - cts.get(r["k"], 0) * r["ord_eq"]
+    return out
 
 
 DEPTH_BANDS = [(0.01, "Full price"), (0.20, "1–19 %"), (0.30, "20–29 %"),
@@ -326,14 +357,14 @@ def _band_rows(a: datetime.date, b: datetime.date) -> list[dict]:
     case = "CASE " + " ".join(f"WHEN dep < {lim} THEN '{lab}'" for lim, lab in DEPTH_BANDS) + " END"
     sql = "WITH " + _COST_SQL.format(full=FULL_UNIT) + f""",
       t2 AS (SELECT *, 1 - rev / full_val dep, rev / SUM(rev) OVER (PARTITION BY OrderId) share FROM tagged)
-      SELECT market m, {case} band, SUM(rev) rev, SUM(full_val) full_val,
+      SELECT k, brand b, market m, {case} band, SUM(rev) rev, SUM(full_val) full_val,
              SUM(IF(cogs IS NOT NULL, rev, 0)) rev_c, SUM(IFNULL(cogs, 0)) cogs, SUM(share) ord_eq
-      FROM t2 GROUP BY m, band"""
+      FROM t2 GROUP BY k, b, m, band"""
     return _q(sql, a=a, b=b)
 
 
-def _bands(rows: list[dict], cts: dict, market: str) -> list[dict]:
-    rs = [r for r in rows if market == "all" or r["m"] == market]
+def _bands(rows: list[dict], cts: dict, brand: str, market: str) -> list[dict]:
+    rs = [r for r in rows if (market == "all" or r["m"] == market) and (brand == "all" or r["b"] == brand)]
     tot = sum(r["rev"] for r in rs) or 1
     out = []
     for _, lab in DEPTH_BANDS:
@@ -344,7 +375,7 @@ def _bands(rows: list[dict], cts: dict, market: str) -> list[dict]:
         gp2 = 0.0
         for r in b:
             mg = 1 - r["cogs"] / r["rev_c"] if r["rev_c"] else 0
-            gp2 += r["rev"] * mg - cts.get(r["m"], 0) * r["ord_eq"]
+            gp2 += r["rev"] * mg - cts.get(r["k"], 0) * r["ord_eq"]
         full = sum(r["full_val"] for r in b)
         out.append({"band": lab, "rev": _r(rev), "share": _r(rev / tot, 4),
                     "depth": _r(1 - rev / full, 4) if full else None,
@@ -364,8 +395,8 @@ def _stats(rows: list[dict], cts: dict, days: int) -> dict | None:
     by_m = defaultdict(lambda: {"all": defaultdict(float), True: defaultdict(float), False: defaultdict(float)})
     for r in rows:
         for k in _SUMS:
-            by_m[r["m"]]["all"][k] += r[k] or 0
-            by_m[r["m"]][r["offer_order"]][k] += r[k] or 0
+            by_m[r["k"]]["all"][k] += r[k] or 0
+            by_m[r["k"]][r["offer_order"]][k] += r[k] or 0
     T = defaultdict(float)
     for m, g in by_m.items():
         s, k_ord = g["all"], cts.get(m, 0)
@@ -409,9 +440,10 @@ def _stats(rows: list[dict], cts: dict, days: int) -> dict | None:
     }
 
 
-def _window(rows, a, b, market):
+def _window(rows, a, b, brand, market):
     a, b = a.isoformat(), b.isoformat()
-    return [r for r in rows if a <= r["d"] <= b and (market == "all" or r["m"] == market)]
+    return [r for r in rows if a <= r["d"] <= b and (market == "all" or r["m"] == market)
+            and (brand == "all" or r["b"] == brand)]
 
 
 def build_economics(today, offers, cts):
@@ -423,19 +455,23 @@ def build_economics(today, offers, cts):
     last = max(r["d"] for r in rows)
     yday = min(yday, datetime.date.fromisoformat(last))
     l14a, p14a, p14b = yday - D(13), yday - D(27), yday - D(14)
-    mk = ["all"] + MARKETS
+    mk, bk = ["all"] + MARKETS, ["all"] + BRANDS
+    # Every per-segment block is keyed [brand][market]: brand all|babyshop|lekmer.
     out = {"through": yday.isoformat(),
            "windows": {"l14": {"from": l14a.isoformat(), "to": yday.isoformat()},
                        "p14": {"from": p14a.isoformat(), "to": p14b.isoformat()}},
-           "cts_per_order": {m: _r(v) for m, v in cts.items()},
-           "by_market": {m: {"l14": _stats(_window(rows, l14a, yday, m), cts, 14),
-                              "p14": _stats(_window(rows, p14a, p14b, m), cts, 14)} for m in mk}}
+           "cts_per_order": {k: _r(v) for k, v in cts.items()},
+           "by_brand": {b: {m: {"l14": _stats(_window(rows, l14a, yday, b, m), cts, 14),
+                                 "p14": _stats(_window(rows, p14a, p14b, b, m), cts, 14)} for m in mk}
+                        for b in bk}}
     bl, bp = _band_rows(l14a, yday), _band_rows(p14a, p14b)
-    out["bands"] = {m: {"l14": _bands(bl, cts, m), "p14": _bands(bp, cts, m)} for m in mk}
-    # daily series since 1 Oct, per market + all
+    out["bands"] = {b: {m: {"l14": _bands(bl, cts, b, m), "p14": _bands(bp, cts, b, m)} for m in mk}
+                    for b in bk}
+    # daily series since 1 Oct
     days = [first + D(i) for i in range((yday - first).days + 1)]
-    out["daily"] = {m: [dict(d=d.isoformat(), **{k: s[k] for k in ("rev", "off_share", "depth_offer", "gp2_m", "gp2")})
-                        for d in days if (s := _stats(_window(rows, d, d, m), cts, 1))] for m in mk}
+    out["daily"] = {b: {m: [dict(d=d.isoformat(), **{k: s[k] for k in ("rev", "off_share", "depth_offer", "gp2_m", "gp2")})
+                            for d in days if (s := _stats(_window(rows, d, d, b, m), cts, 1))] for m in mk}
+                    for b in bk}
     # per offer: during (to yesterday) vs 14 days before start, in the offer's markets
     per = []
     for o in offers:
@@ -446,10 +482,10 @@ def build_economics(today, offers, cts):
         res = {}
         for m in ["all"] + o["markets"]:
             ms = o["markets"] if m == "all" else [m]
-            dur = [r for r in _window(rows, s0, e0, "all") if r["m"] in ms]
-            pre = [r for r in _window(rows, s0 - D(14), s0 - D(1), "all") if r["m"] in ms]
+            dur = [r for r in _window(rows, s0, e0, o["brand"], "all") if r["m"] in ms]
+            pre = [r for r in _window(rows, s0 - D(14), s0 - D(1), o["brand"], "all") if r["m"] in ms]
             res[m] = {"during": _stats(dur, cts, (e0 - s0).days + 1), "pre": _stats(pre, cts, 14)}
-        per.append({"id": o["id"], "from": s0.isoformat(), "to": e0.isoformat(), "by_market": res})
+        per.append({"id": o["id"], "brand": o["brand"], "from": s0.isoformat(), "to": e0.isoformat(), "by_market": res})
     out["per_offer"] = per
     return out
 
@@ -492,19 +528,6 @@ def load_feed() -> dict:
     return items
 
 
-def _velocity(today):
-    """14-day units/revenue per PartNo × market, all Babyshop markets (norce BQ)."""
-    a, b = today - D(14), today - D(1)
-    return _q(f"""
-      SELECT li.PartNo p, UPPER(SPLIT(o.app_key, '-')[OFFSET(1)]) m,
-             SUM(li.QtyOrdered) u, SUM(li.LineAmount * fx.to_sek) rev
-      FROM `{NORCE}.order_items` li JOIN `{NORCE}.orders` o ON o.Id = li.OrderId
-      LEFT JOIN `{NORCE}.currency_rates` fx ON fx.currency_id = o.CurrencyId
-      WHERE o.app_key LIKE 'babyshop-%' AND li.PartNo != '{SHIPPING_PART_NO}' AND li.LineAmount > 0
-        AND DATE(o.OrderDate) BETWEEN @a AND @b
-      GROUP BY p, m""", a=a, b=b), a, b
-
-
 def _bw_uplift(today) -> dict:
     """Last year's Black Week units/day ÷ the 14-day window ending a year before
     our velocity window. Per market + all."""
@@ -516,32 +539,14 @@ def _bw_uplift(today) -> dict:
         SUM(IF(DATE(o.OrderDate) BETWEEN @a AND @b, li.QtyOrdered, 0)) / {(b - a).days + 1} base,
         SUM(IF(DATE(o.OrderDate) BETWEEN @c AND @e, li.QtyOrdered, 0)) / {(bw_b - bw_a).days + 1} bw
       FROM `{NORCE}.order_items` li JOIN `{NORCE}.orders` o ON o.Id = li.OrderId
-      WHERE o.app_key LIKE 'babyshop-%' AND li.PartNo != '{SHIPPING_PART_NO}' AND li.LineAmount > 0
+      WHERE (o.app_key LIKE 'babyshop-%' OR o.app_key LIKE 'lekmer-%')
+        AND li.PartNo != '{SHIPPING_PART_NO}' AND li.LineAmount > 0
         AND DATE(o.OrderDate) BETWEEN @a AND @e
       GROUP BY m""", a=a, b=b, c=bw_a, e=bw_b)
     out = {r["m"]: _r(_div(r["bw"], r["base"]), 2) for r in rows if r["m"] in MARKETS}
     tb, tw = sum(r["base"] for r in rows), sum(r["bw"] for r in rows)
     out["all"] = _r(_div(tw, tb), 2)
     out["window_ly"] = {"base": [a.isoformat(), b.isoformat()], "bw": [bw_a.isoformat(), bw_b.isoformat()]}
-    return out
-
-
-def _ads_spend() -> dict:
-    """Google Shopping/PMax cost per product item id per market, last 7 days, SEK.
-    Read-only GAQL through refresh_roas_sims' client."""
-    import refresh_roas_sims as rs
-    fx = {r["c"]: r["s"] for r in _q(f"SELECT currency_code c, to_sek s FROM `{NORCE}.currency_rates`")}
-    svc = rs.ads_client().get_service("GoogleAdsService")
-    out = {}
-    q = ("SELECT segments.product_item_id, customer.currency_code, metrics.cost_micros, "
-         "metrics.clicks FROM shopping_performance_view "
-         "WHERE segments.date DURING LAST_7_DAYS AND metrics.cost_micros > 0")
-    for m, cid in ADS_ACCOUNTS.items():
-        d = defaultdict(float)
-        for row in rs._search(svc, cid, q):
-            d[row.segments.product_item_id.upper()] += (
-                row.metrics.cost_micros / 1e6 * fx.get(row.customer.currency_code, 1.0))
-        out[m] = d
     return out
 
 
@@ -559,118 +564,17 @@ def _sku_dims() -> tuple[dict, dict]:
     return {r["p"]: "v" + r["g"] for r in rows}, {r["p"]: (r["t"], r["b"]) for r in rows}
 
 
-def build_stock(today, feed, ads, uplift):
-    vel_rows, va, vb = _velocity(today)
-    pid, titles = _sku_dims()
-    sku_u = defaultdict(float)                       # all markets, units 14d
-    sku_m = defaultdict(lambda: defaultdict(float))  # PartNo → market → rev
-    for r in vel_rows:
-        sku_u[r["p"]] += r["u"] or 0
-        if r["m"] in MARKETS:
-            sku_m[r["p"]][r["m"]] += r["rev"] or 0
-    upl = uplift.get("all") or 1.0
-    # Units a SKU needs from today through Cyber Monday: current pace until Black
-    # Week, last year's Black Week multiple of it during Black Week.
-    pre_days = max((bm.BLACK_WEEK[0] - today).days, 0)
-    bw_days = (bm.CYBER_MONDAY - max(today, bm.BLACK_WEEK[0])).days + 1
-
-    def need(units14):
-        v = units14 / 14
-        return v * (pre_days + upl * max(bw_days, 0))
-
-    # A SKU that sold in the last 14 days but is no longer in the feed has (in
-    # every case we checked) sold out: Channable drops out-of-stock items.
-    def oos(p):
-        f = feed.get(p)
-        return f is None or f["stock"] <= 0 or f["avail"] == "out_of_stock"
-
-    def cover(p):
-        v = sku_u.get(p, 0) / 14
-        return (feed[p]["stock"] / v) if (v > 0 and p in feed) else None
-
-    def low(p):
-        c = cover(p)
-        return not oos(p) and c is not None and c < LOW_COVER_DAYS
-
-    groups = defaultdict(list)
-    for p in set(feed) | set(sku_u):
-        groups[pid.get(p) or (feed[p]["g"] if p in feed else p)].append(p)
-
-    ad_ids = {m: {p.upper(): c for p, c in d.items()} for m, d in ads.items()}
-    rows = []
-    for gid, skus in groups.items():
-        rev = {m: sum(sku_m[p][m] for p in skus) for m in MARKETS}
-        rev["all"] = sum(rev.values())
-        ad = {m: sum(d.get(p.upper(), 0) for p in skus) for m, d in ad_ids.items()}
-        if rev["all"] <= 0 and not any(ad.values()):
-            continue
-        in_feed = [p for p in skus if p in feed]
-        f0 = feed[in_feed[0]] if in_feed else None
-        t0 = next((titles[p] for p in skus if p in titles), (None, None))
-        units = sum(sku_u.get(p, 0) for p in skus)
-        stock = sum(feed[p]["stock"] for p in in_feed)
-        selling = [p for p in skus if sku_u.get(p, 0) > 0]
-        oos_selling = [p for p in selling if oos(p)]
-        gone = [p for p in selling if p not in feed]
-        v = units / 14
-        cov = stock / v if v > 0 else None
-        nd = need(units)
-        price = max((feed[p]["price"] for p in in_feed), default=None)
-        sale = min((feed[p]["sale"] for p in in_feed), default=None)
-        flag = ("oos" if stock <= 0 else
-                "low" if cov is not None and cov < LOW_COVER_DAYS else
-                "sizes" if selling and len(oos_selling) / len(selling) >= 0.34 else
-                "bw" if stock < nd else "ok")
-        rows.append({
-            "id": gid, "title": (f0["title"] if f0 else t0[0]) or skus[0],
-            "brand": (f0["brand"] if f0 else t0[1]) or "", "cat": f0["cat"] if f0 else "",
-            "url": f0["url"] if f0 else None, "price": _r(price), "sale": _r(sale),
-            "depth": _r(1 - sale / price, 3) if price and sale and sale < price * 0.99 else 0,
-            "rev": {k: _r(x) for k, x in rev.items()}, "units14": _r(units, 1),
-            "stock": stock, "skus_selling": len(selling), "oos_selling": len(oos_selling),
-            "gone_from_feed": len(gone),
-            "cover": _r(cov, 1), "need_to_cm": _r(nd), "short_to_cm": _r(max(nd - stock, 0)),
-            "flag": flag, "ad7": {m: _r(x) for m, x in ad.items()},
-            "ad7_oos": {m: _r(sum(ad_ids[m].get(p.upper(), 0) for p in skus if oos(p))) for m in ad_ids},
-            "ad7_low": {m: _r(sum(ad_ids[m].get(p.upper(), 0) for p in skus if low(p))) for m in ad_ids}})
-    # keep: top N per market + overall, markdown products among the top 300, and
-    # the products with the most Shopping spend on out-of-stock / low-cover SKUs
-    keep = set()
-    for m in ["all"] + MARKETS:
-        keep |= {r["id"] for r in sorted(rows, key=lambda r: -(r["rev"][m] or 0))[:HERO_N]}
-    top300 = sorted(rows, key=lambda r: -(r["rev"]["all"] or 0))[:300]
-    keep |= {r["id"] for r in top300 if r["depth"] and r["depth"] >= 0.05}
-    waste = lambda r: sum(r["ad7_oos"].values()) + sum(r["ad7_low"].values())
-    keep |= {r["id"] for r in sorted(rows, key=lambda r: -waste(r))[:40] if waste(r) > 0}
-    heroes = sorted((r for r in rows if r["id"] in keep), key=lambda r: -(r["rev"]["all"] or 0))
-
-    # Shopping spend split by stock state, per market (all SKUs, not just heroes)
-    spend = {}
-    for m, d in ad_ids.items():
-        spend[m] = {"total": _r(sum(d.values())),
-                    "oos": _r(sum(c for p, c in d.items() if p in feed and oos(p))),
-                    "gone": _r(sum(c for p, c in d.items() if p not in feed and p in sku_u)),
-                    "low": _r(sum(c for p, c in d.items() if low(p))),
-                    "unknown": _r(sum(c for p, c in d.items() if p not in feed and p not in sku_u))}
-    if spend:
-        spend["all"] = {k: sum(spend[m][k] or 0 for m in ad_ids) for k in spend[MARKETS[0]]}
-    sold_gone = [p for p in sku_u if p not in feed]
-    return {"velocity_window": [va.isoformat(), vb.isoformat()], "bw_uplift": uplift,
-            "need_basis": {"pre_bw_days": pre_days, "bw_days": max(bw_days, 0)},
-            "products": heroes, "ad_spend": spend or None,
-            "gone_from_feed": {"skus": len(sold_gone),
-                               "rev14": _r(sum(sum(sku_m[p].values()) for p in sold_gone))}}
-
-
-def build_width(cat_rows, feed):
-    """Per category × market: revenue share sold on offer, realised depth, and
-    the share of in-stock SKUs on markdown in the (SE) feed."""
-    agg = defaultdict(lambda: defaultdict(lambda: [0.0, 0.0, 0.0]))
-    for r in cat_rows:
+def build_width(sku_rows, feed):
+    """Per category × brand × market: revenue share sold on offer and realised
+    depth (Norce), plus the share of in-stock SKUs on markdown in the feed
+    (Babyshop SE prices; the catalogue is shared, Lekmer prices may differ)."""
+    agg = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [0.0, 0.0, 0.0])))
+    for r in sku_rows:
         cat = (feed.get(r["p"]) or {}).get("cat") or "Sold out (not in feed)"
-        for m in (r["m"], "all"):
-            a = agg[cat][m]
-            a[0] += r["rev"] or 0; a[1] += r["rev_off"] or 0; a[2] += r["full_off"] or 0
+        for b in (r["b"], "all"):
+            for m in (r["m"], "all"):
+                a = agg[cat][b][m]
+                a[0] += r["rev"] or 0; a[1] += r["rev_off"] or 0; a[2] += r["full_off"] or 0
     cat_feed = defaultdict(lambda: [0, 0, 0.0])
     for f in feed.values():
         if f["stock"] > 0 and not f["dead"] and f["price"]:
@@ -679,15 +583,15 @@ def build_width(cat_rows, feed):
             if f["sale"] < f["price"] * 0.99:
                 c[1] += 1; c[2] += 1 - f["sale"] / f["price"]
     out = []
-    for cat, ms in agg.items():
-        row = {"cat": cat, "skus_in_stock": cat_feed[cat][0],
+    for cat, bs in agg.items():
+        row = {"cat": cat, "brand": "all", "skus_in_stock": cat_feed[cat][0],
                "feed_on_sale": _r(_div(cat_feed[cat][1], cat_feed[cat][0]), 3),
-               "feed_depth": _r(_div(cat_feed[cat][2], cat_feed[cat][1]), 3), "m": {}}
-        for m, (rev, ro, fo) in ms.items():
-            row["m"][m] = {"rev": _r(rev), "off_share": _r(_div(ro, rev), 3),
-                           "depth": _r(1 - ro / fo, 3) if fo else None}
+               "feed_depth": _r(_div(cat_feed[cat][2], cat_feed[cat][1]), 3),
+               "b": {b: {m: {"rev": _r(rev), "off_share": _r(_div(ro, rev), 3),
+                             "depth": _r(1 - ro / fo, 3) if fo else None}
+                         for m, (rev, ro, fo) in ms.items()} for b, ms in bs.items()}}
         out.append(row)
-    out.sort(key=lambda r: -(r["m"].get("all", {}).get("rev") or 0))
+    out.sort(key=lambda r: -(r["b"]["all"]["all"]["rev"] or 0))
     return out
 
 
@@ -716,16 +620,21 @@ def build(ctx: dict) -> dict:
     offers, context = cal if cal else ([], [])
     cts = step("cost_to_serve", _cost_to_serve, today) or {}
     econ = step("economics", build_economics, today, offers, cts) if cts else None
-    cat_rows = step("categories", _category_rows, today - D(14), today - D(1)) or []
-    width = build_width(cat_rows, feed) if cat_rows and feed else []
+    sku_rows = step("sku_economics", _sku_rows, today - D(14), today - D(1)) or []
+    width = build_width(sku_rows, feed) if sku_rows and feed else []
     uplift = step("bw_uplift", _bw_uplift, today) or {"all": None}
-    ads = step("google_ads", _ads_spend)
-    stock = step("stock", build_stock, today, feed, ads or {}, uplift) if feed else None
+    import bm_offers_stock as bst
+    ads = step("google_ads", bst.ads_daily, today)
+    stock = (step("stock", bst.build_stock, today, feed, ads, uplift, _sku_econ(sku_rows, cts),
+                  datetime.datetime.fromisoformat(ctx["generated_at"])) if feed else None)
 
     if not sources["airtable"]["ok"]:
         notes.insert(0, "Campaign calendar unavailable: " + sources["airtable"]["error"])
     if ads is None:
         notes.insert(0, "Google Ads spend per product unavailable: " + sources["google_ads"]["error"])
+    notes.append("Lekmer: same catalogue and stock as Babyshop (shared Norce PartNos, one Channable "
+                 "feed); Lekmer has no FI Google Ads account. The campaign calendar holds only one "
+                 "Lekmer campaign (LM - Autumn Days, ended 15 Oct), so Lekmer offers show as none.")
     if not sources["norce_sync"]["ok"]:
         notes.insert(0, "Norce line prices not refreshed this run (economics may lag): "
                      + sources["norce_sync"]["error"])
