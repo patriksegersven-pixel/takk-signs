@@ -59,7 +59,13 @@ Simulations page was originally developed is archived and read-only.)
   the log for six days. `v_calibrated_recs` also exposes `days_since_change`
   / `cooldown` (any logged change inside `COOLDOWN_DAYS` = 14) so a campaign
   is not stepped again before its post-change window is clean; the page shows
-  it as a "hold" badge next to the calibrated rec.
+  it as a "hold" badge next to the calibrated rec. Broken conversion
+  tracking goes in `tracking_exclusions` (`python3 roas_sims_bq.py
+  --exclude-tracking "Babyshop ROW" 2026-10-01 2026-11-01 --reason ...`,
+  inclusive dates): κ drops every window overlapping it (no clean window →
+  class prior) and `v_change_scoring` marks changes whose adjacent pre window
+  overlaps it `tracking_excluded` instead of scoring them. Run it after the
+  code is deployed, since it creates the table and recreates the views.
 - `requirements.txt`, `Dockerfile` — runtime (uvicorn on `python:3.12-slim`)
 - `pipeline/` — docs + operator tooling (dockerignored, not deployed):
   - `PIPELINE.md` — full pipeline documentation, data semantics and setup

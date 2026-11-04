@@ -41,6 +41,12 @@ TABLES (dataset `roas_sims`, EU, day-partitioned on run_date)
                       and none reached the log; the scoring/λ layer was blind to
                       them for six days. The log must not depend on an operator
                       remembering a rule.
+  tracking_exclusions account-level date ranges (inclusive) where conversion tracking
+                      was broken. Any actuals window overlapping one is dropped from
+                      κ (the campaign falls back toward its class prior) and from
+                      change scoring. Add rows with --exclude-tracking. WHY: Babyshop
+                      ROW under-tracked conversions 2026-10-01..11-01; its κ and every
+                      ROW change scored in that month were learning from the outage.
 
 IDEMPOTENCY
   Grids load into the run_date partition decorator (table$YYYYMMDD) with
@@ -234,10 +240,19 @@ SCHEMAS: dict[str, list[bigquery.SchemaField]] = {
         S("source", "STRING"),
         S("notes", "STRING"),
     ],
+    "tracking_exclusions": [
+        S("customer_name", "STRING", mode="REQUIRED",
+          description="Account label as in actuals.customer_name, e.g. 'Babyshop ROW'"),
+        S("start_date", "DATE", mode="REQUIRED", description="First broken day"),
+        S("end_date", "DATE", mode="REQUIRED", description="Last broken day (inclusive)"),
+        S("reason", "STRING"),
+        S("added_at", "TIMESTAMP"),
+    ],
 }
 _PARTITION = {"sim_points": "run_date", "impression_shares": "run_date",
               "actuals": "run_date", "target_changes": "change_date",
-              "marginal_observations": "change_date"}
+              "marginal_observations": "change_date",
+              "tracking_exclusions": "start_date"}
 _CLUSTER = {"sim_points": ["customer_name", "strategy_name"],
             "actuals": ["customer_name", "strategy_name"]}
 
@@ -314,29 +329,41 @@ _VIEWS = {
     # κ here is a LEVEL correction at the operating point. The curves' remaining
     # failure mode is SLOPE optimism (marginal value of moving the target),
     # which only v_change_scoring can measure — apply step caps on top.
+    # Windows overlapping a tracking_exclusions range are left out of κ (but
+    # still count toward avg_7d_cost — spend was real). A campaign with no clean
+    # window keeps its row with k_*_raw NULL and n_eff 0, i.e. pure class prior,
+    # rather than vanishing from v_calibrated_recs.
     "v_kappa_calibrated": """
         WITH k AS (
-          SELECT customer_name, strategy_name, strategy_id, currency,
+          SELECT v.customer_name, v.strategy_name, v.strategy_id, v.currency,
                  CASE
-                   WHEN LOWER(strategy_name) LIKE '%brand%' THEN 'brand'
-                   WHEN LOWER(strategy_name) LIKE '%pb-generic%' THEN 'generic'
-                   WHEN LOWER(strategy_name) LIKE '%-pb-%'
-                     OR LOWER(strategy_name) LIKE '%-pb' THEN 'private-label'
+                   WHEN LOWER(v.strategy_name) LIKE '%brand%' THEN 'brand'
+                   WHEN LOWER(v.strategy_name) LIKE '%pb-generic%' THEN 'generic'
+                   WHEN LOWER(v.strategy_name) LIKE '%-pb-%'
+                     OR LOWER(v.strategy_name) LIKE '%-pb' THEN 'private-label'
                    ELSE 'generic'
                  END AS inc_class,
-                 kappa_cost, kappa_value, actual_cost
-          FROM `{v_kappa}`
-          WHERE run_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 28 DAY)
-            AND kappa_cost IS NOT NULL AND kappa_value IS NOT NULL
+                 v.kappa_cost, v.kappa_value, v.actual_cost,
+                 EXISTS (
+                   SELECT 1 FROM `{tracking_exclusions}` e
+                   WHERE e.customer_name = v.customer_name
+                     AND e.start_date <= v.end_date AND e.end_date >= v.start_date
+                 ) AS excluded
+          FROM `{v_kappa}` v
+          WHERE v.run_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 28 DAY)
+            AND v.kappa_cost IS NOT NULL AND v.kappa_value IS NOT NULL
         ),
         per_campaign AS (
           SELECT customer_name, strategy_name, strategy_id, currency, inc_class,
-                 COUNT(*) AS days,
-                 COUNT(*) / 7.0 AS n_eff,
-                 LEAST(4, GREATEST(0.25,
-                   SUM(actual_cost * kappa_cost)  / SUM(actual_cost))) AS k_cost_raw,
-                 LEAST(4, GREATEST(0.25,
-                   SUM(actual_cost * kappa_value) / SUM(actual_cost))) AS k_value_raw,
+                 COUNTIF(NOT excluded) AS days,
+                 COUNTIF(excluded) AS excluded_days,
+                 COUNTIF(NOT excluded) / 7.0 AS n_eff,
+                 LEAST(4, GREATEST(0.25, SAFE_DIVIDE(
+                   SUM(IF(excluded, NULL, actual_cost * kappa_cost)),
+                   SUM(IF(excluded, NULL, actual_cost))))) AS k_cost_raw,
+                 LEAST(4, GREATEST(0.25, SAFE_DIVIDE(
+                   SUM(IF(excluded, NULL, actual_cost * kappa_value)),
+                   SUM(IF(excluded, NULL, actual_cost))))) AS k_value_raw,
                  AVG(actual_cost) AS avg_7d_cost
           FROM k
           GROUP BY 1, 2, 3, 4, 5
@@ -345,7 +372,7 @@ _VIEWS = {
           SELECT inc_class,
                  APPROX_QUANTILES(k_cost_raw,  100)[OFFSET(50)] AS k_cost_class,
                  APPROX_QUANTILES(k_value_raw, 100)[OFFSET(50)] AS k_value_class,
-                 COUNT(*) AS class_campaigns
+                 COUNT(k_value_raw) AS class_campaigns
           FROM per_campaign
           GROUP BY 1
         )
@@ -353,10 +380,11 @@ _VIEWS = {
                p.inc_class, p.days, p.avg_7d_cost,
                p.k_cost_raw, p.k_value_raw,
                c.k_cost_class, c.k_value_class, c.class_campaigns,
-               (p.n_eff * p.k_cost_raw  + 2 * c.k_cost_class)  / (p.n_eff + 2)
-                 AS k_cost,
-               (p.n_eff * p.k_value_raw + 2 * c.k_value_class) / (p.n_eff + 2)
-                 AS k_value
+               (p.n_eff * IFNULL(p.k_cost_raw, 0)  + 2 * c.k_cost_class)
+                 / (p.n_eff + 2) AS k_cost,
+               (p.n_eff * IFNULL(p.k_value_raw, 0) + 2 * c.k_value_class)
+                 / (p.n_eff + 2) AS k_value,
+               p.excluded_days
         FROM per_campaign p
         JOIN class_prior c USING (inc_class)
     """,
@@ -367,11 +395,21 @@ _VIEWS = {
     # columns; a row appears here ~8 days after its change and then keeps updating
     # as later windows land, so re-read before judging — bidding re-learns for
     # 1–2 weeks after a big step.
+    # tracking_exclusions: the ADJACENT pre window is checked after it is picked,
+    # never skipped past — falling back to a clean window weeks earlier would
+    # compare across seasons, so a change whose pre window overlaps an exclusion
+    # is unscoreable (tracking_excluded = TRUE). Post windows are filtered before
+    # picking the latest: a clean one arrives as time passes.
     "v_change_scoring": """
-        WITH pre AS (
+        WITH pre_adjacent AS (
           SELECT c.change_date, c.campaign_id, a.cost,
                  a.conv_time_conversions_value - a.cost AS gp3,
-                 a.start_date, a.end_date
+                 a.start_date, a.end_date,
+                 EXISTS (
+                   SELECT 1 FROM `{tracking_exclusions}` e
+                   WHERE e.customer_name = c.customer_name
+                     AND e.start_date <= a.end_date AND e.end_date >= a.start_date
+                 ) AS tracking_excluded
           FROM `{target_changes}` c
           JOIN `{actuals}` a
             ON a.strategy_id = c.campaign_id AND a.customer_name = c.customer_name
@@ -383,6 +421,10 @@ _VIEWS = {
                 AND x.change_date BETWEEN a.start_date AND a.end_date)
           QUALIFY ROW_NUMBER() OVER (PARTITION BY c.change_date, c.campaign_id
                                      ORDER BY a.end_date DESC, a.run_date DESC) = 1
+        ),
+        pre AS (
+          SELECT * EXCEPT(tracking_excluded) FROM pre_adjacent
+          WHERE NOT tracking_excluded
         ),
         post AS (
           SELECT c.change_date, c.campaign_id, a.cost,
@@ -396,6 +438,10 @@ _VIEWS = {
               SELECT 1 FROM `{target_changes}` x
               WHERE x.campaign_id = c.campaign_id
                 AND x.change_date BETWEEN a.start_date AND a.end_date)
+            AND NOT EXISTS (
+              SELECT 1 FROM `{tracking_exclusions}` e
+              WHERE e.customer_name = c.customer_name
+                AND e.start_date <= a.end_date AND e.end_date >= a.start_date)
           QUALIFY ROW_NUMBER() OVER (PARTITION BY c.change_date, c.campaign_id
                                      ORDER BY a.end_date DESC, a.run_date DESC) = 1
         )
@@ -413,10 +459,13 @@ _VIEWS = {
                SIGN(c.predicted_cost_pct) = SIGN(post.cost - pre.cost)
                  AS cost_direction_hit,
                SIGN(c.predicted_gp3_pct) = SIGN(post.gp3 - pre.gp3)
-                 AS gp3_direction_hit
+                 AS gp3_direction_hit,
+               IFNULL(pa.tracking_excluded, FALSE) AS tracking_excluded
         FROM `{target_changes}` c
         LEFT JOIN pre  USING (change_date, campaign_id)
         LEFT JOIN post USING (change_date, campaign_id)
+        LEFT JOIN pre_adjacent pa
+          ON pa.change_date = c.change_date AND pa.campaign_id = c.campaign_id
     """,
     # Slope calibration — the layer the level-κ cannot provide. For every scored
     # change, the realized marginal (ΔGP2 ÷ Δcost across the step, conv-time)
@@ -643,6 +692,7 @@ def ensure_tables() -> None:
                                   v_marginal_scoring=T("v_marginal_scoring"),
                                   v_lambda=T("v_lambda"),
                                   marginal_observations=T("marginal_observations"),
+                                  tracking_exclusions=T("tracking_exclusions"),
                                   cooldown_days=COOLDOWN_DAYS)
         bq().delete_table(v, not_found_ok=True)   # views have no data; recreate freely
         bq().create_table(v)
@@ -1086,6 +1136,28 @@ def reconcile_target_changes(days: int = RECONCILE_LOOKBACK_DAYS,
             "would_insert": len(rows) if dry_run else 0, "rows": rows, "skipped": skipped}
 
 
+def add_tracking_exclusion(customer_name: str, start: str, end: str, reason: str) -> None:
+    """Append one tracking_exclusions row. Refuses an account label that has never
+    appeared in actuals: a typo would match nothing and exclude nothing, silently."""
+    from datetime import date, datetime, timezone
+
+    if date.fromisoformat(end) < date.fromisoformat(start):
+        raise SystemExit(f"end {end} is before start {start}")
+    ensure_tables()
+    seen = list(bq().query(
+        f"SELECT 1 FROM `{T('actuals')}` WHERE customer_name = @c LIMIT 1",
+        job_config=bigquery.QueryJobConfig(query_parameters=[
+            bigquery.ScalarQueryParameter("c", "STRING", customer_name)])).result())
+    if not seen:
+        raise SystemExit(f"no actuals rows for account {customer_name!r}; check the label")
+    row = {"customer_name": customer_name, "start_date": start, "end_date": end,
+           "reason": reason,
+           "added_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat()}
+    cfg = bigquery.LoadJobConfig(schema=SCHEMAS["tracking_exclusions"],
+                                 write_disposition="WRITE_APPEND")
+    bq().load_table_from_json([row], T("tracking_exclusions"), job_config=cfg).result()
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -1098,8 +1170,16 @@ if __name__ == "__main__":
     ap.add_argument("--dry-run", action="store_true", help="with --reconcile: report only")
     ap.add_argument("--days", type=int, default=RECONCILE_LOOKBACK_DAYS,
                     help="with --reconcile: lookback window (max ~30)")
+    ap.add_argument("--exclude-tracking", nargs=3, metavar=("ACCOUNT", "START", "END"),
+                    help="log a broken-tracking range (inclusive dates) for one account; "
+                         "kappa and change scoring skip windows overlapping it")
+    ap.add_argument("--reason", default="", help="with --exclude-tracking")
     args = ap.parse_args()
-    if args.reconcile:
+    if args.exclude_tracking:
+        acct, start, end = args.exclude_tracking
+        add_tracking_exclusion(acct, start, end, args.reason)
+        print(f"excluded {acct} {start}..{end}")
+    elif args.reconcile:
         import json as _json
         res = reconcile_target_changes(days=args.days, dry_run=args.dry_run)
         for r in res["rows"]:
