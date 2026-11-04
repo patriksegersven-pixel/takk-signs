@@ -46,12 +46,15 @@
 --     must be labelled as directional in the UI.
 --
 --   • MARKET COMES FROM THE CONTACT, NOT THE MESSAGE. The share is a single
---     tenant with no market dimension on messages. Two things feed the
---     'Unknown' bucket and it must be SHOWN, never hidden: 39,015 of the
---     316,797 landed contacts (12%) have a NULL countryCode, and every contact
---     Voyado has erased (166,618 rows arrive as changeType='DELETE' and are
---     never landed) leaves its message history with no contact to join to.
---     Message-level counts are therefore complete; market-split counts are not.
+--     tenant with no market dimension on messages. Events and receipts carry
+--     a `market` column that voyado_sync.stamp_markets() copies from the
+--     contact while it still exists; read it FIRST and fall back to the live
+--     contact join. Erasures run at scale (135,214 in the four weeks to
+--     2026-11-04) and remove the contact, so without the stamp 46-64% of each
+--     past month's sends had no market. Rows erased before the stamp existed
+--     (2026-11-04, minus the 7 days time travel recovered) stay 'Unknown', as
+--     do contacts with no countryCode (~16%). 'Unknown' must be SHOWN, never
+--     hidden: message-level counts are complete; market-split counts are not.
 --
 --   • ATTRIBUTION IS LAST CLICK, 7-DAY WINDOW, on Voyado's own contactId. It
 --     credits a receipt to the most recent non-transactional email click by the
@@ -98,6 +101,7 @@ SELECT
   r.numberOfItems,
   COALESCE(cr.sek_rate, 1.0)                    AS sek_rate,
   r.totalLocalPrice * COALESCE(cr.sek_rate, 1.0) AS revenue_sek,
+  r.market                                       AS stamped_market,
   -- The window in which Voyado's own exchangeRate cannot be trusted. Exposed so
   -- a chart can grey it out rather than quietly showing a wrong early baseline.
   r.createdOnDate < DATE '2025-06-01'            AS in_broken_fx_window
@@ -246,7 +250,7 @@ SELECT
   r.createdOnDate,
   r.revenue_sek,
   r.in_broken_fx_window,
-  COALESCE(cm.market, 'Unknown') AS market,
+  COALESCE(r.stamped_market, cm.market, 'Unknown') AS market,
   k.messageId       AS attributed_messageId,
   k.clickDateTime   AS attributed_clickDateTime,
   k.messageId IS NOT NULL AS is_email_attributed
@@ -296,7 +300,8 @@ LEFT JOIN rev USING (messageId)
 --
 -- Every metric sits on the date it happened (a click on the 3rd counts on the
 -- 3rd even if the send was the 1st), which is what makes a daily series add up
--- to what the mailbox actually did that day. Market comes from the contact.
+-- to what the mailbox actually did that day. Market is the stamped one, else
+-- the live contact's (see the header).
 --
 -- Each CTE COALESCEs market to 'Unknown' BEFORE the FULL JOINs below: USING
 -- treats NULL as unequal to NULL, so a NULL market would split one day's sends
@@ -304,28 +309,28 @@ LEFT JOIN rev USING (messageId)
 CREATE OR REPLACE VIEW `${DATASET}.email_daily` AS
 WITH msg AS (SELECT messageId, message_type FROM `${DATASET}.marketing_messages`),
 d AS (
-  SELECT x.deliveryDate AS event_date, COALESCE(cm.market, 'Unknown') AS market, msg.message_type,
+  SELECT x.deliveryDate AS event_date, COALESCE(x.market, cm.market, 'Unknown') AS market, msg.message_type,
          COUNT(*) AS sent, COUNT(DISTINCT x.contactId) AS recipients
   FROM `${DATASET}.deliveries` x
   JOIN msg USING (messageId)
   LEFT JOIN `${DATASET}.contact_market` cm ON cm.contactId = x.contactId
   GROUP BY 1, 2, 3
 ), o AS (
-  SELECT x.openDate AS event_date, COALESCE(cm.market, 'Unknown') AS market, msg.message_type,
+  SELECT x.openDate AS event_date, COALESCE(x.market, cm.market, 'Unknown') AS market, msg.message_type,
          COUNT(*) AS opens, COUNT(DISTINCT x.contactId) AS unique_openers
   FROM `${DATASET}.opens` x
   JOIN msg USING (messageId)
   LEFT JOIN `${DATASET}.contact_market` cm ON cm.contactId = x.contactId
   GROUP BY 1, 2, 3
 ), c AS (
-  SELECT x.clickDate AS event_date, COALESCE(cm.market, 'Unknown') AS market, msg.message_type,
+  SELECT x.clickDate AS event_date, COALESCE(x.market, cm.market, 'Unknown') AS market, msg.message_type,
          COUNT(*) AS clicks, COUNT(DISTINCT x.contactId) AS unique_clickers
   FROM `${DATASET}.clicks` x
   JOIN msg USING (messageId)
   LEFT JOIN `${DATASET}.contact_market` cm ON cm.contactId = x.contactId
   GROUP BY 1, 2, 3
 ), u AS (
-  SELECT x.eventDate AS event_date, COALESCE(cm.market, 'Unknown') AS market, msg.message_type,
+  SELECT x.eventDate AS event_date, COALESCE(x.market, cm.market, 'Unknown') AS market, msg.message_type,
          COUNT(*) AS unsubscribes
   FROM `${DATASET}.unsubscribes` x
   JOIN msg USING (messageId)

@@ -68,8 +68,9 @@ CAVEATS = [
     "only 25 of 737,751 sendouts use a control group, so no holdout comparison "
     "is possible; turning control groups on in Voyado is what would fix this",
     "transactional mail (76% of sendouts) is excluded from every metric",
-    "market comes from the contact, not the message; ~12% of contacts have no "
-    "countryCode and Voyado-erased contacts have none, so 'Unknown' is real",
+    "market comes from the contact, not the message; ~16% of contacts have no "
+    "countryCode, and mail to contacts Voyado erased before 2026-10-28 has no "
+    "contact left to read it from, so 'Unknown' is real and larger in older months",
     "all money is SEK, converted from local currency at Voyado's fixed rates "
     "(constant-currency for all history)",
     "receipts before 2025-06 sit in a window where Voyado's own exchangeRate "

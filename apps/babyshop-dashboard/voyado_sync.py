@@ -370,11 +370,23 @@ _CLUSTER = {"deliveries": ["messageId", "contactId"], "opens": ["messageId", "co
             "control_group": ["messageId"]}
 
 
+# Tables that carry their contact's market, stamped by stamp_markets() while
+# the contact still exists. Voyado erases contacts at scale (135,214 DELETE rows
+# in the four weeks to 2026-11-04, every one isDeleted=true), and an erased
+# contact can no longer be joined to — before this column, 46-64% of each past
+# month's marketing sends had fallen into market 'Unknown'. The stamp keeps
+# only the country code on the event; no contact attribute beyond that survives
+# the erasure.
+_STAMPED = ("deliveries", "opens", "clicks", "unsubscribes", "receipts")
+
+
 def schema_for(table: str) -> list[bigquery.SchemaField]:
     """Declared BigQuery schema for a target table, plus the derived columns."""
     fields = [S(tgt, typ) for _, tgt, typ in COLUMNS[table]]
     if SPECS[table].get("hash"):
         fields.append(S("customer_hash", "STRING"))
+    if table in _STAMPED:
+        fields.append(S("market", "STRING"))
     if table == "unsubscribes":
         # emailunsubscribelatest has no primary key of its own — see _shape().
         fields.append(S("eventKey", "STRING"))
@@ -586,6 +598,10 @@ def _shape(df: pd.DataFrame, table: str) -> pd.DataFrame:
         else:
             out[tgt] = col.astype("string")
 
+    if table in _STAMPED:
+        # Filled in BigQuery by stamp_markets(), never from the share.
+        out["market"] = pd.Series(pd.NA, index=df.index, dtype="string")
+
     if table == "unsubscribes":
         # This table has no id column. A bounce/unsubscribe is uniquely a
         # (delivery, moment, kind, link) — hashed so the MERGE key is one short
@@ -648,7 +664,9 @@ def merge(df: pd.DataFrame, table: str) -> int:
         stg = _stage(df, table)
         cols = [f.name for f in SCHEMAS[table]]
         on = " AND ".join(f"t.{k} = s.{k}" for k in keys)
-        upd = ", ".join(f"{c} = s.{c}" for c in cols if c not in keys)
+        # A re-read always arrives with market NULL; keep the stamp it already has.
+        upd = ", ".join(f"{c} = COALESCE(s.{c}, t.{c})" if c == "market" else f"{c} = s.{c}"
+                        for c in cols if c not in keys)
         bq().query(
             f"MERGE `{T(table)}` t USING `{stg}` s ON {on} "
             f"WHEN MATCHED THEN UPDATE SET {upd} "
@@ -657,6 +675,10 @@ def merge(df: pd.DataFrame, table: str) -> int:
         bq().delete_table(stg, not_found_ok=True)
         n = len(df)
 
+    if table == "contacts":
+        # Stamp BEFORE the erasures below remove the contacts being stamped from.
+        stamp_markets()
+
     if deletes is not None and len(deletes):
         # Reported separately by _apply_deletes, NOT netted off `n`: on the first
         # contacts run 166,618 of 483,415 rows are erasures, and subtracting them
@@ -664,6 +686,32 @@ def merge(df: pd.DataFrame, table: str) -> int:
         # 316,797. Upserts and deletes are different facts.
         _apply_deletes(deletes, table, keys)
     return n
+
+
+def stamp_markets(as_of: str | None = None) -> dict[str, int]:
+    """Copy each contact's countryCode onto its unstamped events and receipts.
+
+    Runs on every contacts sync, after the upserts and before the deletes, so a
+    contact Voyado erases in this run still stamps its history first. Only
+    NULL-market rows are touched and the stamp is never overwritten, so the
+    market recorded is the one the contact had when the row was first stamped.
+
+    `as_of` reads contacts at an earlier moment through BigQuery time travel
+    (7 days at most). That is the only way to recover contacts erased before
+    this column existed — see --stamp-markets.
+    """
+    src = f"`{T('contacts')}`" + (f" FOR SYSTEM_TIME AS OF {as_of}" if as_of else "")
+    stamped = {}
+    for table in _STAMPED:
+        job = bq().query(
+            f"UPDATE `{T(table)}` t SET market = c.cc "
+            f"FROM (SELECT contactId, NULLIF(TRIM(countryCode), '') AS cc FROM {src}) c "
+            f"WHERE t.market IS NULL AND t.contactId = c.contactId AND c.cc IS NOT NULL")
+        job.result()
+        stamped[table] = job.num_dml_affected_rows or 0
+    print("   + market stamped" + (f" (contacts as of {as_of})" if as_of else "") + ": "
+          + " · ".join(f"{k} {v:,}" for k, v in stamped.items()))
+    return stamped
 
 
 def _apply_deletes(df: pd.DataFrame, table: str, keys: list[str]) -> int:
@@ -785,9 +833,21 @@ def main() -> int:
                     help="window size for the large event tables (default %(default)s)")
     ap.add_argument("--only", help="comma-separated target tables (default: all)")
     ap.add_argument("--marts-only", action="store_true", help="only re-apply voyado_marts.sql")
+    ap.add_argument("--stamp-markets", action="store_true",
+                    help="one-off: stamp market from today's contacts AND from the contacts "
+                         "table as it was ~7 days ago (time travel), then re-apply the marts")
     args = ap.parse_args()
 
     t0 = time.time()
+
+    if args.stamp_markets:
+        ensure_dataset()
+        stamp_markets()
+        # 167h, not 168h: AS OF must fall inside the 7-day time-travel window
+        # when the query actually starts, not just when it was written.
+        stamp_markets("TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 167 HOUR)")
+        print(f"✓ Voyado markets stamped · marts {apply_marts()} · {time.time()-t0:.1f}s")
+        return 0
 
     # Touches BigQuery but never the share, so it runs without the profile —
     # which is the difference between being able to re-apply a mart fix from a
