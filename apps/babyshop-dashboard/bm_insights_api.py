@@ -4,7 +4,7 @@ Mounted by app.py behind Basic auth (see BLACKMONTH.md).
 
     GET  /api/blackmonth/insights/live                 fresh cards + manual events + checklist ticks
     POST /api/blackmonth/insights/cards/{id}/status    {status, by, note?, owner?}
-    POST /api/blackmonth/insights/events               {date, kind, market, title, detail?, by}
+    POST /api/blackmonth/insights/events               {date, kind, market, brand?, title, detail?, by}
     POST /api/blackmonth/insights/checklist/{item_id}  {done: bool, by}
 
 The snapshot (GET /api/blackmonth/insights) is rebuilt by the refresh job; these
@@ -53,7 +53,7 @@ def card_status(cid: str, body: dict = Body(...)):
 
 @router.post("/events")
 def add_event(body: dict = Body(...)):
-    body = {k: body.get(k) for k in ("date", "kind", "market", "title", "detail", "by")}
+    body = {k: body.get(k) for k in ("date", "kind", "market", "brand", "title", "detail", "by")}
     if body.get("kind") == "checklist":
         return _err(ValueError("use the checklist route"))
     try:

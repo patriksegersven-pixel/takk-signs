@@ -20,7 +20,7 @@
   };
   var KIND_LABEL = {
     troas: 'tROAS', google_budget: 'Google budget', meta_budget: 'Meta budget', bidding: 'Bidding',
-    status: 'Campaign', seasonality: 'Seasonality', offer_launch: 'Offer live', offer_end: 'Offer end',
+    status: 'Campaign', meta_ads: 'Meta ads', seasonality: 'Seasonality', offer_launch: 'Offer live', offer_end: 'Offer end',
     site: 'Site', stock: 'Stock', other: 'Other'
   };
   var SECTION_LABEL = { pacing: 'Pacing', paid: 'Paid levers', creatives: 'Creatives', offers: 'Offers & stock' };
@@ -57,9 +57,10 @@
       '#bm-insights button.bmi-b.on{outline:2px solid var(--accent)}',
       '#bm-insights button.bmi-b:disabled{opacity:.5;cursor:default}',
       '#bm-insights .bmi-dec{font-size:11px;color:var(--muted)}',
+      '#bm-insights .bmi-chk{font-size:11px;margin-top:4px;line-height:1.5}',
       '#bm-insights .bmi-alerts{display:flex;flex-direction:column;gap:6px;align-items:stretch}',
       '#bm-insights .bmi-alerts>button{align-self:flex-start}',
-      '#bm-insights .bmi-alert{display:grid;grid-template-columns:70px 44px 1fr auto;gap:10px;align-items:baseline;padding:8px 10px;background:var(--card-2);border-radius:8px;font-size:13px}',
+      '#bm-insights .bmi-alert{display:grid;grid-template-columns:70px 96px 1fr auto;gap:10px;align-items:baseline;padding:8px 10px;background:var(--card-2);border-radius:8px;font-size:13px}',
       '#bm-insights .bmi-alert .a-h{color:var(--h)}',
       '#bm-insights .bmi-alert .a-a{color:var(--muted);font-size:12px;margin-top:2px}',
       '#bm-insights .bmi-alert a{color:var(--muted);font-size:12px;white-space:nowrap}',
@@ -70,14 +71,14 @@
       '#bm-insights .bmi-check input{margin-top:3px;accent-color:var(--accent)}',
       '#bm-insights .bmi-check.is-done .c-t{text-decoration:line-through;color:var(--muted)}',
       '#bm-insights .bmi-day{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em;margin:12px 0 4px}',
-      '#bm-insights .bmi-ev{display:grid;grid-template-columns:96px 34px 1fr;gap:8px;font-size:13px;padding:4px 0;align-items:baseline}',
+      '#bm-insights .bmi-ev{display:grid;grid-template-columns:96px auto 1fr;gap:8px;font-size:13px;padding:4px 0;align-items:baseline}',
       '#bm-insights .bmi-ev .e-t{color:var(--body)}',
       '#bm-insights .bmi-ev .e-by{color:var(--muted);font-size:11px}',
       '#bm-insights .bmi-ev details{grid-column:3}',
       '#bm-insights .bmi-ev table{font-size:12px;border-collapse:collapse;margin-top:4px}',
       '#bm-insights .bmi-ev td{padding:1px 8px 1px 0}',
       '#bm-insights .bmi-log{max-height:520px;overflow-y:auto;padding-right:4px}',
-      '#bm-insights .bmi-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:8px 0;padding:10px;background:var(--card-2);border-radius:8px}',
+      '#bm-insights .bmi-form{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin:8px 0;padding:10px;background:var(--card-2);border-radius:8px}',
       '#bm-insights .bmi-form .wide{grid-column:1/-1}',
       '@media (max-width:640px){#bm-insights .bmi-form{grid-template-columns:1fr 1fr}}',
       '#bm-insights .bmi-chips{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}',
@@ -95,6 +96,13 @@
   function inMarket(m, state) {
     return state.market === 'all' || !m || m === 'all' || m === state.market;
   }
+  /* Rows without a brand (or 'all') concern both shops and stay visible under either filter. */
+  function inBrand(b, state) {
+    var f = state.brand || 'all';
+    return f === 'all' || !b || b === 'all' || b === f;
+  }
+  function inScope(row, state) { return inMarket(row.market, state) && inBrand(row.brand, state); }
+  function brandPill(b) { return b && b !== 'all' ? '<span class="bm-pill muted">' + (b === 'lekmer' ? 'Lekmer' : 'Babyshop') + '</span>' : ''; }
   function sevPill(s) { return '<span class="bm-pill ' + (s === 'high' ? 'down' : s === 'medium' ? 'warn' : 'muted') + '">' + esc(s) + '</span>'; }
   function mkt(m) { return '<span class="bm-pill muted">' + esc(!m || m === 'all' ? 'All' : m) + '</span>'; }
   function statusPill(s) {
@@ -105,6 +113,17 @@
     if (!v) return '<span class="muted">–</span>';
     var c = { worked: 'up', no_effect: 'muted', backfired: 'down', inconclusive: 'warn' }[v] || 'muted';
     return '<span class="bm-pill ' + c + '">' + esc(v.replace('_', ' ')) + '</span>';
+  }
+  /* Verification badge: {result: done|not_done|cannot_verify, evidence, checked_at}. */
+  function checkHtml(chk, due, today, ticked) {
+    if (!chk) return '';
+    var past = due && today && due < today;
+    var lab, cls;
+    if (chk.result === 'done') { lab = 'verified done ✓'; cls = 'up'; }
+    else if (chk.result === 'not_done') { lab = ticked ? 'ticked, data disagrees' : 'not done yet'; cls = past ? 'down' : 'warn'; }
+    else { lab = 'can\'t verify — tick manually'; cls = 'muted'; }
+    return '<div class="bmi-chk"><span class="bm-pill ' + cls + '">' + lab + '</span> <span class="muted">' + esc(chk.evidence || '') +
+      (chk.checked_at ? ' · checked ' + esc(chk.checked_at.slice(5, 16).replace('T', ' ')) : '') + '</span></div>';
   }
   function signedSek(v) { return v == null ? '–' : (v > 0 ? '+' : v < 0 ? '−' : '') + fmt.sek(Math.abs(v)); }
   function evVal(v) {
@@ -126,7 +145,9 @@
       .then(function (j) {
         if (!j || !j.ok) { data._live = 'failed'; return; }
         data._live = 'ok';
-        data.cards = j.cards || data.cards;
+        var ver = {};
+        (data.cards || []).forEach(function (c) { if (c.verification) ver[c.id] = c.verification; });
+        data.cards = (j.cards || data.cards).map(function (c) { if (ver[c.id] && !c.verification) c.verification = ver[c.id]; return c; });
         data.stats = j.stats || data.stats;
         var auto = (data.events || []).filter(function (e) { return e.source !== 'manual'; });
         data.events = auto.concat((j.events || []).map(function (e) { e.source = 'manual'; return e; }))
@@ -143,8 +164,11 @@
     (data.checklist || []).forEach(function (c) {
       var t = last[c.id];
       if (!t) return;
-      if (t.detail === 'undo') { if (c.state === 'done' && !c.auto) { c.state = c.due < data.today ? 'overdue' : 'open'; } c.ticked_by = null; }
-      else if (c.state !== 'verified') { c.state = 'done'; c.ticked_by = t.by; c.ticked_at = t.ts; }
+      if (t.detail === 'undo') {
+        if (c.state === 'done') c.state = c.check && c.check.result === 'done' ? 'verified' : ((c.until || c.due) < data.today ? 'overdue' : 'open');
+        c.ticked_by = null;
+      }
+      else { c.state = 'done'; c.ticked_by = t.by; c.ticked_at = t.ts; }      // a manual tick always wins
     });
   }
   function rerender() {
@@ -188,7 +212,7 @@
         '" data-to="' + to + '"' + (st === to || st === 'measured' ? ' disabled' : '') + '>' + label + '</button>';
     };
     return '<article class="bmi-card st-' + esc(st) + '">' +
-      '<div class="bmi-tags"><span class="bm-pill warn">' + esc(LEVER_LABEL[c.lever] || c.lever) + '</span>' + mkt(c.market) +
+      '<div class="bmi-tags"><span class="bm-pill warn">' + esc(LEVER_LABEL[c.lever] || c.lever) + '</span>' + mkt(c.market) + brandPill(c.brand) +
       statusPill(st) + '<span>' + esc(c.confidence || '') + ' confidence</span>' +
       (c.source === 'manual' ? '<span>· manual</span>' : '') + '<span>· ' + esc(fmt.date(c.created)) + '</span></div>' +
       '<h4>' + esc(c.headline) + '</h4>' +
@@ -200,17 +224,18 @@
       '<div class="bmi-btns">' + btn('accepted', 'Accept', st === 'proposed') + btn('rejected', 'Reject') + btn('done', 'Done', st === 'accepted') +
       (st !== 'proposed' && st !== 'measured' ? '<button class="bmi-b" data-act="status" data-id="' + esc(c.id) + '" data-to="proposed">Undo</button>' : '') + '</div>' +
       (dec ? '<div class="bmi-dec">' + dec + (c.owner ? ' · owner ' + esc(c.owner) : '') + '</div>' : '') +
+      (c.verification ? checkHtml(c.verification, null, null, st === 'done') : '') +
       '</article>';
   }
 
   function alertsHtml(alerts, state) {
-    var rows = (alerts || []).filter(function (a) { return inMarket(a.market, state); });
+    var rows = (alerts || []).filter(function (a) { return inScope(a, state); });
     if (!rows.length) return '<div class="bmi-empty">No rule alerts for this market.</div>';
     var more = rows.length - 8;
     if (!ui.allAlerts && more > 0) rows = rows.slice(0, 8);
     return '<div class="bmi-alerts">' + rows.map(function (a) {
       var ev = (a.evidence || []).map(function (e) { return esc(e.metric) + ' ' + evVal(e.value); }).join(' · ');
-      return '<div class="bmi-alert">' + sevPill(a.severity) + mkt(a.market) +
+      return '<div class="bmi-alert">' + sevPill(a.severity) + '<span>' + mkt(a.market) + brandPill(a.brand) + '</span>' +
         '<div><div class="a-h">' + esc(a.headline) + '</div><div class="a-a">' + esc(a.action) +
         (ev ? ' <span title="' + esc(ev) + '">ⓘ</span>' : '') + '</div></div>' +
         (a.section && SECTION_LABEL[a.section] ? '<a href="#bm-' + esc(a.section) + '">' + esc(SECTION_LABEL[a.section]) + ' →</a>' : '<span></span>') +
@@ -218,23 +243,27 @@
     }).join('') + (more > 0 ? '<button class="bmi-b" data-act="allalerts">' + (ui.allAlerts ? 'Show top 8' : 'Show all ' + (more + 8)) + '</button>' : '') + '</div>';
   }
 
-  function checklistHtml(items, today) {
-    return (items || []).map(function (c) {
+  function checklistHtml(items, today, state) {
+    return (items || []).filter(function (c) { return inBrand(c.brand, state); }).map(function (c) {
       var done = c.state === 'done' || c.state === 'verified';
-      var lockedAuto = c.auto && done && !c.ticked_by;
-      var pill = { overdue: 'down', today: 'warn', done: 'up', verified: 'up', open: 'muted' }[c.state] || 'muted';
+      var info = c.state === 'explained';                 // reference for a review, nothing to tick
+      var lockedAuto = c.state === 'verified' && !c.ticked_by;
+      var pill = { overdue: 'down', today: 'warn', done: 'up', verified: 'up', explained: 'up', open: 'muted' }[c.state] || 'muted';
       return '<div class="bmi-check' + (done ? ' is-done' : '') + '">' +
-        '<input type="checkbox" data-act="tick" data-id="' + esc(c.id) + '"' + (done ? ' checked' : '') + (lockedAuto ? ' disabled title="Checked automatically from the data"' : '') + '>' +
+        (info ? '<span></span>' : '<input type="checkbox" data-act="tick" data-id="' + esc(c.id) + '"' + (done ? ' checked' : '') + (lockedAuto ? ' disabled title="Checked automatically from the data"' : '') + '>') +
         '<div><div>' + esc(fmt.date(c.due)) + '</div><span class="bm-pill ' + pill + '">' + esc(c.state) + '</span></div>' +
-        '<div><div class="c-t">' + esc(c.title) + '</div><div class="c-d">' + esc(c.detail || '') +
+        '<div><div class="c-t">' + (c.lever === 'meta_allocation' || c.lever === 'creative' ? '<span class="bm-pill muted">Meta</span> ' : '') +
+        brandPill(c.brand) + (c.brand && c.brand !== 'all' ? ' ' : '') + esc(c.title) + '</div><div class="c-d">' + esc(c.detail || '') +
+        (c.owner ? ' <span class="muted">· owner ' + esc(c.owner) + '</span>' : '') +
         (c.auto_note ? ' <span class="' + (c.state === 'verified' ? 'up' : 'warn') + '">' + esc(c.auto_note) + '</span>' : '') +
-        (c.ticked_by ? ' · ticked by ' + esc(c.ticked_by) : '') + '</div></div></div>';
+        (c.ticked_by ? ' · ticked by ' + esc(c.ticked_by) : '') + '</div>' +
+        (info ? '' : checkHtml(c.check, c.until || c.due, today, !!c.ticked_by)) + '</div></div>';
     }).join('');
   }
 
   function eventsHtml(events, state, kinds) {
     var rows = (events || []).filter(function (e) {
-      return inMarket(e.market, state) && (ui.logKind === 'all' || e.kind === ui.logKind);
+      return inScope(e, state) && (ui.logKind === 'all' || e.kind === ui.logKind);
     });
     var chips = ['all'].concat(kinds).map(function (k) {
       return '<button data-act="logkind" data-k="' + k + '" class="' + (ui.logKind === k ? 'on' : '') + '">' + esc(k === 'all' ? 'All' : (KIND_LABEL[k] || k)) + '</button>';
@@ -252,7 +281,7 @@
         }).join('') + '</table></details>';
       } else if (e.detail) det = '<div class="e-by">' + esc(e.detail) + '</div>';
       h.push('<div class="bmi-ev"><span class="bm-pill ' + (e.source === 'manual' ? 'warn' : 'muted') + '">' + esc(KIND_LABEL[e.kind] || e.kind) + '</span>' +
-        mkt(e.market) + '<div><span class="e-t">' + esc(e.title) + '</span>' +
+        '<span>' + mkt(e.market) + brandPill(e.brand) + '</span><div><span class="e-t">' + esc(e.title) + '</span>' +
         (e.by ? ' <span class="e-by">· ' + esc(String(e.by).split('@')[0]) + '</span>' : '') + det + '</div></div>');
     });
     if (!rows.length) h.push('<div class="bmi-empty">No changes logged for this filter.</div>');
@@ -269,6 +298,9 @@
     return '<form class="bmi-form" data-act="addevent">' +
       '<input type="date" name="date" value="' + esc(data.today) + '" required>' +
       '<select name="kind">' + kinds + '</select><select name="market">' + ms + '</select>' +
+      '<select name="brand">' + ['all', 'babyshop', 'lekmer'].map(function (b) {
+        return '<option value="' + b + '"' + (b === (state.brand || 'all') ? ' selected' : '') + '>' + (b === 'all' ? 'Both shops' : b === 'lekmer' ? 'Lekmer' : 'Babyshop') + '</option>';
+      }).join('') + '</select>' +
       '<button class="bmi-b pri" type="submit">Save</button>' +
       '<input class="wide" name="title" placeholder="What changed, e.g. “Kuling −30 % live in SE”" maxlength="200" required>' +
       '<input class="wide" name="detail" placeholder="Detail (optional): amounts, links" maxlength="1000">' +
@@ -277,18 +309,23 @@
 
   function historyHtml(cards, state) {
     var rows = (cards || []).filter(function (c) {
-      return inMarket(c.market, state) && c.status !== 'proposed' && (ui.histStatus === 'all' || c.status === ui.histStatus);
+      return inScope(c, state) && c.status !== 'proposed' && (ui.histStatus === 'all' || c.status === ui.histStatus);
     });
     var chips = ['all', 'accepted', 'done', 'measured', 'rejected'].map(function (k) {
       return '<button data-act="hist" data-k="' + k + '" class="' + (ui.histStatus === k ? 'on' : '') + '">' + k + '</button>';
     }).join('');
     return '<div class="bmi-chips">' + chips + '</div>' + BM.table(rows, [
       { key: 'created', label: 'Date', fmt: function (v) { return esc(fmt.date(v)); } },
-      { key: 'market', label: 'Mkt' },
+      { key: 'market', label: 'Mkt', fmt: function (v, r) { return esc(v || 'all') + (r.brand && r.brand !== 'all' ? ' <span class="muted">' + esc(r.brand === 'lekmer' ? 'Lekmer' : 'Babyshop') + '</span>' : ''); } },
       { key: 'lever', label: 'Lever', fmt: function (v) { return esc(LEVER_LABEL[v] || v); } },
       { key: 'headline', label: 'Insight' },
       { key: 'status', label: 'Status', fmt: function (v, r) { return statusPill(v) + (r.decided_by ? ' <span class="muted">' + esc(r.decided_by) + '</span>' : ''); } },
       { key: 'impact', label: 'Expected', num: true, fmt: function (v) { return signedSek((v || {}).gp3_sek); } },
+      { key: 'verification', label: 'Check', fmt: function (v) {
+        if (!v) return '<span class="muted">–</span>';
+        var c = { done: 'up', not_done: 'warn', cannot_verify: 'muted' }[v.result] || 'muted';
+        return '<span class="bm-pill ' + c + '" title="' + esc(v.evidence || '') + '">' + esc(v.result.replace('_', ' ')) + '</span>';
+      } },
       { key: 'outcome', label: 'Outcome', fmt: function (v) { return verdictPill(v && v.verdict) + (v && v.method ? ' <span class="muted" title="' + esc(v.method + (v.detail ? ' — ' + v.detail : '')) + '">ⓘ</span>' : ''); } },
       { key: 'outcome', label: 'Measured', num: true, fmt: function (v) { return v ? signedSek(v.measured_gp3_sek) : '–'; } }
     ], { empty: 'No decided cards yet.' });
@@ -299,7 +336,7 @@
     injectCss();
     loadLive(data, el);
     var today = data.today;
-    var cards = (data.cards || []).filter(function (c) { return inMarket(c.market, state); });
+    var cards = (data.cards || []).filter(function (c) { return inScope(c, state); });
     var open = cards.filter(function (c) { return c.status === 'proposed' || c.status === 'accepted' || c.created === today; })
       .sort(function (a, b) {
         var ta = a.created === today ? 0 : 1, tb = b.created === today ? 0 : 1;
@@ -316,8 +353,8 @@
     var scored = measured.filter(function (c) { return c.outcome.verdict !== 'inconclusive'; });
     var worked = measured.filter(function (c) { return c.outcome.verdict === 'worked'; });
     var gotGp3 = measured.reduce(function (s, c) { return s + (c.outcome.measured_gp3_sek || 0); }, 0);
-    var nextDue = (data.checklist || []).filter(function (c) { return c.state !== 'done' && c.state !== 'verified'; })[0];
-    var alerts = (data.alerts || []).filter(function (a) { return inMarket(a.market, state); });
+    var nextDue = (data.checklist || []).filter(function (c) { return inBrand(c.brand, state) && ['done', 'verified', 'explained'].indexOf(c.state) < 0; })[0];
+    var alerts = (data.alerts || []).filter(function (a) { return inScope(a, state); });
     var highs = alerts.filter(function (a) { return a.severity === 'high'; }).length;
 
     var h = [];
@@ -338,11 +375,12 @@
 
     h.push('<h3>Actions' + (nToday ? '' : ' <span class="muted" style="font-weight:400">(no new cards today — the agent runs weekdays ~07:30)</span>') + '</h3>');
     h.push(open.length ? '<div class="bmi-cards">' + open.map(cardHtml).join('') + '</div>'
-      : '<div class="bmi-empty">No open insight cards' + (state.market !== 'all' ? ' for ' + esc(state.market) : '') + '. Rule alerts below still apply.</div>');
+      : '<div class="bmi-empty">No open insight cards' + (state.market !== 'all' ? ' for ' + esc(state.market) : '') +
+        (state.brand && state.brand !== 'all' ? ' (' + esc(state.brand === 'lekmer' ? 'Lekmer' : 'Babyshop') + ')' : '') + '. Rule alerts below still apply.</div>');
 
     h.push('<h3>Rule alerts</h3>' + alertsHtml(data.alerts, state));
 
-    h.push('<div class="bm-grid-2" style="margin-top:8px"><div><h3>Checklist</h3>' + checklistHtml(data.checklist, today) + '</div>' +
+    h.push('<div class="bm-grid-2" style="margin-top:8px"><div><h3>Checklist</h3>' + checklistHtml(data.checklist, today, state) + '</div>' +
       '<div><h3 style="display:flex;justify-content:space-between;align-items:center;gap:8px">Change log' +
       (ui.showForm ? '' : formHtml(data, state)) + '</h3>' + (ui.showForm ? formHtml(data, state) : '') +
       eventsHtml(data.events, state, kindsPresent(data.events)) + '</div></div>');
@@ -415,7 +453,7 @@
   function addEvent(el, data, state, f) {
     var by = needWho();
     if (!by) return;
-    var body = { date: f.date.value, kind: f.kind.value, market: f.market.value, title: f.title.value.trim(), detail: f.detail.value.trim(), by: by };
+    var body = { date: f.date.value, kind: f.kind.value, market: f.market.value, brand: f.brand.value, title: f.title.value.trim(), detail: f.detail.value.trim(), by: by };
     if (!body.title) return;
     post('/events', body).then(function (j) {
       if (!j.ok) { toast('Not saved: ' + (j.error || 'error')); return; }

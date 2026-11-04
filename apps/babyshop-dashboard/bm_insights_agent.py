@@ -32,18 +32,27 @@ import bm_common as bm
 import bm_insights as bi
 
 
-def _digest_pacing(p: dict | None) -> dict | None:
-    if not p:
-        return None
-    out = {"asof": p.get("asof"), "budget_month": p.get("budget_month"), "markets": {}, "headroom": {}}
-    for m, blk in (p.get("markets") or {}).items():
-        s = blk.get("summary") or {}
+def _pacing_block(src: dict) -> dict:
+    out = {"markets": {}, "headroom": {}}
+    for m, blk in (src.get("markets") or {}).items():
+        s = (blk or {}).get("summary") or {}
         out["markets"][m] = {k: {x: s.get(k, {}).get(x) for x in
                                  ("mtd", "target_mtd", "ly_mtd", "landing", "target_month", "run_rate_ratio")}
                              for k in ("gp2", "cost", "gp3", "net")}
-    for m, h in (p.get("headroom") or {}).items():       # daily arrays left out
+    for m, h in (src.get("headroom") or {}).items():     # daily arrays left out
         out["headroom"][m] = {k: v for k, v in (h or {}).items() if not isinstance(v, list)}
-    out["customers"] = p.get("customers")
+    out["customers"] = src.get("customers")
+    return out
+
+
+def _digest_pacing(p: dict | None) -> dict | None:
+    """Combined Babyshop + Lekmer, plus `brands.<b>` with the same shape when pacing splits by brand."""
+    if not p:
+        return None
+    out = {"asof": p.get("asof"), "scope": p.get("scope"), "budget_month": p.get("budget_month"),
+           **_pacing_block(p)}
+    if isinstance(p.get("brands"), dict):
+        out["brands"] = {b: _pacing_block(v or {}) for b, v in p["brands"].items()}
     return out
 
 
@@ -64,6 +73,7 @@ def _digest_paid(p: dict | None) -> dict | None:
                                  if i < 20 or (c.get("suggestion") or {}).get("action") in ("lower", "raise")
                                  or c.get("budget_limited")],
             "meta_lines": [{k: v for k, v in l.items() if k != "fit"} for l in me.get("lines") or []],
+            "meta_brand_note": p.get("meta_brand_note"),
             "meta_campaigns": me.get("campaigns"),
             "meta_market_type_mtd": (me.get("pacing") or {}).get("market_type_mtd"),
             "notes": p.get("notes")}
@@ -135,6 +145,14 @@ def context(out_dir: str, mock: bool = False) -> dict:
     insights = (_mock("insights") if mock else bm.read_section("insights")) or {}
     cards = insights.get("cards", []) if mock else bi.list_cards(days=45)
     alerts, notes = bi.rule_alerts(snaps, today)
+    ver = {c["id"]: c.get("verification") for c in insights.get("cards") or [] if c.get("verification")}
+    for c in cards:                                  # the job's latest check per card
+        if c["id"] in ver:
+            c["verification"] = ver[c["id"]]
+    chk = insights.get("checklist") or []
+    overdue = [{k: i.get(k) for k in ("id", "due", "until", "title", "brand", "lever", "owner", "state", "check")}
+               for i in chk if (i.get("until") or i.get("due", "9")) < today.isoformat()
+               and i.get("state") not in ("done", "verified", "explained")]
     digest = {
         "today": today.isoformat(),
         "days_to_black_friday": (bm.BLACK_FRIDAY - today).days,
@@ -149,7 +167,10 @@ def context(out_dir: str, mock: bool = False) -> dict:
         "finance_forecast": bm.budget_lines(),
         "snapshot_times": {k: (v or {}).get("generated_at") for k, v in snaps.items()},
         "rule_alerts": alerts, "notes": notes,
-        "checklist": insights.get("checklist"),
+        "checklist": chk,
+        "checklist_overdue_not_done": overdue,
+        "verify_cmd": "python3 bm_insights.py verify --json  (re-runs every check now; needs GOOGLE_ADS_* and "
+                      "META_ADS_ACCESS_TOKEN in env for the Ads/Meta checks, else those come back cannot_verify)",
         "change_log_14d": [e for e in (insights.get("events") or [])
                            if e.get("date", "") >= (today - dt.timedelta(days=14)).isoformat()],
         "open_cards": [c for c in cards if c.get("status") in ("proposed", "accepted")],

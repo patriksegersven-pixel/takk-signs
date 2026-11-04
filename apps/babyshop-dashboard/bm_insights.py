@@ -13,8 +13,9 @@ Four things, all aimed at "what do we do today to lift November GP3":
               agent. Every rule reads its inputs defensively: a missing section
               or key skips the rule and leaves a note, never an exception.
   change log  tROAS changes (BQ roas_sims.target_changes), Google Ads
-              change_event (budgets, bidding strategy, status; read-only) and
-              the current Black Month seasonality adjustments, plus manual
+              change_event (budgets, bidding strategy, status; read-only), the
+              Meta activity log (bm_insights_meta.py), the current Black Month
+              seasonality adjustments, plus manual
               entries posted from the page (Firestore `blackmonth_events`).
   checklist   Dated to-dos for the month; some auto-check themselves from the
               data above, the rest are ticked on the page.
@@ -29,7 +30,7 @@ CLI (used by the agent and for manual work):
     python3 bm_insights.py score --id <id> --verdict worked|no_effect|backfired|inconclusive \
         --measured 42000 --method "..." [--by agent]
     python3 bm_insights.py set-status --id <id> --status accepted --by Patrik
-    python3 bm_insights.py event --date 2026-11-06 --kind offer_launch --market SE \
+    python3 bm_insights.py event --date 2026-11-06 --kind offer_launch --market SE --brand babyshop \
         --title "Kuling −30 % live" [--detail ...]
     python3 bm_insights.py validate --file cards.json    # check without writing
 
@@ -60,6 +61,8 @@ VERDICTS = ["worked", "no_effect", "backfired", "inconclusive"]
 EVENT_KINDS = ["offer_launch", "offer_end", "meta_budget", "google_budget", "troas",
                "seasonality", "bidding", "status", "site", "stock", "checklist", "other"]
 MARKET_VALUES = bm.MARKETS + ["ROW", "all"]
+BRANDS = ["babyshop", "lekmer"]
+BRAND_VALUES = BRANDS + ["all"]
 SECTION_KEYS = [s for s in bm.SECTIONS if s != "insights"]
 
 # Scoring window: an accepted/done card is scored once it is this old.
@@ -74,9 +77,11 @@ SCORE_BY_DAYS = 7
 RULES = {
     "gp3_behind_pct": 0.05,        # MTD GP3 more than 5 % behind target-to-date
     "headroom_min_per_day": 2000,  # positive headroom worth mentioning, SEK/day
+    "min_gp3_target_mtd": 10000,   # skip GP3-behind on scopes smaller than this (tiny Lekmer markets)
+    "min_negative_headroom": 20000,  # skip negative headroom smaller than this, SEK to month end
     "suggestion_min_l7_sek": 2000, # tROAS suggestions on campaigns spending ≥ this per 7 d
     "kill_spend_sek": 500,         # a Kill creative that spent ≥ 500 SEK in the window
-    "oos_spend_sek": 300,          # out-of-stock hero product with ≥ 300 SEK ad spend
+    "oos_spend_sek": 1000,         # ≥ 1 000 SEK / 7 d of spend on out-of-stock days, per brand × market
     "troas_step_pct": 0.20,        # a logged tROAS step above ±20 %
 }
 
@@ -152,6 +157,9 @@ def normalise_card(raw: dict, source: str = "agent") -> dict:
     c["market"] = c.get("market") or "all"
     if c["market"] not in MARKET_VALUES:
         errs.append(f"market {c['market']!r} not in {MARKET_VALUES}")
+    c["brand"] = str(c.get("brand") or "all").lower()
+    if c["brand"] not in BRAND_VALUES:
+        errs.append(f"brand {c['brand']!r} not in {BRAND_VALUES}")
     for k in ("headline", "action"):
         if not str(c.get(k) or "").strip():
             errs.append(f"{k} is required")
@@ -184,17 +192,22 @@ def normalise_card(raw: dict, source: str = "agent") -> dict:
     c["status"] = c.get("status") or "proposed"
     if c["status"] not in STATUSES:
         raise ValueError(f"status {c['status']!r} not in {STATUSES}")
+    if c.get("verify") is not None:
+        import bm_insights_verify as bv
+        if not isinstance(c["verify"], dict) or c["verify"].get("type") not in bv.VERIFIERS:
+            raise ValueError(f"verify must be {{type: one of {sorted(bv.VERIFIERS)}, ...}}")
     c["source"] = c.get("source") or source
     c["owner"] = c.get("owner") or ""
-    c["id"] = c.get("id") or card_id(c["created"], c["headline"], c["market"])
+    c["id"] = c.get("id") or card_id(c["created"], c["headline"],
+                                     c["market"] if c["brand"] == "all" else f"{c['market']}-{c['brand']}")
     c.setdefault("created_at", _now_iso())
     c.setdefault("decided_by", None)
     c.setdefault("decided_at", None)
     c.setdefault("outcome", None)
     c.setdefault("history", [])
-    keep = {"id", "created", "created_at", "lever", "market", "headline", "action", "rationale",
+    keep = {"id", "created", "created_at", "lever", "market", "brand", "headline", "action", "rationale",
             "impact", "confidence", "evidence", "status", "owner", "decided_by", "decided_at",
-            "done_at", "outcome", "source", "history", "links", "expires"}
+            "done_at", "outcome", "source", "history", "links", "expires", "verify"}
     return {k: v for k, v in c.items() if k in keep}
 
 
@@ -290,6 +303,7 @@ def add_event(ev: dict) -> dict:
     e = {"date": ev.get("date") or bm.today().isoformat(),
          "kind": ev.get("kind") or "other",
          "market": ev.get("market") or "all",
+         "brand": str(ev.get("brand") or "all").lower(),
          "title": str(ev.get("title") or "").strip()[:200],
          "detail": str(ev.get("detail") or "").strip()[:1000],
          "by": str(ev.get("by") or "")[:80],
@@ -302,6 +316,8 @@ def add_event(ev: dict) -> dict:
         raise ValueError(f"kind must be one of {EVENT_KINDS}")
     if e["market"] not in MARKET_VALUES:
         raise ValueError(f"market must be one of {MARKET_VALUES}")
+    if e["brand"] not in BRAND_VALUES:
+        raise ValueError(f"brand must be one of {BRAND_VALUES}")
     if not e["title"]:
         raise ValueError("title is required")
     e["id"] = f"{e['date'].replace('-', '')}-{hashlib.sha1((e['ts'] + e['title']).encode()).hexdigest()[:8]}"
@@ -350,8 +366,29 @@ def _rows(d: Any, *paths: str) -> list[dict]:
     return [r for r in (v or []) if isinstance(r, dict)]
 
 
-def _alert(rule, severity, market, headline, action, section, evidence, lever="other", impact=None):
-    return {"rule": rule, "severity": severity, "market": market or "all", "headline": headline,
+def _brand(row: dict | None, *names: str) -> str:
+    """'babyshop' | 'lekmer' | 'all' for a row: its own `brand` field when it holds
+    one of BRANDS (product rows carry product brands like 'Kuling' there, which are
+    ignored), else 'Lekmer'/'Babyshop' in an account/campaign label."""
+    b = str((row or {}).get("brand") or "").lower()
+    if b in BRANDS:
+        return b
+    for key in ("account", "customer_name", "account_name", "shop"):
+        v = str((row or {}).get(key) or "").lower()
+        for br in BRANDS:
+            if br in v:
+                return br
+    for n in names:
+        for br in BRANDS:
+            if br in str(n or "").lower():
+                return br
+    return "all"
+
+
+def _alert(rule, severity, market, headline, action, section, evidence, lever="other", impact=None,
+           brand="all"):
+    return {"rule": rule, "severity": severity, "market": market or "all", "brand": brand or "all",
+            "headline": headline,
             "action": action, "section": section, "evidence": evidence, "lever": lever,
             "impact_sek": impact}
 
@@ -372,6 +409,10 @@ def rule_alerts(snaps: dict[str, dict | None], today: dt.date) -> tuple[list[dic
             alerts.extend(fn(snaps, today))
         except Exception as e:                       # noqa: BLE001 — a rule must never sink the section
             notes.append(f"Rule {fn.__name__[6:]} skipped: {type(e).__name__}: {e}")
+    for a in alerts:                                 # "Lekmer · …" on brand-specific headlines
+        lab = _brand_label(a.get("brand", "all"))
+        if lab and not a["headline"].startswith(lab):
+            a["headline"] = lab + a["headline"]
     sev = {"high": 0, "medium": 1, "low": 2}
     alerts.sort(key=lambda a: (sev.get(a["severity"], 3), -(abs(a.get("impact_sek") or 0))))
     return alerts, notes
@@ -382,11 +423,11 @@ def _rule_gp3_pacing(snaps, today):
     GP3 vs the forecast is the binding target; spend is judged only through it."""
     p = snaps.get("pacing") or {}
     out = []
-    for m, blk in (dig(p, "markets") or {}).items():
+    for br, m, blk in _pacing_scopes(p, "markets"):
         g = dig(blk, "summary.gp3") or {}
         act, tgt = _num(g.get("mtd")), _num(g.get("target_mtd"))
         land, month = _num(g.get("landing")), _num(g.get("target_month"))
-        if act is not None and tgt and act / tgt - 1 < -RULES["gp3_behind_pct"]:
+        if act is not None and tgt and tgt >= RULES["min_gp3_target_mtd"] and act / tgt - 1 < -RULES["gp3_behind_pct"]:
             gap = act / tgt - 1
             out.append(_alert(
                 "gp3_behind", "high" if gap < -2 * RULES["gp3_behind_pct"] else "medium", m,
@@ -397,8 +438,8 @@ def _rule_gp3_pacing(snaps, today):
                 [{"section": "pacing", "metric": "MTD GP3", "value": act},
                  {"section": "pacing", "metric": "GP3 target to date", "value": tgt}]
                 + ([{"section": "pacing", "metric": "GP3 landing", "value": land}] if land else []),
-                "other", act - tgt))
-        elif land and month and land / month - 1 < -RULES["gp3_behind_pct"]:
+                "other", act - tgt, brand=br))
+        elif land and month and tgt and tgt >= RULES["min_gp3_target_mtd"] and land / month - 1 < -RULES["gp3_behind_pct"]:
             out.append(_alert(
                 "gp3_landing", "medium", m,
                 f"GP3 landing {_sek(land)} is {(land/month-1)*100:+.0f} % vs the month target {_sek(month)}",
@@ -406,12 +447,35 @@ def _rule_gp3_pacing(snaps, today):
                 "offers to pull forward before Black Week.",
                 "pacing", [{"section": "pacing", "metric": "GP3 landing", "value": land},
                            {"section": "pacing", "metric": "GP3 target month", "value": month}],
-                "other", land - month))
+                "other", land - month, brand=br))
     return out
 
 
+def _pacing_scopes(p: dict, key: str):
+    """(brand, market, block) for pacing `markets` or `headroom`. With the brand split
+    (brands.<b>.<key>) alerts are per brand, plus the company-wide 'all' market for
+    GP3; without it, the combined blocks as brand 'all'."""
+    brands = dig(p, "brands") or {}
+    if isinstance(brands, dict) and any(isinstance(v, dict) and v.get(key) for v in brands.values()):
+        if key == "markets" and isinstance(dig(p, "markets.all"), dict):
+            yield "all", "all", p["markets"]["all"]
+        for br, v in brands.items():
+            for m, blk in ((v or {}).get(key) or {}).items():
+                if isinstance(blk, dict):
+                    yield br, m, blk
+    else:
+        for m, blk in (dig(p, key) or {}).items():
+            if isinstance(blk, dict):
+                yield "all", m, blk
+
+
+def _brand_label(br: str) -> str:
+    return {"babyshop": "Babyshop · ", "lekmer": "Lekmer · "}.get(br, "")
+
+
 # tROAS set high on purpose; never suggest lowering (memory "PB campaign", 2026-11-04).
-DELIBERATE_TROAS = {"ps-search-se-pb-all"}
+# Keyed (brand, name): Lekmer reuses Babyshop's campaign names.
+DELIBERATE_TROAS = {("babyshop", "ps-search-se-pb-all")}
 
 _RETURNS_CAVEAT = ("Late-November headroom reads high: Funnel books returns on the return date, so "
                    "Black Week returns land in December and GP3 to date is flattered.")
@@ -425,8 +489,8 @@ def _rule_headroom(snaps, today):
     (paid google.campaigns[].inc_marginal, meta.lines[].inc_marginal)."""
     pc, pd = snaps.get("pacing") or {}, snaps.get("paid") or {}
     out = []
-    for m, h in (dig(pc, "headroom") or {}).items():
-        if not isinstance(h, dict) or m in ("ROW", "all"):
+    for br, m, h in _pacing_scopes(pc, "headroom"):
+        if m in ("ROW", "all"):
             continue
         rem, per_day = _num(h.get("headroom_remaining")), _num(h.get("headroom_per_day"))
         g, gt = _num(h.get("gp3_mtd")), _num(h.get("gp3_target_mtd"))
@@ -437,25 +501,25 @@ def _rule_headroom(snaps, today):
               {"section": "pacing", "metric": "GP3 MTD vs target", "value": f"{_sek(g)} vs {_sek(gt)}"},
               {"section": "pacing", "metric": "earned COS MTD", "value": h.get("earned_cos_mtd")}]
         if rem > 0 and per_day >= RULES["headroom_min_per_day"] and g is not None and gt and g >= gt:
-            more = _incremental_candidates(pd, m, up=True)
+            more = _incremental_candidates(pd, m, up=True, brand=br)
             out.append(_alert(
                 "headroom", "medium", m,
                 f"Room to spend ~{_sek(per_day)}/day more ({_sek(rem)} to month end) with GP3 on track",
                 "Spend it only where the extra krona is incremental (incremental marginal ROAS > 1): "
                 + (f"candidates {more}. " if more else "") + _RETURNS_CAVEAT,
-                "pacing", ev, "google_troas"))
-        elif rem < 0:
-            less = _incremental_candidates(pd, m, up=False)
+                "pacing", ev, "google_troas", brand=br))
+        elif rem <= -RULES["min_negative_headroom"]:
+            less = _incremental_candidates(pd, m, up=False, brand=br)
             out.append(_alert(
                 "headroom_negative", "high" if (gt and g is not None and g < gt) else "medium", m,
                 f"Spend is {_sek(-rem)} over what the GP3 forecast covers ({_sek(-per_day)}/day to month end)",
                 "Find spend with incremental marginal ROAS < 1 and cut it first"
                 + (f": {less}" if less else "") + ". Don't cut spend that still adds GP3.",
-                "pacing", ev, "google_troas", rem))
+                "pacing", ev, "google_troas", rem, brand=br))
     return out
 
 
-def _incremental_candidates(pd, market, up: bool, n: int = 3) -> str:
+def _incremental_candidates(pd, market, up: bool, n: int = 3, brand: str = "all") -> str:
     """Top Google campaigns / Meta lines in a market by incremental marginal ROAS:
     > 1 when up (can take more), < 1 when not (spend to cut)."""
     rows = []
@@ -463,7 +527,9 @@ def _incremental_candidates(pd, market, up: bool, n: int = 3) -> str:
         im = _num(c.get("inc_marginal"))
         if c.get("market") != market or im is None or (_num(c.get("l7_cost_sek")) or 0) < RULES["suggestion_min_l7_sek"]:
             continue
-        if up and c.get("name") in DELIBERATE_TROAS:
+        if brand != "all" and _brand(c, c.get("name")) != brand:
+            continue
+        if up and (_brand(c, c.get("name")), c.get("name")) in DELIBERATE_TROAS:
             continue
         if (im > 1) if up else (im < 1):
             cd = c.get("cooldown_until")
@@ -472,6 +538,8 @@ def _incremental_candidates(pd, market, up: bool, n: int = 3) -> str:
     for l in _rows(pd, "meta.lines"):
         im = _num(l.get("inc_marginal"))
         if l.get("market") != market or im is None:
+            continue
+        if brand != "all" and _brand(l) != brand:
             continue
         if (im > 1) if up else (im < 1):
             rows.append((im, f"Meta {l.get('type')} ({im:.2f}{', test first' if up else ''})"))
@@ -498,7 +566,7 @@ def _rule_budget_limited(snaps, today):
             [{"section": "paid", "metric": "lost IS (budget)", "value": round(lost, 3) if lost is not None else None},
              {"section": "paid", "metric": "profit ROAS 7 d", "value": r.get("l7_roas")},
              {"section": "paid", "metric": "tROAS", "value": r.get("troas")}],
-            "google_budget"))
+            "google_budget", brand=_brand(r, r.get("name"))))
     for e in dig(p, "guardrail.budget_errors") or []:
         e = e if isinstance(e, dict) else {"text": str(e)}
         if str(e.get("id") or e.get("name") or e.get("campaign")) in seen:
@@ -507,7 +575,8 @@ def _rule_budget_limited(snaps, today):
             "budget_limited", "high", e.get("market"),
             f"Budget error: {e.get('name') or e.get('campaign') or e.get('text') or 'campaign'}",
             e.get("text") or e.get("hint") or "Raise the cap so tROAS governs; Google has no budget.",
-            "paid", [{"section": "paid", "metric": "guardrail.budget_errors", "value": 1}], "google_budget"))
+            "paid", [{"section": "paid", "metric": "guardrail.budget_errors", "value": 1}], "google_budget",
+            brand=_brand(e, e.get("name"), e.get("campaign"))))
     return out
 
 
@@ -525,15 +594,15 @@ def _rule_troas_suggestions(snaps, today):
         act = sg.get("action")
         if act not in ("lower", "raise") or (_num(c.get("l7_cost_sek")) or 0) < RULES["suggestion_min_l7_sek"]:
             continue
-        if act == "lower" and c.get("name") in DELIBERATE_TROAS:
+        if act == "lower" and (_brand(c, c.get("name")), c.get("name")) in DELIBERATE_TROAS:
             continue
         until = max(str(sg.get("blocked_until") or ""), str(c.get("cooldown_until") or ""))
         if until and until > tday:
             blocked[until] = blocked.get(until, 0) + 1
             continue
-        groups.setdefault((c.get("market") or "all", act), []).append(c)
+        groups.setdefault((c.get("market") or "all", _brand(c, c.get("name")), act), []).append(c)
     out = []
-    for (m, act), cs in groups.items():
+    for (m, br, act), cs in groups.items():
         cs.sort(key=lambda c: -abs(_num(c.get("inc_gp3_per_10k")) or 0) * (_num(c.get("l7_cost_sek")) or 0))
         lst = "; ".join(f"{c.get('name')} {c.get('troas')} → {(c.get('suggestion') or {}).get('new_troas')}"
                         for c in cs[:4])
@@ -549,7 +618,7 @@ def _rule_troas_suggestions(snaps, today):
             [{"section": "paid", "metric": "campaigns", "value": len(cs)},
              {"section": "paid", "metric": "inc. GP3 per +10k spend, top campaign",
               "value": cs[0].get("inc_gp3_per_10k")}],
-            "google_troas"))
+            "google_troas", brand=br))
     for until, n in sorted(blocked.items())[:2]:
         out.append(_alert(
             "troas_blocked", "low", "all",
@@ -569,11 +638,11 @@ def _rule_meta_lines(snaps, today):
     for l in _rows(p, "meta.lines"):
         act = (l.get("suggestion") or {}).get("action")
         if act in ("up", "test"):
-            up.setdefault(l.get("market") or "all", []).append(l)
+            up.setdefault((l.get("market") or "all", _brand(l, l.get("campaign"))), []).append(l)
         elif act == "down":
-            down.setdefault(l.get("market") or "all", []).append(l)
+            down.setdefault((l.get("market") or "all", _brand(l, l.get("campaign"))), []).append(l)
     out = []
-    for m, ls in up.items():
+    for (m, br), ls in up.items():
         ls.sort(key=lambda l: -(_num(l.get("inc_gp3_per_10k")) or 0))
         pix = [(_num(l.get("avg_gp2_roas_platform")), _num(l.get("lastclick_gp2_roas_market"))) for l in ls]
         ratio = next((a / b for a, b in pix if a and b), None)
@@ -586,15 +655,15 @@ def _rule_meta_lines(snaps, today):
             "The 200k plan is a starting point, not a ceiling.",
             "paid", [{"section": "paid", "metric": f"Meta {l.get('type')} inc. marginal ROAS",
                       "value": l.get("inc_marginal")} for l in ls[:3]],
-            "meta_allocation"))
-    for m, ls in down.items():
+            "meta_allocation", brand=br))
+    for (m, br), ls in down.items():
         out.append(_alert(
             "meta_scale_down", "medium", m,
             f"Meta {', '.join(str(l.get('type')) for l in ls)}: incremental marginal ROAS < 1",
             "Scale down: the extra krona doesn't pay back even on Meta's own (generous) numbers.",
             "paid", [{"section": "paid", "metric": f"Meta {l.get('type')} inc. marginal ROAS",
                       "value": l.get("inc_marginal")} for l in ls[:3]],
-            "meta_allocation"))
+            "meta_allocation", brand=br))
     return out
 
 
@@ -616,7 +685,7 @@ def _rule_negative_gp3(snaps, today):
              "keep what still adds GP3."),
             "paid", [{"section": "paid", "metric": "GP3 14 d", "value": round(g)},
                      {"section": "paid", "metric": "spend 14 d", "value": round(sp)}],
-            "meta_allocation" if ch == "meta" else "google_budget", g))
+            "meta_allocation" if ch == "meta" else "google_budget", g, brand=_brand(r)))
     return out
 
 
@@ -633,9 +702,9 @@ def _rule_kill_spending(snaps, today):
         return []
     by_m: dict[str, list] = {}
     for r in kills:
-        by_m.setdefault(r.get("market") or "all", []).append(r)
+        by_m.setdefault((r.get("market") or "all", _brand(r, r.get("campaign"), r.get("account"))), []).append(r)
     out = []
-    for m, rs in by_m.items():
+    for (m, br), rs in by_m.items():
         spend = sum(_num(r.get("spend")) or 0 for r in rs)
         nov = sum(_num(r.get("nov_spend")) or 0 for r in rs)
         names = "; ".join((r.get("name") or r.get("ad_name") or "?")[:48] for r in rs[:3])
@@ -645,34 +714,41 @@ def _rule_kill_spending(snaps, today):
             f"Pause in Meta Ads Manager and move the budget to Scale creatives: {names}{' …' if len(rs) > 3 else ''}",
             "creatives", [{"section": "creatives", "metric": f"spend on Kill creatives, {win} d", "value": round(spend)},
                           {"section": "creatives", "metric": "their November spend", "value": round(nov)}],
-            "creative", None))
+            "creative", None, brand=br))
     return out
 
 
 def _rule_oos_spend(snaps, today):
-    """offers: stock.products[] {title, flag ('oos'|'sizes'|'low'|'bw'|'ok'), ad7{m}, ad7_oos{m}}
-    and stock.ad_spend{m}{oos, low}: Google spend (7 d) on out-of-stock heroes / variants."""
+    """offers: Google Shopping spend on days the SKU was actually out of stock.
+    stock.ad_spend.<brand>.<m>.{oos_7d, total_7d, oos_today}, products[].ad_b.<brand>.ad7_oos.<m>
+    (top items), oos_now[] {brand, m, title, spend_today, still_oos} (still serving today).
+    Spend that sold the last units is NOT counted (offers' definition since 2026-11-04)."""
     o = snaps.get("offers") or {}
-    by_m: dict[str, list] = {}
-    for r in _rows(o, "stock.products"):
-        flag = r.get("flag")
-        for m in bm.MARKETS:
-            spend = _num(dig(r, f"ad7.{m}")) if flag == "oos" else _num(dig(r, f"ad7_oos.{m}"))
-            if spend and spend >= RULES["oos_spend_sek"]:
-                by_m.setdefault(m, []).append((spend, r))
+    spend = dig(o, "stock.ad_spend") or {}
+    prods = _rows(o, "stock.products")
+    now = _rows(o, "stock.oos_now")
     out = []
-    for m, items in by_m.items():
-        items.sort(key=lambda x: -x[0])
-        tot = sum(x[0] for x in items)
-        names = "; ".join((r.get("title") or r.get("id") or "?")[:45] for _, r in items[:3])
-        out.append(_alert(
-            "oos_spend", "high" if tot >= 5 * RULES["oos_spend_sek"] else "medium", m,
-            f"{len(items)} out-of-stock product{'s' if len(items) > 1 else ''} still getting ads ({_sek(tot)} / 7 d)",
-            f"Exclude the sold-out variants from Shopping/PMax (feed label) or swap the hero to an in-stock "
-            f"alternative: {names}{' …' if len(items) > 3 else ''}",
-            "offers", [{"section": "offers", "metric": "ad spend on OOS, 7 d", "value": round(tot)},
-                       {"section": "offers", "metric": "products", "value": len(items)}],
-            "stock", -tot))
+    for br in BRANDS:
+        for m in bm.MARKETS:
+            blk = dig(spend, f"{br}.{m}") or {}
+            oos7, tot7 = _num(blk.get("oos_7d")), _num(blk.get("total_7d"))
+            if oos7 is None or oos7 < RULES["oos_spend_sek"]:
+                continue
+            top = sorted(((_num(dig(r, f"ad_b.{br}.ad7_oos.{m}")) or 0, r) for r in prods),
+                         key=lambda x: -x[0])
+            names = "; ".join(f"{(r.get('title') or r.get('id') or '?')[:45]} ({_sek(v)})" for v, r in top[:3] if v > 0)
+            live = [r for r in now if r.get("brand") == br and r.get("m") == m and r.get("still_oos")
+                    and (_num(r.get("spend_today")) or 0) > 0]
+            out.append(_alert(
+                "oos_spend", "high" if oos7 >= 5 * RULES["oos_spend_sek"] else "medium", m,
+                f"{_sek(oos7)} Shopping spend in 7 d on days the product was sold out"
+                + (f" ({oos7 / tot7 * 100:.1f} % of spend)" if tot7 else ""),
+                "Exclude sold-out variants from Shopping/PMax (feed label) until restocked"
+                + (f"; {len(live)} still get clicks today" if live else "") + (f". Top: {names}" if names else "."),
+                "offers", [{"section": "offers", "metric": "OOS-day spend, 7 d", "value": round(oos7)},
+                           {"section": "offers", "metric": "Shopping spend, 7 d", "value": round(tot7 or 0)},
+                           {"section": "offers", "metric": "still OOS with spend today", "value": len(live)}],
+                "stock", -oos7, brand=br))
     return out
 
 
@@ -716,6 +792,7 @@ def troas_changes(since: dt.date) -> list[dict]:
     for r in rows:
         k = (r.change_date.isoformat(), r.customer_name, r.source or "")
         g = groups.setdefault(k, {"date": k[0], "kind": "troas", "market": _market_of(r.customer_name),
+                                  "brand": _brand({"account": r.customer_name}),
                                   "account": r.customer_name, "source": "target_changes",
                                   "tag": r.source, "items": [], "big_steps": 0})
         step = (r.new_target / r.old_target - 1) if r.old_target else None
@@ -792,7 +869,8 @@ def ads_change_events(since: dt.date) -> tuple[list[dict], list[dict], list[str]
                 # GAQL allows no range operator on start_date_time: filter here.
                 if str(s.end_date_time) < "2026-11-01":
                     continue
-                seas.append({"account": label, "cid": cid, "market": _market_of(label), "name": s.name,
+                seas.append({"account": label, "cid": cid, "market": _market_of(label),
+                             "brand": _brand({"account": label}), "name": s.name,
                              "start": str(s.start_date_time), "end": str(s.end_date_time),
                              "modifier": float(s.conversion_rate_modifier),
                              "channels": [c.name for c in s.advertising_channel_types]})
@@ -837,6 +915,7 @@ def _describe_change(ce, label: str) -> dict | None:
     paths = list(ce.changed_fields.paths)
     when = str(ce.change_date_time)
     base = {"date": when[:10], "when": when, "account": label, "market": _market_of(label),
+            "brand": _brand({"account": label}),
             "source": "change_event", "by": ce.user_email or ce.client_type.name}
     created = ce.resource_change_operation.name == "CREATE"
     if rt == "CAMPAIGN_BUDGET":
@@ -872,67 +951,107 @@ def _describe_change(ce, label: str) -> dict | None:
 # (review 18 Nov), "Q4 budget split" (Meta setup before Black Week), "ads assets
 # routine" (offers → Google Ads assets). `auto` items compute their own state.
 CHECKLIST = [
-    {"id": "troas-raise", "due": "2026-11-04", "title": "Pre-BF tROAS raise (+10–15 %) applied via apply_troas.py",
+    {"id": "troas-raise", "verify": {"type": "troas_logged", "since": "2026-11-04", "tag": "black-month", "min": 1}, "due": "2026-11-04", "title": "Pre-BF tROAS raise (+10–15 %) applied via apply_troas.py",
      "detail": "Logged in target_changes. 14-day cooldown → those campaigns can move again from 18 Nov.",
-     "auto": "troas_raise"},
-    {"id": "meta-setup", "due": "2026-11-07", "title": "Meta November setup in place (approved 200k plan as the starting point)",
-     "detail": "Kuling 60k / prospecting 20k / catalogue retargeting 120k; SE60/NO20/FI10/DK10. A starting "
-               "point, not a ceiling: scale lines that add incremental GP3."},
-    {"id": "ly-anomaly", "due": "2026-11-17", "title": "Explain 14–20 Nov 2025: 1.31M SEK spend at ROAS ~1.38",
-     "detail": "Unexplained last year (CPC ~7 SEK). Check before the 18 Nov review so it does not repeat."},
-    {"id": "troas-review", "due": "2026-11-18", "title": "tROAS review: back to normal before BF, or stay raised?",
+},
+    {"id": "ly-anomaly", "due": "2026-11-18", "state": "explained",
+     "title": "14–20 Nov 2025 explained: Google spend doubled (0.86M → 1.85M) at flat CPC while demand rose",
+     "detail": "Tracking was fine (conversions/Norce orders stable 0.77–0.87). 1.38 = last-click GP2 ÷ Google cost "
+               "(1.21 the week before, 1.82 the week after). Marginal last-click ≈1.42 on the extra ~1M. At the "
+               "18 Nov review: if 2026 spend surges like this, check marginal incremental ROAS before letting it run."},
+    {"id": "troas-review", "verify": {"type": "troas_logged", "since": "2026-11-18"}, "due": "2026-11-18", "title": "tROAS review: back to normal before BF, or stay raised?",
      "detail": "Cooldown from the 4 Nov batch ends today. No positive BF seasonality adjustment is planned.",
      "auto": "cooldown"},
-    {"id": "pb-review", "due": "2026-11-18", "title": "Private-label search review (SE 600 %, NO/FI/DK 350 %)",
+    {"id": "pb-review", "verify": {"type": "manual", "why": "a review: tick it when done"}, "due": "2026-11-18", "title": "Private-label search review (SE 600 %, NO/FI/DK 350 %)",
      "detail": "ps-search-*-pb-all: impression share, CPC, Kuling winter landing pages."},
-    {"id": "postbf-soften", "due": "2026-11-18", "title": "If tROAS stays raised through BF: soften Post-BF to −30 % / −15 %",
+    {"id": "postbf-soften", "verify": {"type": "seasonality_modifiers", "expect": [0.7, 0.85]}, "due": "2026-11-18", "title": "If tROAS stays raised through BF: soften Post-BF to −30 % / −15 %",
      "detail": "Edit the two seasonality adjustments in all nine accounts."},
-    {"id": "bf-assets", "due": "2026-11-23", "title": "BF offers in Google Ads: promotions, sitelinks, promo RSAs (SE/NO/FI/DK)",
+    {"id": "bf-assets", "verify": {"type": "google_promotions", "covers": "2026-11-27"}, "due": "2026-11-23", "title": "BF offers in Google Ads: promotions, sitelinks, promo RSAs (SE/NO/FI/DK)",
      "detail": "Run the ads-assets routine from the Airtable calendar; promo_schedule script must be scheduled."},
-    {"id": "sale-end", "due": "2026-11-30", "title": "Confirm the sale end date in the campaign calendar",
+    {"id": "sale-end", "verify": {"type": "manual", "why": "the campaign calendar (Airtable) is not readable from the job"}, "due": "2026-11-30", "title": "Confirm the sale end date in the campaign calendar",
      "detail": "Post-BF adjustments assume the sale ends on Cyber Monday 30 Nov; shift them if it runs longer."},
-    {"id": "postbf-seasonality", "due": "2026-11-30",
+    {"id": "postbf-seasonality", "verify": {"type": "seasonality_present", "prefix": "post-bf", "accounts": 9}, "due": "2026-11-30",
      "title": "“Post-BF dag 1/2” (−45 % / −30 %) on 1–2 Dec in all nine accounts",
-     "detail": "Search + Shopping, account-local 00:00–23:59. Created 2026-11-04.", "auto": "seasonality"},
-    {"id": "post-bf-troas", "due": "2026-12-03", "title": "After the sale: tROAS back to normal, score the month",
+     "detail": "Search + Shopping, account-local 00:00–23:59. Created 2026-11-04."},
+    {"id": "post-bf-troas", "verify": {"type": "troas_logged", "since": "2026-12-01"}, "due": "2026-12-03", "title": "After the sale: tROAS back to normal, score the month",
      "detail": "Score every accepted card; write up what worked for December."},
+    # Meta action items (added 2026-11-04 at Patrik's request). Where the detail isn't
+    # known yet, the item IS "the plan / creatives need to be put in place".
+    {"id": "meta-setup-live", "verify": {"type": "meta_setup"}, "due": "2026-11-06", "lever": "meta_allocation", "brand": "babyshop",
+     "title": "Confirm the approved Meta November setup is live",
+     "detail": "Campaign-level budget, one ad set per country with min/max spend SE60/NO20/FI10/DK10, catalogue "
+               "retargeting as one multi-country ad set; Kuling 60k / prospecting 20k / retargeting 120k. "
+               "If not in place: the plan needs to be put in place."},
+    {"id": "meta-naming", "verify": {"type": "naming_adoption", "threshold": 0.8}, "due": "2026-11-07", "lever": "creative", "brand": "babyshop",
+     "title": "Use the creative naming convention on every new Meta ad",
+     "detail": "Convention from the Creatives section, so angle / offer / format results can be read."},
+    {"id": "meta-bw-plan", "verify": {"type": "manual", "why": "a plan document: tick it when agreed"}, "due": "2026-11-07", "lever": "meta_allocation", "brand": "babyshop", "owner": "TBD",
+     "title": "Meta Black Week plan: offers per market, audiences, retargeting budget ramp",
+     "detail": "Offers from the Airtable calendar, audiences, retargeting ramp into Black Week. "
+               "Needs to be put in place; owner TBD."},
+    {"id": "meta-bw-creative-plan", "verify": {"type": "manual", "why": "briefs and owners: tick it when agreed"}, "due": "2026-11-10", "lever": "creative", "brand": "babyshop",
+     "title": "Black Week creative plan and briefs",
+     "detail": "New creatives per market per week, angles and formats, production owner. Needs to be put in place."},
+    {"id": "meta-singles-day", "verify": {"type": "meta_ads_named", "pattern": "singles|11[./]11", "since": "2026-11-01"}, "due": "2026-11-10", "lever": "creative", "brand": "babyshop",
+     "title": "Singles Day (11 Nov) creatives live, if there is an offer", "detail": ""},
+    {"id": "lekmer-meta-connector", "verify": {"type": "lekmer_meta"}, "due": "2026-11-10", "lever": "meta_allocation", "brand": "lekmer", "owner": "Patrik",
+     "title": "Lekmer's Meta account (1465585123471722 “Lekmer ACTIVE”) into the warehouse connector",
+     "detail": "So Lekmer creatives and spend show on this tab."},
+    {"id": "meta-pixel-health", "verify": {"type": "manual", "why": "Events Manager diagnostics are not in our data"}, "due": "2026-11-13", "lever": "meta_allocation", "brand": "babyshop",
+     "title": "Pixel / CAPI health check before Black Week",
+     "detail": "Purchase event match quality, deduplication, catalogue sale prices (strikethrough) showing in DPA."},
+    {"id": "meta-lift-test", "verify": {"type": "manual", "why": "a decision: tick it when made"}, "due": "2026-11-13", "lever": "meta_allocation", "brand": "babyshop",
+     "title": "Decide on a Meta lift test or holdout",
+     "detail": "To replace the 0.6 / 0.3 incrementality assumptions; can run in December if November is too risky."},
+    {"id": "meta-bf-review", "verify": {"type": "meta_ads_named", "pattern": "black|\\bbf\\b|\\bbw\\b|cyber", "since": "2026-11-01", "approved": True}, "due": "2026-11-20", "lever": "creative", "brand": "babyshop",
+     "title": "Black Friday / Black Week creatives uploaded and through Meta ad review",
+     "detail": "Review delays peak in Black Week."},
+    {"id": "meta-bw-budgets", "verify": {"type": "meta_budget_change", "since": "2026-11-20", "direction": "up"}, "due": "2026-11-24", "lever": "meta_allocation", "brand": "babyshop",
+     "title": "Black Week budget increases scheduled and approved against the GP3 headroom",
+     "detail": "Retargeting peak; size against Pacing's headroom per market."},
+    {"id": "meta-daily-verdicts", "verify": {"type": "kill_paused", "min_spend": 500}, "due": "2026-11-23", "until": "2026-11-30", "lever": "creative", "brand": "babyshop",
+     "title": "Daily 23–30 Nov: creative verdict check (Scale / Kill) and retargeting frequency",
+     "detail": "Creatives section verdicts; pause Kill, feed Scale; watch frequency on retargeting."},
+    {"id": "meta-bf-schedule", "verify": {"type": "all_of", "checks": [{"type": "meta_ads_named", "pattern": "black|\\bbf\\b|\\bbw\\b|cyber", "since": "2026-11-01"}, {"type": "kill_paused", "min_spend": 500}]}, "due": "2026-11-26", "lever": "creative", "brand": "babyshop",
+     "title": "BF ads scheduled to start; evergreen ads with Kill verdicts paused", "detail": ""},
+    {"id": "meta-post-cm", "verify": {"type": "meta_ads_named", "pattern": "black|\\bbf\\b|\\bbw\\b|cyber", "since": "2026-11-01", "inactive_after": "2026-12-01"}, "due": "2026-12-01", "lever": "creative", "brand": "babyshop",
+     "title": "Switch off Black Week creatives and offers after Cyber Monday; Christmas creatives ready", "detail": ""},
 ]
 
 
 def checklist(today: dt.date, troas_log: list[dict], seas: list[dict] | None, seas_known: bool,
-              events: list[dict]) -> list[dict]:
+              events: list[dict], vctx=None) -> list[dict]:
+    """Items with state (done | verified | explained | today | overdue | open) and, when a
+    verification context is given, `check` = {result, evidence, checked_at}. A manual
+    tick always wins: a check can only add "verified", never undo a tick."""
+    import bm_insights_verify as bv
     ticked = {}
     for e in sorted(events, key=lambda e: e.get("ts", "")):
         if e.get("kind") == "checklist" and e.get("ref"):
             ticked[e["ref"]] = e
     out = []
-    for item in CHECKLIST:
+    for item in sorted(CHECKLIST, key=lambda i: i["due"]):
         it = dict(item)
+        it.setdefault("brand", "all")
+        it.setdefault("lever", "google_troas" if item["id"].startswith(("troas", "postbf", "post-bf", "ly-")) else "other")
         state, auto_note = None, None
-        if item.get("auto") == "troas_raise":
-            n = sum(len(g["items"]) for g in troas_log
-                    if g["date"] == "2026-11-04" and "black-month" in (g.get("tag") or ""))
-            if n:
-                state, auto_note = "done", f"{n} campaigns logged on 4 Nov"
-        elif item.get("auto") == "cooldown":
+        if vctx is not None and item.get("verify"):
+            it["check"] = bv.run(vctx, item["verify"])
+            if it["check"]["result"] == "done":
+                state = "verified"
+        if item.get("auto") == "cooldown":
             recent = sorted({g["date"] for g in troas_log})
             last = recent[-1] if recent else None
             if last:
                 free = dt.date.fromisoformat(last) + dt.timedelta(days=14)
                 auto_note = f"Last logged change {last}; cooldown ends {free.isoformat()}"
-        elif item.get("auto") == "seasonality" and seas_known:
-            hits = [s for s in (seas or []) if s["name"].lower().startswith("post-bf")]
-            accts = {s["account"] for s in hits}
-            d1 = sum(1 for s in hits if s["start"].startswith("2026-12-01"))
-            d2 = sum(1 for s in hits if s["start"].startswith("2026-12-02"))
-            auto_note = f"Found in {len(accts)} accounts (dag 1: {d1}, dag 2: {d2})"
-            if len(accts) >= 9 and d1 >= 9 and d2 >= 9:
-                state = "verified"
         t = ticked.get(item["id"])
         if t and t.get("detail") != "undo":
-            state = state or "done"
+            state = "done"
             it["ticked_by"], it["ticked_at"] = t.get("by"), t.get("ts")
-        it["state"] = state or ("overdue" if item["due"] < today.isoformat() else
+        if not state and item.get("until") and item["due"] <= today.isoformat() <= item["until"]:
+            state = "today"                          # a daily item stays "today" through its window
+        it["state"] = state or item.get("state") or ("overdue" if item.get("until", item["due"]) < today.isoformat() else
                                 "today" if item["due"] == today.isoformat() else "open")
         it["auto_note"] = auto_note
         out.append(it)
@@ -973,10 +1092,11 @@ def build(ctx: dict) -> dict:
         manual = []
         notes.append(f"Manual events could not be read: {type(e).__name__}")
 
+    troas_ok = ads_ok = meta_ok = True
     try:
         troas = troas_changes(LOG_FROM)
     except Exception as e:                           # noqa: BLE001
-        troas = []
+        troas, troas_ok = [], False
         notes.append(f"target_changes could not be read: {type(e).__name__}: {str(e)[:100]}")
     big: dict[str, list[dict]] = {}
     for g in troas:
@@ -992,7 +1112,7 @@ def build(ctx: dict) -> dict:
             "Check these were intended (apply_troas.py caps steps at 20 % unless overridden); "
             "the campaigns are listed in the change log.",
             "paid", [{"section": "bq", "metric": "roas_sims.target_changes", "value": gs[0]["tag"]}],
-            "google_troas"))
+            "google_troas", brand=(gs[0]["brand"] if len({g["brand"] for g in gs}) == 1 else "all")))
 
     ads_events, seas, seas_known = [], None, False
     try:
@@ -1000,12 +1120,31 @@ def build(ctx: dict) -> dict:
         seas_known = True
         notes += anotes
     except Exception as e:                           # noqa: BLE001
+        ads_ok = False
         notes.append("Google Ads change history not loaded "
                      f"({type(e).__name__}: {str(e)[:140]}). The change log shows tROAS and manual entries only.")
 
-    events = (troas + ads_events +
+    try:
+        import bm_insights_meta
+        meta_events, mnotes = bm_insights_meta.meta_activities(bm.MONTH_START)
+        notes += mnotes
+        meta_ok = not any("not loaded" in n for n in mnotes)
+    except Exception as e:                           # noqa: BLE001 — fail soft
+        meta_events, meta_ok = [], False
+        notes.append(f"Meta activity log not loaded ({type(e).__name__}: {str(e)[:140]}).")
+
+    events = (troas + ads_events + meta_events +
               [dict(e, source="manual") for e in manual if e.get("kind") != "checklist"])
     events.sort(key=lambda e: (e.get("date", ""), e.get("when") or e.get("ts") or ""), reverse=True)
+
+    # Did the team do it? Checks for checklist items and accepted/done cards (read-only).
+    import bm_insights_verify as bv
+    vctx = bv.Ctx(today, snaps, troas if troas_ok else None, ads_events if ads_ok else None,
+                  seas if seas_known else None, meta_events if meta_ok else None)
+    for c in cards:
+        spec = bv.card_spec(c)
+        if spec and c.get("status") in ("accepted", "done", "measured"):
+            c["verification"] = bv.run(vctx, spec)
 
     return {
         "today": today.isoformat(),
@@ -1015,7 +1154,7 @@ def build(ctx: dict) -> dict:
         "rules": RULES,
         "events": events[:400],
         "seasonality": seas,
-        "checklist": checklist(today, troas, seas, seas_known, manual),
+        "checklist": checklist(today, troas, seas, seas_known, manual, vctx),
         "snapshots": {k: (v or {}).get("generated_at") for k, v in snaps.items()},
         "levers": LEVERS, "event_kinds": [k for k in EVENT_KINDS if k != "checklist"],
         "notes": notes,
@@ -1046,8 +1185,11 @@ def main(argv: Iterable[str] | None = None) -> int:
     st = sub.add_parser("set-status"); st.add_argument("--id", required=True)
     st.add_argument("--status", required=True, choices=[x for x in STATUSES if x != "measured"])
     st.add_argument("--by", default=""); st.add_argument("--note", default="")
+    vf = sub.add_parser("verify", help="run every checklist and card check now (read-only)")
+    vf.add_argument("--json", action="store_true")
     e = sub.add_parser("event"); e.add_argument("--date"); e.add_argument("--kind", default="other", choices=EVENT_KINDS)
-    e.add_argument("--market", default="all"); e.add_argument("--title", required=True)
+    e.add_argument("--market", default="all"); e.add_argument("--brand", default="all", choices=BRAND_VALUES)
+    e.add_argument("--title", required=True)
     e.add_argument("--detail", default=""); e.add_argument("--by", default="")
     args = ap.parse_args(list(argv) if argv is not None else None)
 
@@ -1066,7 +1208,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         else:
             for c in cards:
                 imp = (c.get("impact") or {}).get("gp3_sek")
-                print(f"{c['id']}  {c.get('created')}  {c.get('status'):9} {c.get('market'):4} "
+                print(f"{c['id']}  {c.get('created')}  {c.get('status'):9} {c.get('market'):4} {c.get('brand', 'all'):8} "
                       f"{c.get('lever'):16} {_sek(imp):>7}  {c.get('headline', '')[:70]}")
             print(json.dumps(hit_rate(cards)))
     elif args.cmd == "score":
@@ -1075,6 +1217,18 @@ def main(argv: Iterable[str] | None = None) -> int:
     elif args.cmd == "set-status":
         c = set_status(args.id, args.status, args.by, args.note)
         print(f"{c['id']} → {c['status']}")
+    elif args.cmd == "verify":
+        out = build(bm.make_ctx())
+        rows = [{"kind": "checklist", "id": i["id"], "due": i["due"], "state": i["state"], "title": i["title"],
+                 **(i.get("check") or {})} for i in out["checklist"]]
+        rows += [{"kind": "card", "id": c["id"], "status": c.get("status"), "title": c.get("headline"),
+                  **(c.get("verification") or {})} for c in out["cards"] if c.get("verification")]
+        if args.json:
+            print(json.dumps(rows, indent=1, ensure_ascii=False, default=str))
+        else:
+            for r in rows:
+                print(f"{r['kind']:9} {r.get('due', r.get('status', '')):10} {r.get('state', ''):9} "
+                      f"{r.get('result', '-'):13} {r['title'][:55]} | {r.get('evidence', '')[:90]}")
     elif args.cmd == "event":
         ev = add_event(vars(args) | {"source": "manual"})
         print(f"event {ev['id']}")
