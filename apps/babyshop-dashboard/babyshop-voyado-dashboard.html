@@ -197,7 +197,7 @@
   <div class="section-head">
     <div>
       <div class="section-title">Markets &amp; list health <span class="section-tag">from contact country</span></div>
-      <div class="section-sub">Market comes from the contact, never the message — Voyado is a single tenant here with no market on the sendout. “Unknown” is real: ~12% of contacts carry no country, and contacts Voyado has erased carry none either.</div>
+      <div class="section-sub">Market comes from the contact, never the message — Voyado is a single tenant here with no market on the sendout. “Unknown” is real: ~16% of contacts carry no country. Mail to contacts Voyado erased before 4 Nov 2026 is split across each message's known-recipient markets; an <span class="pill pill-soft">est.</span> tag shows how much of a market's sends is that estimate.</div>
     </div>
   </div>
 
@@ -464,7 +464,7 @@ function renderMarkets(){
       <td>${fmtPct(m.subscribed_rate, 1)}</td>
       <td class="cell-muted">${fmtInt(m.unsubscribed)}</td>
       <td class="cell-muted">${fmtInt(m.undeliverable)}</td>
-      <td>${fmtInt(m.sent)}</td>
+      <td>${fmtInt(m.sent)}${m.sent_estimated_share>=0.05?` <span class="pill pill-soft" title="Share of these sends estimated from message market mix (erased contacts)">${fmtPct(m.sent_estimated_share,0)} est.</span>`:''}</td>
       <td>${fmtPct(m.click_rate)}</td>
       <td>${fmtInt(m.orders)}</td>
       <td>${fmtSEK(m.revenue_sek)}</td>

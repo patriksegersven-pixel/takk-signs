@@ -251,6 +251,9 @@ SELECT
   r.revenue_sek,
   r.in_broken_fx_window,
   COALESCE(r.stamped_market, cm.market, 'Unknown') AS market,
+  -- Erased contact, never stamped: the market existed but cannot be read back.
+  -- email_daily allocates these by message mix; nothing else does.
+  r.stamped_market IS NULL AND cm.contactId IS NULL AS market_lost,
   k.messageId       AS attributed_messageId,
   k.clickDateTime   AS attributed_clickDateTime,
   k.messageId IS NOT NULL AS is_email_attributed
@@ -296,6 +299,31 @@ FROM `${DATASET}.message_engagement` e
 LEFT JOIN rev USING (messageId)
 
 -- @@
+-- message_market_mix — each sendout's market split among recipients we can see.
+--
+-- The basis for ESTIMATING the market of mail to erased contacts. Every row
+-- that is not itself lost counts, INCLUDING live contacts with no country as
+-- 'Unknown': leaving them out would assume every erased contact had a country
+-- and push their mail into real markets. Mix is
+-- far from pure — a manual campaign averages 79% of its known recipients in
+-- one market — which is why email_daily SPLITS a lost row across the mix
+-- rather than handing it to the top market.
+CREATE OR REPLACE VIEW `${DATASET}.message_market_mix` AS
+WITH k AS (
+  SELECT x.messageId,
+         COALESCE(x.market, cm.market) AS market,
+         COUNT(*) AS known_recipients
+  FROM `${DATASET}.deliveries` x
+  JOIN `${DATASET}.marketing_messages` USING (messageId)
+  LEFT JOIN `${DATASET}.contact_market` cm ON cm.contactId = x.contactId
+  WHERE x.market IS NOT NULL OR cm.contactId IS NOT NULL
+  GROUP BY 1, 2
+)
+SELECT messageId, market, known_recipients,
+       known_recipients / SUM(known_recipients) OVER (PARTITION BY messageId) AS share
+FROM k
+
+-- @@
 -- email_daily — activity by EVENT date and market, for the trend charts.
 --
 -- Every metric sits on the date it happened (a click on the 3rd counts on the
@@ -303,67 +331,123 @@ LEFT JOIN rev USING (messageId)
 -- to what the mailbox actually did that day. Market is the stamped one, else
 -- the live contact's (see the header).
 --
--- Each CTE COALESCEs market to 'Unknown' BEFORE the FULL JOINs below: USING
--- treats NULL as unequal to NULL, so a NULL market would split one day's sends
--- and clicks into two rows that never join back together.
+-- ROWS WHOSE MARKET WAS LOST TO AN ERASURE ARE ESTIMATED. A row is "lost" when
+-- it was never stamped and its contact is gone; it is split across its
+-- message's message_market_mix, so counts are FRACTIONAL and every est_*
+-- column says how much of its metric is such an estimate. Weights sum to 1 per
+-- row, so totals over markets equal the exact counts. A lost row whose message
+-- has no known recipient stays 'Unknown', as does a live contact with no
+-- country — that is missing data, not lost data, and is never estimated.
+--
+-- Unique counts (recipients, openers, clickers) on lost rows give each contact
+-- a weight of 1 per (day, type), spread as the average mix of the rows they
+-- had that day, so a contact never counts more than once in the total.
 CREATE OR REPLACE VIEW `${DATASET}.email_daily` AS
 WITH msg AS (SELECT messageId, message_type FROM `${DATASET}.marketing_messages`),
-d AS (
-  SELECT x.deliveryDate AS event_date, COALESCE(x.market, cm.market, 'Unknown') AS market, msg.message_type,
-         COUNT(*) AS sent, COUNT(DISTINCT x.contactId) AS recipients
+ev AS (
+  SELECT 'sent' AS kind, x.deliveryDate AS event_date, x.messageId, x.contactId,
+         COALESCE(x.market, cm.market) AS mk, x.market IS NULL AND cm.contactId IS NULL AS lost
   FROM `${DATASET}.deliveries` x
-  JOIN msg USING (messageId)
   LEFT JOIN `${DATASET}.contact_market` cm ON cm.contactId = x.contactId
-  GROUP BY 1, 2, 3
-), o AS (
-  SELECT x.openDate AS event_date, COALESCE(x.market, cm.market, 'Unknown') AS market, msg.message_type,
-         COUNT(*) AS opens, COUNT(DISTINCT x.contactId) AS unique_openers
+  UNION ALL
+  SELECT 'open', x.openDate, x.messageId, x.contactId,
+         COALESCE(x.market, cm.market), x.market IS NULL AND cm.contactId IS NULL
   FROM `${DATASET}.opens` x
-  JOIN msg USING (messageId)
   LEFT JOIN `${DATASET}.contact_market` cm ON cm.contactId = x.contactId
-  GROUP BY 1, 2, 3
-), c AS (
-  SELECT x.clickDate AS event_date, COALESCE(x.market, cm.market, 'Unknown') AS market, msg.message_type,
-         COUNT(*) AS clicks, COUNT(DISTINCT x.contactId) AS unique_clickers
+  UNION ALL
+  SELECT 'click', x.clickDate, x.messageId, x.contactId,
+         COALESCE(x.market, cm.market), x.market IS NULL AND cm.contactId IS NULL
   FROM `${DATASET}.clicks` x
-  JOIN msg USING (messageId)
   LEFT JOIN `${DATASET}.contact_market` cm ON cm.contactId = x.contactId
-  GROUP BY 1, 2, 3
-), u AS (
-  SELECT x.eventDate AS event_date, COALESCE(x.market, cm.market, 'Unknown') AS market, msg.message_type,
-         COUNT(*) AS unsubscribes
+  UNION ALL
+  SELECT 'unsub', x.eventDate, x.messageId, x.contactId,
+         COALESCE(x.market, cm.market), x.market IS NULL AND cm.contactId IS NULL
   FROM `${DATASET}.unsubscribes` x
-  JOIN msg USING (messageId)
   LEFT JOIN `${DATASET}.contact_market` cm ON cm.contactId = x.contactId
+), alloc AS (
+  -- Market is COALESCEd to 'Unknown' BEFORE the pivot: a NULL market would
+  -- split one day's sends and clicks into rows that never group together.
+  SELECT e.kind, e.event_date, msg.message_type, e.contactId, e.lost,
+         IF(e.lost, COALESCE(mx.market, 'Unknown'), COALESCE(e.mk, 'Unknown')) AS market,
+         IF(e.lost, COALESCE(mx.share, 1.0), 1.0) AS w
+  FROM ev e
+  JOIN msg USING (messageId)
+  LEFT JOIN `${DATASET}.message_market_mix` mx ON e.lost AND mx.messageId = e.messageId
+), rows_per_contact AS (
+  -- How many lost ROWS each contact has per (kind, day, type) — a row, not a
+  -- message, because opens repeat. Dividing by it makes a contact's unique
+  -- weight sum to exactly 1 across markets.
+  SELECT kind, event_date, message_type, contactId, COUNT(*) AS n
+  FROM ev JOIN msg USING (messageId)
+  WHERE lost
+  GROUP BY 1, 2, 3, 4
+), ev_agg AS (
+  SELECT a.event_date, a.market, a.message_type, a.kind,
+         SUM(a.w)                                             AS n_events,
+         COUNT(DISTINCT IF(a.lost, NULL, a.contactId))
+           + COALESCE(SUM(IF(a.lost, a.w / p.n, 0)), 0)       AS n_unique,
+         SUM(IF(a.lost, a.w, 0))                              AS est_events,
+         COALESCE(SUM(IF(a.lost, a.w / p.n, 0)), 0)           AS est_unique
+  FROM alloc a
+  LEFT JOIN rows_per_contact p
+    ON a.lost AND p.kind = a.kind AND p.event_date = a.event_date
+   AND p.message_type = a.message_type AND p.contactId = a.contactId
+  GROUP BY 1, 2, 3, 4
+), e AS (
+  SELECT event_date, market, message_type,
+         SUM(IF(kind = 'sent',  n_events,   0)) AS sent,
+         SUM(IF(kind = 'sent',  n_unique,   0)) AS recipients,
+         SUM(IF(kind = 'open',  n_events,   0)) AS opens,
+         SUM(IF(kind = 'open',  n_unique,   0)) AS unique_openers,
+         SUM(IF(kind = 'click', n_events,   0)) AS clicks,
+         SUM(IF(kind = 'click', n_unique,   0)) AS unique_clickers,
+         SUM(IF(kind = 'unsub', n_events,   0)) AS unsubscribes,
+         SUM(IF(kind = 'sent',  est_events, 0)) AS est_sent,
+         SUM(IF(kind = 'open',  est_unique, 0)) AS est_unique_openers,
+         SUM(IF(kind = 'click', est_unique, 0)) AS est_unique_clickers,
+         SUM(IF(kind = 'unsub', est_events, 0)) AS est_unsubscribes
+  FROM ev_agg
   GROUP BY 1, 2, 3
 ), r AS (
-  SELECT a.createdOnDate AS event_date, a.market, m.message_type,
-         COUNT(*) AS attributed_orders, SUM(a.revenue_sek) AS attributed_revenue_sek
+  -- Attributed receipts follow the same rule, split by the ATTRIBUTED
+  -- message's mix when the buyer's market was lost.
+  SELECT a.createdOnDate AS event_date,
+         IF(a.market_lost, COALESCE(mx.market, 'Unknown'), a.market) AS market,
+         m.message_type,
+         SUM(IF(a.market_lost, COALESCE(mx.share, 1.0), 1.0))                 AS attributed_orders,
+         SUM(IF(a.market_lost, COALESCE(mx.share, 1.0), 1.0) * a.revenue_sek) AS attributed_revenue_sek,
+         SUM(IF(a.market_lost, COALESCE(mx.share, 1.0), 0))                   AS est_attributed_orders,
+         SUM(IF(a.market_lost, COALESCE(mx.share, 1.0) * a.revenue_sek, 0))  AS est_attributed_revenue_sek
   FROM `${DATASET}.attributed_receipts` a
   JOIN `${DATASET}.marketing_messages` m ON m.messageId = a.attributed_messageId
+  LEFT JOIN `${DATASET}.message_market_mix` mx
+    ON a.market_lost AND mx.messageId = a.attributed_messageId
   GROUP BY 1, 2, 3
 )
 SELECT
-  COALESCE(d.event_date, o.event_date, c.event_date, u.event_date, r.event_date) AS event_date,
-  COALESCE(d.market, o.market, c.market, u.market, r.market, 'Unknown')          AS market,
-  COALESCE(d.message_type, o.message_type, c.message_type, u.message_type, r.message_type) AS message_type,
-  COALESCE(d.sent, 0)                    AS sent,
-  COALESCE(d.recipients, 0)              AS recipients,
-  COALESCE(o.opens, 0)                   AS opens,
-  COALESCE(o.unique_openers, 0)          AS unique_openers,
-  COALESCE(c.clicks, 0)                  AS clicks,
-  COALESCE(c.unique_clickers, 0)         AS unique_clickers,
-  COALESCE(u.unsubscribes, 0)            AS unsubscribes,
-  COALESCE(r.attributed_orders, 0)       AS attributed_orders,
-  COALESCE(r.attributed_revenue_sek, 0)  AS attributed_revenue_sek,
-  SAFE_DIVIDE(o.unique_openers,  d.sent) AS open_rate,
-  SAFE_DIVIDE(c.unique_clickers, d.sent) AS click_rate,
-  SAFE_DIVIDE(u.unsubscribes,    d.sent) AS unsubscribe_rate,
-  SAFE_DIVIDE(r.attributed_revenue_sek, d.sent) AS revenue_per_send_sek
-FROM d
-FULL JOIN o USING (event_date, market, message_type)
-FULL JOIN c USING (event_date, market, message_type)
-FULL JOIN u USING (event_date, market, message_type)
+  COALESCE(e.event_date, r.event_date)     AS event_date,
+  COALESCE(e.market, r.market, 'Unknown')  AS market,
+  COALESCE(e.message_type, r.message_type) AS message_type,
+  COALESCE(e.sent, 0)                      AS sent,
+  COALESCE(e.recipients, 0)                AS recipients,
+  COALESCE(e.opens, 0)                     AS opens,
+  COALESCE(e.unique_openers, 0)            AS unique_openers,
+  COALESCE(e.clicks, 0)                    AS clicks,
+  COALESCE(e.unique_clickers, 0)           AS unique_clickers,
+  COALESCE(e.unsubscribes, 0)              AS unsubscribes,
+  COALESCE(r.attributed_orders, 0)         AS attributed_orders,
+  COALESCE(r.attributed_revenue_sek, 0)    AS attributed_revenue_sek,
+  COALESCE(e.est_sent, 0)                  AS est_sent,
+  COALESCE(e.est_unique_openers, 0)        AS est_unique_openers,
+  COALESCE(e.est_unique_clickers, 0)       AS est_unique_clickers,
+  COALESCE(e.est_unsubscribes, 0)          AS est_unsubscribes,
+  COALESCE(r.est_attributed_orders, 0)     AS est_attributed_orders,
+  COALESCE(r.est_attributed_revenue_sek, 0) AS est_attributed_revenue_sek,
+  SAFE_DIVIDE(e.unique_openers,  e.sent)   AS open_rate,
+  SAFE_DIVIDE(e.unique_clickers, e.sent)   AS click_rate,
+  SAFE_DIVIDE(e.unsubscribes,    e.sent)   AS unsubscribe_rate,
+  SAFE_DIVIDE(r.attributed_revenue_sek, e.sent) AS revenue_per_send_sek
+FROM e
 FULL JOIN r USING (event_date, market, message_type)
 
 -- @@
@@ -373,6 +457,10 @@ FULL JOIN r USING (event_date, market, message_type)
 -- denominator, email-attributed as the numerator. Because attribution is last
 -- click on a 7-day window with no holdout, this is an upper bound on email's
 -- contribution, not a measurement of it.
+--
+-- NOT market-estimated, unlike email_daily: a receipt with no attributed
+-- message has no mix to split by, so only the numerator could move and the
+-- share would stop meaning anything. Lost-market receipts stay 'Unknown' here.
 CREATE OR REPLACE VIEW `${DATASET}.email_revenue_share` AS
 SELECT
   DATE_TRUNC(createdOnDate, MONTH)      AS month,

@@ -69,8 +69,10 @@ CAVEATS = [
     "is possible; turning control groups on in Voyado is what would fix this",
     "transactional mail (76% of sendouts) is excluded from every metric",
     "market comes from the contact, not the message; ~16% of contacts have no "
-    "countryCode, and mail to contacts Voyado erased before 2026-10-28 has no "
-    "contact left to read it from, so 'Unknown' is real and larger in older months",
+    "countryCode, so 'Unknown' is real. Mail to contacts Voyado erased before "
+    "2026-11-04 has no contact left to read it from; its market is ESTIMATED by "
+    "splitting it across each message's known-recipient mix (totals are exact, "
+    "the market split is not). Email's share of revenue is not estimated",
     "all money is SEK, converted from local currency at Voyado's fixed rates "
     "(constant-currency for all history)",
     "receipts before 2025-06 sit in a window where Voyado's own exchangeRate "
@@ -223,14 +225,14 @@ def markets(start, end) -> list[dict]:
       WITH perf AS (
         SELECT market, SUM(sent) AS sent, SUM(unique_clickers) AS clickers,
                SUM(unsubscribes) AS unsubs, SUM(attributed_orders) AS orders,
-               SUM(attributed_revenue_sek) AS revenue
+               SUM(attributed_revenue_sek) AS revenue, SUM(est_sent) AS est_sent
         FROM {D('email_daily')}
         WHERE event_date BETWEEN @s AND @e
         GROUP BY market
       )
       SELECT b.market, b.contacts, b.subscribed, b.unsubscribed, b.undeliverable,
              b.subscribed_rate, b.revenue_12m_computed, b.revenue_12m_voyado,
-             p.sent, p.clickers, p.unsubs, p.orders, p.revenue
+             p.sent, p.clickers, p.unsubs, p.orders, p.revenue, p.est_sent
       FROM {D('subscriber_base')} b
       FULL JOIN perf p USING (market)
       ORDER BY COALESCE(p.sent, 0) DESC, COALESCE(b.contacts, 0) DESC
@@ -249,6 +251,9 @@ def markets(start, end) -> list[dict]:
             "revenue_12m_sek": I(x["revenue_12m_computed"]),
             "revenue_12m_voyado_sek": I(x["revenue_12m_voyado"]),
             "sent": sent, "clickers": I(x["clickers"]),
+            # Share of this market's sends split in from erased contacts by
+            # message mix — see email_daily in voyado_marts.sql.
+            "sent_estimated_share": F(float(x["est_sent"] or 0) / sent, 3) if sent else None,
             "click_rate": F(x["clickers"] / sent) if sent else None,
             "unsubscribes": I(x["unsubs"]),
             "orders": I(x["orders"]), "revenue_sek": I(x["revenue"]),
