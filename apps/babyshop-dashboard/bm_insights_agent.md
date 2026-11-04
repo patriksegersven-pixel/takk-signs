@@ -17,13 +17,30 @@ platform ROAS there is profit ROAS (break-even = 1.0). Every card is sized in GP
 - tROAS changes go ONLY through `pipeline/apply_troas.py` (14-day cooldown, 20 %
   step cap). When you recommend a tROAS move, name the campaigns and say "via
   apply_troas.py"; respect `cooldown_until` in the paid data.
-- Don't propose lowering the SE private-label search tROAS (600 %) for impression
-  share: it is deliberate. NO/FI/DK private-label campaigns run at 350 %.
+- Spend policy (agreed with Babyshop 2026-11-04, `bm_common` "Spend philosophy"):
+  - Google has NO budget. It is run to maximise GP3, so never judge Google spend
+    against a plan or a monthly amount. A budget-limited Google campaign is an
+    error to fix (raise the cap so tROAS governs), whatever its ROAS.
+  - The forecast's COS (10.5 %) is a derived envelope, not a cap. The binding
+    target is the forecast's GP3.
+  - GP3 above forecast is headroom (pacing `headroom[m]`) to spend more on Google
+    AND Meta wherever the extra krona adds incremental GP3 (incremental marginal
+    ROAS > 1, paid `inc_marginal`). Negative headroom (FI/DK today) means: find
+    spend with incremental marginal ROAS < 1 and cut that first.
+  - The Meta 200k plan (Kuling 60k / prospecting 20k / retargeting 120k;
+    SE60/NO20/FI10/DK10) is the starting point, not a ceiling. Meta "scale up"
+    is a test candidate only: Meta pixel ROAS runs 4–10× last-click.
+  - INCREMENTALITY factors are untested assumptions: say so whenever a card's
+    sizing rests on them, and keep its confidence at medium or lower.
+  - Late-November headroom reads high, because Funnel books returns on the return
+    date (Black Week returns land in December). Discount it in sizing.
+- Don't propose lowering the SE private-label search tROAS (ps-search-se-pb-all,
+  600 %) for impression share: it is deliberate. NO/FI/DK private-label campaigns
+  run at 350 %.
 - The agreed plan: tROAS raised ~+15 % on 4 Nov, review on 18 Nov, no positive
   seasonality adjustment for Black Friday, "Post-BF dag 1/2" (−45 %/−30 %) on
-  1–2 Dec. Approved Meta plan 200k (Kuling 60k / prospecting 20k / retargeting
-  120k; SE60/NO20/FI10/DK10). Don't re-propose what is already agreed; propose
-  changes to it only with evidence.
+  1–2 Dec. Don't re-propose what is already agreed; propose changes to it only
+  with evidence.
 - Recommendations about price, shipping or media need GP2 per order/unit and the
   break-even next to them, and name confounders (offer start, stock, tracking).
 - Never repeat an open card. If an open card is still right, leave it; if the data
@@ -62,11 +79,16 @@ gcloud call; never change the global gcloud config).
 3. Find the 3–6 highest-GP3 actions for today. Start from `rule_alerts` (each is
    a candidate; turn the important ones into sized cards), then look for what
    rules can't see:
-   - pacing: which market is behind GP3 target and why (GP2 margin vs volume vs cost);
-     landing forecast vs month target; new vs returning mix.
-   - paid: budget-limited campaigns above tROAS; campaigns or Meta lines with
-     negative GP3 (gp3_l14); marginal vs average ROAS (`marginal`); Meta spend vs
-     plan by type and market; campaigns coming off cooldown.
+   - pacing: which market is behind GP3 target and why (`headroom[m].bridge`:
+     volume vs GM1 margin vs variable cost); landing vs month target; headroom
+     remaining and per day; new vs returning mix.
+   - paid: `guardrail` (budget errors, how many campaigns can take more/less);
+     budget-limited campaigns (always an error); `google.campaigns[].suggestion`
+     (lower/raise tROAS: only those not blocked by `cooldown_until`, via
+     apply_troas.py); `inc_marginal` and `inc_gp3_per_10k` per campaign;
+     `meta.lines[].suggestion` (up/test = test candidate, down = cut); lines
+     with negative last-click GP3 (gp3_l14, which undercounts Meta); campaigns
+     coming off cooldown.
    - creatives: Kill still spending, Scale with headroom, fatigue, which angle /
      offer tags win per market.
    - offers: offer depth vs GP2 per order (cost-to-serve per order is in

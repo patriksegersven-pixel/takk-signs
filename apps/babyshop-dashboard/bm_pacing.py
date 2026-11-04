@@ -222,6 +222,78 @@ def _summary(days: list[str], asof_i: int, tgt: dict, act: dict, ly: dict) -> di
     return out
 
 
+def _headroom(S: dict, t: dict, n: int, budget: dict) -> dict:
+    """Spend headroom against the forecast's GP3 (the binding target).
+
+    The forecast's 10.5% COS is derived from assumed GM1/GM2. What is fixed is
+    GP3 = GP2 - marketing, so the spend GP2 can carry while still landing GP3 is
+
+        allowed spend = GP2 - GP3 target
+
+    MTD against the daily GP3 target curve, and for the month on landing GP2
+    (run-rate). Headroom is allowed minus actual (MTD) and allowed minus
+    expected spend at the current run-rate (month), spread over the remaining
+    days by the marketing index. It only holds if the extra spend adds at least
+    as much incremental GP2 as it costs, which this cannot see.
+
+    Sales are Norce merchandise (the plan's basis); GM1/GM2 rates and GP2 are
+    Funnel export (Norce has no cost), rates taken on Funnel gross.
+    """
+    r = lambda v: None if v is None else round(v)
+    rate = lambda a, b: round(a / b, 4) if b else None
+    g, fg, gp1, gp2, gp3, c = (S[k] for k in ("gross", "fgross", "gp1", "gp2", "gp3", "cost"))
+    gm1_fc = budget["gp1"] / budget["gross_sales"]
+    gm2_fc = budget["gp2"] / budget["gross_sales"]
+    gm1_act = gp1["mtd"] / fg["mtd"] if fg["mtd"] else None
+    gm2_act = gp2["mtd"] / fg["mtd"] if fg["mtd"] else None
+
+    allowed_mtd = gp2["mtd"] - gp3["target_mtd"]
+    allowed_month = (gp2["landing"] - gp3["target_month"]) if gp2["landing"] is not None else None
+    expected = c["landing"]
+    rem_days = len(t["cost"]) - n
+    plan_rem = sum(t["cost"][n:])
+    allowed_rem = allowed_month - c["mtd"] if allowed_month is not None else None
+    head_rem = (allowed_month - expected) if allowed_month is not None and expected is not None else None
+    w = [v / plan_rem for v in t["cost"][n:]] if plan_rem > 0 else []
+
+    bridge = None
+    if gm1_act is not None:
+        sales, sales_t = g["mtd"], g["target_mtd"]
+        volume = (sales - sales_t) * gm2_fc
+        gm1_eff = sales * (gm1_act - gm1_fc)
+        # GM1 -> GM2 is direct variable cost (fulfilment, payment, freight net).
+        dvc_eff = sales * ((gm2_act - gm1_act) - (gm2_fc - gm1_fc))
+        resid = gp2["mtd"] - gp2["target_mtd"] - volume - gm1_eff - dvc_eff
+        bridge = {"target_gp2": r(gp2["target_mtd"]), "volume": r(volume),
+                  "gm1_margin": r(gm1_eff), "variable_cost": r(dvc_eff),
+                  "basis_mix": r(resid), "actual_gp2": r(gp2["mtd"])}
+    return {
+        "allowed_spend_mtd": r(allowed_mtd),
+        "actual_spend_mtd": r(c["mtd"]),
+        "headroom_mtd": r(allowed_mtd - c["mtd"]),
+        "planned_spend_mtd": r(c["target_mtd"]),
+        "allowed_spend_month": r(allowed_month),
+        "expected_spend_month": r(expected),
+        "planned_spend_month": r(c["target_month"]),
+        "allowed_spend_remaining": r(allowed_rem),
+        "headroom_remaining": r(head_rem),
+        "headroom_per_day": r(head_rem / rem_days) if head_rem is not None and rem_days > 0 else None,
+        "remaining_days": rem_days,
+        "allowed_spend_daily": [r(allowed_rem * x) for x in w] if allowed_rem is not None else [],
+        "headroom_daily": [r(head_rem * x) for x in w] if head_rem is not None else [],
+        "earned_cos_mtd": rate(allowed_mtd, g["mtd"]),
+        "earned_cos": rate(allowed_month, g["landing"]) if allowed_month is not None else None,
+        "cos_target": bm.COS_TARGET,
+        "gm1_actual": round(gm1_act, 4) if gm1_act is not None else None,
+        "gm1_fc": round(gm1_fc, 4),
+        "gm2_actual": round(gm2_act, 4) if gm2_act is not None else None,
+        "gm2_fc": round(gm2_fc, 4),
+        "gp3_target_mtd": r(gp3["target_mtd"]), "gp3_mtd": r(gp3["mtd"]),
+        "gp3_target_month": r(gp3["target_month"]), "gp3_landing": r(gp3["landing"]),
+        "bridge": bridge,
+    }
+
+
 def build(ctx: dict) -> dict:
     today = ctx["today"]
     days = bm.month_days()
@@ -266,7 +338,7 @@ def build(ctx: dict) -> dict:
               for k in METRICS}
     rnd = lambda d: {k: [None if v is None else round(v) for v in vs] for k, vs in d.items()}
 
-    markets = {}
+    markets, headroom = {}, {}
     for m in MKTS:
         ser = data[m]
         # GP3's own mix is unstable (GP2 minus cost can be ~0 in a market), so
@@ -289,6 +361,9 @@ def build(ctx: dict) -> dict:
             # `summary` = the primary (event) shape; what `insights` should read.
             "summary": summaries["event"], "summaries": summaries,
         }
+        t_ev = {k: [v * share[k] for v in shapes["event"][k]] for k in BUDGET_KEY}
+        if asof_i >= 0:
+            headroom[m] = _headroom(summaries["event"], t_ev, asof_i + 1, budget)
 
     # ── New vs returning (Norce), same MTD window and its LY twin
     cust = None
@@ -308,6 +383,7 @@ def build(ctx: dict) -> dict:
         "events": events,
         "markets": markets,
         "customers": cust,
+        "headroom": headroom,
         "basis": BASIS,
         "basis_label": {"norce": "Norce ordered", "funnel": "Funnel export"},
         "norce_last_day": norce_last,
@@ -351,6 +427,17 @@ def build(ctx: dict) -> dict:
             "1 Nov: All Saints' Day fell on 1 Nov 2025 but on 31 Oct 2026, so 1 Nov 2026 has "
             "no last-year twin and the model gives it an average-day target × the Sunday "
             "factor (~1.9 M). It reads behind on that day for that reason.",
+            "Spend headroom: the binding target is the forecast's GP3 (8.48 M), not its "
+            "10.5% COS, which is derived from assumed GM1 38.4% / GM2 26.5%. Allowed spend "
+            "= GP2 − GP3 target (MTD on the daily curve; month on landing GP2 at the "
+            "current run-rate). Headroom = allowed − actual (MTD) and allowed − expected "
+            "spend at run-rate (rest of month), spread by the marketing index. Extra spend "
+            "only keeps GP3 if it adds at least as much incremental GP2 as it costs. "
+            "Margins and GP2 are Funnel export; sales are Norce merchandise. Per market it "
+            "rides the Nov 2025 mix split: the forecast itself has no market split.",
+            "GM1 caveat: the Funnel export books returns when they come back, so GM1/GM2 "
+            "(and the headroom built on them) run high during a sales peak until the "
+            "peak's returns land, largely in December.",
             "Ad cost target = Finance's whole marketing line (5.54 M), which also holds "
             "non-ad channels; actual ad cost is de-duplicated Funnel ad spend.",
             "Last year = same weekday 364 days earlier, so Black Friday 27 Nov lines up "

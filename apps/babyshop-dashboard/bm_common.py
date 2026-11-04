@@ -59,9 +59,29 @@ META_PLAN_MONTH = 200_000
 META_PLAN_BY_TYPE = {"kuling": 60_000, "prospecting": 20_000, "retargeting": 120_000}
 META_PLAN_MARKET_SHARE = {"SE": 0.60, "NO": 0.20, "FI": 0.10, "DK": 0.10}
 
-# Google Ads plan for November: ~3.1M SEK (+20% Black Week assumption), split
-# by market. The total marketing line in the forecast (5.54M) also holds other
-# channels; Google + Meta are the controllable paid part.
+# ── Spend philosophy (decided with Babyshop 2026-11-04) ──────────────────────
+# Google has NO budget: it is performance/incrementality driven and optimised to
+# maximise GP3. The forecast's COS (marketing ÷ gross sales = 10.5 %) is a
+# derived envelope built on assumed GM1/GM2, not a cap: the binding constraint
+# is the forecast's GP3. Margin above forecast is room to spend more — on Google
+# AND Meta — wherever the extra krona still adds incremental GP3. The Meta plan
+# above is the approved starting point, not a ceiling.
+COS_TARGET = 0.105                     # forecast marketing ÷ gross sales (5.54M ÷ 52.9M)
+
+# Incrementality: share of platform-reported value that is truly incremental.
+# ASSUMPTIONS until Babyshop has test results — show them on the page as such.
+INCREMENTALITY = {
+    "google_brand_search": 0.30,
+    "google_generic_search": 0.80,
+    "google_shopping_pmax": 0.70,
+    "meta_prospecting": 0.60,
+    "meta_kuling": 0.60,
+    "meta_retargeting": 0.30,
+}
+
+# DEPRECATED: Google has no budget. Kept only as an "expected spend" reference
+# (+20 % Black Week assumption) until bm_paid/bm_insights stop reading it; never
+# judge Google spend against it.
 GOOGLE_PLAN_MONTH = 3_100_000
 GOOGLE_PLAN_MARKET_SHARE = {"SE": 0.54, "NO": 0.28, "FI": 0.08, "DK": 0.07, "ROW": 0.03}
 

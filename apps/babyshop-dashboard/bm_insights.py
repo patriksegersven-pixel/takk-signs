@@ -67,10 +67,14 @@ SCORE_AFTER_DAYS = 3
 SCORE_BY_DAYS = 7
 
 # Rule thresholds (one place, so the page can show them next to the alerts).
+# Spend policy (bm_common "Spend philosophy", 2026-11-04): Google has NO budget and
+# is run for GP3; the binding target is the forecast's GP3, not COS or a spend plan.
+# GP3 margin above forecast is headroom to spend more on Google AND Meta where the
+# extra krona adds incremental GP3. No rule here judges spend against a plan.
 RULES = {
     "gp3_behind_pct": 0.05,        # MTD GP3 more than 5 % behind target-to-date
-    "spend_pace_pct": 0.15,        # market spend ±15 % off plan-to-date
-    "budget_limited_headroom": 1.10,   # profit ROAS ≥ 110 % of tROAS while budget-limited
+    "headroom_min_per_day": 2000,  # positive headroom worth mentioning, SEK/day
+    "suggestion_min_l7_sek": 2000, # tROAS suggestions on campaigns spending ≥ this per 7 d
     "kill_spend_sek": 500,         # a Kill creative that spent ≥ 500 SEK in the window
     "oos_spend_sek": 300,          # out-of-stock hero product with ≥ 300 SEK ad spend
     "troas_step_pct": 0.20,        # a logged tROAS step above ±20 %
@@ -362,8 +366,8 @@ def rule_alerts(snaps: dict[str, dict | None], today: dt.date) -> tuple[list[dic
             notes.append(f"No {key} snapshot yet: its rules were skipped.")
         elif s.get("generated_at") and s["generated_at"][:10] < (today - dt.timedelta(days=1)).isoformat():
             notes.append(f"The {key} snapshot is from {s['generated_at'][:10]}; its alerts may be stale.")
-    for fn in (_rule_gp3_pacing, _rule_spend_pacing, _rule_budget_limited, _rule_meta_allocation,
-               _rule_negative_gp3, _rule_kill_spending, _rule_oos_spend):
+    for fn in (_rule_gp3_pacing, _rule_headroom, _rule_budget_limited, _rule_troas_suggestions,
+               _rule_meta_lines, _rule_negative_gp3, _rule_kill_spending, _rule_oos_spend):
         try:
             alerts.extend(fn(snaps, today))
         except Exception as e:                       # noqa: BLE001 — a rule must never sink the section
@@ -374,8 +378,8 @@ def rule_alerts(snaps: dict[str, dict | None], today: dt.date) -> tuple[list[dic
 
 
 def _rule_gp3_pacing(snaps, today):
-    """pacing: markets.<m>.summary.gp3 {mtd, target_mtd, landing, target_month},
-    and markets.<m>.summary.cost for marketing-cost pacing."""
+    """pacing: markets.<m>.summary.gp3 {mtd, target_mtd, landing, target_month}.
+    GP3 vs the forecast is the binding target; spend is judged only through it."""
     p = snaps.get("pacing") or {}
     out = []
     for m, blk in (dig(p, "markets") or {}).items():
@@ -387,8 +391,8 @@ def _rule_gp3_pacing(snaps, today):
             out.append(_alert(
                 "gp3_behind", "high" if gap < -2 * RULES["gp3_behind_pct"] else "medium", m,
                 f"MTD GP3 {gap*100:+.0f} % vs target ({_sek(act)} vs {_sek(tgt)})",
-                "Find the market/channel behind the gap in Paid media levers; cut spend where "
-                "profit ROAS is below break-even before adding budget elsewhere.",
+                "GP3 vs forecast is the binding target. Find the driver (margin, volume or cost: see the "
+                "pacing bridge) and cut spend whose incremental marginal ROAS is < 1 in Paid media levers.",
                 "pacing",
                 [{"section": "pacing", "metric": "MTD GP3", "value": act},
                  {"section": "pacing", "metric": "GP3 target to date", "value": tgt}]
@@ -403,115 +407,194 @@ def _rule_gp3_pacing(snaps, today):
                 "pacing", [{"section": "pacing", "metric": "GP3 landing", "value": land},
                            {"section": "pacing", "metric": "GP3 target month", "value": month}],
                 "other", land - month))
-        c = dig(blk, "summary.cost") or {}
-        cact, ctgt = _num(c.get("mtd")), _num(c.get("target_mtd"))
-        if cact is not None and ctgt and abs(cact / ctgt - 1) > RULES["spend_pace_pct"] and (today.day >= 4):
-            dev = cact / ctgt - 1
-            gp3_ok = act is not None and tgt and act >= tgt
-            out.append(_alert(
-                "cost_pacing", "low" if (dev < 0 and gp3_ok) else "medium", m,
-                f"Marketing cost {dev*100:+.0f} % vs plan to date ({_sek(cact)} vs {_sek(ctgt)})",
-                ("Under plan while GP3 is ahead: room to loosen tROAS / lift budgets on campaigns "
-                 "earning above target." if dev < 0 and gp3_ok else
-                 "Under plan and GP3 is not ahead: check for budget caps, disapprovals or tROAS set too high."
-                 if dev < 0 else
-                 "Over plan: keep the extra spend only where profit ROAS ≥ tROAS."),
-                "pacing", [{"section": "pacing", "metric": "marketing cost MTD", "value": cact},
-                           {"section": "pacing", "metric": "cost plan to date", "value": ctgt}],
-                "google_budget"))
     return out
 
 
-def _paid_series_mtd(p, blk) -> tuple[float | None, float | None]:
-    """Sum a paid pacing block {plan: [30], actual: [30]} over complete days
-    (days[i] ≤ asof; today's partial value is left out)."""
-    days, asof = p.get("days") or [], p.get("asof")
-    plan, act = blk.get("plan") or [], blk.get("actual") or []
-    idx = [i for i, d in enumerate(days) if asof and d <= asof]
-    if not idx:
-        return None, None
-    return (sum(_num(act[i]) or 0 for i in idx if i < len(act)),
-            sum(_num(plan[i]) or 0 for i in idx if i < len(plan)))
+# tROAS set high on purpose; never suggest lowering (memory "PB campaign", 2026-11-04).
+DELIBERATE_TROAS = {"ps-search-se-pb-all"}
+
+_RETURNS_CAVEAT = ("Late-November headroom reads high: Funnel books returns on the return date, so "
+                   "Black Week returns land in December and GP3 to date is flattered.")
 
 
-def _rule_spend_pacing(snaps, today):
-    """paid: google.pacing.<m> and meta.pacing.market.<m> {plan[], actual[]} (SEK/day),
-    days[] + asof → spend to date vs plan to date."""
-    p = snaps.get("paid") or {}
+def _rule_headroom(snaps, today):
+    """pacing: headroom.<m> {headroom_remaining, headroom_per_day, remaining_days,
+    gp3_mtd, gp3_target_mtd, earned_cos_mtd, cos_target}. Headroom = spend the
+    forecast's GP3 already covers. Positive with GP3 on track → room to spend more
+    where incremental; negative → find spend with incremental marginal ROAS < 1
+    (paid google.campaigns[].inc_marginal, meta.lines[].inc_marginal)."""
+    pc, pd = snaps.get("pacing") or {}, snaps.get("paid") or {}
     out = []
-    for ch, path in (("google", "google.pacing"), ("meta", "meta.pacing.market")):
-        for m, blk in (dig(p, path) or {}).items():
-            if not isinstance(blk, dict):
-                continue
-            spend, plan = _paid_series_mtd(p, blk)
-            if spend is None or not plan or plan < 3000:
-                continue
-            dev = spend / plan - 1
-            if abs(dev) <= RULES["spend_pace_pct"]:
-                continue
-            over = dev > 0
+    for m, h in (dig(pc, "headroom") or {}).items():
+        if not isinstance(h, dict) or m in ("ROW", "all"):
+            continue
+        rem, per_day = _num(h.get("headroom_remaining")), _num(h.get("headroom_per_day"))
+        g, gt = _num(h.get("gp3_mtd")), _num(h.get("gp3_target_mtd"))
+        if rem is None or per_day is None:
+            continue
+        ev = [{"section": "pacing", "metric": "headroom remaining", "value": round(rem)},
+              {"section": "pacing", "metric": "headroom per day", "value": round(per_day)},
+              {"section": "pacing", "metric": "GP3 MTD vs target", "value": f"{_sek(g)} vs {_sek(gt)}"},
+              {"section": "pacing", "metric": "earned COS MTD", "value": h.get("earned_cos_mtd")}]
+        if rem > 0 and per_day >= RULES["headroom_min_per_day"] and g is not None and gt and g >= gt:
+            more = _incremental_candidates(pd, m, up=True)
             out.append(_alert(
-                "spend_pacing", "medium", m,
-                f"{ch.title()} {m} spend {dev*100:+.0f} % vs plan to date ({_sek(spend)} vs {_sek(plan)})",
-                ("Keep the extra spend only where profit ROAS ≥ tROAS; otherwise trim budgets "
-                 "or let the raised tROAS bite." if over and ch == "google" else
-                 "Over plan: tighten the ad-set daily caps so the month total stays at the approved plan."
-                 if over else
-                 "Under plan: if the campaigns are above break-even, loosen tROAS or lift budgets so the "
-                 "plan is used before Black Week." if ch == "google" else
-                 "Under plan: check delivery (learning, audience size) and raise caps on Scale creatives."),
-                "paid",
-                [{"section": "paid", "metric": f"{ch} spend to date", "value": round(spend)},
-                 {"section": "paid", "metric": f"{ch} plan to date", "value": round(plan)}],
-                "meta_allocation" if ch == "meta" else "google_budget"))
+                "headroom", "medium", m,
+                f"Room to spend ~{_sek(per_day)}/day more ({_sek(rem)} to month end) with GP3 on track",
+                "Spend it only where the extra krona is incremental (incremental marginal ROAS > 1): "
+                + (f"candidates {more}. " if more else "") + _RETURNS_CAVEAT,
+                "pacing", ev, "google_troas"))
+        elif rem < 0:
+            less = _incremental_candidates(pd, m, up=False)
+            out.append(_alert(
+                "headroom_negative", "high" if (gt and g is not None and g < gt) else "medium", m,
+                f"Spend is {_sek(-rem)} over what the GP3 forecast covers ({_sek(-per_day)}/day to month end)",
+                "Find spend with incremental marginal ROAS < 1 and cut it first"
+                + (f": {less}" if less else "") + ". Don't cut spend that still adds GP3.",
+                "pacing", ev, "google_troas", rem))
     return out
+
+
+def _incremental_candidates(pd, market, up: bool, n: int = 3) -> str:
+    """Top Google campaigns / Meta lines in a market by incremental marginal ROAS:
+    > 1 when up (can take more), < 1 when not (spend to cut)."""
+    rows = []
+    for c in _rows(pd, "google.campaigns"):
+        im = _num(c.get("inc_marginal"))
+        if c.get("market") != market or im is None or (_num(c.get("l7_cost_sek")) or 0) < RULES["suggestion_min_l7_sek"]:
+            continue
+        if up and c.get("name") in DELIBERATE_TROAS:
+            continue
+        if (im > 1) if up else (im < 1):
+            cd = c.get("cooldown_until")
+            rows.append((im, f"{c.get('name')} ({im:.2f}"
+                             + (f", cooldown to {cd[8:10]}/{cd[5:7]}" if cd and cd > bm.today().isoformat() else "") + ")"))
+    for l in _rows(pd, "meta.lines"):
+        im = _num(l.get("inc_marginal"))
+        if l.get("market") != market or im is None:
+            continue
+        if (im > 1) if up else (im < 1):
+            rows.append((im, f"Meta {l.get('type')} ({im:.2f}{', test first' if up else ''})"))
+    rows.sort(key=lambda x: -x[0] if up else x[0])
+    return ", ".join(r[1] for r in rows[:n])
 
 
 def _rule_budget_limited(snaps, today):
-    """paid: google.campaigns[] with budget_limited and l7_roas (profit ROAS: Babyshop
-    conversion value = profit) ≥ 110 % of troas."""
+    """paid: google.campaigns[].budget_limited and guardrail.budget_errors[]. Google has
+    no budget, so ANY budget-limited campaign is an error, whatever its ROAS."""
     p = snaps.get("paid") or {}
-    out = []
+    out, seen = [], set()
     for r in _rows(p, "google.campaigns"):
-        roas, troas = _num(r.get("l7_roas")), _num(r.get("troas"))
-        if not r.get("budget_limited") or roas is None or not troas:
+        if not r.get("budget_limited") or str(r.get("status", "enabled")).lower() != "enabled":
             continue
-        if roas >= troas * RULES["budget_limited_headroom"]:
-            lost = _num(r.get("lost_budget"))
-            out.append(_alert(
-                "budget_limited", "high", r.get("market"),
-                f"{r.get('name', 'campaign')}: budget-limited at profit ROAS {roas:.2f} vs tROAS {troas:.2f}",
-                f"Raise the daily budget (now {_sek(r.get('budget_day_sek'))} SEK): it earns above target. "
-                "tROAS changes only via apply_troas.py.",
-                "paid",
-                [{"section": "paid", "metric": "profit ROAS 7 d", "value": roas},
-                 {"section": "paid", "metric": "tROAS", "value": troas}]
-                + ([{"section": "paid", "metric": "lost IS (budget)", "value": round(lost, 3)}] if lost is not None else []),
-                "google_budget"))
+        seen.add(str(r.get("id") or r.get("name")))
+        lost = _num(r.get("lost_budget"))
+        out.append(_alert(
+            "budget_limited", "high", r.get("market"),
+            f"{r.get('name', 'campaign')} is limited by budget ({_sek(r.get('budget_day_sek'))} SEK/day)",
+            "Error under the spend policy: Google has no budget. Raise the cap well above daily spend so "
+            "tROAS alone governs; if the spend isn't wanted, raise tROAS via apply_troas.py instead.",
+            "paid",
+            [{"section": "paid", "metric": "lost IS (budget)", "value": round(lost, 3) if lost is not None else None},
+             {"section": "paid", "metric": "profit ROAS 7 d", "value": r.get("l7_roas")},
+             {"section": "paid", "metric": "tROAS", "value": r.get("troas")}],
+            "google_budget"))
+    for e in dig(p, "guardrail.budget_errors") or []:
+        e = e if isinstance(e, dict) else {"text": str(e)}
+        if str(e.get("id") or e.get("name") or e.get("campaign")) in seen:
+            continue
+        out.append(_alert(
+            "budget_limited", "high", e.get("market"),
+            f"Budget error: {e.get('name') or e.get('campaign') or e.get('text') or 'campaign'}",
+            e.get("text") or e.get("hint") or "Raise the cap so tROAS governs; Google has no budget.",
+            "paid", [{"section": "paid", "metric": "guardrail.budget_errors", "value": 1}], "google_budget"))
     return out
 
 
-def _rule_meta_allocation(snaps, today):
-    """paid: Meta spend share by market (meta.pacing.market) vs the approved 60/20/10/10."""
+def _rule_troas_suggestions(snaps, today):
+    """paid: google.campaigns[].suggestion {action: lower|raise|hold|none, text, new_troas,
+    blocked_until} with cooldown_until, inc_marginal, inc_gp3_per_10k, l7_cost_sek.
+    Actionable today = not blocked and not in cooldown; one alert per market × action.
+    Blocked ones are summarised in one low alert with the date they unblock."""
     p = snaps.get("paid") or {}
-    spend = {}
-    for m, blk in (dig(p, "meta.pacing.market") or {}).items():
-        if m in bm.META_PLAN_MARKET_SHARE and isinstance(blk, dict):
-            spend[m] = _paid_series_mtd(p, blk)[0] or 0
-    tot = sum(spend.values())
-    if tot < 5000:
-        return []
+    tday = today.isoformat()
+    groups: dict[tuple, list] = {}
+    blocked: dict[str, int] = {}
+    for c in _rows(p, "google.campaigns"):
+        sg = c.get("suggestion") or {}
+        act = sg.get("action")
+        if act not in ("lower", "raise") or (_num(c.get("l7_cost_sek")) or 0) < RULES["suggestion_min_l7_sek"]:
+            continue
+        if act == "lower" and c.get("name") in DELIBERATE_TROAS:
+            continue
+        until = max(str(sg.get("blocked_until") or ""), str(c.get("cooldown_until") or ""))
+        if until and until > tday:
+            blocked[until] = blocked.get(until, 0) + 1
+            continue
+        groups.setdefault((c.get("market") or "all", act), []).append(c)
     out = []
-    for m, v in spend.items():
-        share, plan = v / tot, bm.META_PLAN_MARKET_SHARE[m]
-        if abs(share - plan) > 0.05:
-            out.append(_alert(
-                "meta_allocation", "low", m,
-                f"Meta {m} share {share*100:.0f} % vs plan {plan*100:.0f} %",
-                "Adjust the ad-set min/max spend shares so the market split follows the approved plan.",
-                "paid", [{"section": "paid", "metric": "Meta spend share", "value": round(share, 3)},
-                         {"section": "paid", "metric": "plan share", "value": plan}],
-                "meta_allocation"))
+    for (m, act), cs in groups.items():
+        cs.sort(key=lambda c: -abs(_num(c.get("inc_gp3_per_10k")) or 0) * (_num(c.get("l7_cost_sek")) or 0))
+        lst = "; ".join(f"{c.get('name')} {c.get('troas')} → {(c.get('suggestion') or {}).get('new_troas')}"
+                        for c in cs[:4])
+        up = act == "lower"
+        out.append(_alert(
+            "troas_" + act, "medium", m,
+            f"{len(cs)} campaign{'s' if len(cs) > 1 else ''}: {act} tROAS "
+            + ("(incremental marginal ROAS > 1: more spend adds GP3)" if up else
+               "(the last krona loses GP3)"),
+            f"Run apply_troas.py (dry run first): {lst}{' …' if len(cs) > 4 else ''}. "
+            "Increments are model estimates with assumed incrementality factors.",
+            "paid",
+            [{"section": "paid", "metric": "campaigns", "value": len(cs)},
+             {"section": "paid", "metric": "inc. GP3 per +10k spend, top campaign",
+              "value": cs[0].get("inc_gp3_per_10k")}],
+            "google_troas"))
+    for until, n in sorted(blocked.items())[:2]:
+        out.append(_alert(
+            "troas_blocked", "low", "all",
+            f"{n} tROAS suggestion{'s' if n > 1 else ''} wait for the cooldown ({until})",
+            f"Re-check them on {until} in Paid media levers; then apply via apply_troas.py.",
+            "paid", [{"section": "paid", "metric": "blocked suggestions", "value": n}], "google_troas"))
+    return out
+
+
+def _rule_meta_lines(snaps, today):
+    """paid: meta.lines[] {market, type, suggestion.action up|test|down|none, inc_marginal,
+    inc_gp3_per_10k, avg_gp2_roas_platform, lastclick_gp2_roas_market, mtd_spend, plan_month}.
+    The approved Meta plan is a starting point, not a ceiling. Meta pixel ROAS runs
+    4–10× last-click, so 'up' is a test candidate, never a sure thing."""
+    p = snaps.get("paid") or {}
+    up, down = {}, {}
+    for l in _rows(p, "meta.lines"):
+        act = (l.get("suggestion") or {}).get("action")
+        if act in ("up", "test"):
+            up.setdefault(l.get("market") or "all", []).append(l)
+        elif act == "down":
+            down.setdefault(l.get("market") or "all", []).append(l)
+    out = []
+    for m, ls in up.items():
+        ls.sort(key=lambda l: -(_num(l.get("inc_gp3_per_10k")) or 0))
+        pix = [(_num(l.get("avg_gp2_roas_platform")), _num(l.get("lastclick_gp2_roas_market"))) for l in ls]
+        ratio = next((a / b for a, b in pix if a and b), None)
+        out.append(_alert(
+            "meta_scale_test", "low", m,
+            f"Meta {', '.join(str(l.get('type')) for l in ls)}: scale-up test candidate"
+            f"{'s' if len(ls) > 1 else ''}",
+            "Test +20 % for a week, not a plan change: Meta pixel ROAS is 4–10× last-click"
+            + (f" (here {ratio:.1f}×)" if ratio else "") + " and incrementality is assumed, not measured. "
+            "The 200k plan is a starting point, not a ceiling.",
+            "paid", [{"section": "paid", "metric": f"Meta {l.get('type')} inc. marginal ROAS",
+                      "value": l.get("inc_marginal")} for l in ls[:3]],
+            "meta_allocation"))
+    for m, ls in down.items():
+        out.append(_alert(
+            "meta_scale_down", "medium", m,
+            f"Meta {', '.join(str(l.get('type')) for l in ls)}: incremental marginal ROAS < 1",
+            "Scale down: the extra krona doesn't pay back even on Meta's own (generous) numbers.",
+            "paid", [{"section": "paid", "metric": f"Meta {l.get('type')} inc. marginal ROAS",
+                      "value": l.get("inc_marginal")} for l in ls[:3]],
+            "meta_allocation"))
     return out
 
 
@@ -527,8 +610,10 @@ def _rule_negative_gp3(snaps, today):
         out.append(_alert(
             "negative_gp3", "high" if g < -0.25 * sp else "medium", r.get("market"),
             f"{ch.title()} {r.get('market')} lost {_sek(-g)} GP3 in 14 days (GP2/spend {r.get('gp2_roas') or 0:.2f})",
-            "Every krona here costs margin: cut to the profitable campaigns/ad sets, or move the budget to "
-            "a market where this channel is above break-even.",
+            ("Last-click GP3 (GA4) undercounts Meta: check the line's incremental marginal ROAS in Paid "
+             "media levers before cutting; cut what is < 1 there too." if ch == "meta" else
+             "Cut the campaigns with incremental marginal ROAS < 1 (raise tROAS via apply_troas.py); "
+             "keep what still adds GP3."),
             "paid", [{"section": "paid", "metric": "GP3 14 d", "value": round(g)},
                      {"section": "paid", "metric": "spend 14 d", "value": round(sp)}],
             "meta_allocation" if ch == "meta" else "google_budget", g))
@@ -790,9 +875,9 @@ CHECKLIST = [
     {"id": "troas-raise", "due": "2026-11-04", "title": "Pre-BF tROAS raise (+10–15 %) applied via apply_troas.py",
      "detail": "Logged in target_changes. 14-day cooldown → those campaigns can move again from 18 Nov.",
      "auto": "troas_raise"},
-    {"id": "meta-setup", "due": "2026-11-07", "title": "Meta November setup matches the approved 200k plan",
-     "detail": "Kuling 60k / prospecting 20k / catalogue retargeting 120k; campaign budgets, one ad set per "
-               "country, SE60/NO20/FI10/DK10 as min/max spend shares."},
+    {"id": "meta-setup", "due": "2026-11-07", "title": "Meta November setup in place (approved 200k plan as the starting point)",
+     "detail": "Kuling 60k / prospecting 20k / catalogue retargeting 120k; SE60/NO20/FI10/DK10. A starting "
+               "point, not a ceiling: scale lines that add incremental GP3."},
     {"id": "ly-anomaly", "due": "2026-11-17", "title": "Explain 14–20 Nov 2025: 1.31M SEK spend at ROAS ~1.38",
      "detail": "Unexplained last year (CPC ~7 SEK). Check before the 18 Nov review so it does not repeat."},
     {"id": "troas-review", "due": "2026-11-18", "title": "tROAS review: back to normal before BF, or stay raised?",

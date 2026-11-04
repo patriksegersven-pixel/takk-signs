@@ -20,7 +20,9 @@ REGION="${REGION:-europe-north1}"
 SERVICE="${SERVICE:-babyshop-dashboard}"
 SCHEDULER_REGION="${SCHEDULER_REGION:-europe-west1}"
 JOB="${JOB:-blackmonth-refresh}"
-SECRETS="GOOGLE_ADS_DEVELOPER_TOKEN=GOOGLE_ADS_DEVELOPER_TOKEN:latest,GOOGLE_ADS_CLIENT_ID=GOOGLE_ADS_CLIENT_ID:latest,GOOGLE_ADS_CLIENT_SECRET=GOOGLE_ADS_CLIENT_SECRET:latest,GOOGLE_ADS_REFRESH_TOKEN=GOOGLE_ADS_REFRESH_TOKEN:latest,GOOGLE_ADS_LOGIN_CUSTOMER_ID=GOOGLE_ADS_LOGIN_CUSTOMER_ID:latest"
+# paid/insights: Google Ads (read-only). offers: Airtable calendar, Norce order
+# lines with list price (bm_offers_norce), Channable feed for stock.
+SECRETS="GOOGLE_ADS_DEVELOPER_TOKEN=GOOGLE_ADS_DEVELOPER_TOKEN:latest,GOOGLE_ADS_CLIENT_ID=GOOGLE_ADS_CLIENT_ID:latest,GOOGLE_ADS_CLIENT_SECRET=GOOGLE_ADS_CLIENT_SECRET:latest,GOOGLE_ADS_REFRESH_TOKEN=GOOGLE_ADS_REFRESH_TOKEN:latest,GOOGLE_ADS_LOGIN_CUSTOMER_ID=GOOGLE_ADS_LOGIN_CUSTOMER_ID:latest,AIRTABLE_PAT=AIRTABLE_PAT:latest,NORCE_CLIENT_ID=NORCE_CLIENT_ID:latest,NORCE_CLIENT_SECRET=NORCE_CLIENT_SECRET:latest,CHANNABLE_FEED_URL=channable-feed-url:latest"
 
 echo "== 0. Resolve the image + runtime SA =="
 IMAGE="${IMAGE:-$(gcloud run services describe "$SERVICE" \
@@ -35,6 +37,10 @@ if [[ -z "$RUNTIME_SA" ]]; then
 fi
 echo "   image:      $IMAGE"
 echo "   runtime SA: $RUNTIME_SA"
+
+echo "== 0b. Runtime SA may read the Airtable token (the others are already granted) =="
+gcloud secrets add-iam-policy-binding AIRTABLE_PAT --project="$PROJECT" \
+  --member="serviceAccount:$RUNTIME_SA" --role=roles/secretmanager.secretAccessor >/dev/null
 
 echo "== 1. Create/update the Cloud Run job =="
 ACTION=create

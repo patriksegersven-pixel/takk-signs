@@ -384,24 +384,128 @@ def _marginal(pairs: list[tuple[float, float]]) -> dict:
             "r2": round(r2, 2), "n": n, "spend_cv": round(cv, 2), "confidence": conf}
 
 
-def _campaign_hint(c: dict) -> tuple[str, str]:
-    """(pill class, short action) for one Google campaign."""
-    t, roas = c.get("troas"), c.get("l14_roas")
-    lb, lr = c.get("lost_budget") or 0, c.get("lost_rank") or 0
-    limited = c["budget_limited"]
-    if limited and roas is not None and t and roas >= t:
-        return "up", "Capped, above target: raise budget"
-    if limited:
-        return "warn", "Capped: check budget"
-    if c.get("cooldown"):
-        return "muted", "Wait: cooldown"
-    if t and roas is not None and c.get("l14_cost_sek", 0) > 3000:
-        r = roas / t
-        if r < 0.8:
-            return "down", "Under target: raise tROAS"
-        if r > 1.25 and lr > 0.3:
-            return "up", "Room to lower tROAS"
-    return "", ""
+BRAND_RX = re.compile(r"(^|[-_ |])brand([-_ |]|$)", re.I)
+STEP = 0.10                  # the tROAS move we suggest: ±10 %
+NOISE = 0.10                 # |incremental marginal − 1| below this → hold
+
+
+def google_type(name: str, channel: str) -> tuple[str, str]:
+    """(segment, INCREMENTALITY key). Brand = 'brand' as a name token; any brand
+    campaign (search or shopping) takes the brand-search rate."""
+    if BRAND_RX.search(name or ""):
+        return "brand", "google_brand_search"
+    if channel == "SEARCH":
+        return "non-brand", "google_generic_search"
+    return "non-brand", "google_shopping_pmax"
+
+
+def _curves() -> dict[str, dict]:
+    """Latest ROAS-Simulations curve per strategy, κ-calibrated (v_kappa_calibrated),
+    anchor point excluded. strategy_id = campaign id for campaign-level strategies."""
+    from google.cloud import bigquery
+    c = bigquery.Client(project=LEGACY)
+    ds = f"`{LEGACY}.roas_sims"
+    rows = c.query(f"""
+        SELECT s.strategy_id, s.customer_name, s.run_date, s.current_target,
+               s.target_roas, s.cost, s.conversions_value, k.k_cost, k.k_value, k.inc_class
+        FROM {ds}.sim_points` s
+        LEFT JOIN {ds}.v_kappa_calibrated` k USING (customer_name, strategy_id)
+        WHERE s.run_date = (SELECT MAX(run_date) FROM {ds}.sim_points`)
+          AND NOT s.is_anchor AND s.target_roas > 0""").result()
+    out: dict[str, dict] = {}
+    for r in rows:
+        cv = out.setdefault(str(r["strategy_id"]), {
+            "run_date": r["run_date"].isoformat(), "current_target": r["current_target"],
+            "k_cost": r["k_cost"], "k_value": r["k_value"], "inc_class": r["inc_class"],
+            "points": []})
+        cv["points"].append((float(r["target_roas"]), float(r["cost"] or 0),
+                             float(r["conversions_value"] or 0)))
+    for cv in out.values():
+        cv["points"].sort()
+    return out
+
+
+def curve_marginal(cv: dict, target: float) -> dict | None:
+    """Marginal profit per krona around `target` on a calibrated curve.
+
+    down: what the EXTRA spend from a 10 % lower target returns (Δvalue ÷ Δcost);
+    up:   what the spend we would SAVE with a 10 % higher target was returning.
+    Both axes deflated by κ (k_cost/k_value). None when the step falls outside the
+    simulated range (Google's simulator does not extrapolate, neither do we)."""
+    from roas_sims_bq import _interp
+    pts = cv["points"]
+    if len(pts) < 3 or not target:
+        return None
+    kc, kv = cv.get("k_cost") or 1.0, cv.get("k_value") or 1.0
+    c0, v0 = _interp(pts, target)
+    cd, vd = _interp(pts, target * (1 - STEP))
+    cu, vu = _interp(pts, target * (1 + STEP))
+    c0, v0, cd, vd, cu, vu = c0 * kc, v0 * kv, cd * kc, vd * kv, cu * kc, vu * kv
+    floor = 0.01 * max(c0, 1.0)
+    down = (vd - v0) / (cd - c0) if cd - c0 > floor else None
+    up = (v0 - vu) / (c0 - cu) if c0 - cu > floor else None
+    if down is None and up is None:
+        return None
+    lo, hi = pts[0][0], pts[-1][0]
+    return {"down": None if down is None else round(down, 2),
+            "up": None if up is None else round(up, 2),
+            "extra_cost_pct": round((cd - c0) / c0, 3) if c0 else None,
+            "in_range": lo <= target <= hi, "kappa": [round(kc, 2), round(kv, 2)]}
+
+
+def suggest(inc_down, inc_up, headroom: bool, troas, cooldown_until, fallback: bool) -> dict:
+    """The tROAS move. Spend more (lower tROAS) where the extra krona still earns
+    > 1 incremental profit and there is demand left to buy; spend less (raise tROAS)
+    where the krona we would cut earns < 1. Otherwise hold."""
+    if not troas:
+        return {"action": "none", "cls": "muted", "text": "No tROAS (other bidding)"}
+    act = None
+    if inc_down is not None and inc_down > 1 + NOISE and headroom:
+        act, new = "lower", troas * (1 - STEP)
+    elif inc_up is not None and inc_up < 1 - NOISE:
+        act, new = "raise", troas * (1 + STEP)
+    if not act:
+        why = ("no headroom" if inc_down is not None and inc_down > 1 + NOISE and not headroom
+               else "near break-even" if (inc_down or inc_up) is not None else "no estimate")
+        return {"action": "hold", "cls": "muted", "text": f"Hold ({why})"}
+    txt = f"{'Lower' if act == 'lower' else 'Raise'} tROAS {troas:.2f} → {new:.2f} via apply_troas.py"
+    if fallback:
+        txt += " (weak estimate: verify)"
+    if cooldown_until:
+        txt += f", after cooldown {cooldown_until}"
+    cls = ("muted" if cooldown_until else "up" if act == "lower" else "down")
+    return {"action": act, "cls": cls, "text": txt, "new_troas": round(new, 2),
+            "blocked_until": cooldown_until}
+
+
+def _market_margins(d0: datetime.date, d1: datetime.date) -> dict[str, float]:
+    """GP2 ÷ net revenue per market, Babyshop shop, all channels (Funnel export:
+    the only place a margin exists; Norce has no cost)."""
+    import bq_source as bs
+    from google.cloud import bigquery
+    rows = bs._rows(
+        f"WITH {bs._kv_cte('Date BETWEEN @s AND @e')} "
+        f"SELECT market_level_1_kv mk, {bs.KVD} FROM kv_rows WHERE shop_new = 'Babyshop' GROUP BY mk",
+        [bigquery.ScalarQueryParameter("s", "DATE", d0),
+         bigquery.ScalarQueryParameter("e", "DATE", d1)])
+    acc = defaultdict(lambda: [0.0, 0.0])
+    for r in rows:
+        a = acc[_mk(r["mk"])]
+        a[0] += float(r["gp2"] or 0); a[1] += float(r["net_rev"] or 0)
+    return {m: round(g / v, 3) for m, (g, v) in acc.items() if v > 0}
+
+
+def find_headroom(p) -> tuple[str | None, object]:
+    """Pacing's spend-headroom block, wherever it sits (key containing 'headroom')."""
+    stack = [("", p)]
+    while stack:
+        path, node = stack.pop(0)
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if "headroom" in str(k).lower():
+                    return (path + "." + k).lstrip("."), v
+                stack.append((path + "." + str(k), v))
+    return None, None
 
 
 def build(ctx: dict) -> dict:
@@ -413,8 +517,6 @@ def build(ctx: dict) -> dict:
     errors: list[str] = []
 
     index, index_src = _plan_index()
-    g_plan = {m: [round(bm.GOOGLE_PLAN_MONTH * s * w) for w in index]
-              for m, s in bm.GOOGLE_PLAN_MARKET_SHARE.items()}
     m_plan_mkt = {m: [round(bm.META_PLAN_MONTH * s * w) for w in index]
                   for m, s in bm.META_PLAN_MARKET_SHARE.items()}
     m_plan_type = {t: [round(v * w) for w in index] for t, v in bm.META_PLAN_BY_TYPE.items()}
@@ -437,6 +539,17 @@ def build(ctx: dict) -> dict:
         changes = []
         errors.append(f"target_changes: {e}")
     funnel = _funnel(d0, yday)
+    try:
+        curves = _curves()
+    except Exception as e:
+        curves = {}
+        errors.append(f"ROAS-sims curves: {e}")
+    l28_lo = today - datetime.timedelta(days=28)
+    try:
+        margins = _market_margins(l28_lo, yday)
+    except Exception as e:
+        margins = {}
+        errors.append(f"Funnel GP2 margin: {e}")
     try:
         norce = _norce(d0, yday)
     except Exception as e:
@@ -471,8 +584,8 @@ def build(ctx: dict) -> dict:
     for r in g["daily"]:
         if r["d"] == today_iso:
             g_today[r["market"]] += r["cost"] * fx.get(acc_cur.get(r["cid"], "SEK"), 1.0)
-    google_pacing = {m: {"plan": g_plan.get(m, [0] * len(days)),
-                         "actual": [_r(v) for v in g_act[m]],
+    # Context only: Google has no budget, spend is judged by incremental GP3.
+    google_pacing = {m: {"actual": [_r(v) for v in g_act[m]],
                          "today_so_far": _r(g_today.get(m))} for m in MKTS}
 
     # ── Google campaigns ─────────────────────────────────────────────────────
@@ -492,6 +605,12 @@ def build(ctx: dict) -> dict:
             a["l14_cost"] += r["cost"]; a["l14_value"] += r["value"]
         if r["d"] == today_iso:
             a["today_cost"] += r["cost"]
+        if r["d"] == yday.isoformat():
+            a["yday_cost"] += r["cost"]
+    pairs_c = defaultdict(list)
+    for r in g["daily"]:
+        if l28_lo.isoformat() <= r["d"] <= yday.isoformat():
+            pairs_c[r["id"]].append((r["cost"], r["value"]))
     campaigns = []
     for c in g["campaigns"]:
         a = agg.get(c["id"], {})
@@ -529,7 +648,40 @@ def build(ctx: dict) -> dict:
         }
         if not (row["l14_cost_sek"] or row["mtd_cost_sek"] or row["today_cost_sek"]):
             continue                                     # enabled but idle
-        row["hint_class"], row["hint"] = _campaign_hint(row)
+        # Marginal profit ROAS: ROAS-sims curve first, recent spend/return fit second.
+        seg, inc_key = google_type(c["name"], c["channel"])
+        inc = bm.INCREMENTALITY.get(inc_key)
+        cm = curve_marginal(curves[c["id"]], c["troas"]) if c["troas"] and c["id"] in curves else None
+        basis, m_down, m_up, extra = None, None, None, None
+        if cm:
+            basis, m_down, m_up, extra = "curve", cm["down"], cm["up"], cm["extra_cost_pct"]
+        else:
+            fit = _marginal(pairs_c.get(c["id"], []))
+            if fit.get("marginal") is not None and fit["confidence"] != "none":
+                basis = "fit"
+                m_down = m_up = fit["marginal"]
+        inc_down = None if m_down is None or inc is None else round(m_down * inc, 2)
+        inc_up = None if m_up is None or inc is None else round(m_up * inc, 2)
+        lr = c.get("lost_rank")
+        headroom = bool((lr is not None and lr >= 0.10) or (extra is not None and extra >= 0.05))
+        row.update({
+            "segment": seg, "inc_key": inc_key, "incrementality": inc,
+            "yday_cost_sek": _r(a.get("yday_cost", 0) * f),
+            "marginal_roas": m_down, "marginal_roas_up": m_up, "marginal_basis": basis,
+            "curve_run": curves[c["id"]]["run_date"] if cm else None,
+            "inc_marginal": inc_down, "inc_marginal_up": inc_up,
+            "inc_gp3_per_10k": None if inc_down is None else _r((inc_down - 1) * 10_000),
+            "headroom": headroom,
+            "headroom_why": ", ".join(x for x in (
+                f"lost IS rank {lr:.0%}" if lr is not None and lr >= 0.10 else "",
+                f"+{extra:.0%} spend available at −10 % tROAS" if extra is not None and extra >= 0.05 else "")
+                if x) or None,
+        })
+        sg = suggest(inc_down, inc_up, headroom, c["troas"], row["cooldown_until"], basis == "fit")
+        if row["budget_limited"]:
+            sg = {"action": "error", "cls": "down", "text": "ERROR: limited by budget (budgets must never bind)"}
+        row["suggestion"] = sg
+        row["hint_class"], row["hint"] = sg["cls"], sg["text"]     # kept for bm_insights
         campaigns.append(row)
     campaigns.sort(key=lambda r: -(r["l14_cost_sek"] or 0))
 
@@ -613,6 +765,54 @@ def build(ctx: dict) -> dict:
         key=lambda r: -r["l7_spend"])[:60]
 
     unclassified = sorted({r["campaign"] for r in meta if r["type"] == "unclassified"})
+
+    # Meta lines (market × campaign type): marginal revenue ROAS from 28 daily
+    # spend/revenue pairs → GP2 with the Funnel margin → × INCREMENTALITY.
+    line_days = defaultdict(lambda: defaultdict(lambda: [0.0, 0.0]))
+    for r in meta:
+        if l28_lo.isoformat() <= r["d"] <= yday.isoformat():
+            dd = line_days[(r["market"], r["type"])][r["d"]]
+            dd[0] += r["spend"]; dd[1] += r["value"]
+    lc = defaultdict(lambda: [0.0, 0.0])          # Funnel last-click Meta GP2 / spend, L28
+    for r in funnel:
+        if r["channel"] == "meta" and r["d"] >= l28_lo.isoformat():
+            lc[r["market"]][0] += r["gp2"]; lc[r["market"]][1] += r["cost"]
+    meta_lines = []
+    for (mk_, t), dd in sorted(line_days.items(), key=lambda kv: (MKTS.index(kv[0][0]), kv[0][1])):
+        prs = list(dd.values())
+        sp = sum(x for x, _ in prs)
+        if sp < 500:
+            continue
+        fit = _marginal(prs)
+        inc = bm.INCREMENTALITY.get(f"meta_{t}")
+        mg = margins.get(mk_)
+        if fit.get("marginal") is not None and fit["confidence"] in ("medium", "high"):
+            basis, mrev = "fit", fit["marginal"]
+        else:
+            basis, mrev = "average (upper bound)", fit.get("avg")
+        inc_m = (round(mrev * mg * inc, 2) if None not in (mrev, mg, inc) else None)
+        if inc_m is None:
+            act = {"action": "none", "cls": "muted",
+                   "text": "Outside the plan types" if inc is None else "No estimate"}
+        elif inc_m > 1 + NOISE:
+            act = ({"action": "up", "cls": "up", "text": "Scale up"} if basis == "fit" else
+                   {"action": "test", "cls": "warn", "text": "Test +20 % (upper-bound estimate)"})
+        elif inc_m < 1 - NOISE:
+            act = {"action": "down", "cls": "down", "text": "Scale down"}
+        else:
+            act = {"action": "hold", "cls": "muted", "text": "Hold (near break-even)"}
+        mtd_sp = m_mkt_type.get((mk_, t), 0.0)
+        meta_lines.append({
+            "market": mk_, "type": t, "l28_spend": _r(sp), "mtd_spend": _r(mtd_sp),
+            "plan_month": (_r(bm.META_PLAN_BY_TYPE[t] * bm.META_PLAN_MARKET_SHARE.get(mk_, 0))
+                           if t in bm.META_PLAN_BY_TYPE else None),
+            "avg_roas": fit.get("avg"), "gp2_margin": mg,
+            "avg_gp2_roas_platform": None if None in (fit.get("avg"), mg) else round(fit["avg"] * mg, 2),
+            "lastclick_gp2_roas_market": _div(*lc[mk_]) if lc[mk_][1] else None,
+            "marginal_roas": mrev, "marginal_basis": basis, "fit": fit,
+            "incrementality": inc, "inc_marginal": inc_m,
+            "inc_gp3_per_10k": None if inc_m is None else _r((inc_m - 1) * 10_000),
+            "suggestion": act})
     rules_text = [f"{t}: /{rx}/" for t, rx in TYPE_RULES]
 
     def prod_roll(key):
@@ -708,7 +908,7 @@ def build(ctx: dict) -> dict:
         gp3[key]["markets"] = [
             {"market": m, "norce_rev": _r(v["rev"]), "norce_merch": _r(v["merch"]),
              "orders": _r(v["orders"]), "paid_spend": _r(v["paid"]),
-             "paid_cos": _div(v["paid"], v["merch"], 3)}
+             "paid_cos": _div(v["paid"], v["merch"], 3), "cos_target": bm.COS_TARGET}
             for m, v in sorted(mk_acc.items(), key=lambda kv: MKTS.index(kv[0]))]
     pairs = defaultdict(list)
     for r in funnel:
@@ -717,14 +917,48 @@ def build(ctx: dict) -> dict:
     marginal = [{"market": k[0], "channel": k[1], **_marginal(v)}
                 for k, v in sorted(pairs.items(), key=lambda kv: (MKTS.index(kv[0][0]), kv[0][1]))]
 
+    # ── Portfolio guardrail (pacing's spend headroom) ───────────────────────
+    hr_path, hr = None, None
+    try:
+        hr_path, hr = find_headroom(bm.read_section("pacing") or {})
+    except Exception as e:
+        errors.append(f"pacing snapshot: {e}")
+    def _opps(rows, key):
+        up = [r for r in rows if (r.get("inc_marginal") or 0) > 1 + NOISE]
+        dn = [r for r in rows if r.get("inc_marginal") is not None and r["inc_marginal"] < 1 - NOISE]
+        return {"more": len(up), "less": len(dn)}
+    guardrail = {
+        "rule": "Spend more where incremental marginal GP3 > 0 (incremental marginal ROAS > 1); "
+                "spend less where it is < 0. The pacing headroom shows how much extra spend "
+                "Finance's GP3 target already covers.",
+        "headroom": hr, "headroom_path": hr_path,
+        "google": _opps(campaigns, "inc_marginal"), "meta": _opps(meta_lines, "inc_marginal"),
+        "budget_errors": [c["name"] for c in campaigns if c["budget_limited"]],
+        "incrementality": bm.INCREMENTALITY, "cos_target": bm.COS_TARGET,
+    }
+
     # ── Notes ────────────────────────────────────────────────────────────────
     notes += [
 "Platform-reported: Google ROAS = profit ÷ spend (conversion value is PROFIT in the Babyshop accounts); "
         "tROAS is on the same profit basis. Last 1–3 days are still filling in (conversion lag), "
         "so judge campaigns on L14, not yesterday.",
-        f"Plans spread by day with the {index_src}. Google plan = {bm.GOOGLE_PLAN_MONTH/1e6:.1f} M SEK "
-        "(Babyshop accounts; Lekmer is outside it). Google actuals = Funnel de-duplicated SEK cost "
-        "through yesterday; today = live API spend × Norce FX.",
+        "Google has no budget: spend is context, judged by incremental GP3. Google spend = Funnel "
+        "de-duplicated SEK cost through yesterday; today = live API spend × Norce FX. Babyshop "
+        "accounts only. Any campaign limited by budget is flagged as an error.",
+        "Marginal profit ROAS (Google) comes from the ROAS-Simulations curves, κ-calibrated "
+        "(v_kappa_calibrated; λ slope gate not applied): the extra profit per krona from a 10 % "
+        "lower tROAS ('down'), and what the krona cut by a 10 % higher tROAS earned ('up'). "
+        "Campaigns without a curve fall back to a 28-day spend/profit fit, marked 'fit' (weak).",
+        "INCREMENTALITY factors are ASSUMPTIONS until tested (brand search 0.30, generic search 0.80, "
+        "shopping/PMax 0.70, Meta prospecting/Kuling 0.60, retargeting 0.30). Brand Shopping takes the "
+        "brand rate. Incremental marginal = marginal × factor; incremental GP3 per extra 10 k = "
+        "(incremental marginal − 1) × 10 k.",
+        "Meta marginal: 28-day spend/revenue fit per market × type (or the average ROAS as an upper "
+        "bound when the fit is weak) × Funnel GP2 margin of that market × incrementality. The "
+        "approved 200 k plan is the starting point, not a cap. CAUTION: Meta pixel value runs "
+        "several times above what GA4 last click credits Meta (compare the last-click GP2 ROAS "
+        "column), so a 0.6 incrementality on pixel value may be generous; treat 'scale up' as "
+        "a test until a lift test sets the factor.",
         "Meta = warehouse (agg_daily_kpis_by_ad, SEK). ROAS/CPA are platform-reported: Meta pixel "
         "purchase value (revenue, not profit) under Meta's own attribution.",
         "Meta campaign type is classified from the campaign name (rules shown with the table). "
@@ -744,8 +978,8 @@ def build(ctx: dict) -> dict:
 
     return {
         "asof": yday.isoformat(), "today": today_iso, "days": days, "fx": fx,
-        "plan": {"google_month": bm.GOOGLE_PLAN_MONTH, "google_share": bm.GOOGLE_PLAN_MARKET_SHARE,
-                 "meta_month": bm.META_PLAN_MONTH, "meta_by_type": bm.META_PLAN_BY_TYPE,
+        "guardrail": guardrail,
+        "plan": {"meta_month": bm.META_PLAN_MONTH, "meta_by_type": bm.META_PLAN_BY_TYPE,
                  "meta_share": bm.META_PLAN_MARKET_SHARE, "index_source": index_src},
         "google": {"pacing": google_pacing, "campaigns": campaigns,
                    "changes": [{**c, "predicted_cost_pct": _r(c["predicted_cost_pct"], 1),
@@ -753,7 +987,8 @@ def build(ctx: dict) -> dict:
                                for c in changes[:60]],
                    "seasonality": seasonality, "post_bf": post_bf,
                    "accounts": g["accounts"], "cooldown_days": COOLDOWN_DAYS},
-        "meta": {"pacing": meta_pacing, "campaigns": meta_campaigns, "adsets": meta_adsets,
+        "meta": {"pacing": meta_pacing, "lines": meta_lines, "margins": margins,
+                 "campaigns": meta_campaigns, "adsets": meta_adsets,
                  "unclassified": unclassified, "type_rules": rules_text,
                  "products": meta_products},
         "nvr": nvr,

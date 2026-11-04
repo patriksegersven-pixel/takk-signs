@@ -38,6 +38,14 @@
     '#bm-pacing .pc-seg button.on{background:var(--accent-bg);color:var(--accent);border-color:var(--accent-dark)}' +
     '#bm-pacing .pc-basis{color:var(--muted);font-size:12px}' +
     '#bm-pacing .pc-tag{margin-top:6px}' +
+    '#bm-pacing .pc-head-hr{border-left-color:var(--up);margin-top:4px}' +
+    '#bm-pacing .pc-bridge td{border-bottom:1px solid var(--border-lt)}' +
+    '#bm-pacing table.pc-bridge td:first-child{white-space:normal}' +
+    '#bm-pacing .pc-bridge tr.pc-btot td{color:var(--h);font-weight:600}' +
+    '#bm-pacing .pc-bcell{width:40%;min-width:90px}' +
+    '#bm-pacing .pc-bbar{height:8px;background:var(--card-2);border-radius:4px;overflow:hidden}' +
+    '#bm-pacing .pc-bbar i{display:block;height:100%;border-radius:4px}' +
+    '#bm-pacing .pc-bbar i.pos{background:var(--up)}#bm-pacing .pc-bbar i.neg{background:var(--down)}' +
     '#bm-pacing .pc-src{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;padding:1px 6px;border-radius:4px;vertical-align:middle}' +
     '#bm-pacing .pc-src-norce{background:var(--accent-bg);color:var(--accent)}' +
     '#bm-pacing .pc-src-funnel{background:var(--card);color:var(--muted);border:1px solid var(--border)}' +
@@ -86,7 +94,7 @@
   function delta(v, isCost) {
     if (v == null || isNaN(v)) return '<span class="muted">–</span>';
     var s = (v >= 0 ? '+' : '−') + Math.abs(v * 100).toFixed(1).replace('.', ',') + ' %';
-    var cls = isCost ? (v > 0.05 ? 'warn' : 'muted') : (v >= 0 ? 'up' : 'down');
+    var cls = isCost ? 'muted' : (v >= 0 ? 'up' : 'down');
     return '<span class="' + cls + '">' + s + '</span>';
   }
   function todayIso() { return new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Stockholm' }); }
@@ -122,7 +130,7 @@
     var pp = function (a, b) {
       if (a == null || b == null) return '–';
       var x = (a - b) * 100;
-      return '<span class="' + (x > 0.5 ? 'warn' : 'muted') + '">' + (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(1).replace('.', ',') + ' pp</span>';
+      return '<span class="muted">' + (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(1).replace('.', ',') + ' pp</span>';
     };
     h.push(kpiCard('COS % MTD', F.pct(cos), [
       ['plan', F.pct(cosT) + ' ' + pp(cos, cosT)],
@@ -168,6 +176,94 @@
         delta(yoyMtd) + '. Most of the month is still ahead.</span>';
     }
     return '<div class="pc-head">' + h + '</div>';
+  }
+
+  /* ── Spend headroom vs the GP3 target ──────────────────────────────────── */
+  // Rule (Babyshop, 2026-11-04): GP3 is the binding target; the 10.5 % COS is
+  // only derived from assumed margins. Margin above forecast is room to spend.
+  function signedCls(v) {
+    if (v == null || isNaN(v)) return '<span class="muted">–</span>';
+    return '<span class="' + (v >= 0 ? 'up' : 'down') + '">' + signedSek(v) + '</span>';
+  }
+
+  function headroomBlock(d, mk) {
+    var H = d.headroom && d.headroom[mk];
+    if (!H) return '';
+    var pp = function (a, b) {
+      if (a == null || b == null) return '–';
+      var x = (a - b) * 100;
+      return '<span class="' + (x >= 0 ? 'up' : 'down') + '">' + (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(1).replace('.', ',') + ' pp</span>';
+    };
+    var verdict = H.earned_cos == null ? '' :
+      (H.headroom_remaining >= 0
+        ? 'Spend may rise to <b>' + F.pct(H.earned_cos) + ' COS</b> this month and still hit the GP3 target (forecast ' + F.pct(H.cos_target) + '): about <b>' +
+          F.sek(H.headroom_per_day) + '/day</b> more than the current pace, Google and Meta together.'
+        : 'At the current pace GP2 only carries <b>' + F.pct(H.earned_cos) + ' COS</b> (forecast ' + F.pct(H.cos_target) + '): spend is <b>' +
+          F.sek(-H.headroom_remaining) + '</b> over what still lands the GP3 target.');
+    var b = H.bridge, src = function (k) { return basisTag(d, k); };
+    var h = '<h3>Spend headroom vs GP3 target</h3>';
+    h += '<div class="pc-head pc-head-hr">' + verdict + ' Only spend that adds at least as much incremental GP2 as it costs keeps GP3 whole.</div>';
+    h += '<div class="bm-kpis">' +
+      kpiCard('Allowed spend MTD', F.sek(H.allowed_spend_mtd), [
+        ['actual ad cost', F.sek(H.actual_spend_mtd)],
+        ['headroom', signedCls(H.headroom_mtd)],
+        ['= GP2 − GP3 target', '']], src('gp2')) +
+      kpiCard('Allowed spend, month', F.sek(H.allowed_spend_month), [
+        ['expected at pace', F.sek(H.expected_spend_month)],
+        ['forecast marketing', F.sek(H.planned_spend_month)],
+        ['headroom', signedCls(H.headroom_remaining)]], src('gp2')) +
+      kpiCard('Headroom per day', signedSek(H.headroom_per_day), [
+        ['remaining days', F.num(H.remaining_days)],
+        ['allowed left', F.sek(H.allowed_spend_remaining)],
+        ['spread by marketing index', '']], src('cost')) +
+      kpiCard('Earned COS', F.pct(H.earned_cos), [
+        ['MTD', F.pct(H.earned_cos_mtd)],
+        ['forecast COS', F.pct(H.cos_target)],
+        ['allowed ÷ gross (Norce)', '']], src('gross')) +
+      kpiCard('GM1 MTD', F.pct(H.gm1_actual), [['forecast', F.pct(H.gm1_fc)], ['vs forecast', pp(H.gm1_actual, H.gm1_fc)], ['GP1 ÷ gross', '']], src('gp1')) +
+      kpiCard('GM2 MTD', F.pct(H.gm2_actual), [['forecast', F.pct(H.gm2_fc)], ['vs forecast', pp(H.gm2_actual, H.gm2_fc)], ['GP2 ÷ gross', '']], src('gp2')) +
+      '</div>';
+    if (b) {
+      var steps = [
+        ['Forecast GP2 MTD', b.target_gp2, true],
+        ['Volume: sales vs target at forecast GM2', b.volume],
+        ['GM1 margin vs forecast', b.gm1_margin],
+        ['Variable cost (GM1 → GM2) vs forecast', b.variable_cost],
+        ['Basis & market mix', b.basis_mix],
+        ['Actual GP2 MTD', b.actual_gp2, true]
+      ];
+      var max = Math.max.apply(null, steps.slice(1, 5).map(function (s) { return Math.abs(s[1] || 0); }).concat([1]));
+      var rows = steps.map(function (s) {
+        var bar = s[2] ? '' : '<div class="pc-bbar"><i class="' + (s[1] >= 0 ? 'pos' : 'neg') + '" style="width:' +
+          Math.round(Math.abs(s[1] || 0) / max * 100) + '%"></i></div>';
+        return '<tr' + (s[2] ? ' class="pc-btot"' : '') + '><td>' + esc(s[0]) + '</td><td class="num">' +
+          (s[2] ? F.sek(s[1]) : signedCls(s[1])) + '</td><td class="pc-bcell">' + bar + '</td></tr>';
+      }).join('');
+      var mEff = (b.gm1_margin || 0) + (b.variable_cost || 0);
+      h += '<h3>Where GP2 vs forecast comes from (MTD) ' + src('gp2') + '</h3>' +
+        '<div class="bm-table-wrap"><table class="bm-table pc-bridge"><tbody>' + rows + '</tbody></table></div>' +
+        '<p class="bm-note">Margin effect ' + signedSek(mEff) + ' vs volume effect ' + signedSek(b.volume) + ': headroom is coming mostly from <b>' +
+        (Math.abs(mEff) >= Math.abs(b.volume) ? 'margin' : 'volume') + '</b>. Volume = (Norce merchandise − target) × forecast GM2. ' +
+        'Margin = Norce merchandise × (Funnel GM1/GM2 − forecast). "Basis & mix" is what is left: Norce vs Funnel sales basis and, per market, the mix split. ' +
+        'Funnel books returns when they come back, so GM1 runs high in a peak month until Black Week returns land in December.</p>';
+    }
+    if (mk === 'all') {
+      var mrows = ['SE', 'NO', 'FI', 'DK', 'ROW'].filter(function (m) { return d.headroom[m]; }).map(function (m) {
+        var x = d.headroom[m]; return { m: m, x: x };
+      });
+      h += '<h3>Headroom by market</h3>' + BM.table(mrows, [
+        { key: 'm', label: 'Market', fmt: function (v) { return '<b style="color:' + BM.color.market(v) + '">' + esc(v) + '</b>'; } },
+        { key: 'x', label: 'GM2 MTD', num: true, fmt: function (x) { return F.pct(x.gm2_actual); } },
+        { key: 'x', label: 'Ad cost MTD', num: true, fmt: function (x) { return F.sek(x.actual_spend_mtd); } },
+        { key: 'x', label: 'Allowed MTD', num: true, fmt: function (x) { return F.sek(x.allowed_spend_mtd); } },
+        { key: 'x', label: 'Headroom MTD', num: true, fmt: function (x) { return signedCls(x.headroom_mtd); } },
+        { key: 'x', label: 'Headroom rest of month', num: true, fmt: function (x) { return signedCls(x.headroom_remaining); } },
+        { key: 'x', label: 'Per day', num: true, fmt: function (x) { return signedSek(x.headroom_per_day); } },
+        { key: 'x', label: 'Earned COS', num: true, fmt: function (x) { return F.pct(x.earned_cos); } },
+        { key: 'x', label: 'GP3 vs target', num: true, fmt: function (x) { return delta(ratio(x.gp3_mtd, x.gp3_target_mtd)); } }
+      ]) + '<p class="bm-note">The forecast has no market split: market headroom rides the Nov 2025 mix split of the global GP3 and marketing lines, so treat it as direction, not a budget.</p>';
+    }
+    return h;
   }
 
   /* ── Today, live from Norce ────────────────────────────────────────────── */
@@ -393,6 +489,7 @@
       (mk !== 'all' ? ' · ' + mk + ' target = ' + F.pct(M.share_of_ly.gross, 0) + ' of global (Nov 2025 mix)' : '') + '</span></div>');
     h.push(headline(d, S, mk));
     h.push(kpis(d, S));
+    h.push(headroomBlock(d, mk));
     h.push(todayBlock(d, mk));
     h.push('<h3>Daily: ' + esc(mlabel) + ' ' + basisTag(d, ui.metric) + '</h3>' + seg('metric', METRICS.map(function (m) { return [m.k, m.label]; }), ui.metric));
     h.push('<div class="bm-grid-2" style="margin-top:8px"><div>' +

@@ -1,6 +1,6 @@
 {
  "section": "insights",
- "generated_at": "2026-11-04T15:07:08+01:00",
+ "generated_at": "2026-11-04T15:41:38+01:00",
  "period": {
   "from": "2026-11-01",
   "to": "2026-11-30"
@@ -312,17 +312,103 @@
  },
  "alerts": [
   {
+   "rule": "headroom_negative",
+   "severity": "high",
+   "market": "DK",
+   "headline": "Spend is 87 k over what the GP3 forecast covers (3210/day to month end)",
+   "action": "Find spend with incremental marginal ROAS < 1 and cut it first: p-shopping-dk-generic (0.83, cooldown to 16/11), p-shopping-dk-rb-categories (0.92, cooldown to 18/11). Don't cut spend that still adds GP3.",
+   "section": "pacing",
+   "evidence": [
+    {
+     "section": "pacing",
+     "metric": "headroom remaining",
+     "value": -86667
+    },
+    {
+     "section": "pacing",
+     "metric": "headroom per day",
+     "value": -3210
+    },
+    {
+     "section": "pacing",
+     "metric": "GP3 MTD vs target",
+     "value": "37 k vs 43 k"
+    },
+    {
+     "section": "pacing",
+     "metric": "earned COS MTD",
+     "value": 0.0769
+    }
+   ],
+   "lever": "google_troas",
+   "impact_sek": -86667.0
+  },
+  {
+   "rule": "headroom_negative",
+   "severity": "high",
+   "market": "FI",
+   "headline": "Spend is 31 k over what the GP3 forecast covers (1163/day to month end)",
+   "action": "Find spend with incremental marginal ROAS < 1 and cut it first: p-shopping-fi-rb-categories (0.66, cooldown to 18/11), p-shopping-fi-all-generic (0.76, cooldown to 18/11), Meta kuling (0.88). Don't cut spend that still adds GP3.",
+   "section": "pacing",
+   "evidence": [
+    {
+     "section": "pacing",
+     "metric": "headroom remaining",
+     "value": -31390
+    },
+    {
+     "section": "pacing",
+     "metric": "headroom per day",
+     "value": -1163
+    },
+    {
+     "section": "pacing",
+     "metric": "GP3 MTD vs target",
+     "value": "33 k vs 35 k"
+    },
+    {
+     "section": "pacing",
+     "metric": "earned COS MTD",
+     "value": 0.0933
+    }
+   ],
+   "lever": "google_troas",
+   "impact_sek": -31390.0
+  },
+  {
+   "rule": "oos_spend",
+   "severity": "high",
+   "market": "SE",
+   "headline": "16 out-of-stock products still getting ads (11 k / 7 d)",
+   "action": "Exclude the sold-out variants from Shopping/PMax (feed label) or swap the hero to an in-stock alternative: Kuling 80 cm; Kuling  Chamonix Vinteroverall Light Green 92; Kuling  Val D'Isere Vinteroverall Brown 80 cm …",
+   "section": "offers",
+   "evidence": [
+    {
+     "section": "offers",
+     "metric": "ad spend on OOS, 7 d",
+     "value": 11492
+    },
+    {
+     "section": "offers",
+     "metric": "products",
+     "value": 16
+    }
+   ],
+   "lever": "stock",
+   "impact_sek": -11492.0
+  },
+  {
    "rule": "gp3_behind",
    "severity": "high",
    "market": "DK",
    "headline": "MTD GP3 -15 % vs target (37 k vs 43 k)",
-   "action": "Find the market/channel behind the gap in Paid media levers; cut spend where profit ROAS is below break-even before adding budget elsewhere.",
+   "action": "GP3 vs forecast is the binding target. Find the driver (margin, volume or cost: see the pacing bridge) and cut spend whose incremental marginal ROAS is < 1 in Paid media levers.",
    "section": "pacing",
    "evidence": [
     {
      "section": "pacing",
      "metric": "MTD GP3",
-     "value": 36644.0
+     "value": 36640.0
     },
     {
      "section": "pacing",
@@ -332,18 +418,18 @@
     {
      "section": "pacing",
      "metric": "GP3 landing",
-     "value": 526581.0
+     "value": 526523.0
     }
    ],
    "lever": "other",
-   "impact_sek": -6241.0
+   "impact_sek": -6245.0
   },
   {
    "rule": "negative_gp3",
    "severity": "high",
    "market": "DK",
    "headline": "Meta DK lost 5507 GP3 in 14 days (GP2/spend 0.45)",
-   "action": "Every krona here costs margin: cut to the profitable campaigns/ad sets, or move the budget to a market where this channel is above break-even.",
+   "action": "Last-click GP3 (GA4) undercounts Meta: check the line's incremental marginal ROAS in Paid media levers before cutting; cut what is < 1 there too.",
    "section": "paid",
    "evidence": [
     {
@@ -361,11 +447,33 @@
    "impact_sek": -5507.0
   },
   {
+   "rule": "oos_spend",
+   "severity": "high",
+   "market": "NO",
+   "headline": "7 out-of-stock products still getting ads (4310 / 7 d)",
+   "action": "Exclude the sold-out variants from Shopping/PMax (feed label) or swap the hero to an in-stock alternative: Kuling Svalbard Vinteroverall Light Green 134; Kuling  Douglas Fodrad Regnoverall Mauve Hear; Kuling  Chamonix Vinteroverall Light Green 92 …",
+   "section": "offers",
+   "evidence": [
+    {
+     "section": "offers",
+     "metric": "ad spend on OOS, 7 d",
+     "value": 4310
+    },
+    {
+     "section": "offers",
+     "metric": "products",
+     "value": 7
+    }
+   ],
+   "lever": "stock",
+   "impact_sek": -4310.0
+  },
+  {
    "rule": "negative_gp3",
    "severity": "medium",
    "market": "FI",
    "headline": "Meta FI lost 5216 GP3 in 14 days (GP2/spend 0.82)",
-   "action": "Every krona here costs margin: cut to the profitable campaigns/ad sets, or move the budget to a market where this channel is above break-even.",
+   "action": "Last-click GP3 (GA4) undercounts Meta: check the line's incremental marginal ROAS in Paid media levers before cutting; cut what is < 1 there too.",
    "section": "paid",
    "evidence": [
     {
@@ -386,36 +494,36 @@
    "rule": "negative_gp3",
    "severity": "medium",
    "market": "ROW",
-   "headline": "Google ROW lost 2407 GP3 in 14 days (GP2/spend 0.93)",
-   "action": "Every krona here costs margin: cut to the profitable campaigns/ad sets, or move the budget to a market where this channel is above break-even.",
+   "headline": "Google ROW lost 2437 GP3 in 14 days (GP2/spend 0.93)",
+   "action": "Cut the campaigns with incremental marginal ROAS < 1 (raise tROAS via apply_troas.py); keep what still adds GP3.",
    "section": "paid",
    "evidence": [
     {
      "section": "paid",
      "metric": "GP3 14 d",
-     "value": -2407
+     "value": -2437
     },
     {
      "section": "paid",
      "metric": "spend 14 d",
-     "value": 36281
+     "value": 36311
     }
    ],
    "lever": "google_budget",
-   "impact_sek": -2407.0
+   "impact_sek": -2437.0
   },
   {
    "rule": "gp3_behind",
    "severity": "medium",
    "market": "FI",
    "headline": "MTD GP3 -7 % vs target (33 k vs 35 k)",
-   "action": "Find the market/channel behind the gap in Paid media levers; cut spend where profit ROAS is below break-even before adding budget elsewhere.",
+   "action": "GP3 vs forecast is the binding target. Find the driver (margin, volume or cost: see the pacing bridge) and cut spend whose incremental marginal ROAS is < 1 in Paid media levers.",
    "section": "pacing",
    "evidence": [
     {
      "section": "pacing",
      "metric": "MTD GP3",
-     "value": 32972.0
+     "value": 32970.0
     },
     {
      "section": "pacing",
@@ -425,98 +533,174 @@
     {
      "section": "pacing",
      "metric": "GP3 landing",
-     "value": 476829.0
+     "value": 476810.0
     }
    ],
    "lever": "other",
-   "impact_sek": -2298.0
+   "impact_sek": -2300.0
   },
   {
-   "rule": "cost_pacing",
+   "rule": "oos_spend",
    "severity": "medium",
-   "market": "NO",
-   "headline": "Marketing cost +37 % vs plan to date (120 k vs 88 k)",
-   "action": "Over plan: keep the extra spend only where profit ROAS ≥ tROAS.",
+   "market": "FI",
+   "headline": "1 out-of-stock product still getting ads (307 / 7 d)",
+   "action": "Exclude the sold-out variants from Shopping/PMax (feed label) or swap the hero to an in-stock alternative: Kuling 80 cm",
+   "section": "offers",
+   "evidence": [
+    {
+     "section": "offers",
+     "metric": "ad spend on OOS, 7 d",
+     "value": 307
+    },
+    {
+     "section": "offers",
+     "metric": "products",
+     "value": 1
+    }
+   ],
+   "lever": "stock",
+   "impact_sek": -307.0
+  },
+  {
+   "rule": "headroom",
+   "severity": "medium",
+   "market": "SE",
+   "headline": "Room to spend ~41 k/day more (1,1 M to month end) with GP3 on track",
+   "action": "Spend it only where the extra krona is incremental (incremental marginal ROAS > 1): candidates Meta kuling (4.77, test first), Meta prospecting (4.19, test first), Meta retargeting (3.67, test first). Late-November headroom reads high: Funnel books returns on the return date, so Black Week returns land in December and GP3 to date is flattered.",
    "section": "pacing",
    "evidence": [
     {
      "section": "pacing",
-     "metric": "marketing cost MTD",
-     "value": 119999.0
+     "metric": "headroom remaining",
+     "value": 1117843
     },
     {
      "section": "pacing",
-     "metric": "cost plan to date",
-     "value": 87504.0
+     "metric": "headroom per day",
+     "value": 41402
+    },
+    {
+     "section": "pacing",
+     "metric": "GP3 MTD vs target",
+     "value": "379 k vs 298 k"
+    },
+    {
+     "section": "pacing",
+     "metric": "earned COS MTD",
+     "value": 0.1519
     }
    ],
-   "lever": "google_budget",
+   "lever": "google_troas",
    "impact_sek": null
   },
   {
-   "rule": "spend_pacing",
+   "rule": "headroom",
    "severity": "medium",
    "market": "NO",
-   "headline": "Google NO spend +22 % vs plan to date (103 k vs 84 k)",
-   "action": "Keep the extra spend only where profit ROAS ≥ tROAS; otherwise trim budgets or let the raised tROAS bite.",
+   "headline": "Room to spend ~36 k/day more (976 k to month end) with GP3 on track",
+   "action": "Spend it only where the extra krona is incremental (incremental marginal ROAS > 1): candidates Meta prospecting (4.63, test first), Meta retargeting (4.30, test first), Meta kuling (2.40, test first). Late-November headroom reads high: Funnel books returns on the return date, so Black Week returns land in December and GP3 to date is flattered.",
+   "section": "pacing",
+   "evidence": [
+    {
+     "section": "pacing",
+     "metric": "headroom remaining",
+     "value": 976467
+    },
+    {
+     "section": "pacing",
+     "metric": "headroom per day",
+     "value": 36165
+    },
+    {
+     "section": "pacing",
+     "metric": "GP3 MTD vs target",
+     "value": "196 k vs 129 k"
+    },
+    {
+     "section": "pacing",
+     "metric": "earned COS MTD",
+     "value": 0.196
+    }
+   ],
+   "lever": "google_troas",
+   "impact_sek": null
+  },
+  {
+   "rule": "troas_lower",
+   "severity": "medium",
+   "market": "SE",
+   "headline": "2 campaigns: lower tROAS (incremental marginal ROAS > 1: more spend adds GP3)",
+   "action": "Run apply_troas.py (dry run first): p-shopping-se-pb-product 6.0 → 5.4; p-shopping-se-brand 6.0 → 5.4. Increments are model estimates with assumed incrementality factors.",
    "section": "paid",
    "evidence": [
     {
      "section": "paid",
-     "metric": "google spend to date",
-     "value": 103085
+     "metric": "campaigns",
+     "value": 2
     },
     {
      "section": "paid",
-     "metric": "google plan to date",
-     "value": 84226
+     "metric": "inc. GP3 per +10k spend, top campaign",
+     "value": 10200
     }
    ],
-   "lever": "google_budget",
+   "lever": "google_troas",
    "impact_sek": null
   },
   {
-   "rule": "spend_pacing",
+   "rule": "troas_lower",
+   "severity": "medium",
+   "market": "NO",
+   "headline": "1 campaign: lower tROAS (incremental marginal ROAS > 1: more spend adds GP3)",
+   "action": "Run apply_troas.py (dry run first): p-shopping-no-pb-product 6.0 → 5.4. Increments are model estimates with assumed incrementality factors.",
+   "section": "paid",
+   "evidence": [
+    {
+     "section": "paid",
+     "metric": "campaigns",
+     "value": 1
+    },
+    {
+     "section": "paid",
+     "metric": "inc. GP3 per +10k spend, top campaign",
+     "value": 8700
+    }
+   ],
+   "lever": "google_troas",
+   "impact_sek": null
+  },
+  {
+   "rule": "meta_scale_down",
    "severity": "medium",
    "market": "FI",
-   "headline": "Google FI spend -36 % vs plan to date (15 k vs 24 k)",
-   "action": "Under plan: if the campaigns are above break-even, loosen tROAS or lift budgets so the plan is used before Black Week.",
+   "headline": "Meta kuling: incremental marginal ROAS < 1",
+   "action": "Scale down: the extra krona doesn't pay back even on Meta's own (generous) numbers.",
    "section": "paid",
    "evidence": [
     {
      "section": "paid",
-     "metric": "google spend to date",
-     "value": 15393
-    },
-    {
-     "section": "paid",
-     "metric": "google plan to date",
-     "value": 24064
+     "metric": "Meta kuling inc. marginal ROAS",
+     "value": 0.88
     }
    ],
-   "lever": "google_budget",
+   "lever": "meta_allocation",
    "impact_sek": null
   },
   {
-   "rule": "spend_pacing",
+   "rule": "meta_scale_down",
    "severity": "medium",
-   "market": "DK",
-   "headline": "Google DK spend -19 % vs plan to date (17 k vs 21 k)",
-   "action": "Under plan: if the campaigns are above break-even, loosen tROAS or lift budgets so the plan is used before Black Week.",
+   "market": "ROW",
+   "headline": "Meta kuling: incremental marginal ROAS < 1",
+   "action": "Scale down: the extra krona doesn't pay back even on Meta's own (generous) numbers.",
    "section": "paid",
    "evidence": [
     {
      "section": "paid",
-     "metric": "google spend to date",
-     "value": 17051
-    },
-    {
-     "section": "paid",
-     "metric": "google plan to date",
-     "value": 21056
+     "metric": "Meta kuling inc. marginal ROAS",
+     "value": 0.0
     }
    ],
-   "lever": "google_budget",
+   "lever": "meta_allocation",
    "impact_sek": null
   },
   {
@@ -564,66 +748,105 @@
    "impact_sek": null
   },
   {
-   "rule": "cost_pacing",
+   "rule": "troas_blocked",
    "severity": "low",
-   "market": "ROW",
-   "headline": "Marketing cost -83 % vs plan to date (13 k vs 76 k)",
-   "action": "Under plan while GP3 is ahead: room to loosen tROAS / lift budgets on campaigns earning above target.",
-   "section": "pacing",
-   "evidence": [
-    {
-     "section": "pacing",
-     "metric": "marketing cost MTD",
-     "value": 12809.0
-    },
-    {
-     "section": "pacing",
-     "metric": "cost plan to date",
-     "value": 75612.0
-    }
-   ],
-   "lever": "google_budget",
-   "impact_sek": null
-  },
-  {
-   "rule": "meta_allocation",
-   "severity": "low",
-   "market": "SE",
-   "headline": "Meta SE share 49 % vs plan 60 %",
-   "action": "Adjust the ad-set min/max spend shares so the market split follows the approved plan.",
+   "market": "all",
+   "headline": "3 tROAS suggestions wait for the cooldown (2026-11-16)",
+   "action": "Re-check them on 2026-11-16 in Paid media levers; then apply via apply_troas.py.",
    "section": "paid",
    "evidence": [
     {
      "section": "paid",
-     "metric": "Meta spend share",
-     "value": 0.492
+     "metric": "blocked suggestions",
+     "value": 3
+    }
+   ],
+   "lever": "google_troas",
+   "impact_sek": null
+  },
+  {
+   "rule": "troas_blocked",
+   "severity": "low",
+   "market": "all",
+   "headline": "8 tROAS suggestions wait for the cooldown (2026-11-18)",
+   "action": "Re-check them on 2026-11-18 in Paid media levers; then apply via apply_troas.py.",
+   "section": "paid",
+   "evidence": [
+    {
+     "section": "paid",
+     "metric": "blocked suggestions",
+     "value": 8
+    }
+   ],
+   "lever": "google_troas",
+   "impact_sek": null
+  },
+  {
+   "rule": "meta_scale_test",
+   "severity": "low",
+   "market": "SE",
+   "headline": "Meta kuling, prospecting, retargeting: scale-up test candidates",
+   "action": "Test +20 % for a week, not a plan change: Meta pixel ROAS is 4–10× last-click (here 4.0×) and incrementality is assumed, not measured. The 200k plan is a starting point, not a ceiling.",
+   "section": "paid",
+   "evidence": [
+    {
+     "section": "paid",
+     "metric": "Meta kuling inc. marginal ROAS",
+     "value": 4.77
     },
     {
      "section": "paid",
-     "metric": "plan share",
-     "value": 0.6
+     "metric": "Meta prospecting inc. marginal ROAS",
+     "value": 4.19
+    },
+    {
+     "section": "paid",
+     "metric": "Meta retargeting inc. marginal ROAS",
+     "value": 3.67
     }
    ],
    "lever": "meta_allocation",
    "impact_sek": null
   },
   {
-   "rule": "meta_allocation",
+   "rule": "meta_scale_test",
    "severity": "low",
-   "market": "FI",
-   "headline": "Meta FI share 26 % vs plan 10 %",
-   "action": "Adjust the ad-set min/max spend shares so the market split follows the approved plan.",
+   "market": "NO",
+   "headline": "Meta prospecting, retargeting, kuling: scale-up test candidates",
+   "action": "Test +20 % for a week, not a plan change: Meta pixel ROAS is 4–10× last-click (here 8.0×) and incrementality is assumed, not measured. The 200k plan is a starting point, not a ceiling.",
    "section": "paid",
    "evidence": [
     {
      "section": "paid",
-     "metric": "Meta spend share",
-     "value": 0.256
+     "metric": "Meta prospecting inc. marginal ROAS",
+     "value": 4.63
     },
     {
      "section": "paid",
-     "metric": "plan share",
-     "value": 0.1
+     "metric": "Meta retargeting inc. marginal ROAS",
+     "value": 4.3
+    },
+    {
+     "section": "paid",
+     "metric": "Meta kuling inc. marginal ROAS",
+     "value": 2.4
+    }
+   ],
+   "lever": "meta_allocation",
+   "impact_sek": null
+  },
+  {
+   "rule": "meta_scale_test",
+   "severity": "low",
+   "market": "DK",
+   "headline": "Meta kuling: scale-up test candidate",
+   "action": "Test +20 % for a week, not a plan change: Meta pixel ROAS is 4–10× last-click (here 3.8×) and incrementality is assumed, not measured. The 200k plan is a starting point, not a ceiling.",
+   "section": "paid",
+   "evidence": [
+    {
+     "section": "paid",
+     "metric": "Meta kuling inc. marginal ROAS",
+     "value": 1.33
     }
    ],
    "lever": "meta_allocation",
@@ -649,8 +872,8 @@
  ],
  "rules": {
   "gp3_behind_pct": 0.05,
-  "spend_pace_pct": 0.15,
-  "budget_limited_headroom": 1.1,
+  "headroom_min_per_day": 2000,
+  "suggestion_min_l7_sek": 2000,
   "kill_spend_sek": 500,
   "oos_spend_sek": 300,
   "troas_step_pct": 0.2
@@ -1647,8 +1870,8 @@
   {
    "id": "meta-setup",
    "due": "2026-11-07",
-   "title": "Meta November setup matches the approved 200k plan",
-   "detail": "Kuling 60k / prospecting 20k / catalogue retargeting 120k; campaign budgets, one ad set per country, SE60/NO20/FI10/DK10 as min/max spend shares.",
+   "title": "Meta November setup in place (approved 200k plan as the starting point)",
+   "detail": "Kuling 60k / prospecting 20k / catalogue retargeting 120k; SE60/NO20/FI10/DK10. A starting point, not a ceiling: scale lines that add incremental GP3.",
    "state": "open",
    "auto_note": null
   },
@@ -1720,10 +1943,10 @@
   }
  ],
  "snapshots": {
-  "pacing": "2026-11-04T15:06:30+01:00",
-  "paid": "2026-11-04T15:12:12+01:00",
-  "creatives": "2026-11-04T15:06:10+01:00",
-  "offers": "2026-11-04T15:12:21+01:00"
+  "pacing": "2026-11-04T15:34:04+01:00",
+  "paid": "2026-11-04T15:34:37+01:00",
+  "creatives": "2026-11-04T15:34:48+01:00",
+  "offers": "2026-11-04T15:35:44+01:00"
  },
  "levers": [
   "google_troas",
@@ -1749,6 +1972,6 @@
   "other"
  ],
  "notes": [
-  "Mock: cards and manual events are examples; alerts come from the sibling sections' mocks; change log, seasonality and checklist are a real dry run of 2026-11-04."
+  "Mock: change log, checklist and seasonality are a live dry run (2026-11-04 15:4x, snapshots from 15:34); alerts come from the sibling mocks (new spend policy); cards and the two manual events are examples."
  ]
 }

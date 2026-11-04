@@ -1,6 +1,6 @@
 {
  "section": "paid",
- "generated_at": "2026-11-04T15:16:27+01:00",
+ "generated_at": "2026-11-04T15:33:06+01:00",
  "period": {
   "from": "2026-11-01",
   "to": "2026-11-30"
@@ -46,15 +46,30 @@
   "DKK": 1.465498357064622,
   "USD": 9.7973713033954
  },
- "plan": {
-  "google_month": 3100000,
-  "google_share": {
-   "SE": 0.54,
-   "NO": 0.28,
-   "FI": 0.08,
-   "DK": 0.07,
-   "ROW": 0.03
+ "guardrail": {
+  "rule": "Spend more where incremental marginal GP3 > 0 (incremental marginal ROAS > 1); spend less where it is < 0. The pacing headroom shows how much extra spend Finance's GP3 target already covers.",
+  "headroom": null,
+  "headroom_path": null,
+  "google": {
+   "more": 17,
+   "less": 21
   },
+  "meta": {
+   "more": 7,
+   "less": 2
+  },
+  "budget_errors": [],
+  "incrementality": {
+   "google_brand_search": 0.3,
+   "google_generic_search": 0.8,
+   "google_shopping_pmax": 0.7,
+   "meta_prospecting": 0.6,
+   "meta_kuling": 0.6,
+   "meta_retargeting": 0.3
+  },
+  "cos_target": 0.105
+ },
+ "plan": {
   "meta_month": 200000,
   "meta_by_type": {
    "kuling": 60000,
@@ -72,38 +87,6 @@
  "google": {
   "pacing": {
    "SE": {
-    "plan": [
-     64378,
-     49773,
-     48285,
-     47541,
-     44740,
-     41431,
-     46857,
-     55240,
-     58476,
-     54251,
-     54480,
-     53163,
-     51566,
-     59090,
-     73860,
-     67949,
-     66465,
-     63893,
-     58079,
-     50883,
-     54883,
-     65012,
-     57267,
-     51893,
-     49526,
-     52716,
-     54495,
-     55323,
-     63932,
-     58552
-    ],
     "actual": [
      55429,
      48980,
@@ -136,41 +119,9 @@
      null,
      null
     ],
-    "today_so_far": 31106
+    "today_so_far": 31573
    },
    "NO": {
-    "plan": [
-     33381,
-     25808,
-     25037,
-     24651,
-     23199,
-     21483,
-     24296,
-     28643,
-     30321,
-     28130,
-     28249,
-     27566,
-     26738,
-     30639,
-     38298,
-     35233,
-     34464,
-     33130,
-     30115,
-     26384,
-     28458,
-     33710,
-     29694,
-     26907,
-     25680,
-     27334,
-     28257,
-     28686,
-     33150,
-     30360
-    ],
     "actual": [
      28093,
      32769,
@@ -203,41 +154,9 @@
      null,
      null
     ],
-    "today_so_far": 19664
+    "today_so_far": 20073
    },
    "FI": {
-    "plan": [
-     9537,
-     7374,
-     7153,
-     7043,
-     6628,
-     6138,
-     6942,
-     8184,
-     8663,
-     8037,
-     8071,
-     7876,
-     7639,
-     8754,
-     10942,
-     10067,
-     9847,
-     9466,
-     8604,
-     7538,
-     8131,
-     9631,
-     8484,
-     7688,
-     7337,
-     7810,
-     8073,
-     8196,
-     9471,
-     8674
-    ],
     "actual": [
      4522,
      4901,
@@ -270,41 +189,9 @@
      null,
      null
     ],
-    "today_so_far": 2937
+    "today_so_far": 2989
    },
    "DK": {
-    "plan": [
-     8345,
-     6452,
-     6259,
-     6163,
-     5800,
-     5371,
-     6074,
-     7161,
-     7580,
-     7033,
-     7062,
-     6891,
-     6684,
-     7660,
-     9574,
-     8808,
-     8616,
-     8282,
-     7529,
-     6596,
-     7114,
-     8428,
-     7424,
-     6727,
-     6420,
-     6834,
-     7064,
-     7171,
-     8287,
-     7590
-    ],
     "actual": [
      6164,
      5242,
@@ -337,41 +224,9 @@
      null,
      null
     ],
-    "today_so_far": 2638
+    "today_so_far": 2696
    },
    "ROW": {
-    "plan": [
-     3577,
-     2765,
-     2683,
-     2641,
-     2486,
-     2302,
-     2603,
-     3069,
-     3249,
-     3014,
-     3027,
-     2953,
-     2865,
-     3283,
-     4103,
-     3775,
-     3693,
-     3550,
-     3227,
-     2827,
-     3049,
-     3612,
-     3182,
-     2883,
-     2751,
-     2929,
-     3028,
-     3073,
-     3552,
-     3253
-    ],
     "actual": [
      2532,
      2346,
@@ -404,7 +259,7 @@
      null,
      null
     ],
-    "today_so_far": 1439
+    "today_so_far": 1487
    }
   },
   "campaigns": [
@@ -425,7 +280,7 @@
     "l7_roas": 1.51,
     "l14_cost_sek": 291769,
     "l14_roas": 1.65,
-    "today_cost_sek": 10758,
+    "today_cost_sek": 10873,
     "budget_use_today": 0.28,
     "is": 0.676,
     "lost_budget": 0.0,
@@ -441,8 +296,28 @@
     "days_since_change": 0,
     "cooldown": true,
     "cooldown_until": "2026-11-18",
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 26987,
+    "marginal_roas": 1.07,
+    "marginal_roas_up": 1.16,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.75,
+    "inc_marginal_up": 0.81,
+    "inc_gp3_per_10k": -2500,
+    "headroom": true,
+    "headroom_why": "lost IS rank 32%, +23% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "raise",
+     "cls": "muted",
+     "text": "Raise tROAS 2.39 \u2192 2.63 via apply_troas.py, after cooldown 2026-11-18",
+     "new_troas": 2.63,
+     "blocked_until": "2026-11-18"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Raise tROAS 2.39 \u2192 2.63 via apply_troas.py, after cooldown 2026-11-18"
    },
    {
     "market": "SE",
@@ -461,8 +336,8 @@
     "l7_roas": 1.91,
     "l14_cost_sek": 251031,
     "l14_roas": 1.97,
-    "today_cost_sek": 15578,
-    "budget_use_today": 0.21,
+    "today_cost_sek": 15789,
+    "budget_use_today": 0.22,
     "is": 0.868,
     "lost_budget": 0.0,
     "lost_rank": 0.132,
@@ -477,8 +352,28 @@
     "days_since_change": 0,
     "cooldown": true,
     "cooldown_until": "2026-11-18",
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 29738,
+    "marginal_roas": 1.08,
+    "marginal_roas_up": 1.26,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.76,
+    "inc_marginal_up": 0.88,
+    "inc_gp3_per_10k": -2400,
+    "headroom": true,
+    "headroom_why": "lost IS rank 13%, +25% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "raise",
+     "cls": "muted",
+     "text": "Raise tROAS 2.48 \u2192 2.73 via apply_troas.py, after cooldown 2026-11-18",
+     "new_troas": 2.73,
+     "blocked_until": "2026-11-18"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Raise tROAS 2.48 \u2192 2.73 via apply_troas.py, after cooldown 2026-11-18"
    },
    {
     "market": "NO",
@@ -497,7 +392,7 @@
     "l7_roas": 1.74,
     "l14_cost_sek": 204336,
     "l14_roas": 1.75,
-    "today_cost_sek": 12237,
+    "today_cost_sek": 12438,
     "budget_use_today": 0.26,
     "is": 0.658,
     "lost_budget": 0.0,
@@ -513,8 +408,28 @@
     "days_since_change": 0,
     "cooldown": true,
     "cooldown_until": "2026-11-18",
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 27454,
+    "marginal_roas": 1.17,
+    "marginal_roas_up": 1.27,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.82,
+    "inc_marginal_up": 0.89,
+    "inc_gp3_per_10k": -1800,
+    "headroom": true,
+    "headroom_why": "lost IS rank 34%, +22% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "raise",
+     "cls": "muted",
+     "text": "Raise tROAS 2.31 \u2192 2.54 via apply_troas.py, after cooldown 2026-11-18",
+     "new_troas": 2.54,
+     "blocked_until": "2026-11-18"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Raise tROAS 2.31 \u2192 2.54 via apply_troas.py, after cooldown 2026-11-18"
    },
    {
     "market": "NO",
@@ -533,8 +448,8 @@
     "l7_roas": 2.2,
     "l14_cost_sek": 123858,
     "l14_roas": 1.85,
-    "today_cost_sek": 6123,
-    "budget_use_today": 0.11,
+    "today_cost_sek": 6321,
+    "budget_use_today": 0.12,
     "is": 0.861,
     "lost_budget": 0.0,
     "lost_rank": 0.139,
@@ -549,8 +464,28 @@
     "days_since_change": 2,
     "cooldown": true,
     "cooldown_until": "2026-11-16",
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 12193,
+    "marginal_roas": 1.09,
+    "marginal_roas_up": 1.09,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.76,
+    "inc_marginal_up": 0.76,
+    "inc_gp3_per_10k": -2400,
+    "headroom": true,
+    "headroom_why": "lost IS rank 14%, +18% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "raise",
+     "cls": "muted",
+     "text": "Raise tROAS 2.40 \u2192 2.64 via apply_troas.py, after cooldown 2026-11-16",
+     "new_troas": 2.64,
+     "blocked_until": "2026-11-16"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Raise tROAS 2.40 \u2192 2.64 via apply_troas.py, after cooldown 2026-11-16"
    },
    {
     "market": "SE",
@@ -564,12 +499,12 @@
     "budget_day_sek": 35000,
     "budget_shared": null,
     "mtd_cost_sek": 11953,
-    "mtd_roas": 5.74,
+    "mtd_roas": 5.75,
     "l7_cost_sek": 23216,
     "l7_roas": 5.53,
     "l14_cost_sek": 55685,
     "l14_roas": 5.26,
-    "today_cost_sek": 2365,
+    "today_cost_sek": 2435,
     "budget_use_today": 0.07,
     "is": 0.997,
     "lost_budget": 0.0,
@@ -580,8 +515,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 4682,
+    "marginal_roas": 2.89,
+    "marginal_roas_up": 3.31,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 2.02,
+    "inc_marginal_up": 2.32,
+    "inc_gp3_per_10k": 10200,
+    "headroom": true,
+    "headroom_why": "+23% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "lower",
+     "cls": "up",
+     "text": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py",
+     "new_troas": 5.4,
+     "blocked_until": null
+    },
+    "hint_class": "up",
+    "hint": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py"
    },
    {
     "market": "DK",
@@ -600,7 +555,7 @@
     "l7_roas": 1.72,
     "l14_cost_sek": 45634,
     "l14_roas": 1.42,
-    "today_cost_sek": 1256,
+    "today_cost_sek": 1302,
     "budget_use_today": 0.13,
     "is": 0.608,
     "lost_budget": 0.0,
@@ -616,8 +571,26 @@
     "days_since_change": 2,
     "cooldown": true,
     "cooldown_until": "2026-11-16",
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 3004,
+    "marginal_roas": 1.19,
+    "marginal_roas_up": 1.3,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.83,
+    "inc_marginal_up": 0.91,
+    "inc_gp3_per_10k": -1700,
+    "headroom": true,
+    "headroom_why": "lost IS rank 39%, +24% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (near break-even)"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Hold (near break-even)"
    },
    {
     "market": "DK",
@@ -636,7 +609,7 @@
     "l7_roas": 1.83,
     "l14_cost_sek": 35717,
     "l14_roas": 1.76,
-    "today_cost_sek": 1165,
+    "today_cost_sek": 1176,
     "budget_use_today": 0.07,
     "is": 0.785,
     "lost_budget": 0.0,
@@ -652,8 +625,26 @@
     "days_since_change": 0,
     "cooldown": true,
     "cooldown_until": "2026-11-18",
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 2179,
+    "marginal_roas": 1.32,
+    "marginal_roas_up": 1.49,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.92,
+    "inc_marginal_up": 1.04,
+    "inc_gp3_per_10k": -800,
+    "headroom": true,
+    "headroom_why": "lost IS rank 21%, +24% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (near break-even)"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Hold (near break-even)"
    },
    {
     "market": "FI",
@@ -672,8 +663,8 @@
     "l7_roas": 1.78,
     "l14_cost_sek": 32860,
     "l14_roas": 1.79,
-    "today_cost_sek": 1608,
-    "budget_use_today": 0.07,
+    "today_cost_sek": 1643,
+    "budget_use_today": 0.08,
     "is": 0.473,
     "lost_budget": 0.0,
     "lost_rank": 0.527,
@@ -688,8 +679,28 @@
     "days_since_change": 0,
     "cooldown": true,
     "cooldown_until": "2026-11-18",
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 3226,
+    "marginal_roas": 1.08,
+    "marginal_roas_up": 1.19,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.76,
+    "inc_marginal_up": 0.83,
+    "inc_gp3_per_10k": -2400,
+    "headroom": true,
+    "headroom_why": "lost IS rank 53%, +23% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "raise",
+     "cls": "muted",
+     "text": "Raise tROAS 2.22 \u2192 2.44 via apply_troas.py, after cooldown 2026-11-18",
+     "new_troas": 2.44,
+     "blocked_until": "2026-11-18"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Raise tROAS 2.22 \u2192 2.44 via apply_troas.py, after cooldown 2026-11-18"
    },
    {
     "market": "SE",
@@ -708,7 +719,7 @@
     "l7_roas": 0.74,
     "l14_cost_sek": 28190,
     "l14_roas": 0.99,
-    "today_cost_sek": 613,
+    "today_cost_sek": 627,
     "budget_use_today": 0.04,
     "is": 0.112,
     "lost_budget": 0.0,
@@ -724,8 +735,28 @@
     "days_since_change": 0,
     "cooldown": true,
     "cooldown_until": "2026-11-18",
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 1893,
+    "marginal_roas": 0.93,
+    "marginal_roas_up": 0.93,
+    "marginal_basis": "fit",
+    "curve_run": null,
+    "inc_marginal": 0.74,
+    "inc_marginal_up": 0.74,
+    "inc_gp3_per_10k": -2600,
+    "headroom": true,
+    "headroom_why": "lost IS rank 89%",
+    "suggestion": {
+     "action": "raise",
+     "cls": "muted",
+     "text": "Raise tROAS 2.15 \u2192 2.37 via apply_troas.py (weak estimate: verify), after cooldown 2026-11-18",
+     "new_troas": 2.37,
+     "blocked_until": "2026-11-18"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Raise tROAS 2.15 \u2192 2.37 via apply_troas.py (weak estimate: verify), after cooldown 2026-11-18"
    },
    {
     "market": "FI",
@@ -744,7 +775,7 @@
     "l7_roas": 2.33,
     "l14_cost_sek": 19809,
     "l14_roas": 2.25,
-    "today_cost_sek": 1052,
+    "today_cost_sek": 1065,
     "budget_use_today": 0.05,
     "is": 0.611,
     "lost_budget": 0.0,
@@ -760,8 +791,28 @@
     "days_since_change": 0,
     "cooldown": true,
     "cooldown_until": "2026-11-18",
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 2192,
+    "marginal_roas": 0.94,
+    "marginal_roas_up": 1.05,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.66,
+    "inc_marginal_up": 0.73,
+    "inc_gp3_per_10k": -3400,
+    "headroom": true,
+    "headroom_why": "lost IS rank 39%, +23% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "raise",
+     "cls": "muted",
+     "text": "Raise tROAS 2.21 \u2192 2.43 via apply_troas.py, after cooldown 2026-11-18",
+     "new_troas": 2.43,
+     "blocked_until": "2026-11-18"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Raise tROAS 2.21 \u2192 2.43 via apply_troas.py, after cooldown 2026-11-18"
    },
    {
     "market": "NO",
@@ -775,12 +826,12 @@
     "budget_day_sek": 15920,
     "budget_shared": null,
     "mtd_cost_sek": 1637,
-    "mtd_roas": 2.22,
+    "mtd_roas": 2.38,
     "l7_cost_sek": 4643,
-    "l7_roas": 0.91,
+    "l7_roas": 0.98,
     "l14_cost_sek": 17083,
-    "l14_roas": 1.1,
-    "today_cost_sek": 236,
+    "l14_roas": 1.12,
+    "today_cost_sek": 238,
     "budget_use_today": 0.01,
     "is": 0.1,
     "lost_budget": 0.0,
@@ -796,8 +847,28 @@
     "days_since_change": 0,
     "cooldown": true,
     "cooldown_until": "2026-11-18",
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 436,
+    "marginal_roas": 1.85,
+    "marginal_roas_up": 1.85,
+    "marginal_basis": "fit",
+    "curve_run": null,
+    "inc_marginal": 1.48,
+    "inc_marginal_up": 1.48,
+    "inc_gp3_per_10k": 4800,
+    "headroom": true,
+    "headroom_why": "lost IS rank 90%",
+    "suggestion": {
+     "action": "lower",
+     "cls": "muted",
+     "text": "Lower tROAS 3.28 \u2192 2.95 via apply_troas.py (weak estimate: verify), after cooldown 2026-11-18",
+     "new_troas": 2.95,
+     "blocked_until": "2026-11-18"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Lower tROAS 3.28 \u2192 2.95 via apply_troas.py (weak estimate: verify), after cooldown 2026-11-18"
    },
    {
     "market": "SE",
@@ -816,7 +887,7 @@
     "l7_roas": 1.41,
     "l14_cost_sek": 16970,
     "l14_roas": 1.15,
-    "today_cost_sek": 638,
+    "today_cost_sek": 645,
     "budget_use_today": 0.04,
     "is": 0.1,
     "lost_budget": 0.0,
@@ -832,8 +903,28 @@
     "days_since_change": 2,
     "cooldown": true,
     "cooldown_until": "2026-11-16",
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 682,
+    "marginal_roas": 1.05,
+    "marginal_roas_up": 1.09,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.84,
+    "inc_marginal_up": 0.87,
+    "inc_gp3_per_10k": -1600,
+    "headroom": true,
+    "headroom_why": "lost IS rank 90%, +28% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "raise",
+     "cls": "muted",
+     "text": "Raise tROAS 1.84 \u2192 2.02 via apply_troas.py, after cooldown 2026-11-16",
+     "new_troas": 2.02,
+     "blocked_until": "2026-11-16"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Raise tROAS 1.84 \u2192 2.02 via apply_troas.py, after cooldown 2026-11-16"
    },
    {
     "market": "SE",
@@ -852,7 +943,7 @@
     "l7_roas": 2.02,
     "l14_cost_sek": 11332,
     "l14_roas": 1.92,
-    "today_cost_sek": 352,
+    "today_cost_sek": 381,
     "budget_use_today": 0.03,
     "is": 0.667,
     "lost_budget": 0.0,
@@ -868,8 +959,28 @@
     "days_since_change": 2,
     "cooldown": true,
     "cooldown_until": "2026-11-16",
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 984,
+    "marginal_roas": 0.88,
+    "marginal_roas_up": 0.91,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.62,
+    "inc_marginal_up": 0.64,
+    "inc_gp3_per_10k": -3800,
+    "headroom": true,
+    "headroom_why": "lost IS rank 33%, +21% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "raise",
+     "cls": "muted",
+     "text": "Raise tROAS 2.20 \u2192 2.42 via apply_troas.py, after cooldown 2026-11-16",
+     "new_troas": 2.42,
+     "blocked_until": "2026-11-16"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Raise tROAS 2.20 \u2192 2.42 via apply_troas.py, after cooldown 2026-11-16"
    },
    {
     "market": "SE",
@@ -888,7 +999,7 @@
     "l7_roas": 5.36,
     "l14_cost_sek": 10595,
     "l14_roas": 5.18,
-    "today_cost_sek": 285,
+    "today_cost_sek": 299,
     "budget_use_today": 0.04,
     "is": 0.622,
     "lost_budget": 0.0,
@@ -899,8 +1010,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 652,
+    "marginal_roas": 1.55,
+    "marginal_roas_up": 1.55,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 1.24,
+    "inc_marginal_up": 1.24,
+    "inc_gp3_per_10k": 2400,
+    "headroom": true,
+    "headroom_why": "lost IS rank 38%, +11% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "lower",
+     "cls": "up",
+     "text": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py",
+     "new_troas": 5.4,
+     "blocked_until": null
+    },
+    "hint_class": "up",
+    "hint": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py"
    },
    {
     "market": "SE",
@@ -919,7 +1050,7 @@
     "l7_roas": 4.63,
     "l14_cost_sek": 9942,
     "l14_roas": 5.53,
-    "today_cost_sek": 302,
+    "today_cost_sek": 303,
     "budget_use_today": 0.03,
     "is": 0.993,
     "lost_budget": 0.0,
@@ -930,8 +1061,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "brand",
+    "inc_key": "google_brand_search",
+    "incrementality": 0.3,
+    "yday_cost_sek": 776,
+    "marginal_roas": 4.81,
+    "marginal_roas_up": 4.81,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 1.44,
+    "inc_marginal_up": 1.44,
+    "inc_gp3_per_10k": 4400,
+    "headroom": true,
+    "headroom_why": "+17% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "lower",
+     "cls": "up",
+     "text": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py",
+     "new_troas": 5.4,
+     "blocked_until": null
+    },
+    "hint_class": "up",
+    "hint": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py"
    },
    {
     "market": "NO",
@@ -950,7 +1101,7 @@
     "l7_roas": 5.28,
     "l14_cost_sek": 9912,
     "l14_roas": 5.68,
-    "today_cost_sek": 732,
+    "today_cost_sek": 735,
     "budget_use_today": 0.05,
     "is": 0.99,
     "lost_budget": 0.0,
@@ -961,8 +1112,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 1078,
+    "marginal_roas": 2.67,
+    "marginal_roas_up": 3.05,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 1.87,
+    "inc_marginal_up": 2.13,
+    "inc_gp3_per_10k": 8700,
+    "headroom": true,
+    "headroom_why": "+23% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "lower",
+     "cls": "up",
+     "text": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py",
+     "new_troas": 5.4,
+     "blocked_until": null
+    },
+    "hint_class": "up",
+    "hint": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py"
    },
    {
     "market": "ROW",
@@ -981,7 +1152,7 @@
     "l7_roas": 3.63,
     "l14_cost_sek": 7616,
     "l14_roas": 2.9,
-    "today_cost_sek": 818,
+    "today_cost_sek": 836,
     "budget_use_today": 0.04,
     "is": 0.661,
     "lost_budget": 0.0,
@@ -997,8 +1168,26 @@
     "days_since_change": 2,
     "cooldown": true,
     "cooldown_until": "2026-11-16",
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 755,
+    "marginal_roas": 1.47,
+    "marginal_roas_up": 1.61,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 1.03,
+    "inc_marginal_up": 1.13,
+    "inc_gp3_per_10k": 300,
+    "headroom": true,
+    "headroom_why": "lost IS rank 34%, +23% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (near break-even)"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Hold (near break-even)"
    },
    {
     "market": "NO",
@@ -1033,8 +1222,28 @@
     "days_since_change": 0,
     "cooldown": true,
     "cooldown_until": "2026-11-18",
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 580,
+    "marginal_roas": 1.12,
+    "marginal_roas_up": 1.12,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.78,
+    "inc_marginal_up": 0.78,
+    "inc_gp3_per_10k": -2200,
+    "headroom": true,
+    "headroom_why": "lost IS rank 40%, +23% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "raise",
+     "cls": "muted",
+     "text": "Raise tROAS 4.14 \u2192 4.55 via apply_troas.py, after cooldown 2026-11-18",
+     "new_troas": 4.55,
+     "blocked_until": "2026-11-18"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Raise tROAS 4.14 \u2192 4.55 via apply_troas.py, after cooldown 2026-11-18"
    },
    {
     "market": "DK",
@@ -1064,8 +1273,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "down",
-    "hint": "Under target: raise tROAS"
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 221,
+    "marginal_roas": 2.07,
+    "marginal_roas_up": 2.07,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 1.45,
+    "inc_marginal_up": 1.45,
+    "inc_gp3_per_10k": 4500,
+    "headroom": true,
+    "headroom_why": "lost IS rank 21%, +17% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "lower",
+     "cls": "up",
+     "text": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py",
+     "new_troas": 5.4,
+     "blocked_until": null
+    },
+    "hint_class": "up",
+    "hint": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py"
    },
    {
     "market": "NO",
@@ -1084,7 +1313,7 @@
     "l7_roas": 2.12,
     "l14_cost_sek": 3393,
     "l14_roas": 3.65,
-    "today_cost_sek": 144,
+    "today_cost_sek": 148,
     "budget_use_today": 0.05,
     "is": 0.951,
     "lost_budget": 0.0,
@@ -1095,8 +1324,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "down",
-    "hint": "Under target: raise tROAS"
+    "segment": "brand",
+    "inc_key": "google_brand_search",
+    "incrementality": 0.3,
+    "yday_cost_sek": 184,
+    "marginal_roas": 5.28,
+    "marginal_roas_up": 5.28,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 1.58,
+    "inc_marginal_up": 1.58,
+    "inc_gp3_per_10k": 5800,
+    "headroom": true,
+    "headroom_why": "+17% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "lower",
+     "cls": "up",
+     "text": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py",
+     "new_troas": 5.4,
+     "blocked_until": null
+    },
+    "hint_class": "up",
+    "hint": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py"
    },
    {
     "market": "DK",
@@ -1131,8 +1380,26 @@
     "days_since_change": 0,
     "cooldown": true,
     "cooldown_until": "2026-11-18",
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 137,
+    "marginal_roas": 1.27,
+    "marginal_roas_up": 1.51,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.89,
+    "inc_marginal_up": 1.06,
+    "inc_gp3_per_10k": -1100,
+    "headroom": true,
+    "headroom_why": "lost IS rank 46%, +26% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (near break-even)"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Hold (near break-even)"
    },
    {
     "market": "FI",
@@ -1151,7 +1418,7 @@
     "l7_roas": 7.49,
     "l14_cost_sek": 2327,
     "l14_roas": 5.24,
-    "today_cost_sek": 88,
+    "today_cost_sek": 89,
     "budget_use_today": 0.02,
     "is": 0.828,
     "lost_budget": 0.0,
@@ -1162,8 +1429,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 109,
+    "marginal_roas": 4.25,
+    "marginal_roas_up": 4.25,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 2.97,
+    "inc_marginal_up": 2.97,
+    "inc_gp3_per_10k": 19700,
+    "headroom": true,
+    "headroom_why": "lost IS rank 17%, +17% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "lower",
+     "cls": "up",
+     "text": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py",
+     "new_troas": 5.4,
+     "blocked_until": null
+    },
+    "hint_class": "up",
+    "hint": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py"
    },
    {
     "market": "FI",
@@ -1193,8 +1480,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 209,
+    "marginal_roas": 1.41,
+    "marginal_roas_up": 1.41,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 1.13,
+    "inc_marginal_up": 1.13,
+    "inc_gp3_per_10k": 1300,
+    "headroom": true,
+    "headroom_why": "lost IS rank 90%, +11% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "lower",
+     "cls": "up",
+     "text": "Lower tROAS 3.76 \u2192 3.38 via apply_troas.py",
+     "new_troas": 3.38,
+     "blocked_until": null
+    },
+    "hint_class": "up",
+    "hint": "Lower tROAS 3.76 \u2192 3.38 via apply_troas.py"
    },
    {
     "market": "SE",
@@ -1229,8 +1536,28 @@
     "days_since_change": 7,
     "cooldown": true,
     "cooldown_until": "2026-11-11",
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 43,
+    "marginal_roas": 1.64,
+    "marginal_roas_up": 1.67,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 1.31,
+    "inc_marginal_up": 1.34,
+    "inc_gp3_per_10k": 3100,
+    "headroom": true,
+    "headroom_why": "lost IS rank 90%, +29% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "lower",
+     "cls": "muted",
+     "text": "Lower tROAS 1.29 \u2192 1.16 via apply_troas.py, after cooldown 2026-11-11",
+     "new_troas": 1.16,
+     "blocked_until": "2026-11-11"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Lower tROAS 1.29 \u2192 1.16 via apply_troas.py, after cooldown 2026-11-11"
    },
    {
     "market": "ROW",
@@ -1249,7 +1576,7 @@
     "l7_roas": 0.66,
     "l14_cost_sek": 1697,
     "l14_roas": 1.97,
-    "today_cost_sek": 84,
+    "today_cost_sek": 88,
     "budget_use_today": 0.01,
     "is": 0.525,
     "lost_budget": 0.0,
@@ -1265,8 +1592,28 @@
     "days_since_change": 7,
     "cooldown": true,
     "cooldown_until": "2026-11-11",
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 115,
+    "marginal_roas": 1.62,
+    "marginal_roas_up": 1.83,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 1.13,
+    "inc_marginal_up": 1.28,
+    "inc_gp3_per_10k": 1300,
+    "headroom": true,
+    "headroom_why": "lost IS rank 47%, +23% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "lower",
+     "cls": "muted",
+     "text": "Lower tROAS 2.64 \u2192 2.38 via apply_troas.py, after cooldown 2026-11-11",
+     "new_troas": 2.38,
+     "blocked_until": "2026-11-11"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Lower tROAS 2.64 \u2192 2.38 via apply_troas.py, after cooldown 2026-11-11"
    },
    {
     "market": "SE",
@@ -1285,8 +1632,8 @@
     "l7_roas": 23.04,
     "l14_cost_sek": 1671,
     "l14_roas": 30.98,
-    "today_cost_sek": 66,
-    "budget_use_today": 0.22,
+    "today_cost_sek": 69,
+    "budget_use_today": 0.23,
     "is": 0.705,
     "lost_budget": 0.0,
     "lost_rank": 0.295,
@@ -1296,8 +1643,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "brand",
+    "inc_key": "google_brand_search",
+    "incrementality": 0.3,
+    "yday_cost_sek": 121,
+    "marginal_roas": 59.66,
+    "marginal_roas_up": 59.66,
+    "marginal_basis": "fit",
+    "curve_run": null,
+    "inc_marginal": 17.9,
+    "inc_marginal_up": 17.9,
+    "inc_gp3_per_10k": 169000,
+    "headroom": true,
+    "headroom_why": "lost IS rank 30%",
+    "suggestion": {
+     "action": "none",
+     "cls": "muted",
+     "text": "No tROAS (other bidding)"
+    },
+    "hint_class": "muted",
+    "hint": "No tROAS (other bidding)"
    },
    {
     "market": "ROW",
@@ -1316,7 +1681,7 @@
     "l7_roas": 3.88,
     "l14_cost_sek": 1377,
     "l14_roas": 1.76,
-    "today_cost_sek": 42,
+    "today_cost_sek": 49,
     "budget_use_today": 0.02,
     "is": 0.125,
     "lost_budget": 0.0,
@@ -1332,8 +1697,26 @@
     "days_since_change": 2,
     "cooldown": true,
     "cooldown_until": "2026-11-16",
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 68,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 88%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "NO",
@@ -1363,8 +1746,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "brand",
+    "inc_key": "google_brand_search",
+    "incrementality": 0.3,
+    "yday_cost_sek": 83,
+    "marginal_roas": 28.83,
+    "marginal_roas_up": 28.83,
+    "marginal_basis": "fit",
+    "curve_run": null,
+    "inc_marginal": 8.65,
+    "inc_marginal_up": 8.65,
+    "inc_gp3_per_10k": 76500,
+    "headroom": true,
+    "headroom_why": "lost IS rank 25%",
+    "suggestion": {
+     "action": "lower",
+     "cls": "up",
+     "text": "Lower tROAS 4.50 \u2192 4.05 via apply_troas.py (weak estimate: verify)",
+     "new_troas": 4.05,
+     "blocked_until": null
+    },
+    "hint_class": "up",
+    "hint": "Lower tROAS 4.50 \u2192 4.05 via apply_troas.py (weak estimate: verify)"
    },
    {
     "market": "ROW",
@@ -1383,7 +1786,7 @@
     "l7_roas": 5.79,
     "l14_cost_sek": 1215,
     "l14_roas": 3.01,
-    "today_cost_sek": 131,
+    "today_cost_sek": 135,
     "budget_use_today": 0.04,
     "is": 0.588,
     "lost_budget": 0.0,
@@ -1399,8 +1802,26 @@
     "days_since_change": 2,
     "cooldown": true,
     "cooldown_until": "2026-11-16",
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 97,
+    "marginal_roas": 1.42,
+    "marginal_roas_up": 1.49,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.99,
+    "inc_marginal_up": 1.04,
+    "inc_gp3_per_10k": -100,
+    "headroom": true,
+    "headroom_why": "lost IS rank 41%, +22% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (near break-even)"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Hold (near break-even)"
    },
    {
     "market": "FI",
@@ -1430,8 +1851,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "brand",
+    "inc_key": "google_brand_search",
+    "incrementality": 0.3,
+    "yday_cost_sek": 84,
+    "marginal_roas": 1.12,
+    "marginal_roas_up": 1.12,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.34,
+    "inc_marginal_up": 0.34,
+    "inc_gp3_per_10k": -6600,
+    "headroom": true,
+    "headroom_why": "lost IS rank 22%, +17% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "raise",
+     "cls": "down",
+     "text": "Raise tROAS 6.00 \u2192 6.60 via apply_troas.py",
+     "new_troas": 6.6,
+     "blocked_until": null
+    },
+    "hint_class": "down",
+    "hint": "Raise tROAS 6.00 \u2192 6.60 via apply_troas.py"
    },
    {
     "market": "ROW",
@@ -1450,7 +1891,7 @@
     "l7_roas": 6.44,
     "l14_cost_sek": 1123,
     "l14_roas": 4.12,
-    "today_cost_sek": 104,
+    "today_cost_sek": 109,
     "budget_use_today": 0.01,
     "is": 0.625,
     "lost_budget": 0.0,
@@ -1461,8 +1902,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 157,
+    "marginal_roas": 0.94,
+    "marginal_roas_up": null,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.66,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": -3400,
+    "headroom": true,
+    "headroom_why": "lost IS rank 37%, +26% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (near break-even)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (near break-even)"
    },
    {
     "market": "ROW",
@@ -1481,8 +1940,8 @@
     "l7_roas": 7.33,
     "l14_cost_sek": 915,
     "l14_roas": 6.93,
-    "today_cost_sek": 14,
-    "budget_use_today": 0.01,
+    "today_cost_sek": 15,
+    "budget_use_today": 0.02,
     "is": 0.723,
     "lost_budget": 0.0,
     "lost_rank": 0.277,
@@ -1497,8 +1956,26 @@
     "days_since_change": 23,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 66,
+    "marginal_roas": 1.57,
+    "marginal_roas_up": 1.65,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 1.1,
+    "inc_marginal_up": 1.15,
+    "inc_gp3_per_10k": 1000,
+    "headroom": true,
+    "headroom_why": "lost IS rank 28%, +19% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (near break-even)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (near break-even)"
    },
    {
     "market": "ROW",
@@ -1517,7 +1994,7 @@
     "l7_roas": 0.02,
     "l14_cost_sek": 885,
     "l14_roas": 0.33,
-    "today_cost_sek": 44,
+    "today_cost_sek": 47,
     "budget_use_today": 0.02,
     "is": 0.438,
     "lost_budget": 0.0,
@@ -1528,8 +2005,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 32,
+    "marginal_roas": 0.94,
+    "marginal_roas_up": 1.05,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.66,
+    "inc_marginal_up": 0.73,
+    "inc_gp3_per_10k": -3400,
+    "headroom": true,
+    "headroom_why": "lost IS rank 56%, +24% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "raise",
+     "cls": "down",
+     "text": "Raise tROAS 2.00 \u2192 2.20 via apply_troas.py",
+     "new_troas": 2.2,
+     "blocked_until": null
+    },
+    "hint_class": "down",
+    "hint": "Raise tROAS 2.00 \u2192 2.20 via apply_troas.py"
    },
    {
     "market": "SE",
@@ -1548,7 +2045,7 @@
     "l7_roas": 4.12,
     "l14_cost_sek": 779,
     "l14_roas": 2.29,
-    "today_cost_sek": 42,
+    "today_cost_sek": 45,
     "budget_use_today": 0.01,
     "is": null,
     "lost_budget": null,
@@ -1559,8 +2056,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 70,
+    "marginal_roas": 0.0,
+    "marginal_roas_up": 0.0,
+    "marginal_basis": "fit",
+    "curve_run": null,
+    "inc_marginal": 0.0,
+    "inc_marginal_up": 0.0,
+    "inc_gp3_per_10k": -10000,
+    "headroom": false,
+    "headroom_why": null,
+    "suggestion": {
+     "action": "raise",
+     "cls": "down",
+     "text": "Raise tROAS 2.00 \u2192 2.20 via apply_troas.py (weak estimate: verify)",
+     "new_troas": 2.2,
+     "blocked_until": null
+    },
+    "hint_class": "down",
+    "hint": "Raise tROAS 2.00 \u2192 2.20 via apply_troas.py (weak estimate: verify)"
    },
    {
     "market": "FI",
@@ -1590,8 +2107,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "brand",
+    "inc_key": "google_brand_search",
+    "incrementality": 0.3,
+    "yday_cost_sek": 54,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 18%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "DK",
@@ -1621,8 +2156,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 39,
+    "marginal_roas": 0.4,
+    "marginal_roas_up": 0.4,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.32,
+    "inc_marginal_up": 0.32,
+    "inc_gp3_per_10k": -6800,
+    "headroom": true,
+    "headroom_why": "lost IS rank 90%, +15% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "raise",
+     "cls": "down",
+     "text": "Raise tROAS 1.82 \u2192 2.00 via apply_troas.py",
+     "new_troas": 2.0,
+     "blocked_until": null
+    },
+    "hint_class": "down",
+    "hint": "Raise tROAS 1.82 \u2192 2.00 via apply_troas.py"
    },
    {
     "market": "ROW",
@@ -1652,8 +2207,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 23,
+    "marginal_roas": 0.64,
+    "marginal_roas_up": 0.64,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.51,
+    "inc_marginal_up": 0.51,
+    "inc_gp3_per_10k": -4900,
+    "headroom": true,
+    "headroom_why": "lost IS rank 90%, +7% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "raise",
+     "cls": "down",
+     "text": "Raise tROAS 2.00 \u2192 2.20 via apply_troas.py",
+     "new_troas": 2.2,
+     "blocked_until": null
+    },
+    "hint_class": "down",
+    "hint": "Raise tROAS 2.00 \u2192 2.20 via apply_troas.py"
    },
    {
     "market": "ROW",
@@ -1672,8 +2247,8 @@
     "l7_roas": 4.91,
     "l14_cost_sek": 743,
     "l14_roas": 1.7,
-    "today_cost_sek": 10,
-    "budget_use_today": 0.01,
+    "today_cost_sek": 15,
+    "budget_use_today": 0.02,
     "is": 0.108,
     "lost_budget": 0.0,
     "lost_rank": 0.892,
@@ -1688,8 +2263,26 @@
     "days_since_change": 7,
     "cooldown": true,
     "cooldown_until": "2026-11-11",
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 29,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 89%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
     "hint_class": "muted",
-    "hint": "Wait: cooldown"
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "FI",
@@ -1719,8 +2312,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 25,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 90%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "DK",
@@ -1750,8 +2361,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "brand",
+    "inc_key": "google_brand_search",
+    "incrementality": 0.3,
+    "yday_cost_sek": 30,
+    "marginal_roas": 3.86,
+    "marginal_roas_up": 3.86,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 1.16,
+    "inc_marginal_up": 1.16,
+    "inc_gp3_per_10k": 1600,
+    "headroom": true,
+    "headroom_why": "+17% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "lower",
+     "cls": "up",
+     "text": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py",
+     "new_troas": 5.4,
+     "blocked_until": null
+    },
+    "hint_class": "up",
+    "hint": "Lower tROAS 6.00 \u2192 5.40 via apply_troas.py"
    },
    {
     "market": "ROW",
@@ -1781,8 +2412,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "brand",
+    "inc_key": "google_brand_search",
+    "incrementality": 0.3,
+    "yday_cost_sek": 26,
+    "marginal_roas": 0.1,
+    "marginal_roas_up": 0.11,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.03,
+    "inc_marginal_up": 0.03,
+    "inc_gp3_per_10k": -9700,
+    "headroom": true,
+    "headroom_why": "lost IS rank 74%, +6% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "raise",
+     "cls": "down",
+     "text": "Raise tROAS 4.00 \u2192 4.40 via apply_troas.py",
+     "new_troas": 4.4,
+     "blocked_until": null
+    },
+    "hint_class": "down",
+    "hint": "Raise tROAS 4.00 \u2192 4.40 via apply_troas.py"
    },
    {
     "market": "DK",
@@ -1812,8 +2463,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "brand",
+    "inc_key": "google_brand_search",
+    "incrementality": 0.3,
+    "yday_cost_sek": 39,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 35%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "ROW",
@@ -1832,7 +2501,7 @@
     "l7_roas": 0.07,
     "l14_cost_sek": 537,
     "l14_roas": 0.04,
-    "today_cost_sek": 19,
+    "today_cost_sek": 20,
     "budget_use_today": 0.01,
     "is": 0.433,
     "lost_budget": 0.0,
@@ -1843,8 +2512,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 53,
+    "marginal_roas": 1.72,
+    "marginal_roas_up": 1.8,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 1.2,
+    "inc_marginal_up": 1.26,
+    "inc_gp3_per_10k": 2000,
+    "headroom": true,
+    "headroom_why": "lost IS rank 57%, +19% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "lower",
+     "cls": "up",
+     "text": "Lower tROAS 2.50 \u2192 2.25 via apply_troas.py",
+     "new_troas": 2.25,
+     "blocked_until": null
+    },
+    "hint_class": "up",
+    "hint": "Lower tROAS 2.50 \u2192 2.25 via apply_troas.py"
    },
    {
     "market": "FI",
@@ -1874,8 +2563,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 44,
+    "marginal_roas": 1.41,
+    "marginal_roas_up": 1.45,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.99,
+    "inc_marginal_up": 1.01,
+    "inc_gp3_per_10k": -100,
+    "headroom": true,
+    "headroom_why": "lost IS rank 61%, +18% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (near break-even)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (near break-even)"
    },
    {
     "market": "ROW",
@@ -1905,8 +2612,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "brand",
+    "inc_key": "google_brand_search",
+    "incrementality": 0.3,
+    "yday_cost_sek": 17,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 90%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "ROW",
@@ -1936,8 +2661,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 37,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 84%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "ROW",
@@ -1967,8 +2710,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 21,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 87%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "ROW",
@@ -1998,8 +2759,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "brand",
+    "inc_key": "google_brand_search",
+    "incrementality": 0.3,
+    "yday_cost_sek": 21,
+    "marginal_roas": 0.58,
+    "marginal_roas_up": 2.82,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.17,
+    "inc_marginal_up": 0.85,
+    "inc_gp3_per_10k": -8300,
+    "headroom": true,
+    "headroom_why": "lost IS rank 90%",
+    "suggestion": {
+     "action": "raise",
+     "cls": "down",
+     "text": "Raise tROAS 4.00 \u2192 4.40 via apply_troas.py",
+     "new_troas": 4.4,
+     "blocked_until": null
+    },
+    "hint_class": "down",
+    "hint": "Raise tROAS 4.00 \u2192 4.40 via apply_troas.py"
    },
    {
     "market": "ROW",
@@ -2029,8 +2810,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 8,
+    "marginal_roas": 1.29,
+    "marginal_roas_up": 1.4,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.9,
+    "inc_marginal_up": 0.98,
+    "inc_gp3_per_10k": -1000,
+    "headroom": true,
+    "headroom_why": "lost IS rank 71%, +22% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (near break-even)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (near break-even)"
    },
    {
     "market": "ROW",
@@ -2060,8 +2859,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 21,
+    "marginal_roas": 1.38,
+    "marginal_roas_up": 1.38,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.97,
+    "inc_marginal_up": 0.97,
+    "inc_gp3_per_10k": -300,
+    "headroom": true,
+    "headroom_why": "lost IS rank 40%, +17% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (near break-even)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (near break-even)"
    },
    {
     "market": "ROW",
@@ -2091,8 +2908,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 15,
+    "marginal_roas": 0.16,
+    "marginal_roas_up": 0.16,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 0.11,
+    "inc_marginal_up": 0.11,
+    "inc_gp3_per_10k": -8900,
+    "headroom": true,
+    "headroom_why": "lost IS rank 51%, +18% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "raise",
+     "cls": "down",
+     "text": "Raise tROAS 2.20 \u2192 2.42 via apply_troas.py",
+     "new_troas": 2.42,
+     "blocked_until": null
+    },
+    "hint_class": "down",
+    "hint": "Raise tROAS 2.20 \u2192 2.42 via apply_troas.py"
    },
    {
     "market": "ROW",
@@ -2122,8 +2959,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 14,
+    "marginal_roas": 1.72,
+    "marginal_roas_up": 1.93,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 1.2,
+    "inc_marginal_up": 1.35,
+    "inc_gp3_per_10k": 2000,
+    "headroom": true,
+    "headroom_why": "lost IS rank 62%, +24% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "lower",
+     "cls": "up",
+     "text": "Lower tROAS 2.30 \u2192 2.07 via apply_troas.py",
+     "new_troas": 2.07,
+     "blocked_until": null
+    },
+    "hint_class": "up",
+    "hint": "Lower tROAS 2.30 \u2192 2.07 via apply_troas.py"
    },
    {
     "market": "ROW",
@@ -2153,8 +3010,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 10,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 51%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "ROW",
@@ -2184,8 +3059,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "brand",
+    "inc_key": "google_brand_search",
+    "incrementality": 0.3,
+    "yday_cost_sek": 7,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 88%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "ROW",
@@ -2215,8 +3108,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 2,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 45%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "ROW",
@@ -2246,8 +3157,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 13,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 63%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "ROW",
@@ -2277,8 +3206,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 6,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 74%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "ROW",
@@ -2308,8 +3255,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 5,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 88%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "ROW",
@@ -2339,8 +3304,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 7,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 87%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "ROW",
@@ -2370,8 +3353,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 4,
+    "marginal_roas": null,
+    "marginal_roas_up": 3.35,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": null,
+    "inc_marginal_up": 2.34,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 52%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (near break-even)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (near break-even)"
    },
    {
     "market": "ROW",
@@ -2401,8 +3402,28 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 1,
+    "marginal_roas": 1.61,
+    "marginal_roas_up": 1.69,
+    "marginal_basis": "curve",
+    "curve_run": "2026-11-04",
+    "inc_marginal": 1.13,
+    "inc_marginal_up": 1.18,
+    "inc_gp3_per_10k": 1300,
+    "headroom": true,
+    "headroom_why": "lost IS rank 49%, +19% spend available at \u221210 % tROAS",
+    "suggestion": {
+     "action": "lower",
+     "cls": "up",
+     "text": "Lower tROAS 2.50 \u2192 2.25 via apply_troas.py",
+     "new_troas": 2.25,
+     "blocked_until": null
+    },
+    "hint_class": "up",
+    "hint": "Lower tROAS 2.50 \u2192 2.25 via apply_troas.py"
    },
    {
     "market": "ROW",
@@ -2432,8 +3453,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 1,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 35%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "ROW",
@@ -2463,8 +3502,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 2,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 89%",
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    },
    {
     "market": "SE",
@@ -2494,8 +3551,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 0,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": true,
+    "headroom_why": "lost IS rank 75%",
+    "suggestion": {
+     "action": "none",
+     "cls": "muted",
+     "text": "No tROAS (other bidding)"
+    },
+    "hint_class": "muted",
+    "hint": "No tROAS (other bidding)"
    },
    {
     "market": "DK",
@@ -2525,8 +3600,26 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_shopping_pmax",
+    "incrementality": 0.7,
+    "yday_cost_sek": 0,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": false,
+    "headroom_why": null,
+    "suggestion": {
+     "action": "none",
+     "cls": "muted",
+     "text": "No tROAS (other bidding)"
+    },
+    "hint_class": "muted",
+    "hint": "No tROAS (other bidding)"
    },
    {
     "market": "NO",
@@ -2556,8 +3649,75 @@
     "days_since_change": null,
     "cooldown": false,
     "cooldown_until": null,
-    "hint_class": "",
-    "hint": ""
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 0,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": false,
+    "headroom_why": null,
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
+   },
+   {
+    "market": "FI",
+    "id": "24424859733",
+    "name": "ps-search-fi-pb-all",
+    "channel": "Search",
+    "bidding": "Maximize Conversion Value",
+    "troas": 3.5,
+    "currency": "EUR",
+    "budget_day": 40,
+    "budget_day_sek": 438,
+    "budget_shared": null,
+    "mtd_cost_sek": 0,
+    "mtd_roas": null,
+    "l7_cost_sek": 0,
+    "l7_roas": null,
+    "l14_cost_sek": 0,
+    "l14_roas": null,
+    "today_cost_sek": 2,
+    "budget_use_today": 0.01,
+    "is": null,
+    "lost_budget": null,
+    "lost_rank": null,
+    "status": "learning new",
+    "budget_limited": false,
+    "last_change": null,
+    "days_since_change": null,
+    "cooldown": false,
+    "cooldown_until": null,
+    "segment": "non-brand",
+    "inc_key": "google_generic_search",
+    "incrementality": 0.8,
+    "yday_cost_sek": 0,
+    "marginal_roas": null,
+    "marginal_roas_up": null,
+    "marginal_basis": null,
+    "curve_run": null,
+    "inc_marginal": null,
+    "inc_marginal_up": null,
+    "inc_gp3_per_10k": null,
+    "headroom": false,
+    "headroom_why": null,
+    "suggestion": {
+     "action": "hold",
+     "cls": "muted",
+     "text": "Hold (no estimate)"
+    },
+    "hint_class": "muted",
+    "hint": "Hold (no estimate)"
    }
   ],
   "changes": [
@@ -4373,6 +5533,314 @@
      "spend": 1536
     }
    ]
+  },
+  "lines": [
+   {
+    "market": "SE",
+    "type": "brand_funded",
+    "l28_spend": 13257,
+    "mtd_spend": 0,
+    "plan_month": null,
+    "avg_roas": 5.4,
+    "gp2_margin": 0.37,
+    "avg_gp2_roas_platform": 2.0,
+    "lastclick_gp2_roas_market": 2.43,
+    "marginal_roas": 5.4,
+    "marginal_basis": "average (upper bound)",
+    "fit": {
+     "avg": 5.4,
+     "marginal": 2.64,
+     "b": 0.49,
+     "r2": 0.01,
+     "n": 11,
+     "spend_cv": 0.08,
+     "confidence": "low"
+    },
+    "incrementality": null,
+    "inc_marginal": null,
+    "inc_gp3_per_10k": null,
+    "suggestion": {
+     "action": "none",
+     "cls": "muted",
+     "text": "Outside the plan types"
+    }
+   },
+   {
+    "market": "SE",
+    "type": "kuling",
+    "l28_spend": 52448,
+    "mtd_spend": 7081,
+    "plan_month": 36000,
+    "avg_roas": 26.13,
+    "gp2_margin": 0.37,
+    "avg_gp2_roas_platform": 9.67,
+    "lastclick_gp2_roas_market": 2.43,
+    "marginal_roas": 21.5,
+    "marginal_basis": "fit",
+    "fit": {
+     "avg": 26.13,
+     "marginal": 21.5,
+     "b": 0.82,
+     "r2": 0.25,
+     "n": 28,
+     "spend_cv": 0.3,
+     "confidence": "medium"
+    },
+    "incrementality": 0.6,
+    "inc_marginal": 4.77,
+    "inc_gp3_per_10k": 37700,
+    "suggestion": {
+     "action": "up",
+     "cls": "up",
+     "text": "Scale up"
+    }
+   },
+   {
+    "market": "SE",
+    "type": "prospecting",
+    "l28_spend": 29590,
+    "mtd_spend": 3667,
+    "plan_month": 12000,
+    "avg_roas": 18.5,
+    "gp2_margin": 0.37,
+    "avg_gp2_roas_platform": 6.84,
+    "lastclick_gp2_roas_market": 2.43,
+    "marginal_roas": 18.87,
+    "marginal_basis": "fit",
+    "fit": {
+     "avg": 18.5,
+     "marginal": 18.87,
+     "b": 1.02,
+     "r2": 0.54,
+     "n": 28,
+     "spend_cv": 0.46,
+     "confidence": "high"
+    },
+    "incrementality": 0.6,
+    "inc_marginal": 4.19,
+    "inc_gp3_per_10k": 31900,
+    "suggestion": {
+     "action": "up",
+     "cls": "up",
+     "text": "Scale up"
+    }
+   },
+   {
+    "market": "SE",
+    "type": "retargeting",
+    "l28_spend": 11412,
+    "mtd_spend": 1536,
+    "plan_month": 72000,
+    "avg_roas": 33.07,
+    "gp2_margin": 0.37,
+    "avg_gp2_roas_platform": 12.24,
+    "lastclick_gp2_roas_market": 2.43,
+    "marginal_roas": 33.07,
+    "marginal_basis": "average (upper bound)",
+    "fit": {
+     "avg": 33.07,
+     "marginal": 0.0,
+     "b": -0.05,
+     "r2": 0.0,
+     "n": 28,
+     "spend_cv": 0.16,
+     "confidence": "low"
+    },
+    "incrementality": 0.3,
+    "inc_marginal": 3.67,
+    "inc_gp3_per_10k": 26700,
+    "suggestion": {
+     "action": "test",
+     "cls": "warn",
+     "text": "Test +20 % (upper-bound estimate)"
+    }
+   },
+   {
+    "market": "NO",
+    "type": "kuling",
+    "l28_spend": 23435,
+    "mtd_spend": 3057,
+    "plan_month": 12000,
+    "avg_roas": 17.36,
+    "gp2_margin": 0.353,
+    "avg_gp2_roas_platform": 6.13,
+    "lastclick_gp2_roas_market": 0.96,
+    "marginal_roas": 11.31,
+    "marginal_basis": "fit",
+    "fit": {
+     "avg": 17.36,
+     "marginal": 11.31,
+     "b": 0.65,
+     "r2": 0.21,
+     "n": 28,
+     "spend_cv": 0.26,
+     "confidence": "medium"
+    },
+    "incrementality": 0.6,
+    "inc_marginal": 2.4,
+    "inc_gp3_per_10k": 14000,
+    "suggestion": {
+     "action": "up",
+     "cls": "up",
+     "text": "Scale up"
+    }
+   },
+   {
+    "market": "NO",
+    "type": "prospecting",
+    "l28_spend": 2793,
+    "mtd_spend": 340,
+    "plan_month": 4000,
+    "avg_roas": 21.88,
+    "gp2_margin": 0.353,
+    "avg_gp2_roas_platform": 7.72,
+    "lastclick_gp2_roas_market": 0.96,
+    "marginal_roas": 21.88,
+    "marginal_basis": "average (upper bound)",
+    "fit": {
+     "avg": 21.88,
+     "marginal": 0.0,
+     "b": -0.05,
+     "r2": 0.0,
+     "n": 26,
+     "spend_cv": 0.3,
+     "confidence": "low"
+    },
+    "incrementality": 0.6,
+    "inc_marginal": 4.63,
+    "inc_gp3_per_10k": 36300,
+    "suggestion": {
+     "action": "test",
+     "cls": "warn",
+     "text": "Test +20 % (upper-bound estimate)"
+    }
+   },
+   {
+    "market": "NO",
+    "type": "retargeting",
+    "l28_spend": 4273,
+    "mtd_spend": 579,
+    "plan_month": 24000,
+    "avg_roas": 27.05,
+    "gp2_margin": 0.353,
+    "avg_gp2_roas_platform": 9.55,
+    "lastclick_gp2_roas_market": 0.96,
+    "marginal_roas": 40.58,
+    "marginal_basis": "fit",
+    "fit": {
+     "avg": 27.05,
+     "marginal": 40.58,
+     "b": 2.82,
+     "r2": 0.28,
+     "n": 28,
+     "spend_cv": 0.17,
+     "confidence": "medium"
+    },
+    "incrementality": 0.3,
+    "inc_marginal": 4.3,
+    "inc_gp3_per_10k": 33000,
+    "suggestion": {
+     "action": "up",
+     "cls": "up",
+     "text": "Scale up"
+    }
+   },
+   {
+    "market": "FI",
+    "type": "kuling",
+    "l28_spend": 50460,
+    "mtd_spend": 6357,
+    "plan_month": 6000,
+    "avg_roas": 4.65,
+    "gp2_margin": 0.317,
+    "avg_gp2_roas_platform": 1.47,
+    "lastclick_gp2_roas_market": 0.82,
+    "marginal_roas": 4.65,
+    "marginal_basis": "average (upper bound)",
+    "fit": {
+     "avg": 4.65,
+     "marginal": 2.32,
+     "b": 0.5,
+     "r2": 0.11,
+     "n": 28,
+     "spend_cv": 0.34,
+     "confidence": "low"
+    },
+    "incrementality": 0.6,
+    "inc_marginal": 0.88,
+    "inc_gp3_per_10k": -1200,
+    "suggestion": {
+     "action": "down",
+     "cls": "down",
+     "text": "Scale down"
+    }
+   },
+   {
+    "market": "DK",
+    "type": "kuling",
+    "l28_spend": 20464,
+    "mtd_spend": 2314,
+    "plan_month": 6000,
+    "avg_roas": 6.84,
+    "gp2_margin": 0.325,
+    "avg_gp2_roas_platform": 2.22,
+    "lastclick_gp2_roas_market": 0.59,
+    "marginal_roas": 6.84,
+    "marginal_basis": "average (upper bound)",
+    "fit": {
+     "avg": 6.84,
+     "marginal": 5.3,
+     "b": 0.77,
+     "r2": 0.02,
+     "n": 28,
+     "spend_cv": 0.14,
+     "confidence": "low"
+    },
+    "incrementality": 0.6,
+    "inc_marginal": 1.33,
+    "inc_gp3_per_10k": 3300,
+    "suggestion": {
+     "action": "test",
+     "cls": "warn",
+     "text": "Test +20 % (upper-bound estimate)"
+    }
+   },
+   {
+    "market": "ROW",
+    "type": "kuling",
+    "l28_spend": 3087,
+    "mtd_spend": 0,
+    "plan_month": 0,
+    "avg_roas": 0.0,
+    "gp2_margin": 0.314,
+    "avg_gp2_roas_platform": 0.0,
+    "lastclick_gp2_roas_market": null,
+    "marginal_roas": 0.0,
+    "marginal_basis": "average (upper bound)",
+    "fit": {
+     "avg": 0.0,
+     "marginal": null,
+     "b": null,
+     "r2": null,
+     "n": 0,
+     "confidence": "none"
+    },
+    "incrementality": 0.6,
+    "inc_marginal": 0.0,
+    "inc_gp3_per_10k": -10000,
+    "suggestion": {
+     "action": "down",
+     "cls": "down",
+     "text": "Scale down"
+    }
+   }
+  ],
+  "margins": {
+   "NO": 0.353,
+   "ROW": 0.314,
+   "FI": 0.317,
+   "SE": 0.37,
+   "DK": 0.325
   },
   "campaigns": [
    {
@@ -9402,7 +10870,7 @@
   "basis": "Orders (Norce, Babyshop) matched to their GA4 purchase session; channel = the session's source/medium (GA4 session attribution). New = customer's first order (Norce first-order flag). Counts are scaled up by each market's match rate before cost per new customer = Funnel de-duplicated spend \u00f7 new customers. The last ~2 days are still settling (lower match rate).",
   "google_platform": {
    "SE": {
-    "new_conv": 9192,
+    "new_conv": 9193,
     "ret_conv": 5036,
     "unknown_conv": 417,
     "new_share": 0.628
@@ -9410,13 +10878,13 @@
    "NO": {
     "new_conv": null,
     "ret_conv": null,
-    "unknown_conv": 4747,
+    "unknown_conv": 4748,
     "new_share": null
    },
    "FI": {
     "new_conv": null,
     "ret_conv": null,
-    "unknown_conv": 1101,
+    "unknown_conv": 1102,
     "new_share": null
    },
    "DK": {
@@ -9526,7 +10994,8 @@
      "norce_merch": 1707693,
      "orders": 2333,
      "paid_spend": 180337,
-     "paid_cos": 0.106
+     "paid_cos": 0.106,
+     "cos_target": 0.105
     },
     {
      "market": "NO",
@@ -9534,7 +11003,8 @@
      "norce_merch": 911036,
      "orders": 831,
      "paid_spend": 109993,
-     "paid_cos": 0.121
+     "paid_cos": 0.121,
+     "cos_target": 0.105
     },
     {
      "market": "FI",
@@ -9542,7 +11012,8 @@
      "norce_merch": 180017,
      "orders": 184,
      "paid_spend": 21744,
-     "paid_cos": 0.121
+     "paid_cos": 0.121,
+     "cos_target": 0.105
     },
     {
      "market": "DK",
@@ -9550,7 +11021,8 @@
      "norce_merch": 184747,
      "orders": 240,
      "paid_spend": 19366,
-     "paid_cos": 0.105
+     "paid_cos": 0.105,
+     "cos_target": 0.105
     },
     {
      "market": "ROW",
@@ -9558,7 +11030,8 @@
      "norce_merch": 501555,
      "orders": 389,
      "paid_spend": 7850,
-     "paid_cos": 0.016
+     "paid_cos": 0.016,
+     "cos_target": 0.105
     }
    ]
   },
@@ -9654,7 +11127,8 @@
      "norce_merch": 6293010,
      "orders": 7872,
      "paid_spend": 717055,
-     "paid_cos": 0.114
+     "paid_cos": 0.114,
+     "cos_target": 0.105
     },
     {
      "market": "NO",
@@ -9662,7 +11136,8 @@
      "norce_merch": 2959313,
      "orders": 2631,
      "paid_spend": 388367,
-     "paid_cos": 0.131
+     "paid_cos": 0.131,
+     "cos_target": 0.105
     },
     {
      "market": "FI",
@@ -9670,7 +11145,8 @@
      "norce_merch": 638104,
      "orders": 607,
      "paid_spend": 93607,
-     "paid_cos": 0.147
+     "paid_cos": 0.147,
+     "cos_target": 0.105
     },
     {
      "market": "DK",
@@ -9678,7 +11154,8 @@
      "norce_merch": 966603,
      "orders": 952,
      "paid_spend": 99138,
-     "paid_cos": 0.103
+     "paid_cos": 0.103,
+     "cos_target": 0.105
     },
     {
      "market": "ROW",
@@ -9686,7 +11163,8 @@
      "norce_merch": 2265123,
      "orders": 1568,
      "paid_spend": 36311,
-     "paid_cos": 0.016
+     "paid_cos": 0.016,
+     "cos_target": 0.105
     }
    ]
   },
@@ -9782,7 +11260,8 @@
      "norce_merch": 15105315,
      "orders": 17698,
      "paid_spend": 1827842,
-     "paid_cos": 0.121
+     "paid_cos": 0.121,
+     "cos_target": 0.105
     },
     {
      "market": "NO",
@@ -9790,7 +11269,8 @@
      "norce_merch": 7368778,
      "orders": 6220,
      "paid_spend": 1022853,
-     "paid_cos": 0.139
+     "paid_cos": 0.139,
+     "cos_target": 0.105
     },
     {
      "market": "FI",
@@ -9798,7 +11278,8 @@
      "norce_merch": 1528171,
      "orders": 1444,
      "paid_spend": 216296,
-     "paid_cos": 0.142
+     "paid_cos": 0.142,
+     "cos_target": 0.105
     },
     {
      "market": "DK",
@@ -9806,7 +11287,8 @@
      "norce_merch": 2082558,
      "orders": 1902,
      "paid_spend": 230517,
-     "paid_cos": 0.111
+     "paid_cos": 0.111,
+     "cos_target": 0.105
     },
     {
      "market": "ROW",
@@ -9814,7 +11296,8 @@
      "norce_merch": 4833214,
      "orders": 3096,
      "paid_spend": 136578,
-     "paid_cos": 0.028
+     "paid_cos": 0.028,
+     "cos_target": 0.105
     }
    ]
   }
@@ -9932,7 +11415,10 @@
  ],
  "notes": [
   "Platform-reported: Google ROAS = profit \u00f7 spend (conversion value is PROFIT in the Babyshop accounts); tROAS is on the same profit basis. Last 1\u20133 days are still filling in (conversion lag), so judge campaigns on L14, not yesterday.",
-  "Plans spread by day with the daily_targets marketing-cost index. Google plan = 3.1 M SEK (Babyshop accounts; Lekmer is outside it). Google actuals = Funnel de-duplicated SEK cost through yesterday; today = live API spend \u00d7 Norce FX.",
+  "Google has no budget: spend is context, judged by incremental GP3. Google spend = Funnel de-duplicated SEK cost through yesterday; today = live API spend \u00d7 Norce FX. Babyshop accounts only. Any campaign limited by budget is flagged as an error.",
+  "Marginal profit ROAS (Google) comes from the ROAS-Simulations curves, \u03ba-calibrated (v_kappa_calibrated; \u03bb slope gate not applied): the extra profit per krona from a 10 % lower tROAS ('down'), and what the krona cut by a 10 % higher tROAS earned ('up'). Campaigns without a curve fall back to a 28-day spend/profit fit, marked 'fit' (weak).",
+  "INCREMENTALITY factors are ASSUMPTIONS until tested (brand search 0.30, generic search 0.80, shopping/PMax 0.70, Meta prospecting/Kuling 0.60, retargeting 0.30). Brand Shopping takes the brand rate. Incremental marginal = marginal \u00d7 factor; incremental GP3 per extra 10 k = (incremental marginal \u2212 1) \u00d7 10 k.",
+  "Meta marginal: 28-day spend/revenue fit per market \u00d7 type (or the average ROAS as an upper bound when the fit is weak) \u00d7 Funnel GP2 margin of that market \u00d7 incrementality. The approved 200 k plan is the starting point, not a cap. CAUTION: Meta pixel value runs several times above what GA4 last click credits Meta (compare the last-click GP2 ROAS column), so a 0.6 incrementality on pixel value may be generous; treat 'scale up' as a test until a lift test sets the factor.",
   "Meta = warehouse (agg_daily_kpis_by_ad, SEK). ROAS/CPA are platform-reported: Meta pixel purchase value (revenue, not profit) under Meta's own attribution.",
   "Meta campaign type is classified from the campaign name (rules shown with the table). 'Kuling-catalog' counts as Kuling, not catalog retargeting; 'mktcontrib' campaigns are brand-funded and kept outside the plan.",
   "Product / brand / category view covers catalog (DPA) delivery only \u2014 Meta reports product breakdowns for catalog ads, not for single-image/video ads.",

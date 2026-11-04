@@ -35,12 +35,14 @@ import bm_insights as bi
 def _digest_pacing(p: dict | None) -> dict | None:
     if not p:
         return None
-    out = {"asof": p.get("asof"), "budget_month": p.get("budget_month"), "markets": {}}
+    out = {"asof": p.get("asof"), "budget_month": p.get("budget_month"), "markets": {}, "headroom": {}}
     for m, blk in (p.get("markets") or {}).items():
         s = blk.get("summary") or {}
         out["markets"][m] = {k: {x: s.get(k, {}).get(x) for x in
                                  ("mtd", "target_mtd", "ly_mtd", "landing", "target_month", "run_rate_ratio")}
                              for k in ("gp2", "cost", "gp3", "net")}
+    for m, h in (p.get("headroom") or {}).items():       # daily arrays left out
+        out["headroom"][m] = {k: v for k, v in (h or {}).items() if not isinstance(v, list)}
     out["customers"] = p.get("customers")
     return out
 
@@ -48,18 +50,22 @@ def _digest_pacing(p: dict | None) -> dict | None:
 def _digest_paid(p: dict | None) -> dict | None:
     if not p:
         return None
-    g = p.get("google") or {}
+    g, me = p.get("google") or {}, p.get("meta") or {}
     camps = sorted(g.get("campaigns") or [], key=lambda c: -(c.get("l7_cost_sek") or 0))
-    keep = ("market", "name", "channel", "troas", "budget_day_sek", "mtd_cost_sek", "mtd_roas",
-            "l7_cost_sek", "l7_roas", "l14_roas", "is", "lost_budget", "lost_rank",
-            "budget_limited", "cooldown_until", "hint")
-    return {"asof": p.get("asof"), "plan": p.get("plan"),
+    keep = ("market", "name", "channel", "segment", "troas", "budget_day_sek", "mtd_cost_sek", "mtd_roas",
+            "l7_cost_sek", "l7_roas", "l14_roas", "is", "lost_budget", "lost_rank", "budget_limited",
+            "cooldown_until", "marginal_roas", "incrementality", "inc_marginal", "inc_gp3_per_10k",
+            "headroom_why", "suggestion")
+    return {"asof": p.get("asof"), "plan_meta": p.get("plan"), "guardrail": p.get("guardrail"),
             "gp3_l14": (p.get("gp3") or {}).get("l14"), "gp3_mtd": (p.get("gp3") or {}).get("mtd"),
             "marginal": p.get("marginal"),
-            "google_campaigns_top25": [{k: c.get(k) for k in keep} for c in camps[:25]],
-            "budget_limited": [{k: c.get(k) for k in keep} for c in camps if c.get("budget_limited")],
-            "meta_campaigns": (p.get("meta") or {}).get("campaigns"),
-            "meta_market_type_mtd": ((p.get("meta") or {}).get("pacing") or {}).get("market_type_mtd"),
+            # top 20 by 7-day spend, plus every other campaign with a tROAS suggestion or a budget cap
+            "google_campaigns": [{k: c.get(k) for k in keep} for i, c in enumerate(camps)
+                                 if i < 20 or (c.get("suggestion") or {}).get("action") in ("lower", "raise")
+                                 or c.get("budget_limited")],
+            "meta_lines": [{k: v for k, v in l.items() if k != "fit"} for l in me.get("lines") or []],
+            "meta_campaigns": me.get("campaigns"),
+            "meta_market_type_mtd": (me.get("pacing") or {}).get("market_type_mtd"),
             "notes": p.get("notes")}
 
 
@@ -93,7 +99,7 @@ def _digest_offers(o: dict | None) -> dict | None:
     return {"offers": o.get("offers"), "context": o.get("context"), "width": o.get("width"),
             "economics": {k: v for k, v in eco.items() if k != "daily"},
             "stock": {"bw_uplift": st.get("bw_uplift"), "ad_spend": st.get("ad_spend"),
-                      "sold_not_in_feed": st.get("sold_not_in_feed"), "products": keep[:80]},
+                      "sold_not_in_feed": st.get("sold_not_in_feed"), "products": keep[:50]},
             "notes": o.get("notes")}
 
 
@@ -132,9 +138,15 @@ def context(out_dir: str, mock: bool = False) -> dict:
     digest = {
         "today": today.isoformat(),
         "days_to_black_friday": (bm.BLACK_FRIDAY - today).days,
-        "plan": {"meta_month": bm.META_PLAN_MONTH, "meta_by_type": bm.META_PLAN_BY_TYPE,
-                 "meta_share": bm.META_PLAN_MARKET_SHARE, "google_month": bm.GOOGLE_PLAN_MONTH,
-                 "google_share": bm.GOOGLE_PLAN_MARKET_SHARE, "finance": bm.budget_lines()},
+        "spend_policy": ("Google has no budget; maximise GP3. COS 10.5 % is a derived envelope, not a cap; "
+                         "the binding target is the forecast's GP3. GP3 above forecast = headroom to spend more "
+                         "on Google AND Meta where incremental. Meta 200k plan = starting point, not a ceiling. "
+                         "Incrementality factors are untested assumptions."),
+        "cos_target": getattr(bm, "COS_TARGET", None),
+        "incrementality_assumed": getattr(bm, "INCREMENTALITY", None),
+        "meta_plan_start": {"month": bm.META_PLAN_MONTH, "by_type": bm.META_PLAN_BY_TYPE,
+                            "share": bm.META_PLAN_MARKET_SHARE},
+        "finance_forecast": bm.budget_lines(),
         "snapshot_times": {k: (v or {}).get("generated_at") for k, v in snaps.items()},
         "rule_alerts": alerts, "notes": notes,
         "checklist": insights.get("checklist"),

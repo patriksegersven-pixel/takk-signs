@@ -29,6 +29,8 @@
     '#bm-paid details summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:8px}',
     '#bm-paid .pd-notes li{margin:2px 0}',
     '#bm-paid .pd-kpi-alert .val{color:var(--warn)}',
+    '#bm-paid .pd-kpi-err .val{color:var(--down)}',
+    '#bm-paid .pd-guard{border:1px solid var(--accent);background:var(--accent-bg);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;display:grid;gap:4px}',
     '@media (max-width:600px){#bm-paid .bm-kpis{grid-template-columns:1fr 1fr}#bm-paid .pd-name{max-width:150px}#bm-paid .bm-kpi .val{font-size:20px}}'
   ].join('');
 
@@ -57,7 +59,6 @@
     var r = v / target;
     return '<span class="' + (r < 0.85 ? 'down' : r > 1.15 ? 'up' : '') + '">' + F.roas(v) + '</span>';
   }
-  function paceCls(p) { return p == null ? 'muted' : p < 0.85 ? 'down' : p > 1.15 ? 'warn' : 'up'; }
   function paceBar(actual, plan, month) {
     var w = month ? Math.min(100, actual / month * 100) : 0, m = month ? Math.min(100, plan / month * 100) : 0;
     return '<div class="pd-bar" title="MTD actual vs month plan; tick = where plan says we should be"><i style="width:' + w.toFixed(1) + '%"></i><b style="left:' + m.toFixed(1) + '%"></b></div>';
@@ -86,10 +87,8 @@
       { key: 'month', label: 'Month plan', num: true, fmt: F.sek },
       { key: 'pm', label: 'Plan MTD', num: true, fmt: F.sek },
       { key: 'am', label: 'Actual MTD', num: true, fmt: function (v, r) { return F.sek(v) + r.bar; } },
-      { key: 'pace', label: 'Pace', num: true, fmt: function (v) { return v == null ? '–' : '<span class="' + paceCls(v) + '">' + F.pct(v, 0) + '</span>'; } },
+      { key: 'pace', label: 'vs plan', num: true, fmt: function (v) { return v == null ? '–' : F.pct(v, 0); } },
       { key: 'yday', label: 'Yesterday / plan', num: true, fmt: function (v, r) { return F.sek(v) + ' <span class="muted">/ ' + F.sek(r.ypl) + '</span>'; } },
-      { key: 'today', label: 'Today so far', num: true, fmt: function (v, r) { return v == null ? '<span class="muted">–</span>' : F.sek(v) + ' <span class="muted">/ ' + F.sek(r.tplan) + '</span>'; } },
-      { key: 'need', label: 'Per day to land', num: true, fmt: F.sek }
     ]);
   }
 
@@ -115,53 +114,104 @@
     });
   }
 
+  /* ── Guardrail ──────────────────────────────────────────────────────────── */
+  function hrHtml(v) {
+    if (v == null) return '<span class="muted">Not published by the pacing section yet.</span>';
+    if (typeof v === 'number') return '<b>' + F.sek(v) + ' SEK</b>';
+    if (typeof v !== 'object') return esc(v);
+    return Object.keys(v).filter(function (k) { return v[k] == null || typeof v[k] !== 'object'; }).map(function (k) {
+      var x = v[k];
+      return esc(k.replace(/_/g, ' ')) + ': <b>' + (typeof x === 'number' ? (Math.abs(x) < 10 ? F.roas(x) : F.sek(x)) : esc(x)) + '</b>';
+    }).join(' · ');
+  }
+  function guardrailHtml(d, state) {
+    var g = d.guardrail || {}, inc = g.incrementality || {};
+    function cnt(rows) {
+      var o = { more: 0, less: 0 };
+      (rows || []).forEach(function (r) {
+        if (!inMkt(state, r.market) || r.inc_marginal == null) return;
+        if (r.inc_marginal > 1.1) o.more++; else if (r.inc_marginal < 0.9) o.less++;
+      });
+      return o;
+    }
+    var gc = cnt(d.google.campaigns), mc = cnt(d.meta.lines);
+    var h = ['<div class="pd-guard">'];
+    h.push('<div class="pd-guard-rule"><b>Rule:</b> ' + esc(g.rule || '') + '</div>');
+    h.push('<div><b>Spend headroom vs Finance GP3 target</b> <span class="muted">(pacing)</span>: ' + hrHtml(g.headroom) + '</div>');
+    h.push('<div class="muted">Signals now' + (state.market === 'all' ? '' : ' (' + esc(state.market) + ')') + ': Google ' + gc.more + ' campaigns earn &gt;1 incremental per extra krona, ' +
+      gc.less + ' below 1 · Meta ' + mc.more + ' lines above, ' + mc.less + ' below.</div>');
+    if ((g.budget_errors || []).length) h.push('<div class="bm-error">Limited by budget (budgets must never bind): ' + g.budget_errors.map(esc).join(', ') + '</div>');
+    h.push('<div class="muted" style="font-size:11px">Incrementality assumptions (not yet tested): ' + Object.keys(inc).map(function (k) {
+      return esc(k.replace(/_/g, ' ')) + ' ' + F.pct(inc[k], 0); }).join(' · ') + '</div>');
+    h.push('</div>');
+    return h.join('');
+  }
+
   /* ── Google ─────────────────────────────────────────────────────────────── */
+  function incCell(v) {
+    if (v == null) return '<span class="muted">–</span>';
+    return '<span class="' + (v > 1.1 ? 'up' : v < 0.9 ? 'down' : '') + '">' + F.roas(v) + '</span>';
+  }
+  function gp10(v) { return v == null ? '<span class="muted">–</span>' : '<span class="' + (v >= 0 ? 'up' : 'down') + '">' + (v >= 0 ? '+' : '−') + F.sek(Math.abs(v)) + '</span>'; }
+
   function googleHtml(d, state) {
     var g = d.google, h = [];
-    var mk_ = MKTS.filter(function (m) { return inMkt(state, m) && g.pacing[m]; });
-    var rows = mk_.map(function (m) {
-      var p = g.pacing[m];
-      return { label: mk(m), plan: p.plan, actual: p.actual, month: sum(p.plan), today: p.today_so_far };
+    var n = asofIdx(d) + 1;
+    // Spend by market: context only (no budget).
+    var srows = MKTS.filter(function (m) { return inMkt(state, m) && g.pacing[m]; }).map(function (m) {
+      var a = g.pacing[m].actual || [];
+      return { m: m, yday: n > 0 ? a[n - 1] : null, l7: sumTo(a.slice(Math.max(0, n - 7)), 7), mtd: sumTo(a, n), today: g.pacing[m].today_so_far };
     });
-    if (rows.length > 1) {
-      var tp = [], ta = [], tt = 0;
-      rows.forEach(function (r) { addArr(tp, r.plan); addArr(ta, r.actual); tt += r.today || 0; });
-      rows.push({ label: '<b>Total</b>', plan: tp, actual: ta, month: sum(tp), today: tt });
-    }
-    h.push('<div class="pd-head"><h3>Google Ads · spend vs plan</h3></div>');
-    h.push('<div class="pd-sub">Plan ' + F.sek(d.plan.google_month) + ' SEK split SE 54 / NO 28 / FI 8 / DK 7 / ROW 3, spread by day with the marketing index. Actuals = Funnel SEK through ' + F.date(d.asof) + '.</div>');
-    h.push('<div class="bm-grid-2"><div>' + pacingTable(rows, d, 'Market') + '</div><div class="bm-chart"><canvas id="pd-g-chart"></canvas></div></div>');
+    h.push('<div class="pd-head"><h3>Google Ads · spend (context, no budget)</h3></div>');
+    h.push('<div class="pd-sub">Funnel SEK cost through ' + F.date(d.asof) + '; today = live API. Spend is judged by incremental GP3 below, not against a plan. L7 counts November days only.</div>');
+    h.push(BM.table(srows, [
+      { key: 'm', label: 'Market', fmt: mk },
+      { key: 'yday', label: 'Yesterday', num: true, fmt: F.sek },
+      { key: 'l7', label: 'Last 7 d (Nov)', num: true, fmt: F.sek },
+      { key: 'mtd', label: 'MTD', num: true, fmt: F.sek },
+      { key: 'today', label: 'Today so far', num: true, fmt: F.sek }
+    ]));
 
-    // Campaigns
     var camps = g.campaigns.filter(function (c) { return inMkt(state, c.market); });
-    var act = camps.filter(function (c) { return c.hint && c.hint_class !== 'muted'; });
-    var list = ui.gOnlyAction ? act : camps;
-    var shown = ui.gAll ? list : list.slice(0, 25);
-    h.push('<div class="pd-head"><h3>Google campaigns · profit ROAS vs tROAS</h3>' +
-      tabs('gfilter', [['all', 'All campaigns (' + camps.length + ')'], ['act', 'Needs a look (' + act.length + ')']], ui.gOnlyAction ? 'act' : 'all') + '</div>');
-    h.push('<div class="pd-sub">Platform-reported: ROAS = Google conversion value (profit) ÷ spend. L14 is the decision window (last days are still filling in). Red = &lt;85 % of tROAS, green = &gt;115 %. Budget-capped = Google says limited by budget, or ≥10 % search IS lost to budget.</div>');
-    h.push(BM.table(shown, [
+    var limited = camps.filter(function (c) { return c.budget_limited; });
+    if (limited.length) h.push('<div class="bm-error" style="margin-top:8px">ERROR: ' + limited.length + ' campaign(s) limited by budget. Budgets are meant never to bind: ' + limited.map(function (c) { return esc(c.market + ' ' + c.name); }).join(', ') + '</div>');
+    var act = function (c) { return c.suggestion && (c.suggestion.action === 'lower' || c.suggestion.action === 'raise' || c.suggestion.action === 'error'); };
+    var cols = [
       { key: 'market', label: 'Mkt', fmt: mk },
-      { key: 'name', label: 'Campaign', fmt: function (v, r) { return '<span class="pd-name" title="' + esc(v) + ' · ' + esc(r.bidding) + '">' + esc(v) + '</span><div class="muted" style="font-size:11px">' + esc(r.channel) + '</div>'; } },
+      { key: 'name', label: 'Campaign', fmt: function (v, r) { return '<span class="pd-name" title="' + esc(v) + ' · ' + esc(r.bidding) + '">' + esc(v) + '</span><div class="muted" style="font-size:11px">' + esc(r.channel) + ' · incr. ' + F.pct(r.incrementality, 0) + '</div>'; } },
       { key: 'troas', label: 'tROAS', num: true, fmt: function (v) { return v == null ? '<span class="muted">–</span>' : F.roas(v); } },
-      { key: 'l14_roas', label: 'Profit ROAS L14', num: true, fmt: function (v, r) { return roasCell(v, r.troas); } },
-      { key: 'l7_roas', label: 'L7', num: true, fmt: function (v, r) { return roasCell(v, r.troas); } },
-      { key: 'mtd_roas', label: 'MTD', num: true, fmt: function (v, r) { return roasCell(v, r.troas); } },
-      { key: 'l14_cost_sek', label: 'Spend L14', num: true, fmt: F.sek },
-      { key: 'budget_day_sek', label: 'Budget/day', num: true, fmt: function (v, r) {
-          var s = F.sek(v);
-          if (r.budget_use_today != null) s += '<div class="muted" style="font-size:11px">today ' + F.pct(r.budget_use_today, 0) + '</div>';
-          return r.budget_shared ? s + '<div class="muted" style="font-size:11px" title="' + esc(r.budget_shared) + '">shared</div>' : s; } },
-      { key: 'is', label: 'Search IS', num: true, fmt: function (v) { return v == null ? '<span class="muted">–</span>' : F.pct(v, 0); } },
-      { key: 'lost_budget', label: 'Lost: budget', num: true, fmt: function (v) { return v == null ? '<span class="muted">–</span>' : '<span class="' + (v >= 0.1 ? 'warn' : '') + '">' + F.pct(v, 0) + '</span>'; } },
-      { key: 'lost_rank', label: 'Lost: rank', num: true, fmt: function (v) { return v == null ? '<span class="muted">–</span>' : F.pct(v, 0); } },
+      { key: 'yday_cost_sek', label: 'Spend yday', num: true, fmt: F.sek },
+      { key: 'l7_cost_sek', label: 'Spend L7', num: true, fmt: F.sek },
+      { key: 'l7_roas', label: 'Avg ROAS L7', num: true, fmt: function (v) { return v == null ? '<span class="muted">–</span>' : F.roas(v); } },
+      { key: 'marginal_roas', label: 'Marginal ROAS', num: true, fmt: function (v, r) {
+          if (v == null) return '<span class="muted">–</span>';
+          var t = r.marginal_basis === 'curve' ? 'ROAS-sims curve ' + (r.curve_run || '') + ', κ-calibrated. Extra krona from −10 % tROAS: ' + F.roas(v) + '; krona cut by +10 %: ' + F.roas(r.marginal_roas_up) : '28-day spend/profit fit (weak)';
+          return '<span title="' + esc(t) + '">' + F.roas(v) + '</span> <span class="muted" style="font-size:11px">' + (r.marginal_basis === 'curve' ? 'curve' : 'fit') + '</span>'; } },
+      { key: 'inc_marginal', label: 'Incr. marginal', num: true, fmt: incCell },
+      { key: 'inc_gp3_per_10k', label: 'Incr. GP3 / +10 k', num: true, fmt: gp10 },
+      { key: 'suggestion', label: 'Suggested move', fmt: function (v) { return v ? pill(v.cls, v.text) : ''; } },
+      { key: 'lost_rank', label: 'Headroom', fmt: function (v, r) {
+          if (!r.headroom) return '<span class="muted">none seen</span>';
+          var parts = [];
+          if (v != null && v >= 0.1) parts.push('rank ' + F.pct(v, 0));
+          var m = /\+(\d+)%/.exec(r.headroom_why || '');
+          if (m) parts.push('+' + m[1] + ' % at −10 %');
+          return '<span class="up" title="' + esc(r.headroom_why || '') + '">' + esc(parts.join(' · ') || 'yes') + '</span>'; } },
       { key: 'last_change', label: 'Last tROAS change', fmt: function (v, r) {
           if (!v) return '<span class="muted">none in 45 d</span>';
-          var s = F.date(v.date) + ' ' + F.roas(v.old) + '→' + F.roas(v.new);
-          return r.cooldown ? s + ' ' + pill('muted', 'cooldown → ' + F.date(r.cooldown_until)) : s + ' ' + pill('up', 'can change'); } },
-      { key: 'hint', label: 'Lever', fmt: function (v, r) { return v ? pill(r.hint_class, v) : '<span class="muted">hold</span>'; } }
-    ], { empty: 'No campaigns' }));
-    if (list.length > 25) h.push('<div class="pd-tabs" data-tab="gall" style="margin-top:6px"><button data-v="' + (ui.gAll ? 'less' : 'more') + '">' + (ui.gAll ? 'Show top 25' : 'Show all ' + list.length) + '</button></div>');
+          return F.date(v.date) + ' ' + F.roas(v.old) + '→' + F.roas(v.new) + (r.cooldown ? ' ' + pill('muted', 'cooldown → ' + F.date(r.cooldown_until)) : ''); } },
+    ];
+    h.push('<div class="pd-head"><h3>Google campaigns · incremental marginal profit ROAS</h3>' +
+      tabs('gfilter', [['all', 'All'], ['act', 'Moves only']], ui.gOnlyAction ? 'act' : 'all') + '</div>');
+    h.push('<div class="pd-sub">Platform-reported: conversion value = profit, so ROAS = profit ÷ spend. Marginal = profit from the next krona (ROAS-sims curve, κ-calibrated; "fit" = 28-day fallback). Incremental = marginal × incrementality assumption. Lower tROAS ~10 % where incremental marginal &gt; 1 with headroom, raise ~10 % where &lt; 1. Change tROAS only via apply_troas.py, outside the 14-day cooldown.</div>');
+    [['non-brand', 'Non-brand'], ['brand', 'Brand']].forEach(function (sg) {
+      var list = camps.filter(function (c) { return c.segment === sg[0] && (!ui.gOnlyAction || act(c)); });
+      var shown = (ui.gAll || sg[0] === 'brand') ? list : list.slice(0, 25);
+      var sp = 0; list.forEach(function (c) { sp += c.l7_cost_sek || 0; });
+      h.push('<h3 style="margin-top:10px">' + sg[1] + ' <span class="muted" style="font-weight:400">· ' + list.length + ' campaigns · ' + F.sek(sp) + ' SEK L7</span></h3>');
+      h.push(BM.table(shown, cols, { empty: 'No campaigns' }));
+      if (sg[0] === 'non-brand' && list.length > 25) h.push('<div class="pd-tabs" data-tab="gall" style="margin-top:6px"><button data-v="' + (ui.gAll ? 'less' : 'more') + '">' + (ui.gAll ? 'Show top 25' : 'Show all ' + list.length) + '</button></div>');
+    });
 
     // Change log + seasonality
     var ch = g.changes.filter(function (c) { return inMkt(state, mktOfCustomer(c.customer_name)); });
@@ -182,7 +232,7 @@
     var sRows = MKTS.filter(function (m) { return inMkt(state, m) && g.post_bf[m]; }).map(function (m) {
       var p = g.post_bf[m]; return { m: m, d1: p.day1, d2: p.day2 };
     });
-    function adj(a) { return a ? pill('up', (a.modifier_pct || Math.round((a.modifier - 1) * 100)) + ' % · ' + (a.channels || []).join('+').toLowerCase()) : pill('down', 'missing'); }
+    function adj(a) { return a ? pill('up', Math.round((a.modifier - 1) * 100) + ' % · ' + (a.channels || []).join('+').toLowerCase()) : pill('down', 'missing'); }
     h.push(BM.table(sRows, [
       { key: 'm', label: 'Account', fmt: mk },
       { key: 'd1', label: 'Post-BF dag 1 (1 Dec)', fmt: adj },
@@ -219,9 +269,25 @@
       }
       return { label: esc(TYPE_LABEL[t] || t), plan: plan, actual: actual, month: sum(plan), t: t };
     });
-    h.push('<div class="pd-head"><h3>Meta · spend vs approved plan</h3></div>');
-    h.push('<div class="pd-sub">Approved 200 k SEK: Kuling 60 k / prospecting 20 k / catalog retargeting 120 k; SE 60 / NO 20 / FI 10 / DK 10. Warehouse spend (SEK) incl. today so far.</div>');
+    h.push('<div class="pd-head"><h3>Meta · spend vs the approved starting plan (context)</h3></div>');
+    h.push('<div class="pd-sub">Approved 200 k SEK is the starting point, not a cap: Kuling 60 k / prospecting 20 k / catalog retargeting 120 k; SE 60 / NO 20 / FI 10 / DK 10. Move money between lines by the incremental marginal GP3 below.</div>');
     h.push('<div class="bm-grid-2"><div>' + pacingTable(mRows, d, 'Market') + '<div style="height:10px"></div>' + pacingTable(tRows, d, 'Campaign type') + '</div><div class="bm-chart"><canvas id="pd-m-chart"></canvas></div></div>');
+    var lines = (m.lines || []).filter(function (l) { return inMkt(state, l.market); });
+    h.push('<h3>Meta lines · incremental marginal GP2 per krona</h3><div class="pd-sub">Market × campaign type, last 28 days. Platform-reported pixel revenue ROAS → marginal (28-day spend/revenue fit; "avg" = average ROAS used as an upper bound when the fit is weak) × Funnel GP2 margin × incrementality assumption. Above 1 the next krona adds GP3 (scale up), below 1 it loses GP3 (scale down). The last-click column is the Funnel GA4 view for the whole market, as a sanity check.</div>');
+    h.push(BM.table(lines, [
+      { key: 'market', label: 'Mkt', fmt: mk },
+      { key: 'type', label: 'Line', fmt: function (v) { return esc(TYPE_LABEL[v] || v); } },
+      { key: 'l28_spend', label: 'Spend L28', num: true, fmt: F.sek },
+      { key: 'plan_month', label: 'Start plan / month', num: true, fmt: function (v) { return v == null ? '<span class="muted">–</span>' : F.sek(v); } },
+      { key: 'avg_roas', label: 'Avg ROAS (platform)', num: true, fmt: F.roas },
+      { key: 'gp2_margin', label: 'GP2 margin', num: true, fmt: function (v) { return F.pct(v, 0); } },
+      { key: 'lastclick_gp2_roas_market', label: 'Last-click GP2 ROAS', num: true, fmt: function (v) { return v == null ? '<span class="muted">–</span>' : F.roas(v); } },
+      { key: 'marginal_roas', label: 'Marginal ROAS', num: true, fmt: function (v, r) { return v == null ? '–' : F.roas(v) + ' <span class="muted" style="font-size:11px">' + (r.marginal_basis === 'fit' ? 'fit' : 'avg') + '</span>'; } },
+      { key: 'incrementality', label: 'Incr.', num: true, fmt: function (v) { return v == null ? '–' : F.pct(v, 0); } },
+      { key: 'inc_marginal', label: 'Incr. marginal GP2', num: true, fmt: incCell },
+      { key: 'inc_gp3_per_10k', label: 'Incr. GP3 / +10 k', num: true, fmt: gp10 },
+      { key: 'suggestion', label: 'Suggestion', fmt: function (v) { return v ? pill(v.cls, v.text) : ''; } }
+    ], { empty: 'No Meta lines with spend' }));
     if (m.unclassified.length) h.push('<div class="bm-note warn">Unclassified campaigns (not counted in the type plan): ' + m.unclassified.map(esc).join(', ') + '</div>');
 
     var camps = m.campaigns.filter(function (c) { return inMkt(state, c.market); });
@@ -353,56 +419,57 @@
         { key: 'norce_merch', label: 'of which merchandise', num: true, fmt: F.sek },
         { key: 'orders', label: 'Orders', num: true, fmt: F.num },
         { key: 'paid_spend', label: 'Google + Meta spend', num: true, fmt: F.sek },
-        { key: 'paid_cos', label: 'Paid COS', num: true, fmt: function (v) { return F.pct(v, 1); } }
+        { key: 'paid_cos', label: 'Paid COS', num: true, fmt: function (v) { return F.pct(v, 1); } },
+        { key: 'cos_target', label: 'COS target (all marketing)', num: true, fmt: function (v) { return '<span class="muted">' + F.pct(v, 1) + '</span>'; } }
       ]));
     }
     return h.join('');
   }
 
   function kpis(d, state) {
-    var n = asofIdx(d) + 1, gp = 0, ga = 0, mp = 0, ma = 0, cap = 0, under = 0, pbMiss = 0, gToday = 0;
+    var n = asofIdx(d) + 1, ga = 0, gy = 0, mp = 0, ma = 0, err = 0, lower = 0, raise = 0, pbMiss = 0, mUp = 0, mDown = 0;
     MKTS.forEach(function (m) {
       if (!inMkt(state, m)) return;
       var g = d.google.pacing[m];
-      if (g) { gp += sumTo(g.plan, n); ga += sumTo(g.actual, n); gToday += g.today_so_far || 0; }
+      if (g) { ga += sumTo(g.actual, n); gy += n > 0 ? (g.actual[n - 1] || 0) : 0; }
       var x = d.meta.pacing.market[m];
       if (x) { mp += sumTo(x.plan, n); ma += sumTo(x.actual, n); }
       var pb = d.google.post_bf[m];
       if (pb && (!pb.day1 || !pb.day2)) pbMiss++;
     });
-    var cost = 0, val = 0;
     d.google.campaigns.forEach(function (c) {
       if (!inMkt(state, c.market)) return;
-      if (c.budget_limited) cap++;
-      if (c.hint_class === 'down') under++;
-      if (c.l14_roas != null) { cost += c.l14_cost_sek || 0; val += (c.l14_roas || 0) * (c.l14_cost_sek || 0); }
+      if (c.budget_limited) err++;
+      var a = (c.suggestion || {}).action;
+      if (a === 'lower') lower++; else if (a === 'raise') raise++;
     });
-    function k(lbl, val_, sub, alert) {
-      return '<div class="bm-kpi' + (alert ? ' pd-kpi-alert' : '') + '"><div class="lbl">' + lbl + '</div><div class="val">' + val_ + '</div><div class="sub">' + sub + '</div></div>';
+    (d.meta.lines || []).forEach(function (l) {
+      if (!inMkt(state, l.market)) return;
+      var a = (l.suggestion || {}).action;
+      if (a === 'up' || a === 'test') mUp++; else if (a === 'down') mDown++;
+    });
+    function k(lbl, val_, sub, cls) {
+      return '<div class="bm-kpi' + (cls ? ' ' + cls : '') + '"><div class="lbl">' + lbl + '</div><div class="val">' + val_ + '</div><div class="sub">' + sub + '</div></div>';
     }
-    var gpace = div(ga, gp), mpace = div(ma, mp);
     return '<div class="bm-kpis">' +
-      k('Google spend MTD', F.sek(ga), 'plan ' + F.sek(gp) + ' · <span class="' + paceCls(gpace) + '">' + F.pct(gpace, 0) + '</span> · today ' + F.sek(gToday)) +
-      k('Google profit ROAS L14', F.roas(div(val, cost)), 'platform-reported, spend-weighted') +
-      k('Meta spend MTD', F.sek(ma), 'plan ' + F.sek(mp) + ' · <span class="' + paceCls(mpace) + '">' + F.pct(mpace, 0) + '</span>') +
-      k('Budget-capped campaigns', String(cap), under + (under === 1 ? ' campaign' : ' campaigns') + ' well under tROAS', cap > 0) +
-      k('Post-BF adjustments', pbMiss ? pbMiss + ' missing' : 'All set', '1 Dec −45 % · 2 Dec −30 %', pbMiss > 0) +
+      k('Google tROAS moves', lower + ' ↓ · ' + raise + ' ↑', 'lower = spend more · raise = spend less') +
+      k('Meta lines', mUp + ' up · ' + mDown + ' down', 'by incremental marginal GP3') +
+      k('Budget-limited', String(err), err ? 'ERROR: budgets must never bind' : 'none, as intended', err ? 'pd-kpi-err' : '') +
+      k('Google spend', F.sek(gy), 'yesterday · MTD ' + F.sek(ga) + ' (context)') +
+      k('Meta spend MTD', F.sek(ma), 'starting plan ' + F.sek(mp) + ' to date') +
+      k('Post-BF adjustments', pbMiss ? pbMiss + ' missing' : 'All set', '1 Dec −45 % · 2 Dec −30 %', pbMiss ? 'pd-kpi-alert' : '') +
       '</div>';
   }
 
   function render(el, d, state) {
     injectCss();
     last = { el: el, d: d, state: state };
-    var h = [kpis(d, state), googleHtml(d, state), metaHtml(d, state), nvrHtml(d, state), gp3Html(d, state)];
+    var h = [guardrailHtml(d, state), kpis(d, state), googleHtml(d, state), metaHtml(d, state), nvrHtml(d, state), gp3Html(d, state)];
     h.push('<details><summary>Data notes</summary><ul class="bm-note pd-notes">' + d.notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul></details>');
     if (d.errors && d.errors.length) h.push('<div class="bm-error" style="font-size:12px;margin-top:8px">' + d.errors.map(esc).join('<br>') + '</div>');
     el.innerHTML = h.join('');
 
     // Charts
-    var gs = MKTS.filter(function (m) { return inMkt(state, m) && d.google.pacing[m]; }).map(function (m) {
-      return { label: m, plan: d.google.pacing[m].plan, actual: d.google.pacing[m].actual, color: BM.color.market(m) };
-    });
-    var gc = el.querySelector('#pd-g-chart'); if (gc) cumChart(gc, d, gs);
     var mc = el.querySelector('#pd-m-chart');
     if (mc) {
       var tcol = { kuling: BM.color.accent, prospecting: BM.color.fc, retargeting: BM.color.market('NO') };

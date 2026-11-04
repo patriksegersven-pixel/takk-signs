@@ -91,6 +91,7 @@
     .bm-kpi .val { color: var(--h); font-size: 24px; font-weight: 600; margin-top: 2px; }
     .bm-kpi .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
     .bm-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .bm-grid-2 > * { min-width: 0; }   /* let wide tables scroll inside instead of widening the page */
     @media (max-width: 900px) { .bm-grid-2 { grid-template-columns: 1fr; } }
     .bm-chart { position: relative; height: 280px; }
     .bm-table-wrap { overflow-x: auto; }
