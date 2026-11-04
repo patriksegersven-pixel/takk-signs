@@ -21,8 +21,10 @@ SERVICE="${SERVICE:-babyshop-dashboard}"
 SCHEDULER_REGION="${SCHEDULER_REGION:-europe-west1}"
 JOB="${JOB:-blackmonth-refresh}"
 # paid/insights: Google Ads (read-only). offers: Airtable calendar, Norce order
-# lines with list price (bm_offers_norce), Channable feed for stock.
-SECRETS="GOOGLE_ADS_DEVELOPER_TOKEN=GOOGLE_ADS_DEVELOPER_TOKEN:latest,GOOGLE_ADS_CLIENT_ID=GOOGLE_ADS_CLIENT_ID:latest,GOOGLE_ADS_CLIENT_SECRET=GOOGLE_ADS_CLIENT_SECRET:latest,GOOGLE_ADS_REFRESH_TOKEN=GOOGLE_ADS_REFRESH_TOKEN:latest,GOOGLE_ADS_LOGIN_CUSTOMER_ID=GOOGLE_ADS_LOGIN_CUSTOMER_ID:latest,AIRTABLE_PAT=AIRTABLE_PAT:latest,NORCE_CLIENT_ID=NORCE_CLIENT_ID:latest,NORCE_CLIENT_SECRET=NORCE_CLIENT_SECRET:latest,CHANNABLE_FEED_URL=channable-feed-url:latest"
+# lines with list price (bm_offers_norce), Channable feed for stock. insights:
+# Meta activity log — meta-ads-access-token is a COPY of the claude-private
+# secret of the same name (2026-11-04, user-approved): rotate it in both places.
+SECRETS="GOOGLE_ADS_DEVELOPER_TOKEN=GOOGLE_ADS_DEVELOPER_TOKEN:latest,GOOGLE_ADS_CLIENT_ID=GOOGLE_ADS_CLIENT_ID:latest,GOOGLE_ADS_CLIENT_SECRET=GOOGLE_ADS_CLIENT_SECRET:latest,GOOGLE_ADS_REFRESH_TOKEN=GOOGLE_ADS_REFRESH_TOKEN:latest,GOOGLE_ADS_LOGIN_CUSTOMER_ID=GOOGLE_ADS_LOGIN_CUSTOMER_ID:latest,AIRTABLE_PAT=AIRTABLE_PAT:latest,NORCE_CLIENT_ID=NORCE_CLIENT_ID:latest,NORCE_CLIENT_SECRET=NORCE_CLIENT_SECRET:latest,CHANNABLE_FEED_URL=channable-feed-url:latest,META_ADS_ACCESS_TOKEN=meta-ads-access-token:latest"
 
 echo "== 0. Resolve the image + runtime SA =="
 IMAGE="${IMAGE:-$(gcloud run services describe "$SERVICE" \

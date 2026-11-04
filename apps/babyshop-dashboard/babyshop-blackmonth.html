@@ -69,6 +69,7 @@
     .bm-hero h1 b { color: var(--accent); font-weight: 600; }
     .bm-countdown { color: var(--muted); font-size: 14px; }
     .bm-countdown b { color: var(--h); }
+    .bm-filters { display: flex; gap: 14px; flex-wrap: wrap; }
     .bm-filter { display: flex; gap: 4px; flex-wrap: wrap; }
     .bm-filter button { background: var(--card); color: var(--body); border: 1px solid var(--border); border-radius: 999px;
       padding: 5px 14px; font: inherit; font-size: 13px; cursor: pointer; }
@@ -121,12 +122,19 @@
       <h1><b>Black</b> Month · November 2026</h1>
       <div class="bm-countdown" id="bm-countdown"></div>
     </div>
+    <div class="bm-filters">
+    <div class="bm-filter" role="group" aria-label="Brand">
+      <button data-brand="all">Both brands</button>
+      <button data-brand="babyshop">Babyshop</button>
+      <button data-brand="lekmer">Lekmer</button>
+    </div>
     <div class="bm-filter" role="group" aria-label="Market">
       <button data-market="all">All</button>
       <button data-market="SE">SE</button>
       <button data-market="NO">NO</button>
       <button data-market="FI">FI</button>
       <button data-market="DK">DK</button>
+    </div>
     </div>
   </div>
 

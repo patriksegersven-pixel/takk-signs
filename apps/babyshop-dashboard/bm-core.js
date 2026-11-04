@@ -14,6 +14,7 @@
  * global market filter changes, so render must rebuild el from scratch.
  *
  *   state.market   'all' | 'SE' | 'NO' | 'FI' | 'DK'
+ *   state.brand    'all' | 'babyshop' | 'lekmer'
  *
  * Helpers for sections: BM.fmt.*, BM.color.*, BM.chart(canvas, config),
  * BM.el(html), BM.table(rows, columns). Build HTML strings in one pass — never
@@ -25,7 +26,7 @@
   var MOCK = params.get('mock') === '1';
   var registry = {};
   var payloads = {};
-  var state = { market: params.get('market') || 'all' };
+  var state = { market: params.get('market') || 'all', brand: params.get('brand') || 'all' };
 
   function css(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -141,25 +142,34 @@
       .catch(function (e) { payloads[key] = { error: String(e) }; renderOne(key); });
   }
 
-  function setMarket(m) {
-    state.market = m;
-    document.querySelectorAll('[data-market]').forEach(function (b) {
-      b.classList.toggle('on', b.getAttribute('data-market') === m);
+  function setFilter(key, v) {
+    state[key] = v;
+    document.querySelectorAll('[data-' + key + ']').forEach(function (b) {
+      b.classList.toggle('on', b.getAttribute('data-' + key) === v);
     });
     var u = new URL(location.href);
-    if (m === 'all') u.searchParams.delete('market'); else u.searchParams.set('market', m);
+    if (v === 'all') u.searchParams.delete(key); else u.searchParams.set(key, v);
     history.replaceState(null, '', u);
     Object.keys(registry).forEach(renderOne);
   }
+  function setMarket(m) { setFilter('market', m); }
+  function setBrand(b) { setFilter('brand', b); }
 
   window.BM = {
     register: function (key, mod) { registry[key] = mod; if (payloads[key]) renderOne(key); },
     payload: function (key) { return payloads[key]; },
     state: state, fmt: fmt, color: color, esc: esc, table: table, chart: chart,
-    setMarket: setMarket, reload: load,
+    setMarket: setMarket, setBrand: setBrand, reload: load,
     start: function () {
       document.querySelectorAll('[data-market]').forEach(function (b) {
         b.addEventListener('click', function () { setMarket(b.getAttribute('data-market')); });
+      });
+      document.querySelectorAll('[data-brand]').forEach(function (b) {
+        b.addEventListener('click', function () { setBrand(b.getAttribute('data-brand')); });
+      });
+      state.brand = state.brand || 'all';
+      document.querySelectorAll('[data-brand]').forEach(function (b) {
+        b.classList.toggle('on', b.getAttribute('data-brand') === state.brand);
       });
       setMarket(state.market);
       document.querySelectorAll('section.bm-section').forEach(function (s) {

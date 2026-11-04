@@ -33,10 +33,17 @@ from collections import defaultdict
 
 import bm_common as bm
 
-GOOGLE_ACCOUNTS = {          # Babyshop accounts only; Lekmer is outside the plan
-    "4851485396": "SE", "8623945183": "NO", "6161399704": "FI",
-    "2054294342": "DK", "5541487401": "ROW",
+GOOGLE_ACCOUNTS = {          # cid → (brand, market); same accounts as refresh_roas_sims
+    "4851485396": ("babyshop", "SE"), "8623945183": ("babyshop", "NO"),
+    "6161399704": ("babyshop", "FI"), "2054294342": ("babyshop", "DK"),
+    "5541487401": ("babyshop", "ROW"),
+    "7780114635": ("lekmer", "SE"), "8308232278": ("lekmer", "NO"),
+    "2756397225": ("lekmer", "DK"),
 }
+BRANDS = ["babyshop", "lekmer"]
+SHOP_BRAND = {"Babyshop": "babyshop", "Lekmer": "lekmer"}
+META_ACCOUNTS_NOTE = ("Lekmer has no Meta ad account in the warehouse (only Babyshop's, "
+                      "2927326560764919), so Meta rows are Babyshop only.")
 MKTS = bm.MARKETS + ["ROW"]
 HIST_DAYS = 35               # history window: marginal ROAS + L7/L28 views
 COOLDOWN_DAYS = 14
@@ -96,10 +103,10 @@ def _google(today: datetime.date, d0: datetime.date) -> dict:
     service = R.ads_client().get_service("GoogleAdsService")
     out = {"accounts": [], "daily": [], "campaigns": [], "seasonality": [],
            "platform_nvr": {}, "errors": []}
-    for cid, mk in GOOGLE_ACCOUNTS.items():
+    for cid, (br, mk) in GOOGLE_ACCOUNTS.items():
         try:
-            info = R._account_info(service, cid, {"label": f"Babyshop {mk}", "currency": "SEK"})
-            out["accounts"].append({"cid": cid, "market": mk, "name": info["name"],
+            info = R._account_info(service, cid, {"label": f"{br.title()} {mk}", "currency": "SEK"})
+            out["accounts"].append({"cid": cid, "brand": br, "market": mk, "name": info["name"],
                                     "currency": info["currency"]})
             cmap = R._campaign_map(service, cid, R._strategy_map(service, cid))
 
@@ -109,7 +116,7 @@ def _google(today: datetime.date, d0: datetime.date) -> dict:
                     f"WHERE segments.date BETWEEN '{d0}' AND '{today}' "
                     "AND metrics.cost_micros > 0")):
                 out["daily"].append({
-                    "market": mk, "cid": cid, "id": str(row.campaign.id),
+                    "brand": br, "market": mk, "cid": cid, "id": str(row.campaign.id),
                     "d": row.segments.date, "cost": row.metrics.cost_micros / 1e6,
                     "value": row.metrics.conversions_value or 0.0,
                     "conv": row.metrics.conversions or 0.0})
@@ -130,7 +137,7 @@ def _google(today: datetime.date, d0: datetime.date) -> dict:
                 sys_status = c.bidding_strategy_system_status.name
                 meta = cmap.get(str(c.id), {})
                 out["campaigns"].append({
-                    "market": mk, "cid": cid, "currency": info["currency"],
+                    "brand": br, "market": mk, "cid": cid, "currency": info["currency"],
                     "id": str(c.id), "name": R._safe_name(c.name),
                     "channel": c.advertising_channel_type.name,
                     "bidding": meta.get("type", ""), "troas": meta.get("target"),
@@ -158,7 +165,7 @@ def _google(today: datetime.date, d0: datetime.date) -> dict:
                 if a.end_date_time[:10] < bm.MONTH_START.isoformat():
                     continue                       # old years' adjustments
                 out["seasonality"].append({
-                    "market": mk, "name": a.name, "start": a.start_date_time,
+                    "brand": br, "market": mk, "name": a.name, "start": a.start_date_time,
                     "end": a.end_date_time, "modifier": a.conversion_rate_modifier,
                     "status": a.status.name, "scope": a.scope.name,
                     "channels": [x.name for x in a.advertising_channel_types]})
@@ -171,9 +178,9 @@ def _google(today: datetime.date, d0: datetime.date) -> dict:
                     f"AND '{today - datetime.timedelta(days=1)}'")):
                 k = row.segments.new_versus_returning_customers.name
                 nvr[k] = {"conv": row.metrics.conversions, "value": row.metrics.conversions_value}
-            out["platform_nvr"][mk] = nvr
+            out["platform_nvr"][f"{br}:{mk}"] = nvr
         except Exception as e:
-            out["errors"].append(f"Google {mk} ({cid}): {type(e).__name__}: {str(e)[:200]}")
+            out["errors"].append(f"Google {br} {mk} ({cid}): {type(e).__name__}: {str(e)[:200]}")
     return out
 
 
@@ -200,34 +207,35 @@ def _funnel(d0: datetime.date, d1: datetime.date) -> list[dict]:
     from google.cloud import bigquery
     rows = bs._rows(
         f"WITH {bs._kv_cte('Date BETWEEN @s AND @e')} "
-        "SELECT CAST(Date AS STRING) d, market_level_1_kv mk, Channel_Type_Level_1 ch, "
-        f"{bs.KVD} FROM kv_rows WHERE shop_new = 'Babyshop' "
+        "SELECT CAST(Date AS STRING) d, shop_new shop, market_level_1_kv mk, "
+        f"Channel_Type_Level_1 ch, {bs.KVD} FROM kv_rows WHERE shop_new IN ('Babyshop', 'Lekmer') "
         "AND Channel_Type_Level_1 IN ('Google Ads', 'Paid Social (Meta)') "
-        "GROUP BY d, mk, ch",
+        "GROUP BY d, shop, mk, ch",
         [bigquery.ScalarQueryParameter("s", "DATE", d0),
          bigquery.ScalarQueryParameter("e", "DATE", d1)])
     agg = defaultdict(lambda: {"cost": 0.0, "gp2": 0.0, "rev": 0.0, "txns": 0})
     for r in rows:
-        k = (r["d"], _mk(r["mk"]), FUNNEL_CH[r["ch"]])
+        k = (r["d"], SHOP_BRAND[r["shop"]], _mk(r["mk"]), FUNNEL_CH[r["ch"]])
         a = agg[k]
         a["cost"] += float(r["cost"] or 0)
         a["gp2"] += float(r["gp2"] or 0)
         a["rev"] += float(r["net_rev"] or 0)
         a["txns"] += int(r["txns"] or 0)
-    return [{"d": k[0], "market": k[1], "channel": k[2], **v} for k, v in agg.items()]
+    return [{"d": k[0], "brand": k[1], "market": k[2], "channel": k[3], **v} for k, v in agg.items()]
 
 
 def _norce(d0: datetime.date, d1: datetime.date) -> list[dict]:
     """Norce ordered revenue per Stockholm day × market: refresh_daily_perf's
-    DAILY_SQL (ex VAT, gross of returns, every status except 6), Babyshop only."""
+    DAILY_SQL (ex VAT, gross of returns, every status except 6), Babyshop + Lekmer."""
     import refresh_daily_perf as rdp
     out = []
     for r in rdp._rows(rdp.DAILY_SQL, [rdp._p("from_day", d0), rdp._p("to_day", d1)]):
         key = r["market"] or ""
-        if not key.startswith("babyshop-"):
+        br, _, code = key.partition("-")
+        if br not in BRANDS:
             continue
-        code = key.split("-", 1)[1].upper()
-        out.append({"d": r["d"].isoformat(), "market": _mk(code), "orders": int(r["orders"] or 0),
+        out.append({"d": r["d"].isoformat(), "brand": br, "market": _mk(code.upper()),
+                    "orders": int(r["orders"] or 0),
                     "merch": float(r["merch_sek"] or 0), "freight": float(r["freight_sek"] or 0)})
     return out
 
@@ -272,7 +280,7 @@ def _meta(d0: datetime.date, d1: datetime.date) -> list[dict]:
         FROM {WH.format('agg_daily_kpis_by_ad')}
         WHERE date BETWEEN @s AND @e AND client_site = 'babyshop'
         GROUP BY d, market, campaign_name, adset_name""", s=d0, e=d1)
-    return [{"d": r["d"], "market": _meta_market(r["market"], r["campaign_name"]),
+    return [{"d": r["d"], "brand": "babyshop", "market": _meta_market(r["market"], r["campaign_name"]),
              "campaign": r["campaign_name"] or "(none)", "adset": r["adset_name"] or "(none)",
              "type": classify(r["campaign_name"]),
              "spend": float(r["spend"] or 0), "purchases": float(r["purchases"] or 0),
@@ -333,15 +341,15 @@ def _nvr(windows: dict[str, tuple[datetime.date, datetime.date]]) -> dict:
     out = {}
     for key, (s, e) in windows.items():
         rows = rm.q(f"""
-            SELECT market, {GA4_CHANNEL_SQL} ch,
+            SELECT client_site, market, {GA4_CHANNEL_SQL} ch,
                    COUNTIF(match_status = 'matched') orders,
                    COUNTIF(match_status = 'matched' AND is_new_customer) new_orders,
                    SUM(IF(match_status = 'matched', order_revenue_net, 0)) rev,
                    COUNTIF(match_status IN ('matched', 'order_only', 'settling')) all_orders
             FROM {WH.format('fct_order_ga4_match')}
-            WHERE date BETWEEN @s AND @e AND client_site = 'babyshop'
-            GROUP BY market, ch""", s=s, e=e)
-        out[key] = [{"market": _mk(r["market"]), "channel": r["ch"],
+            WHERE date BETWEEN @s AND @e AND client_site IN ('babyshop', 'lekmer')
+            GROUP BY client_site, market, ch""", s=s, e=e)
+        out[key] = [{"brand": r["client_site"], "market": _mk(r["market"]), "channel": r["ch"],
                      "orders": int(r["orders"] or 0), "new": int(r["new_orders"] or 0),
                      "rev": float(r["rev"] or 0), "all_orders": int(r["all_orders"] or 0)}
                     for r in rows]
@@ -485,12 +493,13 @@ def _market_margins(d0: datetime.date, d1: datetime.date) -> dict[str, float]:
     from google.cloud import bigquery
     rows = bs._rows(
         f"WITH {bs._kv_cte('Date BETWEEN @s AND @e')} "
-        f"SELECT market_level_1_kv mk, {bs.KVD} FROM kv_rows WHERE shop_new = 'Babyshop' GROUP BY mk",
+        f"SELECT shop_new shop, market_level_1_kv mk, {bs.KVD} FROM kv_rows "
+        "WHERE shop_new IN ('Babyshop', 'Lekmer') GROUP BY shop, mk",
         [bigquery.ScalarQueryParameter("s", "DATE", d0),
          bigquery.ScalarQueryParameter("e", "DATE", d1)])
     acc = defaultdict(lambda: [0.0, 0.0])
     for r in rows:
-        a = acc[_mk(r["mk"])]
+        a = acc[f"{SHOP_BRAND[r['shop']]}:{_mk(r['mk'])}"]
         a[0] += float(r["gp2"] or 0); a[1] += float(r["net_rev"] or 0)
     return {m: round(g / v, 3) for m, (g, v) in acc.items() if v > 0}
 
@@ -573,20 +582,26 @@ def build(ctx: dict) -> dict:
     di = {d: i for i, d in enumerate(days)}
 
     # ── Google pacing (Funnel SEK, + API today-so-far) ───────────────────────
-    g_act = {m: [None] * len(days) for m in MKTS}
+    g_act = {b: {m: [None] * len(days) for m in MKTS} for b in BRANDS + ["all"]}
     for r in funnel:
         if r["channel"] == "google" and r["d"] in di:
             i = di[r["d"]]
-            g_act[r["market"]][i] = (g_act[r["market"]][i] or 0) + r["cost"]
+            for b in (r["brand"], "all"):
+                g_act[b][r["market"]][i] = (g_act[b][r["market"]][i] or 0) + r["cost"]
     acc_cur = {a["cid"]: a["currency"] for a in g["accounts"]}
     today_iso = today.isoformat()
     g_today = defaultdict(float)
     for r in g["daily"]:
         if r["d"] == today_iso:
-            g_today[r["market"]] += r["cost"] * fx.get(acc_cur.get(r["cid"], "SEK"), 1.0)
+            v = r["cost"] * fx.get(acc_cur.get(r["cid"], "SEK"), 1.0)
+            g_today[(r["brand"], r["market"])] += v
+            g_today[("all", r["market"])] += v
     # Context only: Google has no budget, spend is judged by incremental GP3.
-    google_pacing = {m: {"actual": [_r(v) for v in g_act[m]],
-                         "today_so_far": _r(g_today.get(m))} for m in MKTS}
+    # `google.pacing` = both brands summed (key kept stable); per brand alongside.
+    pace = lambda b: {m: {"actual": [_r(v) for v in g_act[b][m]],
+                          "today_so_far": _r(g_today.get((b, m)))} for m in MKTS}
+    google_pacing = pace("all")
+    google_pacing_by_brand = {b: pace(b) for b in BRANDS}
 
     # ── Google campaigns ─────────────────────────────────────────────────────
     last_change = {}
@@ -622,7 +637,7 @@ def build(ctx: dict) -> dict:
                    or "BUDGET_CONSTRAINED" in " ".join(c["reasons"])
                    or (lb is not None and lb >= 0.10))
         row = {
-            "market": c["market"], "id": c["id"], "name": c["name"],
+            "brand": c["brand"], "market": c["market"], "id": c["id"], "name": c["name"],
             "channel": c["channel"].title().replace("_", " "),
             "bidding": c["bidding"].replace("_", " ").title(), "troas": c["troas"],
             "currency": c["currency"],
@@ -686,14 +701,16 @@ def build(ctx: dict) -> dict:
     campaigns.sort(key=lambda r: -(r["l14_cost_sek"] or 0))
 
     # Post-BF seasonality check (agreed 2026-11-04: 1 Dec −45 %, 2 Dec −30 %).
-    post_bf = {}
-    for mk in GOOGLE_ACCOUNTS.values():
-        adj = [s for s in g["seasonality"] if s["market"] == mk]
+    post_bf_by_brand = defaultdict(dict)
+    for br, mk in GOOGLE_ACCOUNTS.values():
+        adj = [s for s in g["seasonality"] if s["market"] == mk and s["brand"] == br]
         pb = [s for s in adj if re.search(r"post.?bf", s["name"], re.I)]
         on = [s for s in pb if s["status"] == "ENABLED"]
-        post_bf[mk] = {"day1": next((s for s in on if s["start"].startswith("2026-12-01")), None),
-                       "day2": next((s for s in on if s["start"].startswith("2026-12-02")), None),
-                       "n": len(pb)}
+        post_bf_by_brand[br][mk] = {
+            "day1": next((s for s in on if s["start"].startswith("2026-12-01")), None),
+            "day2": next((s for s in on if s["start"].startswith("2026-12-02")), None),
+            "n": len(pb)}
+    post_bf = post_bf_by_brand["babyshop"]               # key kept stable
     seasonality = [{**s, "modifier_pct": round((s["modifier"] - 1) * 100)} for s in g["seasonality"]]
 
     # Platform new vs returning conversions (Google's own customer-match label).
@@ -747,7 +764,7 @@ def build(ctx: dict) -> dict:
         if not (a.get("spend") or b.get("spend")):
             continue
         meta_campaigns.append({
-            "market": k[0], "campaign": k[1], "type": k[2],
+            "brand": "babyshop", "market": k[0], "campaign": k[1], "type": k[2],
             "mtd_spend": _r(a.get("spend", 0)), "mtd_purchases": _r(a.get("purchases", 0)),
             "mtd_value": _r(a.get("value", 0)), "mtd_roas": _div(a.get("value"), a.get("spend")),
             "mtd_cpa": _div(a.get("spend"), a.get("purchases"), 0),
@@ -758,7 +775,7 @@ def build(ctx: dict) -> dict:
 
     l7_a = roll(meta, ("market", "campaign", "adset", "type"), w7[0], w7[1])
     meta_adsets = sorted(({
-        "market": k[0], "campaign": k[1], "adset": k[2], "type": k[3],
+        "brand": "babyshop", "market": k[0], "campaign": k[1], "adset": k[2], "type": k[3],
         "l7_spend": _r(v["spend"]), "l7_purchases": _r(v["purchases"]),
         "l7_roas": _div(v["value"], v["spend"]), "l7_cpa": _div(v["spend"], v["purchases"], 0),
         "l7_cpc": _div(v["spend"], v["clicks"])} for k, v in l7_a.items() if v["spend"] > 0),
@@ -775,7 +792,7 @@ def build(ctx: dict) -> dict:
             dd[0] += r["spend"]; dd[1] += r["value"]
     lc = defaultdict(lambda: [0.0, 0.0])          # Funnel last-click Meta GP2 / spend, L28
     for r in funnel:
-        if r["channel"] == "meta" and r["d"] >= l28_lo.isoformat():
+        if r["channel"] == "meta" and r["brand"] == "babyshop" and r["d"] >= l28_lo.isoformat():
             lc[r["market"]][0] += r["gp2"]; lc[r["market"]][1] += r["cost"]
     meta_lines = []
     for (mk_, t), dd in sorted(line_days.items(), key=lambda kv: (MKTS.index(kv[0][0]), kv[0][1])):
@@ -785,7 +802,7 @@ def build(ctx: dict) -> dict:
             continue
         fit = _marginal(prs)
         inc = bm.INCREMENTALITY.get(f"meta_{t}")
-        mg = margins.get(mk_)
+        mg = margins.get(f"babyshop:{mk_}")
         if fit.get("marginal") is not None and fit["confidence"] in ("medium", "high"):
             basis, mrev = "fit", fit["marginal"]
         else:
@@ -803,7 +820,7 @@ def build(ctx: dict) -> dict:
             act = {"action": "hold", "cls": "muted", "text": "Hold (near break-even)"}
         mtd_sp = m_mkt_type.get((mk_, t), 0.0)
         meta_lines.append({
-            "market": mk_, "type": t, "l28_spend": _r(sp), "mtd_spend": _r(mtd_sp),
+            "brand": "babyshop", "market": mk_, "type": t, "l28_spend": _r(sp), "mtd_spend": _r(mtd_sp),
             "plan_month": (_r(bm.META_PLAN_BY_TYPE[t] * bm.META_PLAN_MARKET_SHARE.get(mk_, 0))
                            if t in bm.META_PLAN_BY_TYPE else None),
             "avg_roas": fit.get("avg"), "gp2_margin": mg,
@@ -821,14 +838,14 @@ def build(ctx: dict) -> dict:
             a = acc[(p["market"], p.get(key) or "Unknown")]
             for f in ("spend", "purchases", "value"):
                 a[f] += p[f]
-        return [{"market": k[0], "name": k[1], "spend": _r(v["spend"]),
+        return [{"brand": "babyshop", "market": k[0], "name": k[1], "spend": _r(v["spend"]),
                  "purchases": _r(v["purchases"]), "roas": _div(v["value"], v["spend"])}
                 for k, v in acc.items()]
     top_products = sorted(products, key=lambda p: -p["spend"])[:150]
     meta_products = {
         "window": [m_lo, today_iso],
-        "products": [{"market": p["market"], "pid": p["pid"], "name": (p["name"] or "")[:90],
-                      "brand": p.get("brand"), "category": p.get("subcategory"),
+        "products": [{"brand": "babyshop", "market": p["market"], "pid": p["pid"], "name": (p["name"] or "")[:90],
+                      "maker": p.get("brand"), "category": p.get("subcategory"),
                       "spend": _r(p["spend"]), "purchases": _r(p["purchases"]),
                       "roas": _div(p["value"], p["spend"])} for p in top_products],
         "brands": prod_roll("brand"), "categories": prod_roll("category"),
@@ -840,10 +857,10 @@ def build(ctx: dict) -> dict:
         acc = defaultdict(float)
         for r in funnel:
             if r["channel"] == ch and lo <= r["d"] <= hi:
-                acc[r["market"]] += r["cost"]
+                acc[(r["brand"], r["market"])] += r["cost"]
         return acc
     nvr = {"windows": {}, "basis": (
-        "Orders (Norce, Babyshop) matched to their GA4 purchase session; channel = the "
+        "Orders (Norce, Babyshop + Lekmer) matched to their GA4 purchase session; channel = the "
         "session's source/medium (GA4 session attribution). New = customer's first "
         "order (Norce first-order flag). Counts are scaled up by each market's match rate "
         "before cost per new customer = Funnel de-duplicated spend ÷ new customers. "
@@ -855,23 +872,23 @@ def build(ctx: dict) -> dict:
         acc = defaultdict(lambda: defaultdict(float))
         totals = defaultdict(lambda: defaultdict(float))
         for r in rows:
-            a = acc[(r["market"], r["channel"])]
+            a = acc[(r["brand"], r["market"], r["channel"])]
             for f in ("orders", "new", "rev"):
                 a[f] += r[f]
-            t = totals[r["market"]]
+            t = totals[(r["brand"], r["market"])]
             t["matched"] += r["orders"]
             t["all"] += r["all_orders"]
         out_rows = []
-        for (mk, ch), a in acc.items():
-            spend = sp.get(ch, {}).get(mk)
+        for (br, mk, ch), a in acc.items():
+            spend = sp.get(ch, {}).get((br, mk))
             if not a["orders"] and not spend:
                 continue
             # Only matched orders carry a channel. Scale counts up by the market's
             # match rate so cost per new customer is not inflated by the unmatched.
-            t = totals[mk]
+            t = totals[(br, mk)]
             scale = (t["all"] / t["matched"]) if t["matched"] else 1.0
             new_est = a["new"] * scale
-            out_rows.append({"market": mk, "channel": ch, "orders": int(a["orders"]),
+            out_rows.append({"brand": br, "market": mk, "channel": ch, "orders": int(a["orders"]),
                              "new": int(a["new"]), "new_share": _div(a["new"], a["orders"], 3),
                              "new_est": _r(new_est),
                              "spend": _r(spend) if spend is not None else None,
@@ -880,9 +897,17 @@ def build(ctx: dict) -> dict:
                                                 if spend and a["orders"] else None)})
         nvr["windows"][key] = {
             "from": s.isoformat(), "to": e.isoformat(),
-            "rows": sorted(out_rows, key=lambda r: (MKTS.index(r["market"]), -r["orders"])),
-            "match_rate": {m: _div(t["matched"], t["all"], 3) for m, t in totals.items()}}
+            "rows": sorted(out_rows, key=lambda r: (BRANDS.index(r["brand"]), MKTS.index(r["market"]),
+                                                    -r["orders"])),
+            "match_rate": [{"brand": b, "market": m, "rate": _div(t["matched"], t["all"], 3)}
+                           for (b, m), t in sorted(totals.items())]}
     nvr["google_platform"] = platform_nvr
+    l28w = nvr["windows"].get("l28", {})
+    nvr["unavailable"] = [
+        f"{b.title()}: none of its orders match a GA4 session in fct_order_ga4_match, so new vs "
+        "returning by channel cannot be split for it."
+        for b in BRANDS
+        if not any((m["rate"] or 0) > 0 for m in l28w.get("match_rate", []) if m["brand"] == b)]
 
     # ── GP3 + marginal ROAS per market × channel ─────────────────────────────
     gp3 = {}
@@ -891,31 +916,32 @@ def build(ctx: dict) -> dict:
         acc = defaultdict(lambda: defaultdict(float))
         for r in funnel:
             if s.isoformat() <= r["d"] <= e.isoformat():
-                a = acc[(r["market"], r["channel"])]
+                a = acc[(r["brand"], r["market"], r["channel"])]
                 a["cost"] += r["cost"]; a["gp2"] += r["gp2"]; a["rev"] += r["rev"]
         gp3[key] = {"from": s.isoformat(), "to": e.isoformat(), "rows": [
-            {"market": k[0], "channel": k[1], "spend": _r(v["cost"]), "gp2": _r(v["gp2"]),
+            {"brand": k[0], "market": k[1], "channel": k[2], "spend": _r(v["cost"]), "gp2": _r(v["gp2"]),
              "gp3": _r(v["gp2"] - v["cost"]), "gp2_roas": _div(v["gp2"], v["cost"])}
-            for k, v in sorted(acc.items(), key=lambda kv: (MKTS.index(kv[0][0]), kv[0][1]))]}
+            for k, v in sorted(acc.items(), key=lambda kv: (BRANDS.index(kv[0][0]), MKTS.index(kv[0][1]), kv[0][2]))]}
         # Actual sales anchor per market: Norce ordered revenue vs total paid spend.
         mk_acc = defaultdict(lambda: defaultdict(float))
         for r in norce:
             if s.isoformat() <= r["d"] <= e.isoformat():
-                a = mk_acc[r["market"]]
+                a = mk_acc[(r["brand"], r["market"])]
                 a["merch"] += r["merch"]; a["rev"] += r["merch"] + r["freight"]; a["orders"] += r["orders"]
-        for (m, _ch), v in acc.items():
-            mk_acc[m]["paid"] += v["cost"]
+        for (b, m, _ch), v in acc.items():
+            mk_acc[(b, m)]["paid"] += v["cost"]
         gp3[key]["markets"] = [
-            {"market": m, "norce_rev": _r(v["rev"]), "norce_merch": _r(v["merch"]),
+            {"brand": b, "market": m, "norce_rev": _r(v["rev"]), "norce_merch": _r(v["merch"]),
              "orders": _r(v["orders"]), "paid_spend": _r(v["paid"]),
              "paid_cos": _div(v["paid"], v["merch"], 3), "cos_target": bm.COS_TARGET}
-            for m, v in sorted(mk_acc.items(), key=lambda kv: MKTS.index(kv[0]))]
+            for (b, m), v in sorted(mk_acc.items(), key=lambda kv: (BRANDS.index(kv[0][0]),
+                                                                     MKTS.index(kv[0][1])))]
     pairs = defaultdict(list)
     for r in funnel:
         if r["d"] >= l28[0].isoformat():
-            pairs[(r["market"], r["channel"])].append((r["cost"], r["gp2"]))
-    marginal = [{"market": k[0], "channel": k[1], **_marginal(v)}
-                for k, v in sorted(pairs.items(), key=lambda kv: (MKTS.index(kv[0][0]), kv[0][1]))]
+            pairs[(r["brand"], r["market"], r["channel"])].append((r["cost"], r["gp2"]))
+    marginal = [{"brand": k[0], "market": k[1], "channel": k[2], **_marginal(v)}
+                for k, v in sorted(pairs.items(), key=lambda kv: (BRANDS.index(kv[0][0]), MKTS.index(kv[0][1]), kv[0][2]))]
 
     # ── Portfolio guardrail (pacing's spend headroom) ───────────────────────
     hr_path, hr = None, None
@@ -944,7 +970,8 @@ def build(ctx: dict) -> dict:
         "so judge campaigns on L14, not yesterday.",
         "Google has no budget: spend is context, judged by incremental GP3. Google spend = Funnel "
         "de-duplicated SEK cost through yesterday; today = live API spend × Norce FX. Babyshop "
-        "accounts only. Any campaign limited by budget is flagged as an error.",
+        "SE/NO/FI/DK/ROW + Lekmer SE/NO/DK accounts. Any campaign limited by budget is flagged as an error.",
+        META_ACCOUNTS_NOTE + " The approved 200 k Meta plan is Babyshop's.",
         "Marginal profit ROAS (Google) comes from the ROAS-Simulations curves, κ-calibrated "
         "(v_kappa_calibrated; λ slope gate not applied): the extra profit per krona from a 10 % "
         "lower tROAS ('down'), and what the krona cut by a 10 % higher tROAS earned ('up'). "
@@ -981,11 +1008,14 @@ def build(ctx: dict) -> dict:
         "guardrail": guardrail,
         "plan": {"meta_month": bm.META_PLAN_MONTH, "meta_by_type": bm.META_PLAN_BY_TYPE,
                  "meta_share": bm.META_PLAN_MARKET_SHARE, "index_source": index_src},
-        "google": {"pacing": google_pacing, "campaigns": campaigns,
+        "brands": BRANDS, "meta_brands": ["babyshop"], "meta_brand_note": META_ACCOUNTS_NOTE,
+        "google": {"pacing": google_pacing, "pacing_by_brand": google_pacing_by_brand,
+                   "campaigns": campaigns,
                    "changes": [{**c, "predicted_cost_pct": _r(c["predicted_cost_pct"], 1),
                                 "predicted_gp3_pct": _r(c["predicted_gp3_pct"], 1)}
                                for c in changes[:60]],
                    "seasonality": seasonality, "post_bf": post_bf,
+                   "post_bf_by_brand": dict(post_bf_by_brand),
                    "accounts": g["accounts"], "cooldown_days": COOLDOWN_DAYS},
         "meta": {"pacing": meta_pacing, "lines": meta_lines, "margins": margins,
                  "campaigns": meta_campaigns, "adsets": meta_adsets,

@@ -99,6 +99,24 @@ CONVENTION = {
              "format and any % / sale wording) and counted as untagged. The prefix 'BM |' is what marks an "
              "ad as tagged; DPA / catalog ads do not need it.",
 }
+# ── Brands ───────────────────────────────────────────────────────────────────
+# Which Meta ad account belongs to which store. Only Babyshop's account is in
+# the warehouse today (verified 2026-11-04: stg_meta__ads_insights, the mart
+# agg_daily_kpis_by_ad and raw ads_insights_native all carry the one account,
+# client_site = 'babyshop'; no ad or campaign name mentions Lekmer, and the
+# Funnel export's Lekmer "Paid Social (Meta)" rows carry no cost). Add Lekmer's
+# account id here the day the connector loads it; nothing else needs to change.
+BRANDS = ["babyshop", "lekmer"]
+BRAND_BY_ACCOUNT = {"2927326560764919": "babyshop"}
+BRAND_LABEL = {"babyshop": "Babyshop", "lekmer": "Lekmer"}
+
+
+def brand_of(d: dict) -> str:
+    if re.search(r"(?i)lekmer", f"{d.get('ad_name') or ''} {d.get('campaign_name') or ''}"):
+        return "lekmer"
+    return BRAND_BY_ACCOUNT.get(str(d.get("account_id") or ""), "babyshop")
+
+
 TYPE_CODES = {"PRO": "Prospecting", "RET": "Retargeting", "KUL": "Kuling", "BRP": "Brand partner"}
 
 TAG_DIMS = [("angle", "Angle"), ("offer", "Offer"), ("product", "Product"),
@@ -310,7 +328,7 @@ def build(ctx: dict) -> dict:
             tags_["format"] = "Catalog"
         if bm_tags and bm_tags.get("type"):
             ctype = ctype if is_dpa else bm_tags["type"]
-        ads.append({"ad_id": ad_id, "dim": d, "days": days, "spend_days": spend_days,
+        ads.append({"ad_id": ad_id, "dim": d, "brand": brand_of(d), "days": days, "spend_days": spend_days,
                     "nov": nov, "tag_win": tag_win, "dpa": is_dpa, "ctype": ctype,
                     "tags": tags_, "tagged": bool(bm_tags)})
 
@@ -320,14 +338,21 @@ def build(ctx: dict) -> dict:
         sel = window(a["days"], j_from, end)
         if sel:
             judge_rows[a["ad_id"]] = {**rm._sum_days(sel), "format": a["tags"]["format"]}
+    # Per brand AND market: the stores' economics differ, so an ad is judged
+    # against its own store's market. ref['all'] blends both and is shown only.
+    in_scope = lambda a, br, mk: ((br == "all" or a["brand"] == br)
+                                  and (mk == "all" or a["dim"]["mk"] == mk))
     ref = {}
-    for mk in ["all"] + bm.MARKETS:
-        rows = [judge_rows[a["ad_id"]] for a in ads if not a["dpa"] and a["ad_id"] in judge_rows
-                and (mk == "all" or a["dim"]["mk"] == mk)]
-        m = rm._metrics(rm._sum_rows(rows)) if rows else {}
-        ref[mk] = {"roas": m.get("roas"), "cpa": m.get("cpa"), "link_ctr": m.get("link_ctr"),
-                   "spend": m.get("spend"), "hook_rate": _hook(rows)}
-        ref[mk]["floor"] = round(max(SPEND_FLOOR_MIN, FLOOR_CPA_X * (ref[mk]["cpa"] or 0)))
+    for br in ["all"] + BRANDS:
+        ref[br] = {}
+        for mk in ["all"] + bm.MARKETS:
+            rows = [judge_rows[a["ad_id"]] for a in ads if not a["dpa"] and a["ad_id"] in judge_rows
+                    and in_scope(a, br, mk)]
+            m = rm._metrics(rm._sum_rows(rows)) if rows else {}
+            r_ = {"roas": m.get("roas"), "cpa": m.get("cpa"), "link_ctr": m.get("link_ctr"),
+                  "spend": m.get("spend"), "hook_rate": _hook(rows)}
+            r_["floor"] = round(max(SPEND_FLOOR_MIN, FLOOR_CPA_X * (r_["cpa"] or 0)))
+            ref[br][mk] = r_
 
     # Scorecard: every ad with November spend.
     cards, dpa_cards = [], []
@@ -344,7 +369,7 @@ def build(ctx: dict) -> dict:
         is_video = a["tags"]["format"] == "Video"
         c = {
             "ad_id": a["ad_id"], "name": short_name(d.get("ad_name")), "ad_name": d.get("ad_name"),
-            "campaign": d.get("campaign_name"), "market": d["mk"], "type": a["ctype"],
+            "campaign": d.get("campaign_name"), "brand": a["brand"], "market": d["mk"], "type": a["ctype"],
             "format": a["tags"]["format"], "status": d.get("effective_status"),
             "active": d.get("effective_status") == "ACTIVE",
             "first_spend": first.isoformat(), "days_live": live_days,
@@ -359,10 +384,11 @@ def build(ctx: dict) -> dict:
             "tagged": a["tagged"], "tags": a["tags"],
             "ads_manager_url": rm.ADS_MANAGER_URL.format(account_id=account_id, ad_id=a["ad_id"]),
         }
-        c["verdict"], c["reason"] = _verdict(c, ref[d["mk"]])
+        mref = ref[a["brand"]][d["mk"]]
+        c["verdict"], c["reason"] = _verdict(c, mref)
         if not c["active"]:
             c["reason"] += f" · already off ({(d.get('effective_status') or '').lower().replace('_', ' ')})"
-        c["rel_roas"] = rm.div(c["roas"], ref[d["mk"]]["roas"]) if c["roas"] is not None and ref[d["mk"]]["roas"] else None
+        c["rel_roas"] = rm.div(c["roas"], mref["roas"]) if c["roas"] is not None and mref["roas"] else None
         c["new"] = first >= new_from
         (dpa_cards if a["dpa"] else cards).append(c)
 
@@ -382,11 +408,11 @@ def build(ctx: dict) -> dict:
         s = rm._sum_days(a["tag_win"])
         if s["spend"] <= 0:
             continue
-        s.update({"mk": a["dim"]["mk"], "tagged": a["tagged"], **{k: a["tags"][k] for k, _ in TAG_DIMS}})
+        s.update({"mk": a["dim"]["mk"], "brand": a["brand"], "tagged": a["tagged"], **{k: a["tags"][k] for k, _ in TAG_DIMS}})
         tag_rows.append(s)
-    tags = {}
-    for mk in ["all"] + bm.MARKETS:
-        rows = [r for r in tag_rows if mk == "all" or r["mk"] == mk]
+    tags = {br: {} for br in ["all"] + BRANDS}
+    for br, mk in [(b, m) for b in ["all"] + BRANDS for m in ["all"] + bm.MARKETS]:
+        rows = [r for r in tag_rows if (br == "all" or r["brand"] == br) and (mk == "all" or r["mk"] == mk)]
         tot = sum(r["spend"] for r in rows)
         mref = _agg(rows) if rows else {}
         out = {"total_spend": round(tot), "roas": mref.get("roas"),
@@ -404,12 +430,19 @@ def build(ctx: dict) -> dict:
                 lst.append(gg)
             lst.sort(key=lambda x: -(x["spend"] or 0))
             out["dims"][k] = lst
-        tags[mk] = out
+        tags[br][mk] = out
 
     # Market reference also on the page.
-    for mk, v in ref.items():
-        for k in v:
-            v[k] = _r(v[k])
+    for per_mk in ref.values():
+        for v in per_mk.values():
+            for k in v:
+                v[k] = _r(v[k])
+
+    # Which brands the warehouse actually has; the page says so for the rest.
+    seen = {a["brand"] for a in ads}
+    brands = {b: {"label": BRAND_LABEL[b], "available": b in seen,
+                  "accounts": sorted(k for k, v in BRAND_BY_ACCOUNT.items() if v == b)} for b in BRANDS}
+    missing = [BRAND_LABEL[b] for b in BRANDS if b not in seen]
 
     notes = [
         f"Metrics and verdicts use the {JUDGE_DAYS} settled days {j_from.isoformat()} – {end.isoformat()}; "
@@ -426,7 +459,14 @@ def build(ctx: dict) -> dict:
         f"Results by tag cover {TAG_DAYS} settled days ({t_from.isoformat()} – {end.isoformat()}) so a tag "
         "has enough spend behind it. Untagged ads are parsed from today's names and counted as untagged.",
         "Verdicts never act on anything: this page is read-only. Pause or scale in Ads Manager.",
+        "Each ad is judged against its own store's market average (Babyshop SE vs Babyshop SE, Lekmer SE vs "
+        "Lekmer SE); 'All' brands only blends them for display.",
     ]
+    if missing:
+        notes.insert(0, f"{' and '.join(missing)} Meta ads are not in the warehouse: the Meta connector loads "
+                        "one ad account (Babyshop, 2927326560764919) and no ad or campaign names mention "
+                        f"{' or '.join(missing)}. {' and '.join(missing)} creatives appear here once their "
+                        "ad account is added to the connector.")
     return {
         "windows": {"judge": {"from": j_from.isoformat(), "to": end.isoformat(), "days": JUDGE_DAYS},
                     "tags": {"from": t_from.isoformat(), "to": end.isoformat(), "days": TAG_DAYS},
@@ -435,6 +475,7 @@ def build(ctx: dict) -> dict:
         "rules": RULES,
         "thresholds": {"spend_floor_min": SPEND_FLOOR_MIN, "floor_cpa_x": FLOOR_CPA_X, "scale_roas_x": SCALE_ROAS_X,
                        "kill_roas_x": KILL_ROAS_X, "watch_roas_x": WATCH_ROAS_X},
+        "brands": brands,
         "market_ref": ref,
         "creatives": cards,
         "dpa": dpa_cards,

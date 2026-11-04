@@ -161,7 +161,7 @@
     if (!d.asof) return '<div class="pc-head">No November day is complete in both Norce and the Funnel export yet.</div>';
     var n = d.days.indexOf(d.asof) + 1, left = d.days.length - n;
     var yoyMtd = ratio(g.mtd, g.ly_mtd);
-    var h = '<b>' + (mk === 'all' ? 'All markets' : mk) + ', through ' + esc(F.date(d.asof)) + ':</b> gross sales (Norce ordered, merchandise) ' +
+    var h = '<b>' + esc(BRAND[d.brand || 'all']) + ', ' + (mk === 'all' ? 'all markets' : mk) + ', through ' + esc(F.date(d.asof)) + ':</b> gross sales (Norce ordered, merchandise) ' +
       F.sek(g.mtd) + ', ' + delta(ratio(g.mtd, g.target_mtd)) + ' vs target and ' + delta(yoyMtd) + ' vs last year. ' +
       'GP3 (Funnel) ' + F.sek(q.mtd) + ' (' + delta(ratio(q.mtd, q.target_mtd)) + ' vs target). ';
     h += 'At the last ' + Math.min(d.run_rate_days, n) + ' days\' pace the month lands at <b>' + F.sek(g.landing) +
@@ -171,7 +171,7 @@
       h += 'To still hit the gross forecast the remaining ' + left + ' days need <b>' + F.sek(g.required_per_day) +
         '/day</b> (' + F.pct(g.required_ratio, 0) + ' of their daily target).';
     }
-    if (mk === 'all' && d.yoy_forecast != null && yoyMtd != null && yoyMtd - d.yoy_forecast > 0.15) {
+    if (mk === 'all' && !d.brand && d.yoy_forecast != null && yoyMtd != null && yoyMtd - d.yoy_forecast > 0.15) {
       h += ' <span class="warn">The forecast assumes ' + delta(d.yoy_forecast) + ' over last November; MTD is running ' +
         delta(yoyMtd) + '. Most of the month is still ahead.</span>';
     }
@@ -198,8 +198,11 @@
       (H.headroom_remaining >= 0
         ? 'Spend may rise to <b>' + F.pct(H.earned_cos) + ' COS</b> this month and still hit the GP3 target (forecast ' + F.pct(H.cos_target) + '): about <b>' +
           F.sek(H.headroom_per_day) + '/day</b> more than the current pace, Google and Meta together.'
-        : 'At the current pace GP2 only carries <b>' + F.pct(H.earned_cos) + ' COS</b> (forecast ' + F.pct(H.cos_target) + '): spend is <b>' +
-          F.sek(-H.headroom_remaining) + '</b> over what still lands the GP3 target.');
+        : H.earned_cos <= 0
+          ? 'At the current pace GP2 does not reach the GP3 target <b>even with zero ad spend</b>: the gap is sales and margin, not spend (<b>' +
+            F.sek(-H.headroom_remaining) + '</b> short at the expected spend).'
+          : 'At the current pace GP2 only carries <b>' + F.pct(H.earned_cos) + ' COS</b> (forecast ' + F.pct(H.cos_target) + '): spend is <b>' +
+            F.sek(-H.headroom_remaining) + '</b> over what still lands the GP3 target.');
     var b = H.bridge, src = function (k) { return basisTag(d, k); };
     var h = '<h3>Spend headroom vs GP3 target</h3>';
     h += '<div class="pc-head pc-head-hr">' + verdict + ' Only spend that adds at least as much incremental GP2 as it costs keeps GP3 whole.</div>';
@@ -274,6 +277,9 @@
   function todayBlock(d, mk) {
     var t = todayIso(), i = d.days.indexOf(t);
     if (i < 0) return '';
+    if (d.brand && d.brand !== 'all') {
+      return '<h3>Today, ' + esc(F.date(t)) + '</h3><p class="bm-note">The live Norce intake (/api/norce-today) has no shop split, so today\'s pace is shown for Babyshop + Lekmer only. Switch the brand filter to All to see it.</p>';
+    }
     var M = d.markets[mk], tgt = M.targets[ui.shape].gross[i];
     var ev = d.events[t] ? ' · ' + esc(EVENT[d.events[t]] || d.events[t]) : '';
     var head = '<h3>Today, ' + esc(F.date(t)) + ev + ' <span class="pc-src pc-src-norce">Norce ordered · live</span></h3>';
@@ -315,7 +321,7 @@
       .catch(function (e) { live = { available: false, reason: String(e) }; })
       .then(function () {
         liveLoading = false;
-        var el = document.querySelector('#bm-pacing .bm-body'), p = BM.payload('pacing');
+        var el = document.querySelector('#bm-pacing .bm-body'), p = BM.payload('pacing');  // raw; render() applies the brand view
         if (el && p) render(el, p, BM.state);
       });
   }
@@ -476,8 +482,33 @@
     }).join('') + '</div>';
   }
 
-  function render(el, d, state) {
+  var BRAND = { all: 'Babyshop + Lekmer', babyshop: 'Babyshop', lekmer: 'Lekmer' };
+
+  // The payload's top-level markets/headroom/customers are Babyshop + Lekmer;
+  // `brands[b]` carries the same three blocks per shop. A brand view swaps them in.
+  function view(raw, brand) {
+    if (!brand || brand === 'all' || !raw.brands || !raw.brands[brand]) return raw;
+    var v = Object.assign({}, raw, raw.brands[brand]);
+    v.brand = brand;
+    return v;
+  }
+
+  function scopeLine(d, mk, M) {
+    var b = d.brand || 'all';
+    var derived = [];
+    if (mk !== 'all' || b !== 'all') {
+      derived.push('<b>' + esc((b === 'all' ? '' : BRAND[b] + ' ') + (mk === 'all' ? 'all markets' : mk)) + '</b> target = ' +
+        F.pct(M.share_of_ly.gross, 1) + ' of the forecast (its Nov 2025 share of gross sales; per metric for the rest). ' +
+        'Derived: the forecast has no market or brand split.');
+    }
+    return '<p class="bm-note pc-scope"><b>Scope:</b> ' + esc(BRAND[b]) + (b === 'all'
+      ? ', the same scope as Finance\'s forecast (it covers Babyshop + Lekmer combined; checked against BC).'
+      : ' only.') + ' ' + derived.join('') + '</p>';
+  }
+
+  function render(el, raw, state) {
     injectCss();
+    var d = view(raw, state.brand);
     var mk = d.markets[state.market] ? state.market : 'all';
     var M = d.markets[mk], S = M.summaries[ui.shape];
     var C = BM.color, mlabel = METRICS.filter(function (m) { return m.k === ui.metric; })[0].label;
@@ -486,8 +517,9 @@
     var h = [];
     h.push('<div class="pc-bar">' + seg('shape', shapes, ui.shape) +
       '<span class="pc-basis">Complete through ' + esc(d.asof ? F.date(d.asof) : '–') +
-      (mk !== 'all' ? ' · ' + mk + ' target = ' + F.pct(M.share_of_ly.gross, 0) + ' of global (Nov 2025 mix)' : '') + '</span></div>');
+      '</span></div>');
     h.push(headline(d, S, mk));
+    h.push(scopeLine(d, mk, M));
     h.push(kpis(d, S));
     h.push(headroomBlock(d, mk));
     h.push(todayBlock(d, mk));

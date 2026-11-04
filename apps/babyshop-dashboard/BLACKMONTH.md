@@ -20,7 +20,8 @@ Cyber Monday 30 Nov). Black theme. Page: `babyshop-blackmonth.html`, nav id
   `"notes": [...]`) so the page can show them.
 - `bm-<key>.js` — `BM.register('<key>', {title, render(el, data, state)})`.
   Rebuild `el` from scratch on every call; respect `state.market`
-  (`'all'|'SE'|'NO'|'FI'|'DK'`). Use the `BM.*` helpers in `bm-core.js` and only
+  (`'all'|'SE'|'NO'|'FI'|'DK'`) and `state.brand` (`'all'|'babyshop'|'lekmer'`;
+  carry a `brand` field on rows, and say so on the page when a source cannot split by brand). Use the `BM.*` helpers in `bm-core.js` and only
   the CSS tokens/classes defined in `babyshop-blackmonth.html` (`.bm-kpis`,
   `.bm-kpi`, `.bm-grid-2`, `.bm-chart`, `.bm-table`, `.bm-pill`, `.bm-note`,
   colours via `BM.color.*`). Section-specific CSS: inject one `<style>` from the

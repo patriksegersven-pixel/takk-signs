@@ -38,6 +38,15 @@ import daily_targets as dt
 import refresh_daily_perf as rdp
 
 MKTS = ["all"] + bm.MARKETS + ["ROW"]
+# Brand = shop. The forecast, Finance's P&L (BC) and both data sources cover
+# Babyshop + Lekmer together; 'all' is that combined scope.
+BRANDS = ["all", "babyshop", "lekmer"]
+SEGS = [f"{b}|{m}" for b in BRANDS for m in MKTS]
+
+
+def _keys(brand: str, market: str) -> tuple:
+    """The four segment keys one (brand, market) row rolls up into."""
+    return (f"{brand}|{market}", f"{brand}|all", f"all|{market}", "all|all")
 # Event-aligned last year: -364 days keeps the weekday AND lines Black Friday up
 # with Black Friday (27 Nov 2026 -> 28 Nov 2025) and Cyber Monday with Cyber
 # Monday (30 Nov 2026 -> 1 Dec 2025).
@@ -72,17 +81,19 @@ def _f(v) -> float:
 
 
 def _daily_by_market(start: datetime.date, end: datetime.date) -> dict:
-    """{market: {iso: {metric: value}}} including 'all', from kv_rows."""
+    """{"brand|market": {iso: {metric: value}}} with roll-ups, from kv_rows.
+    Brand from shop_new (only 'Babyshop' and 'Lekmer' carry revenue or cost)."""
     rows = bs._rows(
         f"WITH {bs._kv_cte('Date BETWEEN @s AND @e')} "
-        f"SELECT CAST(Date AS STRING) d, {MARKET_SQL} m, {bs.KVD} "
-        f"FROM kv_rows GROUP BY d, m",
+        f"SELECT CAST(Date AS STRING) d, {MARKET_SQL} m, "
+        f"IF(shop_new = 'Lekmer', 'lekmer', 'babyshop') b, {bs.KVD} "
+        f"FROM kv_rows GROUP BY d, m, b",
         [bigquery.ScalarQueryParameter("s", "DATE", start),
          bigquery.ScalarQueryParameter("e", "DATE", end)])
-    out: dict = {m: {} for m in MKTS}
+    out: dict = {k: {} for k in SEGS}
     for r in rows:
         vals = {k: _f(r[f]) for k, f in KVD_FIELD.items()}
-        for m in (r["m"], "all"):
+        for m in _keys(r["b"], r["m"]):
             day = out[m].setdefault(r["d"], {k: 0.0 for k in KVD_FIELD})
             for k, v in vals.items():
                 day[k] += v
@@ -107,7 +118,8 @@ def _norce_daily(start: datetime.date, end: datetime.date, out: dict) -> str | N
         last = iso if last is None or iso > last else last
         vals = {"gross": _f(r["merch_sek"]), "freight": _f(r["freight_sek"]),
                 "orders": _f(r["orders"]), "units": _f(r["units"])}
-        for m in (_norce_market(r["market"]), "all"):
+        brand = "lekmer" if (r["market"] or "").startswith("lekmer") else "babyshop"
+        for m in _keys(brand, _norce_market(r["market"])):
             day = out[m].setdefault(iso, {})
             for k, v in vals.items():
                 day[k] = day.get(k, 0.0) + v
@@ -156,29 +168,30 @@ def _customers(s: datetime.date, e: datetime.date, ly_s: datetime.date,
     import refresh_customer_insights as rci
     sql = f"""
     WITH ranked AS (
-      SELECT c.market, DATE(o.OrderDate, '{rdp.TZ}') order_date, c.order_value,
+      SELECT c.market, c.shop, DATE(o.OrderDate, '{rdp.TZ}') order_date, c.order_value,
              c.status_id,
              ROW_NUMBER() OVER (PARTITION BY c.customer_hash, c.shop
                                 ORDER BY o.OrderDate, c.order_id) = 1 AS is_new
       FROM `{rci.D()}.customer_orders` c
       JOIN `{rci.D()}.orders` o ON o.Id = c.order_id
       WHERE DATE(o.OrderDate, '{rdp.TZ}') <= @e)
-    SELECT IF(order_date >= @s, 'cur', 'ly') per,
+    SELECT IF(order_date >= @s, 'cur', 'ly') per, shop,
            IF(market IN ('{"','".join(bm.MARKETS)}'), market, 'ROW') m, is_new,
            COUNT(*) orders, SUM(order_value) rev
     FROM ranked
     WHERE status_id != 6
       AND (order_date BETWEEN @s AND @e OR order_date BETWEEN @ls AND @le)
-    GROUP BY 1, 2, 3"""
+    GROUP BY 1, 2, 3, 4"""
     rows = bs._rows(sql, [bigquery.ScalarQueryParameter("s", "DATE", s),
                           bigquery.ScalarQueryParameter("e", "DATE", e),
                           bigquery.ScalarQueryParameter("ls", "DATE", ly_s),
                           bigquery.ScalarQueryParameter("le", "DATE", ly_e)])
     blank = lambda: {"new": {"orders": 0, "revenue": 0.0}, "ret": {"orders": 0, "revenue": 0.0}}
-    out = {m: {"cur": blank(), "ly": blank()} for m in MKTS}
+    out = {m: {"cur": blank(), "ly": blank()} for m in SEGS}
     for r in rows:
         k = "new" if r["is_new"] else "ret"
-        for m in (r["m"], "all"):
+        brand = "lekmer" if r["shop"] == "lekmer" else "babyshop"
+        for m in _keys(brand, r["m"]):
             b = out[m][r["per"]][k]
             b["orders"] += int(r["orders"] or 0)
             b["revenue"] += _f(r["rev"])
@@ -307,8 +320,8 @@ def build(ctx: dict) -> dict:
     norce_last = _norce_daily(ly_days[0], fetch_to, data)
     # A day counts once BOTH sources hold it, so every KPI shares one as-of.
     complete = [i for i, iso in enumerate(isos) if iso <= fetch_to.isoformat()
-                and data["all"].get(iso, {}).get("gross", 0) > 0
-                and data["all"].get(iso, {}).get("fgross", 0) > 0]
+                and data["all|all"].get(iso, {}).get("gross", 0) > 0
+                and data["all|all"].get(iso, {}).get("fgross", 0) > 0]
     asof_i = complete[-1] if complete else -1
     asof = isos[asof_i] if asof_i >= 0 else None
 
@@ -334,19 +347,19 @@ def build(ctx: dict) -> dict:
 
     # ── Per-market split: Nov 2025 (event-aligned) market mix, per metric
     ly_isos = [d.isoformat() for d in ly_days]
-    ly_tot = {k: sum(data["all"].get(i, {}).get(k, 0) for i in ly_isos)
+    ly_tot = {k: sum(data["all|all"].get(i, {}).get(k, 0) for i in ly_isos)
               for k in METRICS}
     rnd = lambda d: {k: [None if v is None else round(v) for v in vs] for k, vs in d.items()}
 
     markets, headroom = {}, {}
-    for m in MKTS:
+    for m in SEGS:
         ser = data[m]
         # GP3's own mix is unstable (GP2 minus cost can be ~0 in a market), so
         # market GP3 is derived from the market's GP2 and cost targets instead.
-        share = {k: (1.0 if m == "all" else
+        share = {k: (1.0 if m == "all|all" else
                      (sum(ser.get(i, {}).get(k, 0) for i in ly_isos) / ly_tot[k]
                       if ly_tot[k] else 0.0)) for k in BUDGET_KEY}
-        act = {k: [(ser[i][k] if (j <= asof_i and i in ser) else None)
+        act = {k: [(ser[i].get(k, 0.0) if (j <= asof_i and i in ser) else None)
                    for j, i in enumerate(isos)] for k in METRICS}
         ly = {k: [ser.get(i, {}).get(k, 0.0) for i in ly_isos] for k in METRICS}
         targets, summaries = {}, {}
@@ -375,15 +388,35 @@ def build(ctx: dict) -> dict:
               if d.year == bm.YEAR and d.month == bm.MONTH}
     events[dt.swedish_payday(bm.YEAR, bm.MONTH).isoformat()] = "payday"
 
+    def pick(d, b):
+        return {m: d[f"{b}|{m}"] for m in MKTS if d and f"{b}|{m}" in d}
+
     return {
+        # Babyshop + Lekmer combined. `brands` carries the same blocks per shop.
+        "scope": {
+            "label": "Babyshop + Lekmer (all applications, all markets)",
+            "forecast": ("Finance's rolling P&L forecast (budget_2026.json, 2026-08-31 vintage), "
+                         "same ladder as the Executive P&L, which is built on BC. BC posted gross "
+                         "Jun-Sep 2026 = 103.6 M vs Norce Babyshop + Lekmer 103.1 M (99.5%) vs "
+                         "Babyshop alone 96.9 M, and the same per country (SE 50.7 / 49.9 / 45.7): "
+                         "the forecast covers Babyshop + Lekmer combined."),
+            "actuals": ("Norce: all 13 applications (babyshop-* and lekmer-*). Funnel export: "
+                        "shop_new Babyshop + Lekmer (workspace AA/BS/LM/MJ Combo); no other shop "
+                        "carries revenue or ad cost."),
+            "split": ("The forecast is global only: no market or brand split. Every market and "
+                      "brand target here is DERIVED from Nov 2025's mix per metric."),
+        },
+        "brands": {b: {"markets": pick(markets, b), "headroom": pick(headroom, b),
+                       "customers": pick(cust, b) if cust else None}
+                   for b in BRANDS if b != "all"},
         "asof": asof,
         "today": today.isoformat(),
         "days": isos,
         "ly_days": ly_isos,
         "events": events,
-        "markets": markets,
-        "customers": cust,
-        "headroom": headroom,
+        "markets": pick(markets, "all"),
+        "customers": pick(cust, "all") if cust else None,
+        "headroom": pick(headroom, "all"),
         "basis": BASIS,
         "basis_label": {"norce": "Norce ordered", "funnel": "Funnel export"},
         "norce_last_day": norce_last,
@@ -416,8 +449,11 @@ def build(ctx: dict) -> dict:
             "and flattens the Black Friday peak, so it reads far behind early in the month. "
             "This tab uses the full shape; the 'KV Overview model' toggle shows the other "
             "one. Monthly totals are identical.",
-            "Market targets: the forecast is global only, so each market's target is the "
-            "global target × that market's share of the same metric in Nov 2025 "
+            "Scope: the forecast covers Babyshop + Lekmer combined (verified against BC, "
+            "Finance's ledger: Jun-Sep 2026 posted gross 103.6 M vs Norce Babyshop + Lekmer "
+            "103.1 M vs Babyshop alone 96.9 M). Actuals cover the same scope.",
+            "Market and brand targets: the forecast is global only, so each market's and "
+            "brand's target is the global target × its share of the same metric in Nov 2025 "
             "(event-aligned; Norce mix for gross sales, Funnel mix for the rest). Norce "
             "market = the ordering application (SE/NO/FI/DK incl. Lekmer; EU, UK, NA, Asia, "
             "ROW apps = ROW). Market GP3 = market GP2 − market ad cost. The mix has moved "

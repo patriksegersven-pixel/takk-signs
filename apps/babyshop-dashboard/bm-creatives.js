@@ -3,6 +3,7 @@
  * Payload: bm_creatives.py. Meta creative scorecard with Scale / Keep / Watch /
  * Kill verdicts (thresholds in data.rules), new-this-week early reads, results
  * by naming-convention tag, DPA / catalog apart. All filtering by state.market
+ * and state.brand (verdicts use each brand's own market averages)
  * happens here over the embedded rows; nothing is fetched.
  */
 (function () {
@@ -129,7 +130,7 @@
         '<td class="c-thumb">', thumb(c.ad_id), '</td>',
         '<td class="c-verdict">', verdictPill(c), '<div class="cr-why">', esc(c.reason), '</div></td>',
         '<td class="c-name"><div class="cr-name" title="', esc(c.ad_name), '">', esc(c.name), '</div>',
-        '<div class="cr-sub">', mkDot(c.market), esc(c.market), ' · ', esc(c.type), ' · ', esc(c.format),
+        '<div class="cr-sub">', mkDot(c.market), c.brand === 'lekmer' ? 'Lekmer ' : '', esc(c.market), ' · ', esc(c.type), ' · ', esc(c.format),
         ' · <a class="cr-link" target="_blank" rel="noopener" href="', esc(c.ads_manager_url), '">Ads Manager ↗</a></div></td>',
         td('Spend 7d', kr(c.spend)), td('Nov', kr(c.nov_spend)), td('Days', fmt.num(c.days_live)),
         td('Impr.', fmt.sek(c.impressions)), td('Hook', pp(c.hook_rate)), td('CTR', pp(c.ctr, 2)),
@@ -155,19 +156,20 @@
     });
   }
 
-  function newCards(rows, ref) {
+  function newCards(rows, refs) {
     if (!rows.length) return '<p class="muted">No creative started spending in the last 7 days.</p>';
     var shown = rows.slice(0, NEW_CARDS), rest = rows.slice(NEW_CARDS);
     var h = ['<div class="cr-new">'];
     shown.forEach(function (c) {
+      var ref = (refs[c.brand] || refs.all || {})[c.market] || {};
       h.push('<div class="cr-card">', thumb(c.ad_id), '<div style="min-width:0;flex:1">',
         '<div class="cr-name" title="', esc(c.ad_name), '">', esc(c.name), '</div>',
         '<div class="cr-sub">', mkDot(c.market), esc(c.market), ' · ', esc(c.format), ' · since ', fmt.date(c.first_spend), '</div>',
         '<div style="margin-top:4px">', verdictPill(c), '</div>',
         '<div class="kv">',
         '<span>Spend 7d</span><span>', kr(c.spend), '</span>',
-        '<span>CTR</span><span>', pp(c.ctr, 2), ' <span class="muted">/ ', pp((ref[c.market] || {}).link_ctr, 2), '</span></span>',
-        c.hook_rate == null ? '' : '<span>Hook</span><span>' + pp(c.hook_rate) + ' <span class="muted">/ ' + pp((ref[c.market] || {}).hook_rate) + '</span></span>',
+        '<span>CTR</span><span>', pp(c.ctr, 2), ' <span class="muted">/ ', pp(ref.link_ctr, 2), '</span></span>',
+        c.hook_rate == null ? '' : '<span>Hook</span><span>' + pp(c.hook_rate) + ' <span class="muted">/ ' + pp(ref.hook_rate) + '</span></span>',
         '<span>Purchases</span><span>', fmt.num(c.purchases), '</span>',
         '<span>ROAS</span><span>', fmt.roas(c.roas), c.rel_roas == null ? '' : ' <span class="muted">(' + fmt.roas(c.rel_roas) + '×)</span>', '</span>',
         '</div><div class="cr-why">', esc(c.reason), '</div></div></div>');
@@ -208,11 +210,22 @@
 
   function render(el, data, state) {
     injectCss();
-    var mk = state.market;
-    var inMk = function (c) { return mk === 'all' || c.market === mk; };
+    var mk = state.market, br = state.brand || 'all';
+    var brands = data.brands || {};
+    var missing = Object.keys(brands).filter(function (b) { return !brands[b].available; });
+    if (br !== 'all' && brands[br] && !brands[br].available) {
+      el.innerHTML = '<div class="cr-callout"><b>No ' + esc(brands[br].label) + ' Meta data.</b> ' +
+        esc(brands[br].label) + '\'s Meta ad account is not loaded into the warehouse: the connector reads one ' +
+        'account (Babyshop), and no ad or campaign name mentions ' + esc(brands[br].label) + '. This section fills ' +
+        'in once the account is added to the Meta connector.</div>';
+      return;
+    }
+    var inMk = function (c) {
+      return (mk === 'all' || c.market === mk) && (br === 'all' || (c.brand || 'babyshop') === br);
+    };
     var rows = data.creatives.filter(inMk);
     var dpa = data.dpa.filter(inMk);
-    var ref = data.market_ref[mk] || {};
+    var ref = (data.market_ref[br] || data.market_ref.all || {})[mk] || {};
     var w = data.windows;
 
     var live = rows.filter(function (c) { return c.active; });
@@ -222,7 +235,7 @@
     var nScale = count(function (c) { return c.verdict === 'Scale'; });
     var nFat = count(function (c) { return c.fatigue.status === 'fatiguing'; });
     var learning = live.filter(isLearning);
-    var tags = data.tags[mk] || data.tags.all;
+    var tags = (data.tags[br] || data.tags.all)[mk] || data.tags.all.all;
 
     var h = [];
     h.push('<div class="bm-kpis">',
@@ -234,6 +247,11 @@
         nFat + ' fatiguing'),
       kpi('Untagged spend', fmt.pct(tags.untagged_share, 0), 'last ' + w.tags.days + ' days, outside the BM convention'),
       '</div>');
+
+    if (br === 'all' && missing.length) {
+      h.push('<p class="bm-note">', esc(missing.map(function (b) { return brands[b].label; }).join(', ')),
+        ' Meta ads are not in the warehouse yet, so everything below is Babyshop only.</p>');
+    }
 
     if (learning.length >= 10) {
       var share = spendOf(learning) / (spendOf(live) || 1);
