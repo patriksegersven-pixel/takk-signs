@@ -1,6 +1,6 @@
 {
  "section": "paid",
- "generated_at": "2026-11-04T15:57:12+01:00",
+ "generated_at": "2026-11-04T16:21:46+01:00",
  "period": {
   "from": "2026-11-01",
   "to": "2026-11-30"
@@ -49,557 +49,278 @@
  "guardrail": {
   "rule": "Spend more where incremental marginal GP3 > 0 (incremental marginal ROAS > 1); spend less where it is < 0. The pacing headroom shows how much extra spend Finance's GP3 target already covers.",
   "headroom": {
-   "NO": {
-    "earned_cos_mtd": 0.196,
-    "gm1_actual": 0.4402,
-    "actual_spend_mtd": 120011,
-    "allowed_spend_daily": [
-     46697,
-     43560,
-     41769,
-     52869,
-     56079,
-     93597,
-     78044,
-     82358,
-     86846,
-     93855,
-     115739,
-     151777,
-     142287,
-     140821,
-     130738,
-     112115,
-     90350,
-     94115,
-     106306,
-     87387,
-     65924,
-     56895,
-     84553,
-     108912,
-     96377,
-     100750,
-     93719
-    ],
-    "bridge": {
-     "volume": 2460,
-     "gm1_margin": 53697,
-     "actual_gp2": 316501,
-     "basis_mix": 45849,
-     "variable_cost": -1630,
-     "target_gp2": 216125
-    },
-    "allowed_spend_mtd": 187880,
-    "gp3_target_mtd": 128621,
-    "planned_spend_month": 1165138,
-    "gm2_fc": 0.2649,
-    "cos_target": 0.105,
-    "allowed_spend_remaining": 2454441,
-    "gm2_actual": 0.3192,
-    "expected_spend_month": 1597985,
-    "gp3_mtd": 196490,
-    "headroom_remaining": 976467,
-    "gp3_landing": 2855692,
-    "gp3_target_month": 1869318,
-    "gm1_fc": 0.3842,
-    "headroom_daily": [
-     18578,
-     17330,
-     16617,
-     21033,
-     22310,
-     37236,
-     31049,
-     32765,
-     34551,
-     37339,
-     46045,
-     60382,
-     56607,
-     56024,
-     52012,
-     44604,
-     35944,
-     37442,
-     42292,
-     34766,
-     26227,
-     22635,
-     33638,
-     43329,
-     38342,
-     40082,
-     37285
-    ],
-    "headroom_mtd": 67869,
-    "headroom_per_day": 36165,
-    "allowed_spend_month": 2574452,
-    "earned_cos": 0.1913,
-    "planned_spend_mtd": 87504,
-    "remaining_days": 27
-   },
-   "FI": {
-    "earned_cos_mtd": 0.0933,
-    "gm1_actual": 0.3888,
-    "actual_spend_mtd": 21744,
-    "allowed_spend_daily": [
-     4497,
-     4195,
-     4023,
-     5092,
-     5401,
-     9014,
-     7517,
-     7932,
-     8364,
-     9039,
-     11147,
-     14618,
-     13704,
-     13563,
-     12591,
-     10798,
-     8702,
-     9064,
-     10238,
-     8416,
-     6349,
-     5480,
-     8143,
-     10489,
-     9282,
-     9703,
-     9026
-    ],
-    "bridge": {
-     "volume": 4853,
-     "gm1_margin": 963,
-     "actual_gp2": 54714,
-     "basis_mix": -3815,
-     "variable_cost": -3065,
-     "target_gp2": 55778
-    },
-    "allowed_spend_mtd": 19444,
-    "gp3_target_mtd": 35270,
-    "planned_spend_month": 273073,
-    "gm2_fc": 0.2649,
-    "cos_target": 0.105,
-    "allowed_spend_remaining": 236389,
-    "gm2_actual": 0.2548,
-    "expected_spend_month": 289523,
-    "gp3_mtd": 32970,
-    "headroom_remaining": -31390,
-    "gp3_landing": 476810,
-    "gp3_target_month": 510066,
-    "gm1_fc": 0.3842,
-    "headroom_daily": [
-     -597,
-     -557,
-     -534,
-     -676,
-     -717,
-     -1197,
-     -998,
-     -1053,
-     -1111,
-     -1200,
-     -1480,
-     -1941,
-     -1820,
-     -1801,
-     -1672,
-     -1434,
-     -1155,
-     -1204,
-     -1360,
-     -1118,
-     -843,
-     -728,
-     -1081,
-     -1393,
-     -1233,
-     -1289,
-     -1199
-    ],
-    "headroom_mtd": -2300,
-    "headroom_per_day": -1163,
-    "allowed_spend_month": 258133,
-    "earned_cos": 0.0882,
-    "planned_spend_mtd": 20508,
-    "remaining_days": 27
-   },
    "all": {
-    "earned_cos_mtd": 0.1446,
-    "gm1_actual": 0.4369,
-    "actual_spend_mtd": 370274,
-    "allowed_spend_daily": [
-     129061,
-     120391,
-     115441,
-     146118,
-     154990,
-     258684,
-     215699,
-     227622,
-     240025,
-     259398,
-     319881,
-     419480,
-     393254,
-     389202,
-     361334,
-     309865,
-     249708,
-     260114,
-     293808,
-     241519,
-     182199,
-     157247,
-     233689,
-     301011,
-     266368,
-     278454,
-     259022
-    ],
-    "bridge": {
-     "volume": -25636,
-     "gm1_margin": 193486,
-     "actual_gp2": 1113518,
-     "basis_mix": -19478,
-     "variable_cost": -33251,
-     "target_gp2": 998397
+    "all": {
+     "headroom_mtd": 60909,
+     "headroom_remaining": 822119,
+     "headroom_per_day": 30449,
+     "allowed_spend_mtd": 431183,
+     "actual_spend_mtd": 370274,
+     "allowed_spend_remaining": 5382168,
+     "earned_cos_mtd": 0.1174,
+     "cos_target": 0.105
     },
-    "allowed_spend_mtd": 530997,
-    "gp3_target_mtd": 582521,
-    "planned_spend_month": 5537525,
-    "gm2_fc": 0.2649,
-    "cos_target": 0.105,
-    "allowed_spend_remaining": 6783584,
-    "gm2_actual": 0.3085,
-    "expected_spend_month": 4930323,
-    "gp3_mtd": 743243,
-    "headroom_remaining": 2223535,
-    "gp3_landing": 10820051,
-    "gp3_target_month": 8480268,
-    "gm1_fc": 0.3842,
-    "headroom_daily": [
-     42304,
-     39462,
-     37839,
-     47895,
-     50803,
-     84792,
-     70702,
-     74610,
-     78676,
-     85026,
-     104851,
-     137498,
-     128901,
-     127573,
-     118439,
-     101568,
-     81850,
-     85261,
-     96305,
-     79166,
-     59722,
-     51543,
-     76599,
-     98666,
-     87311,
-     91272,
-     84903
-    ],
-    "headroom_mtd": 160723,
-    "headroom_per_day": 82353,
-    "allowed_spend_month": 7153858,
-    "earned_cos": 0.1388,
-    "planned_spend_mtd": 415876,
-    "remaining_days": 27
+    "SE": {
+     "headroom_mtd": 49513,
+     "headroom_remaining": 682146,
+     "headroom_per_day": 25265,
+     "allowed_spend_mtd": 244280,
+     "actual_spend_mtd": 194767,
+     "allowed_spend_remaining": 3080767,
+     "earned_cos_mtd": 0.1348,
+     "cos_target": 0.105
+    },
+    "NO": {
+     "headroom_mtd": 35912,
+     "headroom_remaining": 527778,
+     "headroom_per_day": 19547,
+     "allowed_spend_mtd": 155923,
+     "actual_spend_mtd": 120011,
+     "allowed_spend_remaining": 2005752,
+     "earned_cos_mtd": 0.1627,
+     "cos_target": 0.105
+    },
+    "FI": {
+     "headroom_mtd": 11684,
+     "headroom_remaining": 164944,
+     "headroom_per_day": 6109,
+     "allowed_spend_mtd": 33428,
+     "actual_spend_mtd": 21744,
+     "allowed_spend_remaining": 432723,
+     "earned_cos_mtd": 0.1603,
+     "cos_target": 0.105
+    },
+    "DK": {
+     "headroom_mtd": -21699,
+     "headroom_remaining": -303626,
+     "headroom_per_day": -11245,
+     "allowed_spend_mtd": -785,
+     "actual_spend_mtd": 20914,
+     "allowed_spend_remaining": -46069,
+     "earned_cos_mtd": -0.0041,
+     "cos_target": 0.105
+    },
+    "ROW": {
+     "headroom_mtd": -14502,
+     "headroom_remaining": -249122,
+     "headroom_per_day": -9227,
+     "allowed_spend_mtd": -1663,
+     "actual_spend_mtd": 12839,
+     "allowed_spend_remaining": -91006,
+     "earned_cos_mtd": -0.0033,
+     "cos_target": 0.105
+    }
    },
-   "SE": {
-    "earned_cos_mtd": 0.1519,
-    "gm1_actual": 0.4221,
-    "actual_spend_mtd": 194767,
-    "allowed_spend_daily": [
-     66902,
-     62408,
-     59842,
-     75745,
-     80344,
-     134096,
-     111814,
-     117994,
-     124424,
-     134466,
-     165819,
-     217450,
-     203854,
-     201754,
-     187308,
-     160627,
-     129443,
-     134838,
-     152304,
-     125198,
-     94448,
-     81514,
-     121139,
-     156038,
-     138079,
-     144345,
-     134271
-    ],
-    "bridge": {
-     "volume": 47942,
-     "gm1_margin": 68680,
-     "actual_gp2": 573559,
-     "basis_mix": -68760,
-     "variable_cost": 14708,
-     "target_gp2": 510989
+   "babyshop": {
+    "all": {
+     "headroom_mtd": 68135,
+     "headroom_remaining": 946306,
+     "headroom_per_day": 35048,
+     "allowed_spend_mtd": 415363,
+     "actual_spend_mtd": 347228,
+     "allowed_spend_remaining": 5222532,
+     "earned_cos_mtd": 0.1192,
+     "cos_target": 0.105
     },
-    "allowed_spend_mtd": 275312,
-    "gp3_target_mtd": 298247,
-    "planned_spend_month": 2832734,
-    "gm2_fc": 0.2649,
-    "cos_target": 0.105,
-    "allowed_spend_remaining": 3516464,
-    "gm2_actual": 0.3109,
-    "expected_spend_month": 2593388,
-    "gp3_mtd": 378791,
-    "headroom_remaining": 1117843,
-    "gp3_landing": 5514232,
-    "gp3_target_month": 4341705,
-    "gm1_fc": 0.3842,
-    "headroom_daily": [
-     21267,
-     19839,
-     19023,
-     24078,
-     25540,
-     42628,
-     35544,
-     37509,
-     39553,
-     42745,
-     52712,
-     69125,
-     64803,
-     64135,
-     59543,
-     51062,
-     41149,
-     42863,
-     48416,
-     39799,
-     30024,
-     25912,
-     38509,
-     49603,
-     43894,
-     45885,
-     42683
-    ],
-    "headroom_mtd": 80545,
-    "headroom_per_day": 41402,
-    "allowed_spend_month": 3711231,
-    "earned_cos": 0.1458,
-    "planned_spend_mtd": 212742,
-    "remaining_days": 27
+    "SE": {
+     "headroom_mtd": 58730,
+     "headroom_remaining": 833254,
+     "headroom_per_day": 30861,
+     "allowed_spend_mtd": 240426,
+     "actual_spend_mtd": 181696,
+     "allowed_spend_remaining": 3070901,
+     "earned_cos_mtd": 0.1408,
+     "cos_target": 0.105
+    },
+    "NO": {
+     "headroom_mtd": 35913,
+     "headroom_remaining": 527874,
+     "headroom_per_day": 19551,
+     "allowed_spend_mtd": 147279,
+     "actual_spend_mtd": 111366,
+     "allowed_spend_remaining": 1899382,
+     "earned_cos_mtd": 0.1617,
+     "cos_target": 0.105
+    },
+    "FI": {
+     "headroom_mtd": 6383,
+     "headroom_remaining": 90579,
+     "headroom_per_day": 3355,
+     "allowed_spend_mtd": 28127,
+     "actual_spend_mtd": 21744,
+     "allowed_spend_remaining": 358358,
+     "earned_cos_mtd": 0.1562,
+     "cos_target": 0.105
+    },
+    "DK": {
+     "headroom_mtd": -18388,
+     "headroom_remaining": -256279,
+     "headroom_per_day": -9492,
+     "allowed_spend_mtd": 1195,
+     "actual_spend_mtd": 19583,
+     "allowed_spend_remaining": -15104,
+     "earned_cos_mtd": 0.0065,
+     "cos_target": 0.105
+    },
+    "ROW": {
+     "headroom_mtd": -14502,
+     "headroom_remaining": -249122,
+     "headroom_per_day": -9227,
+     "allowed_spend_mtd": -1663,
+     "actual_spend_mtd": 12839,
+     "allowed_spend_remaining": -91006,
+     "earned_cos_mtd": -0.0033,
+     "cos_target": 0.105
+    }
    },
-   "DK": {
-    "earned_cos_mtd": 0.0769,
-    "gm1_actual": 0.4177,
-    "actual_spend_mtd": 20914,
-    "allowed_spend_daily": [
-     3251,
-     3033,
-     2908,
-     3681,
-     3904,
-     6517,
-     5434,
-     5734,
-     6047,
-     6535,
-     8058,
-     10567,
-     9907,
-     9805,
-     9103,
-     7806,
-     6291,
-     6553,
-     7402,
-     6084,
-     4590,
-     3961,
-     5887,
-     7583,
-     6710,
-     7015,
-     6525
-    ],
-    "bridge": {
-     "volume": -3008,
-     "gm1_margin": 6381,
-     "actual_gp2": 57554,
-     "basis_mix": -6405,
-     "variable_cost": -1810,
-     "target_gp2": 62395
+   "lekmer": {
+    "all": {
+     "headroom_mtd": -7226,
+     "headroom_remaining": -124186,
+     "headroom_per_day": -4599,
+     "allowed_spend_mtd": 15820,
+     "actual_spend_mtd": 23046,
+     "allowed_spend_remaining": 159636,
+     "earned_cos_mtd": 0.0846,
+     "cos_target": 0.105
     },
-    "allowed_spend_mtd": 14669,
-    "gp3_target_mtd": 42885,
-    "planned_spend_month": 259782,
-    "gm2_fc": 0.2649,
-    "cos_target": 0.105,
-    "allowed_spend_remaining": 170890,
-    "gm2_actual": 0.2889,
-    "expected_spend_month": 278471,
-    "gp3_mtd": 36640,
-    "headroom_remaining": -86667,
-    "gp3_landing": 526523,
-    "gp3_target_month": 616268,
-    "gm1_fc": 0.3842,
-    "headroom_daily": [
-     -1649,
-     -1538,
-     -1475,
-     -1867,
-     -1980,
-     -3305,
-     -2756,
-     -2908,
-     -3067,
-     -3314,
-     -4087,
-     -5359,
-     -5024,
-     -4972,
-     -4616,
-     -3959,
-     -3190,
-     -3323,
-     -3754,
-     -3086,
-     -2328,
-     -2009,
-     -2986,
-     -3846,
-     -3403,
-     -3558,
-     -3309
-    ],
-    "headroom_mtd": -6245,
-    "headroom_per_day": -3210,
-    "allowed_spend_month": 191804,
-    "earned_cos": 0.0716,
-    "planned_spend_mtd": 19510,
-    "remaining_days": 27
-   },
-   "ROW": {
-    "earned_cos_mtd": 0.0672,
-    "gm1_actual": 0.5433,
-    "actual_spend_mtd": 12839,
-    "allowed_spend_daily": [
-     7713,
-     7195,
-     6899,
-     8732,
-     9263,
-     15459,
-     12891,
-     13603,
-     14344,
-     15502,
-     19117,
-     25069,
-     23502,
-     23259,
-     21594,
-     18518,
-     14923,
-     15545,
-     17559,
-     14434,
-     10889,
-     9397,
-     13966,
-     17989,
-     15919,
-     16641,
-     15480
-    ],
-    "bridge": {
-     "volume": -77883,
-     "gm1_margin": 79787,
-     "actual_gp2": 111191,
-     "basis_mix": 13379,
-     "variable_cost": -57202,
-     "target_gp2": 153110
+    "SE": {
+     "headroom_mtd": -9216,
+     "headroom_remaining": -151107,
+     "headroom_per_day": -5597,
+     "allowed_spend_mtd": 3855,
+     "actual_spend_mtd": 13071,
+     "allowed_spend_remaining": 9866,
+     "earned_cos_mtd": 0.0368,
+     "cos_target": 0.105
     },
-    "allowed_spend_mtd": 33693,
-    "gp3_target_mtd": 77498,
-    "planned_spend_month": 1006798,
-    "gm2_fc": 0.2649,
-    "cos_target": 0.105,
-    "allowed_spend_remaining": 405400,
-    "gm2_actual": 0.3099,
-    "expected_spend_month": 170955,
-    "gp3_mtd": 98352,
-    "headroom_remaining": 247284,
-    "gp3_landing": 1450455,
-    "gp3_target_month": 1142911,
-    "gm1_fc": 0.3842,
-    "headroom_daily": [
-     4705,
-     4389,
-     4208,
-     5326,
-     5650,
-     9430,
-     7863,
-     8298,
-     8750,
-     9456,
-     11661,
-     15291,
-     14335,
-     14188,
-     13172,
-     11296,
-     9103,
-     9482,
-     10710,
-     8804,
-     6642,
-     5732,
-     8519,
-     10973,
-     9710,
-     10151,
-     9442
-    ],
-    "headroom_mtd": 20854,
-    "headroom_per_day": 9159,
-    "allowed_spend_month": 418239,
-    "earned_cos": 0.0594,
-    "planned_spend_mtd": 75612,
-    "remaining_days": 27
+    "NO": {
+     "headroom_mtd": -1,
+     "headroom_remaining": -96,
+     "headroom_per_day": -4,
+     "allowed_spend_mtd": 8644,
+     "actual_spend_mtd": 8645,
+     "allowed_spend_remaining": 106370,
+     "earned_cos_mtd": 0.1816,
+     "cos_target": 0.105
+    },
+    "FI": {
+     "headroom_mtd": 5301,
+     "headroom_remaining": 74365,
+     "headroom_per_day": 2754,
+     "allowed_spend_mtd": 5301,
+     "actual_spend_mtd": 0,
+     "allowed_spend_remaining": 74365,
+     "earned_cos_mtd": 0.1862,
+     "cos_target": 0.105
+    },
+    "DK": {
+     "headroom_mtd": -3309,
+     "headroom_remaining": -47348,
+     "headroom_per_day": -1754,
+     "allowed_spend_mtd": -1979,
+     "actual_spend_mtd": 1330,
+     "allowed_spend_remaining": -30965,
+     "earned_cos_mtd": -0.3262,
+     "cos_target": 0.105
+    },
+    "ROW": {
+     "headroom_mtd": 0,
+     "headroom_remaining": null,
+     "headroom_per_day": null,
+     "allowed_spend_mtd": 0,
+     "actual_spend_mtd": 0,
+     "allowed_spend_remaining": null,
+     "earned_cos_mtd": null,
+     "cos_target": 0.105
+    }
    }
   },
-  "headroom_path": "headroom",
+  "headroom_path": "headroom[market] / brands[b].headroom[market]",
   "google": {
    "more": 20,
    "less": 29
   },
   "meta": {
-   "more": 7,
-   "less": 2
+   "more": 6,
+   "less": 3
   },
   "budget_errors": [],
+  "margins": {
+   "all:all": {
+    "gm2": 0.2761,
+    "basis": "norce"
+   },
+   "all:SE": {
+    "gm2": 0.2528,
+    "basis": "norce"
+   },
+   "all:NO": {
+    "gm2": 0.327,
+    "basis": "norce"
+   },
+   "all:FI": {
+    "gm2": 0.2842,
+    "basis": "norce"
+   },
+   "all:DK": {
+    "gm2": 0.1991,
+    "basis": "norce"
+   },
+   "all:ROW": {
+    "gm2": 0.2885,
+    "basis": "norce"
+   },
+   "babyshop:all": {
+    "gm2": 0.2768,
+    "basis": "norce"
+   },
+   "babyshop:SE": {
+    "gm2": 0.2543,
+    "basis": "norce"
+   },
+   "babyshop:NO": {
+    "gm2": 0.327,
+    "basis": "norce"
+   },
+   "babyshop:FI": {
+    "gm2": 0.2841,
+    "basis": "norce"
+   },
+   "babyshop:DK": {
+    "gm2": 0.1986,
+    "basis": "norce"
+   },
+   "babyshop:ROW": {
+    "gm2": 0.2885,
+    "basis": "norce"
+   },
+   "lekmer:all": {
+    "gm2": 0.2623,
+    "basis": "norce"
+   },
+   "lekmer:SE": {
+    "gm2": 0.2292,
+    "basis": "norce"
+   },
+   "lekmer:NO": {
+    "gm2": 0.3272,
+    "basis": "norce"
+   },
+   "lekmer:FI": {
+    "gm2": 0.2851,
+    "basis": "norce"
+   },
+   "lekmer:DK": {
+    "gm2": 0.2161,
+    "basis": "norce"
+   },
+   "lekmer:ROW": {
+    "gm2": null,
+    "basis": "none"
+   }
+  },
+  "margin_basis_label": "Norce merchandise \u2212 BC returns \u2212 BC COGS rate \u2212 shipping-model direct variable cost",
   "incrementality": {
    "google_brand_search": 0.3,
    "google_generic_search": 0.8,
@@ -668,7 +389,7 @@
      null,
      null
     ],
-    "today_so_far": 34797
+    "today_so_far": 35425
    },
    "NO": {
     "actual": [
@@ -703,7 +424,7 @@
      null,
      null
     ],
-    "today_so_far": 22105
+    "today_so_far": 22373
    },
    "FI": {
     "actual": [
@@ -738,7 +459,7 @@
      null,
      null
     ],
-    "today_so_far": 3080
+    "today_so_far": 3160
    },
    "DK": {
     "actual": [
@@ -773,7 +494,7 @@
      null,
      null
     ],
-    "today_so_far": 3085
+    "today_so_far": 3159
    },
    "ROW": {
     "actual": [
@@ -808,7 +529,7 @@
      null,
      null
     ],
-    "today_so_far": 1538
+    "today_so_far": 1562
    }
   },
   "pacing_by_brand": {
@@ -846,7 +567,7 @@
       null,
       null
      ],
-     "today_so_far": 32407
+     "today_so_far": 32991
     },
     "NO": {
      "actual": [
@@ -881,7 +602,7 @@
       null,
       null
      ],
-     "today_so_far": 20770
+     "today_so_far": 21012
     },
     "FI": {
      "actual": [
@@ -916,7 +637,7 @@
       null,
       null
      ],
-     "today_so_far": 3080
+     "today_so_far": 3160
     },
     "DK": {
      "actual": [
@@ -951,7 +672,7 @@
       null,
       null
      ],
-     "today_so_far": 2819
+     "today_so_far": 2858
     },
     "ROW": {
      "actual": [
@@ -986,7 +707,7 @@
       null,
       null
      ],
-     "today_so_far": 1538
+     "today_so_far": 1562
     }
    },
    "lekmer": {
@@ -1023,7 +744,7 @@
       null,
       null
      ],
-     "today_so_far": 2391
+     "today_so_far": 2433
     },
     "NO": {
      "actual": [
@@ -1058,7 +779,7 @@
       null,
       null
      ],
-     "today_so_far": 1335
+     "today_so_far": 1361
     },
     "FI": {
      "actual": [
@@ -1128,7 +849,7 @@
       null,
       null
      ],
-     "today_so_far": 266
+     "today_so_far": 301
     },
     "ROW": {
      "actual": [
@@ -1186,7 +907,7 @@
     "l7_roas": 1.51,
     "l14_cost_sek": 291771,
     "l14_roas": 1.65,
-    "today_cost_sek": 11197,
+    "today_cost_sek": 11370,
     "budget_use_today": 0.29,
     "is": 0.676,
     "lost_budget": 0.0,
@@ -1243,7 +964,7 @@
     "l7_roas": 1.91,
     "l14_cost_sek": 251031,
     "l14_roas": 1.97,
-    "today_cost_sek": 16138,
+    "today_cost_sek": 16397,
     "budget_use_today": 0.22,
     "is": 0.868,
     "lost_budget": 0.0,
@@ -1300,7 +1021,7 @@
     "l7_roas": 1.74,
     "l14_cost_sek": 204336,
     "l14_roas": 1.75,
-    "today_cost_sek": 12753,
+    "today_cost_sek": 12878,
     "budget_use_today": 0.27,
     "is": 0.658,
     "lost_budget": 0.0,
@@ -1357,7 +1078,7 @@
     "l7_roas": 2.21,
     "l14_cost_sek": 123858,
     "l14_roas": 1.85,
-    "today_cost_sek": 6665,
+    "today_cost_sek": 6749,
     "budget_use_today": 0.12,
     "is": 0.861,
     "lost_budget": 0.0,
@@ -1414,7 +1135,7 @@
     "l7_roas": 5.54,
     "l14_cost_sek": 55685,
     "l14_roas": 5.27,
-    "today_cost_sek": 2494,
+    "today_cost_sek": 2562,
     "budget_use_today": 0.07,
     "is": 0.997,
     "lost_budget": 0.0,
@@ -1466,7 +1187,7 @@
     "l7_roas": 1.72,
     "l14_cost_sek": 45634,
     "l14_roas": 1.42,
-    "today_cost_sek": 1368,
+    "today_cost_sek": 1374,
     "budget_use_today": 0.14,
     "is": 0.608,
     "lost_budget": 0.0,
@@ -1521,7 +1242,7 @@
     "l7_roas": 1.83,
     "l14_cost_sek": 35717,
     "l14_roas": 1.76,
-    "today_cost_sek": 1232,
+    "today_cost_sek": 1265,
     "budget_use_today": 0.08,
     "is": 0.785,
     "lost_budget": 0.0,
@@ -1576,7 +1297,7 @@
     "l7_roas": 1.78,
     "l14_cost_sek": 32860,
     "l14_roas": 1.79,
-    "today_cost_sek": 1712,
+    "today_cost_sek": 1757,
     "budget_use_today": 0.08,
     "is": 0.473,
     "lost_budget": 0.0,
@@ -1747,7 +1468,7 @@
     "l7_roas": 2.08,
     "l14_cost_sek": 20387,
     "l14_roas": 2.11,
-    "today_cost_sek": 1086,
+    "today_cost_sek": 1103,
     "budget_use_today": 0.02,
     "is": 0.701,
     "lost_budget": 0.0,
@@ -1804,7 +1525,7 @@
     "l7_roas": 2.33,
     "l14_cost_sek": 19809,
     "l14_roas": 2.25,
-    "today_cost_sek": 1085,
+    "today_cost_sek": 1113,
     "budget_use_today": 0.05,
     "is": 0.611,
     "lost_budget": 0.0,
@@ -1918,7 +1639,7 @@
     "l7_roas": 1.41,
     "l14_cost_sek": 16970,
     "l14_roas": 1.15,
-    "today_cost_sek": 682,
+    "today_cost_sek": 688,
     "budget_use_today": 0.05,
     "is": 0.1,
     "lost_budget": 0.0,
@@ -1975,8 +1696,8 @@
     "l7_roas": 2.01,
     "l14_cost_sek": 11340,
     "l14_roas": 1.92,
-    "today_cost_sek": 399,
-    "budget_use_today": 0.03,
+    "today_cost_sek": 449,
+    "budget_use_today": 0.04,
     "is": 0.667,
     "lost_budget": 0.0,
     "lost_rank": 0.333,
@@ -2032,7 +1753,7 @@
     "l7_roas": 5.36,
     "l14_cost_sek": 10595,
     "l14_roas": 5.18,
-    "today_cost_sek": 322,
+    "today_cost_sek": 337,
     "budget_use_today": 0.04,
     "is": 0.622,
     "lost_budget": 0.0,
@@ -2084,7 +1805,7 @@
     "l7_roas": 1.93,
     "l14_cost_sek": 10481,
     "l14_roas": 1.73,
-    "today_cost_sek": 776,
+    "today_cost_sek": 779,
     "budget_use_today": 0.11,
     "is": 0.1,
     "lost_budget": 0.0,
@@ -2139,7 +1860,7 @@
     "l7_roas": 4.63,
     "l14_cost_sek": 9942,
     "l14_roas": 5.53,
-    "today_cost_sek": 310,
+    "today_cost_sek": 320,
     "budget_use_today": 0.03,
     "is": 0.993,
     "lost_budget": 0.0,
@@ -2191,7 +1912,7 @@
     "l7_roas": 5.31,
     "l14_cost_sek": 9912,
     "l14_roas": 5.69,
-    "today_cost_sek": 757,
+    "today_cost_sek": 769,
     "budget_use_today": 0.05,
     "is": 0.99,
     "lost_budget": 0.0,
@@ -2243,7 +1964,7 @@
     "l7_roas": 1.19,
     "l14_cost_sek": 9439,
     "l14_roas": 1.29,
-    "today_cost_sek": 779,
+    "today_cost_sek": 789,
     "budget_use_today": 0.37,
     "is": 0.474,
     "lost_budget": 0.0,
@@ -2300,7 +2021,7 @@
     "l7_roas": 1.52,
     "l14_cost_sek": 8046,
     "l14_roas": 2.06,
-    "today_cost_sek": 347,
+    "today_cost_sek": 367,
     "budget_use_today": 0.02,
     "is": 0.424,
     "lost_budget": 0.0,
@@ -2357,7 +2078,7 @@
     "l7_roas": 3.63,
     "l14_cost_sek": 7616,
     "l14_roas": 2.9,
-    "today_cost_sek": 870,
+    "today_cost_sek": 884,
     "budget_use_today": 0.04,
     "is": 0.661,
     "lost_budget": 0.0,
@@ -2412,7 +2133,7 @@
     "l7_roas": 1.68,
     "l14_cost_sek": 6798,
     "l14_roas": 1.99,
-    "today_cost_sek": 140,
+    "today_cost_sek": 142,
     "budget_use_today": 0.03,
     "is": 0.598,
     "lost_budget": 0.0,
@@ -2469,7 +2190,7 @@
     "l7_roas": 1.96,
     "l14_cost_sek": 6059,
     "l14_roas": 1.72,
-    "today_cost_sek": 227,
+    "today_cost_sek": 231,
     "budget_use_today": 0.05,
     "is": 0.387,
     "lost_budget": 0.0,
@@ -2576,7 +2297,7 @@
     "l7_roas": 2.12,
     "l14_cost_sek": 3393,
     "l14_roas": 3.65,
-    "today_cost_sek": 159,
+    "today_cost_sek": 174,
     "budget_use_today": 0.06,
     "is": 0.951,
     "lost_budget": 0.0,
@@ -2787,7 +2508,7 @@
     "l7_roas": 3.34,
     "l14_cost_sek": 2090,
     "l14_roas": 3.56,
-    "today_cost_sek": 70,
+    "today_cost_sek": 73,
     "budget_use_today": 0.04,
     "is": 0.818,
     "lost_budget": 0.0,
@@ -2839,8 +2560,8 @@
     "l7_roas": 4.69,
     "l14_cost_sek": 1993,
     "l14_roas": 3.69,
-    "today_cost_sek": 80,
-    "budget_use_today": 0.08,
+    "today_cost_sek": 87,
+    "budget_use_today": 0.09,
     "is": 0.1,
     "lost_budget": 0.0,
     "lost_rank": 0.9,
@@ -2948,7 +2669,7 @@
     "l7_roas": 0.66,
     "l14_cost_sek": 1697,
     "l14_roas": 1.97,
-    "today_cost_sek": 89,
+    "today_cost_sek": 90,
     "budget_use_today": 0.01,
     "is": 0.525,
     "lost_budget": 0.0,
@@ -3005,7 +2726,7 @@
     "l7_roas": 23.04,
     "l14_cost_sek": 1671,
     "l14_roas": 30.98,
-    "today_cost_sek": 72,
+    "today_cost_sek": 73,
     "budget_use_today": 0.24,
     "is": 0.705,
     "lost_budget": 0.0,
@@ -3055,7 +2776,7 @@
     "l7_roas": 2.05,
     "l14_cost_sek": 1484,
     "l14_roas": 1.58,
-    "today_cost_sek": 30,
+    "today_cost_sek": 60,
     "budget_use_today": 0.01,
     "is": 0.427,
     "lost_budget": 0.0,
@@ -3162,7 +2883,7 @@
     "l7_roas": 1.7,
     "l14_cost_sek": 1367,
     "l14_roas": 6.0,
-    "today_cost_sek": 69,
+    "today_cost_sek": 77,
     "budget_use_today": 0.01,
     "is": 0.931,
     "lost_budget": 0.0,
@@ -3425,7 +3146,7 @@
     "l7_roas": 6.44,
     "l14_cost_sek": 1123,
     "l14_roas": 4.12,
-    "today_cost_sek": 110,
+    "today_cost_sek": 112,
     "budget_use_today": 0.01,
     "is": 0.625,
     "lost_budget": 0.0,
@@ -3582,7 +3303,7 @@
     "l7_roas": 4.12,
     "l14_cost_sek": 779,
     "l14_roas": 2.29,
-    "today_cost_sek": 48,
+    "today_cost_sek": 50,
     "budget_use_today": 0.01,
     "is": null,
     "lost_budget": null,
@@ -3945,8 +3666,8 @@
     "l7_roas": 3.29,
     "l14_cost_sek": 586,
     "l14_roas": 1.51,
-    "today_cost_sek": 17,
-    "budget_use_today": 0.03,
+    "today_cost_sek": 20,
+    "budget_use_today": 0.04,
     "is": 0.261,
     "lost_budget": 0.0,
     "lost_rank": 0.739,
@@ -3997,8 +3718,8 @@
     "l7_roas": 0.0,
     "l14_cost_sek": 583,
     "l14_roas": 0.0,
-    "today_cost_sek": 18,
-    "budget_use_today": 0.03,
+    "today_cost_sek": 21,
+    "budget_use_today": 0.04,
     "is": 0.733,
     "lost_budget": 0.0,
     "lost_rank": 0.267,
@@ -4299,7 +4020,7 @@
     "l7_roas": 1.5,
     "l14_cost_sek": 458,
     "l14_roas": 2.4,
-    "today_cost_sek": 25,
+    "today_cost_sek": 30,
     "budget_use_today": 0.01,
     "is": 0.1,
     "lost_budget": 0.0,
@@ -4657,7 +4378,7 @@
     "l7_roas": 0.0,
     "l14_cost_sek": 129,
     "l14_roas": 0.0,
-    "today_cost_sek": 3,
+    "today_cost_sek": 4,
     "budget_use_today": 0.0,
     "is": 0.494,
     "lost_budget": 0.0,
@@ -4857,7 +4578,7 @@
     "l7_roas": 6.04,
     "l14_cost_sek": 85,
     "l14_roas": 3.24,
-    "today_cost_sek": 11,
+    "today_cost_sek": 13,
     "budget_use_today": 0.0,
     "is": 0.552,
     "lost_budget": 0.0,
@@ -5409,7 +5130,7 @@
     "l7_roas": null,
     "l14_cost_sek": 0,
     "l14_roas": null,
-    "today_cost_sek": 3,
+    "today_cost_sek": 6,
     "budget_use_today": 0.01,
     "is": null,
     "lost_budget": null,
@@ -7705,8 +7426,9 @@
     "mtd_spend": 0,
     "plan_month": null,
     "avg_roas": 5.4,
-    "gp2_margin": 0.37,
-    "avg_gp2_roas_platform": 2.0,
+    "gp2_margin": 0.2543,
+    "margin_basis": "norce",
+    "avg_gp2_roas_platform": 1.37,
     "lastclick_gp2_roas_market": 2.43,
     "marginal_roas": 5.4,
     "marginal_basis": "average (upper bound)",
@@ -7736,8 +7458,9 @@
     "mtd_spend": 7081,
     "plan_month": 36000,
     "avg_roas": 26.13,
-    "gp2_margin": 0.37,
-    "avg_gp2_roas_platform": 9.67,
+    "gp2_margin": 0.2543,
+    "margin_basis": "norce",
+    "avg_gp2_roas_platform": 6.64,
     "lastclick_gp2_roas_market": 2.43,
     "marginal_roas": 21.5,
     "marginal_basis": "fit",
@@ -7751,8 +7474,8 @@
      "confidence": "medium"
     },
     "incrementality": 0.6,
-    "inc_marginal": 4.77,
-    "inc_gp3_per_10k": 37700,
+    "inc_marginal": 3.28,
+    "inc_gp3_per_10k": 22800,
     "suggestion": {
      "action": "up",
      "cls": "up",
@@ -7767,8 +7490,9 @@
     "mtd_spend": 3667,
     "plan_month": 12000,
     "avg_roas": 18.5,
-    "gp2_margin": 0.37,
-    "avg_gp2_roas_platform": 6.84,
+    "gp2_margin": 0.2543,
+    "margin_basis": "norce",
+    "avg_gp2_roas_platform": 4.7,
     "lastclick_gp2_roas_market": 2.43,
     "marginal_roas": 18.87,
     "marginal_basis": "fit",
@@ -7782,8 +7506,8 @@
      "confidence": "high"
     },
     "incrementality": 0.6,
-    "inc_marginal": 4.19,
-    "inc_gp3_per_10k": 31900,
+    "inc_marginal": 2.88,
+    "inc_gp3_per_10k": 18800,
     "suggestion": {
      "action": "up",
      "cls": "up",
@@ -7798,8 +7522,9 @@
     "mtd_spend": 1536,
     "plan_month": 72000,
     "avg_roas": 33.07,
-    "gp2_margin": 0.37,
-    "avg_gp2_roas_platform": 12.24,
+    "gp2_margin": 0.2543,
+    "margin_basis": "norce",
+    "avg_gp2_roas_platform": 8.41,
     "lastclick_gp2_roas_market": 2.43,
     "marginal_roas": 33.07,
     "marginal_basis": "average (upper bound)",
@@ -7813,8 +7538,8 @@
      "confidence": "low"
     },
     "incrementality": 0.3,
-    "inc_marginal": 3.67,
-    "inc_gp3_per_10k": 26700,
+    "inc_marginal": 2.52,
+    "inc_gp3_per_10k": 15200,
     "suggestion": {
      "action": "test",
      "cls": "warn",
@@ -7829,8 +7554,9 @@
     "mtd_spend": 3057,
     "plan_month": 12000,
     "avg_roas": 17.36,
-    "gp2_margin": 0.353,
-    "avg_gp2_roas_platform": 6.13,
+    "gp2_margin": 0.327,
+    "margin_basis": "norce",
+    "avg_gp2_roas_platform": 5.68,
     "lastclick_gp2_roas_market": 0.96,
     "marginal_roas": 11.31,
     "marginal_basis": "fit",
@@ -7844,8 +7570,8 @@
      "confidence": "medium"
     },
     "incrementality": 0.6,
-    "inc_marginal": 2.4,
-    "inc_gp3_per_10k": 14000,
+    "inc_marginal": 2.22,
+    "inc_gp3_per_10k": 12200,
     "suggestion": {
      "action": "up",
      "cls": "up",
@@ -7860,8 +7586,9 @@
     "mtd_spend": 340,
     "plan_month": 4000,
     "avg_roas": 21.88,
-    "gp2_margin": 0.353,
-    "avg_gp2_roas_platform": 7.72,
+    "gp2_margin": 0.327,
+    "margin_basis": "norce",
+    "avg_gp2_roas_platform": 7.15,
     "lastclick_gp2_roas_market": 0.96,
     "marginal_roas": 21.88,
     "marginal_basis": "average (upper bound)",
@@ -7875,8 +7602,8 @@
      "confidence": "low"
     },
     "incrementality": 0.6,
-    "inc_marginal": 4.63,
-    "inc_gp3_per_10k": 36300,
+    "inc_marginal": 4.29,
+    "inc_gp3_per_10k": 32900,
     "suggestion": {
      "action": "test",
      "cls": "warn",
@@ -7891,8 +7618,9 @@
     "mtd_spend": 579,
     "plan_month": 24000,
     "avg_roas": 27.05,
-    "gp2_margin": 0.353,
-    "avg_gp2_roas_platform": 9.55,
+    "gp2_margin": 0.327,
+    "margin_basis": "norce",
+    "avg_gp2_roas_platform": 8.85,
     "lastclick_gp2_roas_market": 0.96,
     "marginal_roas": 40.58,
     "marginal_basis": "fit",
@@ -7906,8 +7634,8 @@
      "confidence": "medium"
     },
     "incrementality": 0.3,
-    "inc_marginal": 4.3,
-    "inc_gp3_per_10k": 33000,
+    "inc_marginal": 3.98,
+    "inc_gp3_per_10k": 29800,
     "suggestion": {
      "action": "up",
      "cls": "up",
@@ -7922,8 +7650,9 @@
     "mtd_spend": 6357,
     "plan_month": 6000,
     "avg_roas": 4.65,
-    "gp2_margin": 0.317,
-    "avg_gp2_roas_platform": 1.47,
+    "gp2_margin": 0.2841,
+    "margin_basis": "norce",
+    "avg_gp2_roas_platform": 1.32,
     "lastclick_gp2_roas_market": 0.82,
     "marginal_roas": 4.65,
     "marginal_basis": "average (upper bound)",
@@ -7937,8 +7666,8 @@
      "confidence": "low"
     },
     "incrementality": 0.6,
-    "inc_marginal": 0.88,
-    "inc_gp3_per_10k": -1200,
+    "inc_marginal": 0.79,
+    "inc_gp3_per_10k": -2100,
     "suggestion": {
      "action": "down",
      "cls": "down",
@@ -7953,8 +7682,9 @@
     "mtd_spend": 2314,
     "plan_month": 6000,
     "avg_roas": 6.84,
-    "gp2_margin": 0.325,
-    "avg_gp2_roas_platform": 2.22,
+    "gp2_margin": 0.1986,
+    "margin_basis": "norce",
+    "avg_gp2_roas_platform": 1.36,
     "lastclick_gp2_roas_market": 0.59,
     "marginal_roas": 6.84,
     "marginal_basis": "average (upper bound)",
@@ -7968,12 +7698,12 @@
      "confidence": "low"
     },
     "incrementality": 0.6,
-    "inc_marginal": 1.33,
-    "inc_gp3_per_10k": 3300,
+    "inc_marginal": 0.82,
+    "inc_gp3_per_10k": -1800,
     "suggestion": {
-     "action": "test",
-     "cls": "warn",
-     "text": "Test +20 % (upper-bound estimate)"
+     "action": "down",
+     "cls": "down",
+     "text": "Scale down"
     }
    },
    {
@@ -7984,7 +7714,8 @@
     "mtd_spend": 0,
     "plan_month": 0,
     "avg_roas": 0.0,
-    "gp2_margin": 0.314,
+    "gp2_margin": 0.2885,
+    "margin_basis": "norce",
     "avg_gp2_roas_platform": 0.0,
     "lastclick_gp2_roas_market": null,
     "marginal_roas": 0.0,
@@ -8017,6 +7748,158 @@
    "lekmer:DK": 0.355,
    "babyshop:NO": 0.353,
    "babyshop:DK": 0.325
+  },
+  "retargeting_check": {
+   "funnel_nov_ly": 0,
+   "funnel_prev_month": 0,
+   "funnel_mtd": 0,
+   "funnel_by_brand": {
+    "babyshop": {
+     "nov_ly": 0,
+     "prev_month": 0,
+     "mtd": 0
+    },
+    "lekmer": {
+     "nov_ly": 90216,
+     "prev_month": 0,
+     "mtd": 0
+    }
+   },
+   "lekmer_meta_last_month": "2026-06",
+   "lekmer_meta_mtd": 0,
+   "warehouse_prev_month": 16956,
+   "warehouse_mtd": 2115,
+   "plan_month": 120000,
+   "plan_to_date": 11644,
+   "funnel_split": [
+    {
+     "month": "2026-01",
+     "brand": "lekmer",
+     "l2": "Paid Social Retargeting",
+     "cost": 9296
+    },
+    {
+     "month": "2026-02",
+     "brand": "lekmer",
+     "l2": "Paid Social Retargeting",
+     "cost": 8398
+    },
+    {
+     "month": "2025-12",
+     "brand": "lekmer",
+     "l2": "Paid Social Retargeting",
+     "cost": 29780
+    },
+    {
+     "month": "2025-11",
+     "brand": "lekmer",
+     "l2": "Paid Social Retargeting",
+     "cost": 90216
+    },
+    {
+     "month": "2026-03",
+     "brand": "lekmer",
+     "l2": "Paid Social Retargeting",
+     "cost": 7914
+    },
+    {
+     "month": "2026-01",
+     "brand": "babyshop",
+     "l2": "Paid Social Prospecting",
+     "cost": 81036
+    },
+    {
+     "month": "2026-02",
+     "brand": "babyshop",
+     "l2": "Paid Social Prospecting",
+     "cost": 72261
+    },
+    {
+     "month": "2025-12",
+     "brand": "babyshop",
+     "l2": "Paid Social Prospecting",
+     "cost": 114411
+    },
+    {
+     "month": "2026-04",
+     "brand": "lekmer",
+     "l2": "Paid Social Retargeting",
+     "cost": 8963
+    },
+    {
+     "month": "2025-11",
+     "brand": "babyshop",
+     "l2": "Paid Social Prospecting",
+     "cost": 256969
+    },
+    {
+     "month": "2026-05",
+     "brand": "lekmer",
+     "l2": "Paid Social Retargeting",
+     "cost": 9356
+    },
+    {
+     "month": "2026-03",
+     "brand": "babyshop",
+     "l2": "Paid Social Prospecting",
+     "cost": 60019
+    },
+    {
+     "month": "2026-07",
+     "brand": "babyshop",
+     "l2": "Paid Social Prospecting",
+     "cost": 1710
+    },
+    {
+     "month": "2026-11",
+     "brand": "babyshop",
+     "l2": "Paid Social Prospecting",
+     "cost": 27133
+    },
+    {
+     "month": "2026-04",
+     "brand": "babyshop",
+     "l2": "Paid Social Prospecting",
+     "cost": 79828
+    },
+    {
+     "month": "2026-05",
+     "brand": "babyshop",
+     "l2": "Paid Social Prospecting",
+     "cost": 94270
+    },
+    {
+     "month": "2026-06",
+     "brand": "lekmer",
+     "l2": "Paid Social Retargeting",
+     "cost": 5208
+    },
+    {
+     "month": "2026-10",
+     "brand": "babyshop",
+     "l2": "Paid Social Prospecting",
+     "cost": 206710
+    },
+    {
+     "month": "2026-06",
+     "brand": "babyshop",
+     "l2": "Paid Social Prospecting",
+     "cost": 187311
+    },
+    {
+     "month": "2026-09",
+     "brand": "babyshop",
+     "l2": "Paid Social Prospecting",
+     "cost": 120510
+    },
+    {
+     "month": "2026-08",
+     "brand": "babyshop",
+     "l2": "Paid Social Prospecting",
+     "cost": 133978
+    }
+   ],
+   "running": false
   },
   "campaigns": [
    {
@@ -13733,7 +13616,7 @@
   "basis": "Orders (Norce, Babyshop + Lekmer) matched to their GA4 purchase session; channel = the session's source/medium (GA4 session attribution). New = customer's first order (Norce first-order flag). Counts are scaled up by each market's match rate before cost per new customer = Funnel de-duplicated spend \u00f7 new customers. The last ~2 days are still settling (lower match rate).",
   "google_platform": {
    "babyshop:SE": {
-    "new_conv": 9194,
+    "new_conv": 9197,
     "ret_conv": 5037,
     "unknown_conv": 417,
     "new_share": 0.628
@@ -13795,81 +13678,117 @@
      "market": "SE",
      "channel": "google",
      "spend": 171037,
-     "gp2": 204930,
-     "gp3": 33893,
-     "gp2_roas": 1.2
+     "gp2": 169927,
+     "gp3": -1110,
+     "gp2_roas": 0.99,
+     "gp2_basis": "norce",
+     "gm2": 0.2543,
+     "funnel_gp2": 204930,
+     "revenue_gross": 668214
     },
     {
      "brand": "babyshop",
      "market": "SE",
      "channel": "meta",
      "spend": 9300,
-     "gp2": 13618,
-     "gp3": 4318,
-     "gp2_roas": 1.46
+     "gp2": 11312,
+     "gp3": 2012,
+     "gp2_roas": 1.22,
+     "gp2_basis": "norce",
+     "gm2": 0.2543,
+     "funnel_gp2": 13618,
+     "revenue_gross": 44483
     },
     {
      "brand": "babyshop",
      "market": "NO",
      "channel": "google",
      "spend": 103096,
-     "gp2": 140727,
-     "gp3": 37631,
-     "gp2_roas": 1.37
+     "gp2": 152248,
+     "gp3": 49152,
+     "gp2_roas": 1.48,
+     "gp2_basis": "norce",
+     "gm2": 0.327,
+     "funnel_gp2": 140727,
+     "revenue_gross": 465590
     },
     {
      "brand": "babyshop",
      "market": "NO",
      "channel": "meta",
      "spend": 6896,
-     "gp2": 13262,
-     "gp3": 6366,
-     "gp2_roas": 1.92
+     "gp2": 11540,
+     "gp3": 4643,
+     "gp2_roas": 1.67,
+     "gp2_basis": "norce",
+     "gm2": 0.327,
+     "funnel_gp2": 13262,
+     "revenue_gross": 35289
     },
     {
      "brand": "babyshop",
      "market": "FI",
      "channel": "google",
      "spend": 15395,
-     "gp2": 21952,
-     "gp3": 6558,
-     "gp2_roas": 1.43
+     "gp2": 23924,
+     "gp3": 8529,
+     "gp2_roas": 1.55,
+     "gp2_basis": "norce",
+     "gm2": 0.2841,
+     "funnel_gp2": 21952,
+     "revenue_gross": 84209
     },
     {
      "brand": "babyshop",
      "market": "FI",
      "channel": "meta",
      "spend": 6349,
-     "gp2": 4385,
-     "gp3": -1965,
-     "gp2_roas": 0.69
+     "gp2": 3560,
+     "gp3": -2789,
+     "gp2_roas": 0.56,
+     "gp2_basis": "norce",
+     "gm2": 0.2841,
+     "funnel_gp2": 4385,
+     "revenue_gross": 12533
     },
     {
      "brand": "babyshop",
      "market": "DK",
      "channel": "google",
      "spend": 17055,
-     "gp2": 27117,
-     "gp3": 10063,
-     "gp2_roas": 1.59
+     "gp2": 19795,
+     "gp3": 2740,
+     "gp2_roas": 1.16,
+     "gp2_basis": "norce",
+     "gm2": 0.1986,
+     "funnel_gp2": 27117,
+     "revenue_gross": 99674
     },
     {
      "brand": "babyshop",
      "market": "DK",
      "channel": "meta",
      "spend": 2311,
-     "gp2": 1276,
-     "gp3": -1035,
-     "gp2_roas": 0.55
+     "gp2": 604,
+     "gp3": -1708,
+     "gp2_roas": 0.26,
+     "gp2_basis": "norce",
+     "gm2": 0.1986,
+     "funnel_gp2": 1276,
+     "revenue_gross": 3039
     },
     {
      "brand": "babyshop",
      "market": "ROW",
      "channel": "google",
      "spend": 7850,
-     "gp2": 16104,
-     "gp3": 8254,
-     "gp2_roas": 2.05
+     "gp2": 13660,
+     "gp3": 5809,
+     "gp2_roas": 1.74,
+     "gp2_basis": "norce",
+     "gm2": 0.2885,
+     "funnel_gp2": 16104,
+     "revenue_gross": 47347
     },
     {
      "brand": "babyshop",
@@ -13878,43 +13797,63 @@
      "spend": 0,
      "gp2": 0,
      "gp3": 0,
-     "gp2_roas": null
+     "gp2_roas": null,
+     "gp2_basis": "norce",
+     "gm2": 0.2885,
+     "funnel_gp2": 0,
+     "revenue_gross": 0
     },
     {
      "brand": "lekmer",
      "market": "SE",
      "channel": "google",
      "spend": 12816,
-     "gp2": 13928,
-     "gp3": 1112,
-     "gp2_roas": 1.09
+     "gp2": 10497,
+     "gp3": -2319,
+     "gp2_roas": 0.82,
+     "gp2_basis": "norce",
+     "gm2": 0.2292,
+     "funnel_gp2": 13928,
+     "revenue_gross": 45799
     },
     {
      "brand": "lekmer",
      "market": "NO",
      "channel": "google",
      "spend": 8627,
-     "gp2": 4062,
-     "gp3": -4564,
-     "gp2_roas": 0.47
+     "gp2": 4267,
+     "gp3": -4360,
+     "gp2_roas": 0.49,
+     "gp2_basis": "norce",
+     "gm2": 0.3272,
+     "funnel_gp2": 4062,
+     "revenue_gross": 13041
     },
     {
      "brand": "lekmer",
      "market": "FI",
      "channel": "google",
      "spend": 0,
-     "gp2": 2866,
-     "gp3": 2866,
-     "gp2_roas": null
+     "gp2": 4550,
+     "gp3": 4550,
+     "gp2_roas": null,
+     "gp2_basis": "norce",
+     "gm2": 0.2851,
+     "funnel_gp2": 2866,
+     "revenue_gross": 15959
     },
     {
      "brand": "lekmer",
      "market": "DK",
      "channel": "google",
      "spend": 1330,
-     "gp2": 1137,
-     "gp3": -193,
-     "gp2_roas": 0.85
+     "gp2": 765,
+     "gp3": -565,
+     "gp2_roas": 0.58,
+     "gp2_basis": "norce",
+     "gm2": 0.2161,
+     "funnel_gp2": 1137,
+     "revenue_gross": 3541
     },
     {
      "brand": "lekmer",
@@ -13923,7 +13862,11 @@
      "spend": 0,
      "gp2": 0,
      "gp3": 0,
-     "gp2_roas": null
+     "gp2_roas": null,
+     "gp2_basis": "funnel",
+     "gm2": null,
+     "funnel_gp2": 0,
+     "revenue_gross": 0
     }
    ],
    "markets": [
@@ -14038,81 +13981,117 @@
      "market": "SE",
      "channel": "google",
      "spend": 679920,
-     "gp2": 1068014,
-     "gp3": 388094,
-     "gp2_roas": 1.57
+     "gp2": 882117,
+     "gp3": 202198,
+     "gp2_roas": 1.3,
+     "gp2_basis": "norce",
+     "gm2": 0.2543,
+     "funnel_gp2": 1068014,
+     "revenue_gross": 3468805
     },
     {
      "brand": "babyshop",
      "market": "SE",
      "channel": "meta",
      "spend": 37135,
-     "gp2": 91637,
-     "gp3": 54502,
-     "gp2_roas": 2.47
+     "gp2": 68636,
+     "gp3": 31501,
+     "gp2_roas": 1.85,
+     "gp2_basis": "norce",
+     "gm2": 0.2543,
+     "funnel_gp2": 91637,
+     "revenue_gross": 269901
     },
     {
      "brand": "babyshop",
      "market": "NO",
      "channel": "google",
      "spend": 361899,
-     "gp2": 552855,
-     "gp3": 190957,
-     "gp2_roas": 1.53
+     "gp2": 568642,
+     "gp3": 206743,
+     "gp2_roas": 1.57,
+     "gp2_basis": "norce",
+     "gm2": 0.327,
+     "funnel_gp2": 552855,
+     "revenue_gross": 1738968
     },
     {
      "brand": "babyshop",
      "market": "NO",
      "channel": "meta",
      "spend": 26468,
-     "gp2": 29339,
-     "gp3": 2870,
-     "gp2_roas": 1.11
+     "gp2": 27447,
+     "gp3": 979,
+     "gp2_roas": 1.04,
+     "gp2_basis": "norce",
+     "gm2": 0.327,
+     "funnel_gp2": 29339,
+     "revenue_gross": 83936
     },
     {
      "brand": "babyshop",
      "market": "FI",
      "channel": "google",
      "spend": 64937,
-     "gp2": 95287,
-     "gp3": 30350,
-     "gp2_roas": 1.47
+     "gp2": 100775,
+     "gp3": 35838,
+     "gp2_roas": 1.55,
+     "gp2_basis": "norce",
+     "gm2": 0.2841,
+     "funnel_gp2": 95287,
+     "revenue_gross": 354716
     },
     {
      "brand": "babyshop",
      "market": "FI",
      "channel": "meta",
      "spend": 28670,
-     "gp2": 23454,
-     "gp3": -5216,
-     "gp2_roas": 0.82
+     "gp2": 17607,
+     "gp3": -11063,
+     "gp2_roas": 0.61,
+     "gp2_basis": "norce",
+     "gm2": 0.2841,
+     "funnel_gp2": 23454,
+     "revenue_gross": 61975
     },
     {
      "brand": "babyshop",
      "market": "DK",
      "channel": "google",
      "spend": 89131,
-     "gp2": 137793,
-     "gp3": 48662,
-     "gp2_roas": 1.55
+     "gp2": 94780,
+     "gp3": 5649,
+     "gp2_roas": 1.06,
+     "gp2_basis": "norce",
+     "gm2": 0.1986,
+     "funnel_gp2": 137793,
+     "revenue_gross": 477241
     },
     {
      "brand": "babyshop",
      "market": "DK",
      "channel": "meta",
      "spend": 10007,
-     "gp2": 4500,
-     "gp3": -5507,
-     "gp2_roas": 0.45
+     "gp2": 2577,
+     "gp3": -7430,
+     "gp2_roas": 0.26,
+     "gp2_basis": "norce",
+     "gm2": 0.1986,
+     "funnel_gp2": 4500,
+     "revenue_gross": 12974
     },
     {
      "brand": "babyshop",
      "market": "ROW",
      "channel": "google",
      "spend": 36311,
-     "gp2": 33874,
-     "gp3": -2437,
-     "gp2_roas": 0.93
+     "gp2": 30333,
+     "gp3": -5978,
+     "gp2_roas": 0.84,
+     "gp2_basis": "norce",
+     "gm2": 0.2885,
+     "funnel_gp2": 33874,
+     "revenue_gross": 105140
     },
     {
      "brand": "babyshop",
@@ -14121,16 +14100,24 @@
      "spend": 0,
      "gp2": 0,
      "gp3": 0,
-     "gp2_roas": null
+     "gp2_roas": null,
+     "gp2_basis": "norce",
+     "gm2": 0.2885,
+     "funnel_gp2": 0,
+     "revenue_gross": 0
     },
     {
      "brand": "lekmer",
      "market": "SE",
      "channel": "google",
      "spend": 44798,
-     "gp2": 68183,
-     "gp3": 23385,
-     "gp2_roas": 1.52
+     "gp2": 51482,
+     "gp3": 6684,
+     "gp2_roas": 1.15,
+     "gp2_basis": "norce",
+     "gm2": 0.2292,
+     "funnel_gp2": 68183,
+     "revenue_gross": 224615
     },
     {
      "brand": "lekmer",
@@ -14139,34 +14126,50 @@
      "spend": 0,
      "gp2": 0,
      "gp3": 0,
-     "gp2_roas": null
+     "gp2_roas": null,
+     "gp2_basis": "norce",
+     "gm2": 0.2292,
+     "funnel_gp2": 0,
+     "revenue_gross": 0
     },
     {
      "brand": "lekmer",
      "market": "NO",
      "channel": "google",
      "spend": 31920,
-     "gp2": 33721,
-     "gp3": 1800,
-     "gp2_roas": 1.06
+     "gp2": 30729,
+     "gp3": -1191,
+     "gp2_roas": 0.96,
+     "gp2_basis": "norce",
+     "gm2": 0.3272,
+     "funnel_gp2": 33721,
+     "revenue_gross": 93917
     },
     {
      "brand": "lekmer",
      "market": "FI",
      "channel": "google",
      "spend": 0,
-     "gp2": 8948,
-     "gp3": 8948,
-     "gp2_roas": null
+     "gp2": 11804,
+     "gp3": 11804,
+     "gp2_roas": null,
+     "gp2_basis": "norce",
+     "gm2": 0.2851,
+     "funnel_gp2": 8948,
+     "revenue_gross": 41402
     },
     {
      "brand": "lekmer",
      "market": "DK",
      "channel": "google",
      "spend": 7885,
-     "gp2": 3049,
-     "gp3": -4835,
-     "gp2_roas": 0.39
+     "gp2": 2329,
+     "gp3": -5555,
+     "gp2_roas": 0.3,
+     "gp2_basis": "norce",
+     "gm2": 0.2161,
+     "funnel_gp2": 3049,
+     "revenue_gross": 10778
     },
     {
      "brand": "lekmer",
@@ -14175,7 +14178,11 @@
      "spend": 0,
      "gp2": 0,
      "gp3": 0,
-     "gp2_roas": null
+     "gp2_roas": null,
+     "gp2_basis": "funnel",
+     "gm2": null,
+     "funnel_gp2": 0,
+     "revenue_gross": 0
     },
     {
      "brand": "lekmer",
@@ -14184,7 +14191,11 @@
      "spend": 0,
      "gp2": 0,
      "gp3": 0,
-     "gp2_roas": null
+     "gp2_roas": null,
+     "gp2_basis": "funnel",
+     "gm2": null,
+     "funnel_gp2": 0,
+     "revenue_gross": 0
     }
    ],
    "markets": [
@@ -14299,81 +14310,117 @@
      "market": "SE",
      "channel": "google",
      "spend": 1741949,
-     "gp2": 2787273,
-     "gp3": 1045324,
-     "gp2_roas": 1.6
+     "gp2": 2256978,
+     "gp3": 515029,
+     "gp2_roas": 1.3,
+     "gp2_basis": "norce",
+     "gm2": 0.2543,
+     "funnel_gp2": 2787273,
+     "revenue_gross": 8875256
     },
     {
      "brand": "babyshop",
      "market": "SE",
      "channel": "meta",
      "spend": 85894,
-     "gp2": 209112,
-     "gp3": 123218,
-     "gp2_roas": 2.43
+     "gp2": 151801,
+     "gp3": 65908,
+     "gp2_roas": 1.77,
+     "gp2_basis": "norce",
+     "gm2": 0.2543,
+     "funnel_gp2": 209112,
+     "revenue_gross": 596939
     },
     {
      "brand": "babyshop",
      "market": "NO",
      "channel": "google",
      "spend": 968435,
-     "gp2": 1425994,
-     "gp3": 457558,
-     "gp2_roas": 1.47
+     "gp2": 1473135,
+     "gp3": 504700,
+     "gp2_roas": 1.52,
+     "gp2_basis": "norce",
+     "gm2": 0.327,
+     "funnel_gp2": 1425994,
+     "revenue_gross": 4505000
     },
     {
      "brand": "babyshop",
      "market": "NO",
      "channel": "meta",
      "spend": 54418,
-     "gp2": 52125,
-     "gp3": -2293,
-     "gp2_roas": 0.96
+     "gp2": 51270,
+     "gp3": -3148,
+     "gp2_roas": 0.94,
+     "gp2_basis": "norce",
+     "gm2": 0.327,
+     "funnel_gp2": 52125,
+     "revenue_gross": 156789
     },
     {
      "brand": "babyshop",
      "market": "FI",
      "channel": "google",
      "spend": 165833,
-     "gp2": 246987,
-     "gp3": 81154,
-     "gp2_roas": 1.49
+     "gp2": 251025,
+     "gp3": 85191,
+     "gp2_roas": 1.51,
+     "gp2_basis": "norce",
+     "gm2": 0.2841,
+     "funnel_gp2": 246987,
+     "revenue_gross": 883579
     },
     {
      "brand": "babyshop",
      "market": "FI",
      "channel": "meta",
      "spend": 50463,
-     "gp2": 41496,
-     "gp3": -8967,
-     "gp2_roas": 0.82
+     "gp2": 31849,
+     "gp3": -18614,
+     "gp2_roas": 0.63,
+     "gp2_basis": "norce",
+     "gm2": 0.2841,
+     "funnel_gp2": 41496,
+     "revenue_gross": 112104
     },
     {
      "brand": "babyshop",
      "market": "DK",
      "channel": "google",
      "spend": 210052,
-     "gp2": 308191,
-     "gp3": 98139,
-     "gp2_roas": 1.47
+     "gp2": 208979,
+     "gp3": -1073,
+     "gp2_roas": 0.99,
+     "gp2_basis": "norce",
+     "gm2": 0.1986,
+     "funnel_gp2": 308191,
+     "revenue_gross": 1052261
     },
     {
      "brand": "babyshop",
      "market": "DK",
      "channel": "meta",
      "spend": 20466,
-     "gp2": 12007,
-     "gp3": -8459,
-     "gp2_roas": 0.59
+     "gp2": 5950,
+     "gp3": -14516,
+     "gp2_roas": 0.29,
+     "gp2_basis": "norce",
+     "gm2": 0.1986,
+     "funnel_gp2": 12007,
+     "revenue_gross": 29960
     },
     {
      "brand": "babyshop",
      "market": "ROW",
      "channel": "google",
      "spend": 136578,
-     "gp2": 101241,
-     "gp3": -35337,
-     "gp2_roas": 0.74
+     "gp2": 87877,
+     "gp3": -48702,
+     "gp2_roas": 0.64,
+     "gp2_basis": "norce",
+     "gm2": 0.2885,
+     "funnel_gp2": 101241,
+     "revenue_gross": 304598
     },
     {
      "brand": "babyshop",
@@ -14382,16 +14429,24 @@
      "spend": 0,
      "gp2": 0,
      "gp3": 0,
-     "gp2_roas": null
+     "gp2_roas": null,
+     "gp2_basis": "norce",
+     "gm2": 0.2885,
+     "funnel_gp2": 0,
+     "revenue_gross": 0
     },
     {
      "brand": "lekmer",
      "market": "SE",
      "channel": "google",
      "spend": 153316,
-     "gp2": 237947,
-     "gp3": 84631,
-     "gp2_roas": 1.55
+     "gp2": 167375,
+     "gp3": 14059,
+     "gp2_roas": 1.09,
+     "gp2_basis": "norce",
+     "gm2": 0.2292,
+     "funnel_gp2": 237947,
+     "revenue_gross": 730258
     },
     {
      "brand": "lekmer",
@@ -14400,16 +14455,24 @@
      "spend": 0,
      "gp2": 0,
      "gp3": 0,
-     "gp2_roas": null
+     "gp2_roas": null,
+     "gp2_basis": "norce",
+     "gm2": 0.2292,
+     "funnel_gp2": 0,
+     "revenue_gross": 0
     },
     {
      "brand": "lekmer",
      "market": "NO",
      "channel": "google",
      "spend": 130394,
-     "gp2": 135434,
-     "gp3": 5040,
-     "gp2_roas": 1.04
+     "gp2": 117290,
+     "gp3": -13104,
+     "gp2_roas": 0.9,
+     "gp2_basis": "norce",
+     "gm2": 0.3272,
+     "funnel_gp2": 135434,
+     "revenue_gross": 358466
     },
     {
      "brand": "lekmer",
@@ -14418,25 +14481,37 @@
      "spend": 0,
      "gp2": 0,
      "gp3": 0,
-     "gp2_roas": null
+     "gp2_roas": null,
+     "gp2_basis": "norce",
+     "gm2": 0.3272,
+     "funnel_gp2": 0,
+     "revenue_gross": 0
     },
     {
      "brand": "lekmer",
      "market": "FI",
      "channel": "google",
      "spend": 0,
-     "gp2": 19490,
-     "gp3": 19490,
-     "gp2_roas": null
+     "gp2": 21503,
+     "gp3": 21503,
+     "gp2_roas": null,
+     "gp2_basis": "norce",
+     "gm2": 0.2851,
+     "funnel_gp2": 19490,
+     "revenue_gross": 75424
     },
     {
      "brand": "lekmer",
      "market": "DK",
      "channel": "google",
      "spend": 17461,
-     "gp2": 6744,
-     "gp3": -10717,
-     "gp2_roas": 0.39
+     "gp2": 4467,
+     "gp3": -12995,
+     "gp2_roas": 0.26,
+     "gp2_basis": "norce",
+     "gm2": 0.2161,
+     "funnel_gp2": 6744,
+     "revenue_gross": 20669
     },
     {
      "brand": "lekmer",
@@ -14445,7 +14520,11 @@
      "spend": 0,
      "gp2": 0,
      "gp3": 0,
-     "gp2_roas": null
+     "gp2_roas": null,
+     "gp2_basis": "funnel",
+     "gm2": null,
+     "funnel_gp2": 0,
+     "revenue_gross": 0
     },
     {
      "brand": "lekmer",
@@ -14454,7 +14533,11 @@
      "spend": 0,
      "gp2": 0,
      "gp3": 0,
-     "gp2_roas": null
+     "gp2_roas": null,
+     "gp2_basis": "funnel",
+     "gm2": null,
+     "funnel_gp2": 0,
+     "revenue_gross": 0
     }
    ],
    "markets": [
@@ -14566,10 +14649,10 @@
    "brand": "babyshop",
    "market": "SE",
    "channel": "google",
-   "avg": 1.6,
-   "marginal": 1.74,
-   "b": 1.09,
-   "r2": 0.22,
+   "avg": 1.3,
+   "marginal": 1.25,
+   "b": 0.96,
+   "r2": 0.21,
    "n": 28,
    "spend_cv": 0.34,
    "confidence": "medium"
@@ -14578,9 +14661,9 @@
    "brand": "babyshop",
    "market": "SE",
    "channel": "meta",
-   "avg": 2.43,
-   "marginal": 0.17,
-   "b": 0.07,
+   "avg": 1.77,
+   "marginal": 0.16,
+   "b": 0.09,
    "r2": 0.0,
    "n": 27,
    "spend_cv": 0.28,
@@ -14590,9 +14673,9 @@
    "brand": "babyshop",
    "market": "NO",
    "channel": "google",
-   "avg": 1.47,
-   "marginal": 1.28,
-   "b": 0.87,
+   "avg": 1.52,
+   "marginal": 1.31,
+   "b": 0.86,
    "r2": 0.79,
    "n": 28,
    "spend_cv": 0.42,
@@ -14602,11 +14685,11 @@
    "brand": "babyshop",
    "market": "NO",
    "channel": "meta",
-   "avg": 0.96,
-   "marginal": 1.44,
-   "b": 1.76,
-   "r2": 0.24,
-   "n": 26,
+   "avg": 0.94,
+   "marginal": 1.41,
+   "b": 1.5,
+   "r2": 0.27,
+   "n": 27,
    "spend_cv": 0.28,
    "confidence": "medium"
   },
@@ -14614,10 +14697,10 @@
    "brand": "babyshop",
    "market": "FI",
    "channel": "google",
-   "avg": 1.49,
-   "marginal": 1.23,
-   "b": 0.83,
-   "r2": 0.26,
+   "avg": 1.51,
+   "marginal": 1.03,
+   "b": 0.68,
+   "r2": 0.23,
    "n": 28,
    "spend_cv": 0.33,
    "confidence": "medium"
@@ -14626,22 +14709,22 @@
    "brand": "babyshop",
    "market": "FI",
    "channel": "meta",
-   "avg": 0.82,
-   "marginal": 0.19,
-   "b": 0.23,
-   "r2": 0.01,
-   "n": 25,
-   "spend_cv": 0.34,
+   "avg": 0.63,
+   "marginal": 0.08,
+   "b": 0.12,
+   "r2": 0.0,
+   "n": 26,
+   "spend_cv": 0.33,
    "confidence": "low"
   },
   {
    "brand": "babyshop",
    "market": "DK",
    "channel": "google",
-   "avg": 1.47,
-   "marginal": 0.88,
-   "b": 0.6,
-   "r2": 0.41,
+   "avg": 0.99,
+   "marginal": 0.51,
+   "b": 0.51,
+   "r2": 0.38,
    "n": 28,
    "spend_cv": 0.4,
    "confidence": "medium"
@@ -14650,10 +14733,10 @@
    "brand": "babyshop",
    "market": "DK",
    "channel": "meta",
-   "avg": 0.59,
+   "avg": 0.29,
    "marginal": 0.0,
-   "b": -0.39,
-   "r2": 0.0,
+   "b": -0.52,
+   "r2": 0.01,
    "n": 16,
    "spend_cv": 0.15,
    "confidence": "low"
@@ -14662,13 +14745,13 @@
    "brand": "babyshop",
    "market": "ROW",
    "channel": "google",
-   "avg": 0.74,
-   "marginal": 0.34,
-   "b": 0.46,
-   "r2": 0.05,
+   "avg": 0.64,
+   "marginal": 0.4,
+   "b": 0.62,
+   "r2": 0.25,
    "n": 28,
    "spend_cv": 0.63,
-   "confidence": "low"
+   "confidence": "medium"
   },
   {
    "brand": "babyshop",
@@ -14685,10 +14768,10 @@
    "brand": "lekmer",
    "market": "SE",
    "channel": "google",
-   "avg": 1.55,
-   "marginal": 1.69,
-   "b": 1.09,
-   "r2": 0.59,
+   "avg": 1.09,
+   "marginal": 0.98,
+   "b": 0.9,
+   "r2": 0.67,
    "n": 28,
    "spend_cv": 0.56,
    "confidence": "high"
@@ -14708,10 +14791,10 @@
    "brand": "lekmer",
    "market": "NO",
    "channel": "google",
-   "avg": 1.04,
-   "marginal": 0.88,
-   "b": 0.85,
-   "r2": 0.67,
+   "avg": 0.9,
+   "marginal": 0.74,
+   "b": 0.82,
+   "r2": 0.72,
    "n": 28,
    "spend_cv": 0.72,
    "confidence": "high"
@@ -14742,13 +14825,13 @@
    "brand": "lekmer",
    "market": "DK",
    "channel": "google",
-   "avg": 0.39,
-   "marginal": 0.39,
-   "b": 1.01,
-   "r2": 0.23,
+   "avg": 0.26,
+   "marginal": 0.17,
+   "b": 0.66,
+   "r2": 0.15,
    "n": 18,
    "spend_cv": 0.34,
-   "confidence": "medium"
+   "confidence": "low"
   },
   {
    "brand": "lekmer",
@@ -14774,6 +14857,7 @@
   }
  ],
  "notes": [
+  "GP2 margin basis (Meta scoring, GP3, channel marginal): pacing's Norce model (merchandise \u2212 BC returns \u2212 BC COGS rate \u2212 shipping-model cost: pick & pack, freight) applied to Funnel channel revenue; Funnel's own GP2 is the fallback, labelled per row. Google's profit ROAS stays platform-reported: its conversion value is Babyshop's own profit definition, not this GP2.",
   "Platform-reported: Google ROAS = profit \u00f7 spend (conversion value is PROFIT in the Babyshop accounts); tROAS is on the same profit basis. Last 1\u20133 days are still filling in (conversion lag), so judge campaigns on L14, not yesterday.",
   "Google has no budget: spend is context, judged by incremental GP3. Google spend = Funnel de-duplicated SEK cost through yesterday; today = live API spend \u00d7 Norce FX. Babyshop SE/NO/FI/DK/ROW + Lekmer SE/NO/DK accounts. Any campaign limited by budget is flagged as an error.",
   "Lekmer has no Meta ad account in the warehouse (only Babyshop's, 2927326560764919), so Meta rows are Babyshop only. The approved 200 k Meta plan is Babyshop's.",

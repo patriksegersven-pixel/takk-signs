@@ -30,6 +30,8 @@
     '#bm-paid .pd-notes li{margin:2px 0}',
     '#bm-paid .pd-kpi-alert .val{color:var(--warn)}',
     '#bm-paid .pd-kpi-err .val{color:var(--down)}',
+    '#bm-paid .pd-alert{border:1px solid var(--down);background:var(--down-bg);color:var(--h);border-radius:8px;padding:10px 14px;margin:12px 0;font-size:13px}',
+    '#bm-paid .pd-alert b{color:var(--down)}',
     '#bm-paid .pd-guard{border:1px solid var(--accent);background:var(--accent-bg);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;display:grid;gap:4px}',
     '@media (max-width:600px){#bm-paid .bm-kpis{grid-template-columns:1fr 1fr}#bm-paid .pd-name{max-width:150px}#bm-paid .bm-kpi .val{font-size:20px}}'
   ].join('');
@@ -126,14 +128,31 @@
   }
 
   /* ── Guardrail ──────────────────────────────────────────────────────────── */
+  function hrPick(hr, state) {
+    if (!hr || typeof hr !== 'object') return hr;
+    var b = hr[state.brand && state.brand !== 'all' ? state.brand : 'all'];
+    if (!b || typeof b !== 'object' || !(b.all || b.SE)) return hr;       // unknown shape: show as-is
+    return b[state.market === 'all' ? 'all' : state.market] || null;
+  }
   function hrHtml(v) {
     if (v == null) return '<span class="muted">Not published by the pacing section yet.</span>';
     if (typeof v === 'number') return '<b>' + F.sek(v) + ' SEK</b>';
     if (typeof v !== 'object') return esc(v);
+    if (v.headroom_mtd !== undefined) {
+      var cls = function (x) { return x == null ? '' : x < 0 ? 'down' : 'up'; };
+      return '<b class="' + cls(v.headroom_remaining) + '">' + F.sek(v.headroom_remaining) + ' SEK</b> left this month' +
+        ' (<span class="' + cls(v.headroom_per_day) + '">' + F.sek(v.headroom_per_day) + '/day</span>) · to date ' +
+        '<span class="' + cls(v.headroom_mtd) + '">' + F.sek(v.headroom_mtd) + '</span> (spent ' + F.sek(v.actual_spend_mtd) +
+        ' of ' + F.sek(v.allowed_spend_mtd) + ' allowed) · earned COS ' + F.pct(v.earned_cos_mtd, 1) + ' vs ' + F.pct(v.cos_target, 1);
+    }
     return Object.keys(v).filter(function (k) { return v[k] == null || typeof v[k] !== 'object'; }).map(function (k) {
       var x = v[k];
       return esc(k.replace(/_/g, ' ')) + ': <b>' + (typeof x === 'number' ? (Math.abs(x) < 10 ? F.roas(x) : F.sek(x)) : esc(x)) + '</b>';
     }).join(' · ');
+  }
+  function marginOf(d, brand, market) {
+    var m = ((d.guardrail || {}).margins || {})[(brand || 'all') + ':' + (market || 'all')];
+    return m || {};
   }
   function guardrailHtml(d, state) {
     var g = d.guardrail || {}, inc = g.incrementality || {};
@@ -148,7 +167,9 @@
     var gc = cnt(d.google.campaigns), mc = cnt(d.meta.lines);
     var h = ['<div class="pd-guard">'];
     h.push('<div class="pd-guard-rule"><b>Rule:</b> ' + esc(g.rule || '') + '</div>');
-    h.push('<div><b>Spend headroom vs Finance GP3 target</b> <span class="muted">(pacing)</span>: ' + hrHtml(g.headroom) + '</div>');
+    h.push('<div><b>Spend headroom vs Finance GP3 target</b> <span class="muted">(pacing, all marketing)</span>: ' + hrHtml(hrPick(g.headroom, state)) + '</div>');
+    var mv = marginOf(d, state.brand === 'all' ? 'all' : state.brand, state.market);
+    h.push('<div class="muted">GP2 margin used: <b>' + F.pct(mv.gm2, 1) + '</b> ' + (mv.basis === 'norce' ? '(Norce basis: ' + esc(g.margin_basis_label || '') + ')' : '(Funnel export, fallback)') + '. Google profit ROAS stays platform-reported (Babyshop\'s own profit definition).</div>');
     h.push('<div class="muted">Signals now' + (state.market === 'all' ? '' : ' (' + esc(state.market) + ')') + ': Google ' + gc.more + ' campaigns earn &gt;1 incremental per extra krona, ' +
       gc.less + ' below 1 · Meta ' + mc.more + ' lines above, ' + mc.less + ' below.</div>');
     if ((g.budget_errors || []).length) h.push('<div class="bm-error">Limited by budget (budgets must never bind): ' + g.budget_errors.map(esc).join(', ') + '</div>');
@@ -264,6 +285,16 @@
     var m = d.meta, p = m.pacing, h = [];
     if (!metaOn(d, state)) return '<h3>Meta</h3><div class="bm-note warn">' + esc(d.meta_brand_note || 'No Lekmer Meta data.') + '</div>';
     if (state.brand === 'all' && d.meta_brand_note) h.push('<div class="bm-note" style="margin-top:12px">' + esc(d.meta_brand_note) + '</div>');
+    var rt = m.retargeting_check;
+    if (rt && !rt.running) {
+      var fb = rt.funnel_by_brand || {}, lk = fb.lekmer || {};
+      h.push('<div class="pd-alert"><b>Catalog retargeting is not running.</b> ' +
+        F.sek(rt.warehouse_mtd) + ' SEK spent so far in November against ' + F.sek(rt.plan_to_date) + ' planned to date (' +
+        F.sek(rt.plan_month) + ' for the month); ' + F.sek(rt.warehouse_prev_month) + ' in October. ' +
+        'Funnel books no Babyshop Meta cost as retargeting at all (its catalog campaigns land under prospecting). ' +
+        (lk.nov_ly ? 'Last November\'s ' + F.sek(lk.nov_ly) + ' SEK of Funnel retargeting was Lekmer\'s; ' : '') +
+        'Lekmer has no Meta cost this month' + (rt.lekmer_meta_last_month ? ' (last spend ' + esc(rt.lekmer_meta_last_month) + ')' : '') + '.</div>');
+    }
     var mk_ = MKTS.filter(function (x) { return inMkt(state, x) && p.market[x] && (sum(p.market[x].plan) || sum(p.market[x].actual)); });
     var mRows = mk_.map(function (x) { var r = p.market[x]; return { label: mk(x), plan: r.plan, actual: r.actual, month: sum(r.plan) }; });
     if (mRows.length > 1) {
@@ -289,14 +320,14 @@
     h.push('<div class="pd-sub">Approved 200 k SEK is the starting point, not a cap: Kuling 60 k / prospecting 20 k / catalog retargeting 120 k; SE 60 / NO 20 / FI 10 / DK 10. Move money between lines by the incremental marginal GP3 below.</div>');
     h.push('<div class="bm-grid-2"><div>' + pacingTable(mRows, d, 'Market') + '<div style="height:10px"></div>' + pacingTable(tRows, d, 'Campaign type') + '</div><div class="bm-chart"><canvas id="pd-m-chart"></canvas></div></div>');
     var lines = (m.lines || []).filter(function (l) { return inF(state, l); });
-    h.push('<h3>Meta lines · incremental marginal GP2 per krona</h3><div class="pd-sub">Market × campaign type, last 28 days. Platform-reported pixel revenue ROAS → marginal (28-day spend/revenue fit; "avg" = average ROAS used as an upper bound when the fit is weak) × Funnel GP2 margin × incrementality assumption. Above 1 the next krona adds GP3 (scale up), below 1 it loses GP3 (scale down). The last-click column is the Funnel GA4 view for the whole market, as a sanity check.</div>');
+    h.push('<h3>Meta lines · incremental marginal GP2 per krona</h3><div class="pd-sub">Market × campaign type, last 28 days. Platform-reported pixel revenue ROAS → marginal (28-day spend/revenue fit; "avg" = average ROAS used as an upper bound when the fit is weak) × GP2 margin (Norce basis, from pacing) × incrementality assumption. Above 1 the next krona adds GP3 (scale up), below 1 it loses GP3 (scale down). The last-click column is the Funnel GA4 view for the whole market, as a sanity check.</div>');
     h.push(BM.table(lines, [
       { key: 'market', label: 'Mkt', fmt: mk },
       { key: 'type', label: 'Line', fmt: function (v) { return esc(TYPE_LABEL[v] || v); } },
       { key: 'l28_spend', label: 'Spend L28', num: true, fmt: F.sek },
       { key: 'plan_month', label: 'Start plan / month', num: true, fmt: function (v) { return v == null ? '<span class="muted">–</span>' : F.sek(v); } },
       { key: 'avg_roas', label: 'Avg ROAS (platform)', num: true, fmt: F.roas },
-      { key: 'gp2_margin', label: 'GP2 margin', num: true, fmt: function (v) { return F.pct(v, 0); } },
+      { key: 'gp2_margin', label: 'GP2 margin', num: true, fmt: function (v, r) { return F.pct(v, 0) + ' <span class="muted" style="font-size:11px">' + (r.margin_basis === 'norce' ? 'Norce' : 'Funnel') + '</span>'; } },
       { key: 'lastclick_gp2_roas_market', label: 'Last-click GP2 ROAS', num: true, fmt: function (v) { return v == null ? '<span class="muted">–</span>' : F.roas(v); } },
       { key: 'marginal_roas', label: 'Marginal ROAS', num: true, fmt: function (v, r) { return v == null ? '–' : F.roas(v) + ' <span class="muted" style="font-size:11px">' + (r.marginal_basis === 'fit' ? 'fit' : 'avg') + '</span>'; } },
       { key: 'incrementality', label: 'Incr.', num: true, fmt: function (v) { return v == null ? '–' : F.pct(v, 0); } },
@@ -413,12 +444,12 @@
     });
     h.push('<div class="pd-head"><h3>GP3 by market × channel · where the next krona goes</h3>' +
       tabs('gp3', [['mtd', 'MTD'], ['l14', 'L14'], ['l28', 'L28']], ui.gp3Win) + '</div>');
-    h.push('<div class="pd-sub">GP3 = GP2 − spend. GP2 comes from the Funnel export (Norce has no cost data), split by channel on GA4 last click. Marginal ROAS = GP2 from the last krona, estimated from 28 days of daily spend/GP2 pairs — an estimate, not a forecast. Above 1.0 the last krona still adds GP3.</div>');
+    h.push('<div class="pd-sub">GP3 = GP2 − spend. GP2 = channel revenue (Funnel, GA4 last click) × the market\'s GP2 margin on pacing\'s Norce basis (merchandise − returns − COGS − shipping/pick &amp; pack); rows marked "Funnel" fall back to Funnel\'s own GP2. Marginal ROAS = GP2 from the last krona, estimated from 28 days of daily spend/GP2 pairs — an estimate, not a forecast. Above 1.0 the last krona still adds GP3.</div>');
     h.push(BM.table(rows, [
       { key: 'market', label: 'Mkt', fmt: mkb },
       { key: 'channel', label: 'Channel', fmt: function (v) { return esc(CH_LABEL[v] || v); } },
       { key: 'spend', label: 'Spend', num: true, fmt: F.sek },
-      { key: 'gp2', label: 'GP2 (Funnel)', num: true, fmt: F.sek },
+      { key: 'gp2', label: 'GP2', num: true, fmt: function (v, r) { return F.sek(v) + (r.gp2_basis === 'funnel' ? ' <span class="muted" style="font-size:11px">Funnel</span>' : ''); } },
       { key: 'gp3', label: 'GP3', num: true, fmt: function (v) { return '<span class="' + (v < 0 ? 'down' : 'up') + '">' + F.sek(v) + '</span>'; } },
       { key: 'gp2_roas', label: 'GP2 ROAS (avg)', num: true, fmt: function (v) { return v == null ? '–' : '<span class="' + (v < 1 ? 'down' : '') + '">' + F.roas(v) + '</span>'; } },
       { key: 'mroas', label: 'Marginal ROAS (est.)', num: true, fmt: function (v, r) {

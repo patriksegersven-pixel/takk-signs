@@ -27,7 +27,9 @@ Sources (all read-only):
 from __future__ import annotations
 
 import datetime
+import json
 import math
+import os
 import re
 from collections import defaultdict
 
@@ -213,13 +215,14 @@ def _funnel(d0: datetime.date, d1: datetime.date) -> list[dict]:
         "GROUP BY d, shop, mk, ch",
         [bigquery.ScalarQueryParameter("s", "DATE", d0),
          bigquery.ScalarQueryParameter("e", "DATE", d1)])
-    agg = defaultdict(lambda: {"cost": 0.0, "gp2": 0.0, "rev": 0.0, "txns": 0})
+    agg = defaultdict(lambda: {"cost": 0.0, "gp2": 0.0, "rev": 0.0, "grev": 0.0, "txns": 0})
     for r in rows:
         k = (r["d"], SHOP_BRAND[r["shop"]], _mk(r["mk"]), FUNNEL_CH[r["ch"]])
         a = agg[k]
         a["cost"] += float(r["cost"] or 0)
         a["gp2"] += float(r["gp2"] or 0)
         a["rev"] += float(r["net_rev"] or 0)
+        a["grev"] += float(r["rev"] or 0)
         a["txns"] += int(r["txns"] or 0)
     return [{"d": k[0], "brand": k[1], "market": k[2], "channel": k[3], **v} for k, v in agg.items()]
 
@@ -504,6 +507,47 @@ def _market_margins(d0: datetime.date, d1: datetime.date) -> dict[str, float]:
     return {m: round(g / v, 3) for m, (g, v) in acc.items() if v > 0}
 
 
+def pacing_snapshot() -> dict:
+    """Pacing's stored payload (pacing runs first in the job). BM_PACING_FILE points
+    at a local JSON instead, for dry runs before pacing's new keys reach Firestore."""
+    path = os.environ.get("BM_PACING_FILE")
+    if path:
+        return json.loads(open(path).read())
+    return bm.read_section("pacing") or {}
+
+
+class Margins:
+    """GP2 margin per brand × market. Pacing's Norce basis first (merchandise − BC
+    returns − BC COGS rate − shipping-model cost), the Funnel export as fallback."""
+    def __init__(self, pacing: dict, funnel: dict[str, float]):
+        self.p, self.f = pacing or {}, funnel
+
+    def get(self, brand: str | None, mk: str) -> tuple[float | None, str]:
+        src = (((self.p.get("brands") or {}).get(brand) or {}).get("margins") if brand
+               else self.p.get("margins")) or {}
+        m = src.get(mk) or {}
+        if m.get("gm2") is not None:
+            return float(m["gm2"]), "norce"
+        v = self.f.get(f"{brand or 'babyshop'}:{mk}")
+        return v, ("funnel" if v is not None else "none")
+
+
+def _meta_l2(today: datetime.date) -> list[dict]:
+    """Funnel Meta cost by Channel_Type_Level_2 and shop, month by month from last
+    November. How Funnel classifies the money (prospecting vs retargeting)."""
+    import bq_source as bs
+    from google.cloud import bigquery
+    rows = bs._rows(
+        f"WITH {bs._kv_cte('Date BETWEEN @s AND @e')} "
+        "SELECT FORMAT_DATE('%Y-%m', Date) ym, shop_new shop, Channel_Type_Level_2 l2, SUM(cost) cost "
+        "FROM kv_rows WHERE Channel_Type_Level_1 = 'Paid Social (Meta)' "
+        "GROUP BY ym, shop, l2 HAVING cost <> 0",
+        [bigquery.ScalarQueryParameter("s", "DATE", bm.BLACK_FRIDAY_LY.replace(day=1)),
+         bigquery.ScalarQueryParameter("e", "DATE", today)])
+    return [{"month": r["ym"], "brand": SHOP_BRAND.get(r["shop"], r["shop"]), "l2": r["l2"],
+             "cost": _r(r["cost"])} for r in rows]
+
+
 def find_headroom(p) -> tuple[str | None, object]:
     """Pacing's spend-headroom block, wherever it sits (key containing 'headroom')."""
     stack = [("", p)]
@@ -559,6 +603,20 @@ def build(ctx: dict) -> dict:
     except Exception as e:
         margins = {}
         errors.append(f"Funnel GP2 margin: {e}")
+    try:
+        pacing = pacing_snapshot()
+    except Exception as e:
+        pacing = {}
+        errors.append(f"pacing snapshot: {e}")
+    M = Margins(pacing, margins)
+    if not pacing.get("margins"):
+        notes.append("Pacing's Norce-based GP2 margin was not in its snapshot, so the Funnel export "
+                     "margin is used (labelled 'Funnel') until it is.")
+    try:
+        meta_l2 = _meta_l2(today)
+    except Exception as e:
+        meta_l2 = []
+        errors.append(f"Funnel Meta channel split: {e}")
     try:
         norce = _norce(d0, yday)
     except Exception as e:
@@ -802,7 +860,7 @@ def build(ctx: dict) -> dict:
             continue
         fit = _marginal(prs)
         inc = bm.INCREMENTALITY.get(f"meta_{t}")
-        mg = margins.get(f"babyshop:{mk_}")
+        mg, mb = M.get("babyshop", mk_)
         if fit.get("marginal") is not None and fit["confidence"] in ("medium", "high"):
             basis, mrev = "fit", fit["marginal"]
         else:
@@ -823,7 +881,7 @@ def build(ctx: dict) -> dict:
             "brand": "babyshop", "market": mk_, "type": t, "l28_spend": _r(sp), "mtd_spend": _r(mtd_sp),
             "plan_month": (_r(bm.META_PLAN_BY_TYPE[t] * bm.META_PLAN_MARKET_SHARE.get(mk_, 0))
                            if t in bm.META_PLAN_BY_TYPE else None),
-            "avg_roas": fit.get("avg"), "gp2_margin": mg,
+            "avg_roas": fit.get("avg"), "gp2_margin": mg, "margin_basis": mb,
             "avg_gp2_roas_platform": None if None in (fit.get("avg"), mg) else round(fit["avg"] * mg, 2),
             "lastclick_gp2_roas_market": _div(*lc[mk_]) if lc[mk_][1] else None,
             "marginal_roas": mrev, "marginal_basis": basis, "fit": fit,
@@ -917,10 +975,18 @@ def build(ctx: dict) -> dict:
         for r in funnel:
             if s.isoformat() <= r["d"] <= e.isoformat():
                 a = acc[(r["brand"], r["market"], r["channel"])]
-                a["cost"] += r["cost"]; a["gp2"] += r["gp2"]; a["rev"] += r["rev"]
+                a["cost"] += r["cost"]; a["fgp2"] += r["gp2"]; a["rev"] += r["rev"]
+                a["grev"] += r["grev"]
+        for (b_, m_, _c), v in acc.items():        # GP2 on the chosen margin basis
+            gm, mb = M.get(b_, m_)
+            v["gp2"] = v["grev"] * gm if mb == "norce" else v["fgp2"]
+            v["basis"] = "norce" if mb == "norce" else "funnel"
+            v["gm2"] = gm if mb == "norce" else None
         gp3[key] = {"from": s.isoformat(), "to": e.isoformat(), "rows": [
             {"brand": k[0], "market": k[1], "channel": k[2], "spend": _r(v["cost"]), "gp2": _r(v["gp2"]),
-             "gp3": _r(v["gp2"] - v["cost"]), "gp2_roas": _div(v["gp2"], v["cost"])}
+             "gp3": _r(v["gp2"] - v["cost"]), "gp2_roas": _div(v["gp2"], v["cost"]),
+             "gp2_basis": v["basis"], "gm2": v["gm2"], "funnel_gp2": _r(v["fgp2"]),
+             "revenue_gross": _r(v["grev"])}
             for k, v in sorted(acc.items(), key=lambda kv: (BRANDS.index(kv[0][0]), MKTS.index(kv[0][1]), kv[0][2]))]}
         # Actual sales anchor per market: Norce ordered revenue vs total paid spend.
         mk_acc = defaultdict(lambda: defaultdict(float))
@@ -939,16 +1005,29 @@ def build(ctx: dict) -> dict:
     pairs = defaultdict(list)
     for r in funnel:
         if r["d"] >= l28[0].isoformat():
-            pairs[(r["brand"], r["market"], r["channel"])].append((r["cost"], r["gp2"]))
+            gm, mb = M.get(r["brand"], r["market"])
+            pairs[(r["brand"], r["market"], r["channel"])].append(
+                (r["cost"], r["grev"] * gm if mb == "norce" else r["gp2"]))
     marginal = [{"brand": k[0], "market": k[1], "channel": k[2], **_marginal(v)}
                 for k, v in sorted(pairs.items(), key=lambda kv: (BRANDS.index(kv[0][0]), MKTS.index(kv[0][1]), kv[0][2]))]
 
     # ── Portfolio guardrail (pacing's spend headroom) ───────────────────────
-    hr_path, hr = None, None
-    try:
-        hr_path, hr = find_headroom(bm.read_section("pacing") or {})
-    except Exception as e:
-        errors.append(f"pacing snapshot: {e}")
+    HR_KEYS = ("headroom_mtd", "headroom_remaining", "headroom_per_day", "allowed_spend_mtd",
+               "actual_spend_mtd", "allowed_spend_remaining", "earned_cos_mtd", "cos_target")
+    pick = lambda d: {k: d.get(k) for k in HR_KEYS if k in d} if isinstance(d, dict) else None
+    if isinstance(pacing.get("headroom"), dict):
+        hr_path = "headroom[market] / brands[b].headroom[market]"
+        hr = {"all": {m: pick(v) for m, v in pacing["headroom"].items()}}
+        for b_ in BRANDS:
+            bh = ((pacing.get("brands") or {}).get(b_) or {}).get("headroom") or {}
+            hr[b_] = {m: pick(v) for m, v in bh.items()}
+    else:
+        hr_path, hr = find_headroom(pacing)
+    margin_view = {}
+    for b_ in [None] + BRANDS:
+        for m_ in ["all"] + MKTS:
+            gm, mb = M.get(b_, m_)
+            margin_view[f"{b_ or 'all'}:{m_}"] = {"gm2": gm, "basis": mb}
     def _opps(rows, key):
         up = [r for r in rows if (r.get("inc_marginal") or 0) > 1 + NOISE]
         dn = [r for r in rows if r.get("inc_marginal") is not None and r["inc_marginal"] < 1 - NOISE]
@@ -960,12 +1039,44 @@ def build(ctx: dict) -> dict:
         "headroom": hr, "headroom_path": hr_path,
         "google": _opps(campaigns, "inc_marginal"), "meta": _opps(meta_lines, "inc_marginal"),
         "budget_errors": [c["name"] for c in campaigns if c["budget_limited"]],
+        "margins": margin_view,
+        "margin_basis_label": ((pacing.get("margins") or {}).get("all") or {}).get("basis")
+                              or "Funnel export GP2 ÷ net revenue",
         "incrementality": bm.INCREMENTALITY, "cos_target": bm.COS_TARGET,
     }
 
+    # ── Retargeting check (Funnel's channel split vs the warehouse campaigns) ─
+    cur_m, prev_m = today.strftime("%Y-%m"), (bm.MONTH_START - datetime.timedelta(days=1)).strftime("%Y-%m")
+    ly_m = bm.BLACK_FRIDAY_LY.strftime("%Y-%m")
+    is_rt = lambda l2: bool(re.search(r"retarget|remarket|dpa|catalog", l2 or "", re.I))
+    f_rt = lambda ym, b_="babyshop": sum(r["cost"] or 0 for r in meta_l2
+                                         if r["month"] == ym and r["brand"] == b_ and is_rt(r["l2"]))
+    wh_rt = lambda lo, hi: _r(sum(r["spend"] for r in meta if r["type"] == "retargeting" and lo <= r["d"] <= hi))
+    n_days = (min(today, bm.MONTH_END) - bm.MONTH_START).days
+    rt_plan_td = _r(sum(m_plan_type["retargeting"][:max(n_days, 0)]))
+    lek_months = sorted({r["month"] for r in meta_l2 if r["brand"] == "lekmer" and r["cost"]})
+    retargeting = {
+        "funnel_nov_ly": f_rt(ly_m), "funnel_prev_month": f_rt(prev_m), "funnel_mtd": f_rt(cur_m),
+        "funnel_by_brand": {b_: {"nov_ly": f_rt(ly_m, b_), "prev_month": f_rt(prev_m, b_),
+                                 "mtd": f_rt(cur_m, b_)} for b_ in BRANDS},
+        "lekmer_meta_last_month": lek_months[-1] if lek_months else None,
+        "lekmer_meta_mtd": sum(r["cost"] or 0 for r in meta_l2
+                               if r["brand"] == "lekmer" and r["month"] == cur_m),
+        "warehouse_prev_month": wh_rt(prev_m + "-01", prev_m + "-31"),
+        "warehouse_mtd": wh_rt(bm.MONTH_START.isoformat(), today_iso),
+        "plan_month": bm.META_PLAN_BY_TYPE["retargeting"], "plan_to_date": rt_plan_td,
+        "funnel_split": meta_l2,
+    }
+    retargeting["running"] = bool(retargeting["funnel_mtd"]) or \
+        (retargeting["warehouse_mtd"] or 0) >= 0.25 * (rt_plan_td or 1)
+
     # ── Notes ────────────────────────────────────────────────────────────────
     notes += [
-"Platform-reported: Google ROAS = profit ÷ spend (conversion value is PROFIT in the Babyshop accounts); "
+        "GP2 margin basis (Meta scoring, GP3, channel marginal): pacing's Norce model (merchandise − "
+        "BC returns − BC COGS rate − shipping-model cost: pick & pack, freight) applied to Funnel "
+        "channel revenue; Funnel's own GP2 is the fallback, labelled per row. Google's profit ROAS "
+        "stays platform-reported: its conversion value is Babyshop's own profit definition, not this GP2.",
+        "Platform-reported: Google ROAS = profit ÷ spend (conversion value is PROFIT in the Babyshop accounts); "
         "tROAS is on the same profit basis. Last 1–3 days are still filling in (conversion lag), "
         "so judge campaigns on L14, not yesterday.",
         "Google has no budget: spend is context, judged by incremental GP3. Google spend = Funnel "
@@ -1018,6 +1129,7 @@ def build(ctx: dict) -> dict:
                    "post_bf_by_brand": dict(post_bf_by_brand),
                    "accounts": g["accounts"], "cooldown_days": COOLDOWN_DAYS},
         "meta": {"pacing": meta_pacing, "lines": meta_lines, "margins": margins,
+                 "retargeting_check": retargeting,
                  "campaigns": meta_campaigns, "adsets": meta_adsets,
                  "unclassified": unclassified, "type_rules": rules_text,
                  "products": meta_products},
