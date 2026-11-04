@@ -1,0 +1,1754 @@
+{
+ "section": "insights",
+ "generated_at": "2026-11-04T15:07:08+01:00",
+ "period": {
+  "from": "2026-11-01",
+  "to": "2026-11-30"
+ },
+ "today": "2026-11-04",
+ "cards": [
+  {
+   "created": "2026-11-04",
+   "lever": "other",
+   "market": "DK",
+   "confidence": "medium",
+   "headline": "DK is 15 % behind GP3 target: move 5k SEK of DK Meta prospecting into DK catalogue retargeting",
+   "action": "Hold DK Google spend at plan (no budget lifts) and move 5k SEK of DK Meta prospecting into DK catalogue retargeting, which runs at 2× market ROAS.",
+   "rationale": "DK MTD GP3 37k vs 43k target. Meta DK ROAS 3.1 vs 16.7 in SE; retargeting DPA is the only DK Meta line above break-even.",
+   "impact": {
+    "gp3_sek": 6000.0,
+    "low_sek": 2000.0,
+    "high_sek": 11000.0,
+    "horizon": "to 18 Nov",
+    "basis": "5k SEK moved at ROAS 3.1 → ~6 (DPA), GP2 margin 45 %"
+   },
+   "evidence": [
+    {
+     "section": "pacing",
+     "metric": "DK MTD GP3",
+     "value": 36986
+    },
+    {
+     "section": "pacing",
+     "metric": "DK GP3 target to date",
+     "value": 43405
+    },
+    {
+     "section": "creatives",
+     "metric": "DK Meta ROAS (7 d)",
+     "value": 3.11
+    }
+   ],
+   "status": "proposed",
+   "source": "agent",
+   "owner": "",
+   "id": "20261104-1227ebab",
+   "created_at": "2026-11-04T15:09:45+01:00",
+   "decided_by": null,
+   "decided_at": null,
+   "outcome": null,
+   "history": []
+  },
+  {
+   "created": "2026-11-04",
+   "lever": "creative",
+   "market": "FI",
+   "confidence": "high",
+   "headline": "Pause 2 Kill creatives in FI (Kuling winter wear video) and shift spend to the FI catalogue ad",
+   "action": "Pause the Kuling Chamonix overall video and the second Kill ad in KIR | FI-Kuling-evergreen; raise the FI catalogue ad set by the same ~400 SEK/day.",
+   "impact": {
+    "gp3_sek": 3500.0,
+    "low_sek": 1500.0,
+    "high_sek": 6000.0,
+    "horizon": "next 14 days",
+    "basis": "2.9k SEK/7 d at ROAS 1.3 moved to DPA at ROAS 5.8"
+   },
+   "evidence": [
+    {
+     "section": "creatives",
+     "metric": "Kill spend FI, 7 d",
+     "value": 2945
+    },
+    {
+     "section": "creatives",
+     "metric": "FI catalogue ad ROAS",
+     "value": 5.77
+    },
+    {
+     "section": "creatives",
+     "metric": "Kuling Chamonix ROAS vs start",
+     "value": "25 %"
+    }
+   ],
+   "status": "proposed",
+   "source": "agent",
+   "owner": "",
+   "id": "20261104-3774c2d2",
+   "created_at": "2026-11-04T15:09:45+01:00",
+   "decided_by": null,
+   "decided_at": null,
+   "outcome": null,
+   "history": []
+  },
+  {
+   "created": "2026-11-04",
+   "lever": "google_troas",
+   "market": "NO",
+   "confidence": "low",
+   "headline": "NO marketing cost is 37 % over plan: check the 4 Nov NO tROAS steps (+49 %, +70 %) landed as intended",
+   "action": "Verify ps-dsa-no (2.20 → 3.28) and p-shopping-no-last-season (2.44 → 4.14) in the Ads UI; if they were meant as +15 %, correct them via apply_troas.py --override-cooldown with a note.",
+   "impact": {
+    "gp3_sek": 0.0,
+    "low_sek": -15000.0,
+    "high_sek": 20000.0,
+    "horizon": "rest of November",
+    "basis": "too-high tROAS throttles NO volume before Black Week; too-low wastes spend"
+   },
+   "evidence": [
+    {
+     "section": "pacing",
+     "metric": "NO marketing cost vs plan",
+     "value": "+37 %"
+    },
+    {
+     "section": "bq",
+     "metric": "roas_sims.target_changes steps > 20 %",
+     "value": 4
+    }
+   ],
+   "status": "proposed",
+   "source": "agent",
+   "owner": "",
+   "id": "20261104-afa33290",
+   "created_at": "2026-11-04T15:09:45+01:00",
+   "decided_by": null,
+   "decided_at": null,
+   "outcome": null,
+   "history": []
+  },
+  {
+   "created": "2026-11-04",
+   "lever": "offer",
+   "market": "SE",
+   "confidence": "medium",
+   "headline": "Singles Day (11 Nov) has no SE offer in the calendar: run a Kuling 20 % on outerwear 10–11 Nov",
+   "action": "Agree with the offer owner today; if yes, log it below and run the ads-assets routine for promotion assets by 9 Nov.",
+   "impact": {
+    "gp3_sek": 25000.0,
+    "low_sek": 5000.0,
+    "high_sek": 45000.0,
+    "horizon": "10–11 Nov",
+    "basis": "LY Singles Day +38 % SE orders vs adjacent days; GP2/unit after 20 % ≈ 210 SEK"
+   },
+   "evidence": [
+    {
+     "section": "pacing",
+     "metric": "Singles Day event in Nov shape",
+     "value": "2026-11-11"
+    },
+    {
+     "section": "pacing",
+     "metric": "SE GP3 MTD vs target",
+     "value": "+31 %"
+    }
+   ],
+   "status": "proposed",
+   "source": "agent",
+   "owner": "",
+   "id": "20261104-331aaa55",
+   "created_at": "2026-11-04T15:09:45+01:00",
+   "decided_by": null,
+   "decided_at": null,
+   "outcome": null,
+   "history": []
+  },
+  {
+   "created": "2026-11-03",
+   "lever": "google_budget",
+   "market": "SE",
+   "confidence": "medium",
+   "status": "accepted",
+   "decided_by": "Kine",
+   "decided_at": "2026-11-03T10:12:00+01:00",
+   "headline": "SE generic hero categories is budget-limited at profit ROAS 2.6 vs tROAS 1.7: lift budget 20 %",
+   "action": "Raise ps-search-se-generic-hero-categories daily budget from 4 000 to 4 800 SEK.",
+   "impact": {
+    "gp3_sek": 9000.0,
+    "low_sek": 3000.0,
+    "high_sek": 15000.0,
+    "horizon": "next 7 days",
+    "basis": ""
+   },
+   "evidence": [
+    {
+     "section": "paid",
+     "metric": "profit ROAS 7 d",
+     "value": 2.6
+    },
+    {
+     "section": "paid",
+     "metric": "lost IS (budget)",
+     "value": "18 %"
+    }
+   ],
+   "source": "agent",
+   "owner": "",
+   "id": "20261103-7377793c",
+   "created_at": "2026-11-04T15:09:45+01:00",
+   "outcome": null,
+   "history": []
+  },
+  {
+   "created": "2026-11-02",
+   "lever": "stock",
+   "market": "all",
+   "confidence": "high",
+   "status": "done",
+   "decided_by": "Patrik",
+   "decided_at": "2026-11-02T09:01:00+01:00",
+   "done_at": "2026-11-02T14:30:00+01:00",
+   "headline": "Kuling Chamonix overall 98 is out of stock in 3 sizes but still in Shopping",
+   "action": "Exclude the OOS variants via the feed label until restocked (12 Nov).",
+   "impact": {
+    "gp3_sek": 2500.0,
+    "low_sek": 1000.0,
+    "high_sek": 4000.0,
+    "horizon": "until restock",
+    "basis": ""
+   },
+   "evidence": [
+    {
+     "section": "offers",
+     "metric": "ad spend 7 d on OOS variants",
+     "value": 2400
+    }
+   ],
+   "source": "agent",
+   "owner": "",
+   "id": "20261102-174e454b",
+   "created_at": "2026-11-04T15:09:45+01:00",
+   "outcome": null,
+   "history": []
+  },
+  {
+   "created": "2026-10-31",
+   "lever": "meta_allocation",
+   "market": "all",
+   "confidence": "medium",
+   "status": "rejected",
+   "decided_by": "Patrik",
+   "decided_at": "2026-10-31T11:00:00+01:00",
+   "headline": "Front-load Meta prospecting: 10k of the 20k in week 1",
+   "action": "Set prospecting campaign budget to 1 400 SEK/day 1–7 Nov.",
+   "impact": {
+    "gp3_sek": -3000.0,
+    "low_sek": -8000.0,
+    "high_sek": 4000.0,
+    "horizon": "November",
+    "basis": ""
+   },
+   "evidence": [
+    {
+     "section": "paid",
+     "metric": "prospecting ROAS Oct",
+     "value": 1.9
+    }
+   ],
+   "source": "agent",
+   "owner": "",
+   "id": "20261031-07e7041f",
+   "created_at": "2026-11-04T15:09:45+01:00",
+   "outcome": null,
+   "history": []
+  },
+  {
+   "created": "2026-10-30",
+   "lever": "creative",
+   "market": "SE",
+   "confidence": "high",
+   "status": "measured",
+   "decided_by": "Kine",
+   "decided_at": "2026-10-30T09:40:00+01:00",
+   "headline": "Scale the SE Kuling gift-guide carousel (ROAS 2.1× market)",
+   "action": "Duplicate into the Kuling always-on ad set with +50 % budget.",
+   "impact": {
+    "gp3_sek": 8000.0,
+    "low_sek": 3000.0,
+    "high_sek": 12000.0,
+    "horizon": "7 days",
+    "basis": ""
+   },
+   "outcome": {
+    "verdict": "worked",
+    "measured_gp3_sek": 6400,
+    "method": "Ad-level Meta spend × ROAS over 31 Oct–3 Nov vs the 4 days before, GP2 margin 45 % from pacing",
+    "measured_at": "2026-11-04T07:35:00+01:00",
+    "measured_by": "agent"
+   },
+   "evidence": [
+    {
+     "section": "creatives",
+     "metric": "rel ROAS",
+     "value": 2.1
+    }
+   ],
+   "source": "agent",
+   "owner": "",
+   "id": "20261030-7fddaeb1",
+   "created_at": "2026-11-04T15:09:45+01:00",
+   "history": []
+  }
+ ],
+ "stats": {
+  "cards": 8,
+  "decided": 4,
+  "accepted": 3,
+  "rejected": 1,
+  "measured": 1,
+  "worked": 1,
+  "hit_rate": 1.0,
+  "expected_gp3_measured": 8000.0,
+  "measured_gp3": 6400
+ },
+ "alerts": [
+  {
+   "rule": "gp3_behind",
+   "severity": "high",
+   "market": "DK",
+   "headline": "MTD GP3 -15 % vs target (37 k vs 43 k)",
+   "action": "Find the market/channel behind the gap in Paid media levers; cut spend where profit ROAS is below break-even before adding budget elsewhere.",
+   "section": "pacing",
+   "evidence": [
+    {
+     "section": "pacing",
+     "metric": "MTD GP3",
+     "value": 36644.0
+    },
+    {
+     "section": "pacing",
+     "metric": "GP3 target to date",
+     "value": 42885.0
+    },
+    {
+     "section": "pacing",
+     "metric": "GP3 landing",
+     "value": 526581.0
+    }
+   ],
+   "lever": "other",
+   "impact_sek": -6241.0
+  },
+  {
+   "rule": "negative_gp3",
+   "severity": "high",
+   "market": "DK",
+   "headline": "Meta DK lost 5507 GP3 in 14 days (GP2/spend 0.45)",
+   "action": "Every krona here costs margin: cut to the profitable campaigns/ad sets, or move the budget to a market where this channel is above break-even.",
+   "section": "paid",
+   "evidence": [
+    {
+     "section": "paid",
+     "metric": "GP3 14 d",
+     "value": -5507
+    },
+    {
+     "section": "paid",
+     "metric": "spend 14 d",
+     "value": 10007
+    }
+   ],
+   "lever": "meta_allocation",
+   "impact_sek": -5507.0
+  },
+  {
+   "rule": "negative_gp3",
+   "severity": "medium",
+   "market": "FI",
+   "headline": "Meta FI lost 5216 GP3 in 14 days (GP2/spend 0.82)",
+   "action": "Every krona here costs margin: cut to the profitable campaigns/ad sets, or move the budget to a market where this channel is above break-even.",
+   "section": "paid",
+   "evidence": [
+    {
+     "section": "paid",
+     "metric": "GP3 14 d",
+     "value": -5216
+    },
+    {
+     "section": "paid",
+     "metric": "spend 14 d",
+     "value": 28670
+    }
+   ],
+   "lever": "meta_allocation",
+   "impact_sek": -5216.0
+  },
+  {
+   "rule": "negative_gp3",
+   "severity": "medium",
+   "market": "ROW",
+   "headline": "Google ROW lost 2407 GP3 in 14 days (GP2/spend 0.93)",
+   "action": "Every krona here costs margin: cut to the profitable campaigns/ad sets, or move the budget to a market where this channel is above break-even.",
+   "section": "paid",
+   "evidence": [
+    {
+     "section": "paid",
+     "metric": "GP3 14 d",
+     "value": -2407
+    },
+    {
+     "section": "paid",
+     "metric": "spend 14 d",
+     "value": 36281
+    }
+   ],
+   "lever": "google_budget",
+   "impact_sek": -2407.0
+  },
+  {
+   "rule": "gp3_behind",
+   "severity": "medium",
+   "market": "FI",
+   "headline": "MTD GP3 -7 % vs target (33 k vs 35 k)",
+   "action": "Find the market/channel behind the gap in Paid media levers; cut spend where profit ROAS is below break-even before adding budget elsewhere.",
+   "section": "pacing",
+   "evidence": [
+    {
+     "section": "pacing",
+     "metric": "MTD GP3",
+     "value": 32972.0
+    },
+    {
+     "section": "pacing",
+     "metric": "GP3 target to date",
+     "value": 35270.0
+    },
+    {
+     "section": "pacing",
+     "metric": "GP3 landing",
+     "value": 476829.0
+    }
+   ],
+   "lever": "other",
+   "impact_sek": -2298.0
+  },
+  {
+   "rule": "cost_pacing",
+   "severity": "medium",
+   "market": "NO",
+   "headline": "Marketing cost +37 % vs plan to date (120 k vs 88 k)",
+   "action": "Over plan: keep the extra spend only where profit ROAS ≥ tROAS.",
+   "section": "pacing",
+   "evidence": [
+    {
+     "section": "pacing",
+     "metric": "marketing cost MTD",
+     "value": 119999.0
+    },
+    {
+     "section": "pacing",
+     "metric": "cost plan to date",
+     "value": 87504.0
+    }
+   ],
+   "lever": "google_budget",
+   "impact_sek": null
+  },
+  {
+   "rule": "spend_pacing",
+   "severity": "medium",
+   "market": "NO",
+   "headline": "Google NO spend +22 % vs plan to date (103 k vs 84 k)",
+   "action": "Keep the extra spend only where profit ROAS ≥ tROAS; otherwise trim budgets or let the raised tROAS bite.",
+   "section": "paid",
+   "evidence": [
+    {
+     "section": "paid",
+     "metric": "google spend to date",
+     "value": 103085
+    },
+    {
+     "section": "paid",
+     "metric": "google plan to date",
+     "value": 84226
+    }
+   ],
+   "lever": "google_budget",
+   "impact_sek": null
+  },
+  {
+   "rule": "spend_pacing",
+   "severity": "medium",
+   "market": "FI",
+   "headline": "Google FI spend -36 % vs plan to date (15 k vs 24 k)",
+   "action": "Under plan: if the campaigns are above break-even, loosen tROAS or lift budgets so the plan is used before Black Week.",
+   "section": "paid",
+   "evidence": [
+    {
+     "section": "paid",
+     "metric": "google spend to date",
+     "value": 15393
+    },
+    {
+     "section": "paid",
+     "metric": "google plan to date",
+     "value": 24064
+    }
+   ],
+   "lever": "google_budget",
+   "impact_sek": null
+  },
+  {
+   "rule": "spend_pacing",
+   "severity": "medium",
+   "market": "DK",
+   "headline": "Google DK spend -19 % vs plan to date (17 k vs 21 k)",
+   "action": "Under plan: if the campaigns are above break-even, loosen tROAS or lift budgets so the plan is used before Black Week.",
+   "section": "paid",
+   "evidence": [
+    {
+     "section": "paid",
+     "metric": "google spend to date",
+     "value": 17051
+    },
+    {
+     "section": "paid",
+     "metric": "google plan to date",
+     "value": 21056
+    }
+   ],
+   "lever": "google_budget",
+   "impact_sek": null
+  },
+  {
+   "rule": "kill_spending",
+   "severity": "medium",
+   "market": "FI",
+   "headline": "2 Kill creatives still active (2945 in 7 d)",
+   "action": "Pause in Meta Ads Manager and move the budget to Scale creatives: Kuling · winter wear · Unisex · Studio · Chamoni; Kuling · winter wear · Unisex · studio · coveral",
+   "section": "creatives",
+   "evidence": [
+    {
+     "section": "creatives",
+     "metric": "spend on Kill creatives, 7 d",
+     "value": 2945
+    },
+    {
+     "section": "creatives",
+     "metric": "their November spend",
+     "value": 978
+    }
+   ],
+   "lever": "creative",
+   "impact_sek": null
+  },
+  {
+   "rule": "kill_spending",
+   "severity": "medium",
+   "market": "SE",
+   "headline": "1 Kill creative still active (1113 in 7 d)",
+   "action": "Pause in Meta Ads Manager and move the budget to Scale creatives: Babyshop · Unisex · boyr standing in stairs · di",
+   "section": "creatives",
+   "evidence": [
+    {
+     "section": "creatives",
+     "metric": "spend on Kill creatives, 7 d",
+     "value": 1113
+    },
+    {
+     "section": "creatives",
+     "metric": "their November spend",
+     "value": 485
+    }
+   ],
+   "lever": "creative",
+   "impact_sek": null
+  },
+  {
+   "rule": "cost_pacing",
+   "severity": "low",
+   "market": "ROW",
+   "headline": "Marketing cost -83 % vs plan to date (13 k vs 76 k)",
+   "action": "Under plan while GP3 is ahead: room to loosen tROAS / lift budgets on campaigns earning above target.",
+   "section": "pacing",
+   "evidence": [
+    {
+     "section": "pacing",
+     "metric": "marketing cost MTD",
+     "value": 12809.0
+    },
+    {
+     "section": "pacing",
+     "metric": "cost plan to date",
+     "value": 75612.0
+    }
+   ],
+   "lever": "google_budget",
+   "impact_sek": null
+  },
+  {
+   "rule": "meta_allocation",
+   "severity": "low",
+   "market": "SE",
+   "headline": "Meta SE share 49 % vs plan 60 %",
+   "action": "Adjust the ad-set min/max spend shares so the market split follows the approved plan.",
+   "section": "paid",
+   "evidence": [
+    {
+     "section": "paid",
+     "metric": "Meta spend share",
+     "value": 0.492
+    },
+    {
+     "section": "paid",
+     "metric": "plan share",
+     "value": 0.6
+    }
+   ],
+   "lever": "meta_allocation",
+   "impact_sek": null
+  },
+  {
+   "rule": "meta_allocation",
+   "severity": "low",
+   "market": "FI",
+   "headline": "Meta FI share 26 % vs plan 10 %",
+   "action": "Adjust the ad-set min/max spend shares so the market split follows the approved plan.",
+   "section": "paid",
+   "evidence": [
+    {
+     "section": "paid",
+     "metric": "Meta spend share",
+     "value": 0.256
+    },
+    {
+     "section": "paid",
+     "metric": "plan share",
+     "value": 0.1
+    }
+   ],
+   "lever": "meta_allocation",
+   "impact_sek": null
+  },
+  {
+   "rule": "troas_big_step",
+   "severity": "low",
+   "market": "all",
+   "headline": "8 tROAS steps above ±20 % on 2026-11-04 (Babyshop NO, Babyshop SE, Lekmer DK, Lekmer NO, Lekmer SE)",
+   "action": "Check these were intended (apply_troas.py caps steps at 20 % unless overridden); the campaigns are listed in the change log.",
+   "section": "paid",
+   "evidence": [
+    {
+     "section": "bq",
+     "metric": "roas_sims.target_changes",
+     "value": "black-month-rec-x1.15-2026-11-04"
+    }
+   ],
+   "lever": "google_troas",
+   "impact_sek": null
+  }
+ ],
+ "rules": {
+  "gp3_behind_pct": 0.05,
+  "spend_pace_pct": 0.15,
+  "budget_limited_headroom": 1.1,
+  "kill_spend_sek": 500,
+  "oos_spend_sek": 300,
+  "troas_step_pct": 0.2
+ },
+ "events": [
+  {
+   "date": "2026-11-04",
+   "kind": "meta_budget",
+   "market": "all",
+   "title": "Meta November plan approved: 200k (Kuling 60k / prospecting 20k / retargeting 120k)",
+   "detail": "SE60/NO20/FI10/DK10",
+   "by": "Patrik",
+   "source": "manual",
+   "ts": "2026-11-04T11:02:00+01:00"
+  },
+  {
+   "date": "2026-11-04",
+   "when": "2026-11-04 15:07:39.007105",
+   "account": "Babyshop FI",
+   "market": "FI",
+   "source": "change_event",
+   "by": "patrik.segersven@gmail.com",
+   "kind": "status",
+   "title": "ps-search-fi-pb-all paused → enabled (Babyshop FI)",
+   "detail": "",
+   "campaign_id": "24424859733"
+  },
+  {
+   "date": "2026-11-04",
+   "when": "2026-11-04 15:04:50.303424",
+   "account": "Babyshop FI",
+   "market": "FI",
+   "source": "change_event",
+   "by": "patrik.segersven@gmail.com",
+   "kind": "google_budget",
+   "title": "New budget ps-search-fi-pb-all budget: 40/day (Babyshop FI)",
+   "detail": "",
+   "old": null,
+   "new": 40.0,
+   "campaign_id": "24424859733"
+  },
+  {
+   "date": "2026-11-04",
+   "when": "2026-11-04 15:04:50.303424",
+   "account": "Babyshop FI",
+   "market": "FI",
+   "source": "change_event",
+   "by": "patrik.segersven@gmail.com",
+   "kind": "status",
+   "detail": "",
+   "title": "ps-search-fi-pb-all created (paused, Babyshop FI)",
+   "campaign_id": "24424859733"
+  },
+  {
+   "date": "2026-11-04",
+   "when": "2026-11-04 14:07:39.489038",
+   "account": "Babyshop DK",
+   "market": "DK",
+   "source": "change_event",
+   "by": "patrik.segersven@gmail.com",
+   "kind": "status",
+   "title": "ps-search-dk-pb-all paused → enabled (Babyshop DK)",
+   "detail": "",
+   "campaign_id": "24424860132"
+  },
+  {
+   "date": "2026-11-04",
+   "when": "2026-11-04 14:07:38.065118",
+   "account": "Babyshop NO",
+   "market": "NO",
+   "source": "change_event",
+   "by": "patrik.segersven@gmail.com",
+   "kind": "status",
+   "title": "ps-search-no-pb-all paused → enabled (Babyshop NO)",
+   "detail": "",
+   "campaign_id": "24435791983"
+  },
+  {
+   "date": "2026-11-04",
+   "when": "2026-11-04 14:04:56.715205",
+   "account": "Babyshop DK",
+   "market": "DK",
+   "source": "change_event",
+   "by": "patrik.segersven@gmail.com",
+   "kind": "google_budget",
+   "title": "New budget ps-search-dk-pb-all budget: 300/day (Babyshop DK)",
+   "detail": "",
+   "old": null,
+   "new": 300.0,
+   "campaign_id": "24424860132"
+  },
+  {
+   "date": "2026-11-04",
+   "when": "2026-11-04 14:04:56.715205",
+   "account": "Babyshop DK",
+   "market": "DK",
+   "source": "change_event",
+   "by": "patrik.segersven@gmail.com",
+   "kind": "status",
+   "detail": "",
+   "title": "ps-search-dk-pb-all created (paused, Babyshop DK)",
+   "campaign_id": "24424860132"
+  },
+  {
+   "date": "2026-11-04",
+   "when": "2026-11-04 14:04:39.164549",
+   "account": "Babyshop NO",
+   "market": "NO",
+   "source": "change_event",
+   "by": "patrik.segersven@gmail.com",
+   "kind": "google_budget",
+   "title": "New budget ps-search-no-pb-all budget: 500/day (Babyshop NO)",
+   "detail": "",
+   "old": null,
+   "new": 500.0,
+   "campaign_id": "24435791983"
+  },
+  {
+   "date": "2026-11-04",
+   "when": "2026-11-04 14:04:39.164549",
+   "account": "Babyshop NO",
+   "market": "NO",
+   "source": "change_event",
+   "by": "patrik.segersven@gmail.com",
+   "kind": "status",
+   "detail": "",
+   "title": "ps-search-no-pb-all created (paused, Babyshop NO)",
+   "campaign_id": "24435791983"
+  },
+  {
+   "date": "2026-11-04",
+   "kind": "troas",
+   "market": "DK",
+   "account": "Babyshop DK",
+   "source": "target_changes",
+   "tag": "black-month-rec-x1.15-2026-11-04",
+   "items": [
+    {
+     "campaign": "p-shopping-dk-last-season",
+     "old": 1.92,
+     "new": 2.28,
+     "step": 0.188,
+     "pred_gp3_7d": -37.56,
+     "currency": "SEK"
+    },
+    {
+     "campaign": "p-shopping-dk-rb-categories",
+     "old": 2.61,
+     "new": 3.13,
+     "step": 0.199,
+     "pred_gp3_7d": -1082.35,
+     "currency": "SEK"
+    }
+   ],
+   "big_steps": 0,
+   "title": "tROAS: 2 campaigns in Babyshop DK (2↑ 0↓)",
+   "detail": "black-month-rec-x1.15-2026-11-04"
+  },
+  {
+   "date": "2026-11-04",
+   "kind": "troas",
+   "market": "FI",
+   "account": "Babyshop FI",
+   "source": "target_changes",
+   "tag": "black-month-rec-x1.15-2026-11-04",
+   "items": [
+    {
+     "campaign": "p-shopping-fi-all-generic",
+     "old": 1.9,
+     "new": 2.22,
+     "step": 0.168,
+     "pred_gp3_7d": -20.87,
+     "currency": "EUR"
+    },
+    {
+     "campaign": "p-shopping-fi-rb-categories",
+     "old": 1.92,
+     "new": 2.21,
+     "step": 0.151,
+     "pred_gp3_7d": 27.5,
+     "currency": "EUR"
+    }
+   ],
+   "big_steps": 0,
+   "title": "tROAS: 2 campaigns in Babyshop FI (2↑ 0↓)",
+   "detail": "black-month-rec-x1.15-2026-11-04"
+  },
+  {
+   "date": "2026-11-04",
+   "kind": "troas",
+   "market": "NO",
+   "account": "Babyshop NO",
+   "source": "target_changes",
+   "tag": "black-month-rec-x1.15-2026-11-04",
+   "items": [
+    {
+     "campaign": "p-shopping-no-last-season",
+     "old": 2.44,
+     "new": 4.14,
+     "step": 0.697,
+     "pred_gp3_7d": 200.16,
+     "currency": "NOK"
+    },
+    {
+     "campaign": "p-shopping-no-rb-categories",
+     "old": 1.8,
+     "new": 2.31,
+     "step": 0.283,
+     "pred_gp3_7d": -1507.88,
+     "currency": "NOK"
+    },
+    {
+     "campaign": "ps-dsa-no",
+     "old": 2.2,
+     "new": 3.28,
+     "step": 0.491,
+     "pred_gp3_7d": 560.0,
+     "currency": "NOK"
+    }
+   ],
+   "big_steps": 3,
+   "title": "tROAS: 3 campaigns in Babyshop NO (3↑ 0↓)",
+   "detail": "black-month-rec-x1.15-2026-11-04"
+  },
+  {
+   "date": "2026-11-04",
+   "kind": "troas",
+   "market": "SE",
+   "account": "Babyshop SE",
+   "source": "target_changes",
+   "tag": "black-month-rec-x1.15-2026-11-04",
+   "items": [
+    {
+     "campaign": "p-shopping-se-pb-generic",
+     "old": 2.1,
+     "new": 2.48,
+     "step": 0.181,
+     "pred_gp3_7d": -2498.86,
+     "currency": "SEK"
+    },
+    {
+     "campaign": "p-shopping-se-rb-categories",
+     "old": 1.9,
+     "new": 2.39,
+     "step": 0.258,
+     "pred_gp3_7d": 1428.72,
+     "currency": "SEK"
+    },
+    {
+     "campaign": "ps-search-se-generic-hero-categories",
+     "old": 1.72,
+     "new": 2.15,
+     "step": 0.25,
+     "pred_gp3_7d": 184.78,
+     "currency": "SEK"
+    }
+   ],
+   "big_steps": 2,
+   "title": "tROAS: 3 campaigns in Babyshop SE (3↑ 0↓)",
+   "detail": "black-month-rec-x1.15-2026-11-04"
+  },
+  {
+   "date": "2026-11-04",
+   "kind": "troas",
+   "market": "DK",
+   "account": "Lekmer DK",
+   "source": "target_changes",
+   "tag": "black-month-rec-x1.15-2026-11-04",
+   "items": [
+    {
+     "campaign": "p-shopping-fi-all",
+     "old": 2.2,
+     "new": 2.65,
+     "step": 0.205,
+     "pred_gp3_7d": -0.79,
+     "currency": "DKK"
+    }
+   ],
+   "big_steps": 1,
+   "title": "tROAS: 1 campaign in Lekmer DK (1↑ 0↓)",
+   "detail": "black-month-rec-x1.15-2026-11-04"
+  },
+  {
+   "date": "2026-11-04",
+   "kind": "troas",
+   "market": "NO",
+   "account": "Lekmer NO",
+   "source": "target_changes",
+   "tag": "black-month-rec-x1.15-2026-11-04",
+   "items": [
+    {
+     "campaign": "p-shopping-no-pb-generic",
+     "old": 1.72,
+     "new": 2.99,
+     "step": 0.738,
+     "pred_gp3_7d": 335.49,
+     "currency": "NOK"
+    }
+   ],
+   "big_steps": 1,
+   "title": "tROAS: 1 campaign in Lekmer NO (1↑ 0↓)",
+   "detail": "black-month-rec-x1.15-2026-11-04"
+  },
+  {
+   "date": "2026-11-04",
+   "kind": "troas",
+   "market": "SE",
+   "account": "Lekmer SE",
+   "source": "target_changes",
+   "tag": "black-month-rec-x1.15-2026-11-04",
+   "items": [
+    {
+     "campaign": "p-shopping-se-pb-generic",
+     "old": 1.7,
+     "new": 1.96,
+     "step": 0.153,
+     "pred_gp3_7d": 427.41,
+     "currency": "SEK"
+    },
+    {
+     "campaign": "p-shopping-se-rb-categories",
+     "old": 2.6,
+     "new": 3.11,
+     "step": 0.196,
+     "pred_gp3_7d": 18.64,
+     "currency": "SEK"
+    },
+    {
+     "campaign": "ps-dsa-se",
+     "old": 1.36,
+     "new": 1.77,
+     "step": 0.301,
+     "pred_gp3_7d": -111.16,
+     "currency": "SEK"
+    }
+   ],
+   "big_steps": 1,
+   "title": "tROAS: 3 campaigns in Lekmer SE (3↑ 0↓)",
+   "detail": "black-month-rec-x1.15-2026-11-04"
+  },
+  {
+   "date": "2026-11-02",
+   "kind": "troas",
+   "market": "DK",
+   "account": "Babyshop DK",
+   "source": "target_changes",
+   "tag": "rec-final-weekly-2026-11-02",
+   "items": [
+    {
+     "campaign": "p-shopping-dk-generic",
+     "old": 2.04,
+     "new": 2.4,
+     "step": 0.176,
+     "pred_gp3_7d": 1213.29,
+     "currency": "SEK"
+    },
+    {
+     "campaign": "p-shopping-dk-last-season",
+     "old": 1.6,
+     "new": 1.92,
+     "step": 0.2,
+     "pred_gp3_7d": -30.59,
+     "currency": "SEK"
+    }
+   ],
+   "big_steps": 0,
+   "title": "tROAS: 2 campaigns in Babyshop DK (2↑ 0↓)",
+   "detail": "rec-final-weekly-2026-11-02"
+  },
+  {
+   "date": "2026-11-02",
+   "kind": "troas",
+   "market": "FI",
+   "account": "Babyshop FI",
+   "source": "target_changes",
+   "tag": "rec-final-weekly-2026-11-02",
+   "items": [
+    {
+     "campaign": "p-shopping-fi-rb-categories",
+     "old": 2.3,
+     "new": 1.92,
+     "step": -0.165,
+     "pred_gp3_7d": 14.71,
+     "currency": "EUR"
+    }
+   ],
+   "big_steps": 0,
+   "title": "tROAS: 1 campaign in Babyshop FI (0↑ 1↓)",
+   "detail": "rec-final-weekly-2026-11-02"
+  },
+  {
+   "date": "2026-11-02",
+   "kind": "troas",
+   "market": "NO",
+   "account": "Babyshop NO",
+   "source": "target_changes",
+   "tag": "rec-final-weekly-2026-11-02",
+   "items": [
+    {
+     "campaign": "p-shopping-no-last-season",
+     "old": 2.04,
+     "new": 2.44,
+     "step": 0.196,
+     "pred_gp3_7d": 323.94,
+     "currency": "NOK"
+    },
+    {
+     "campaign": "p-shopping-no-pb-generic",
+     "old": 2.0,
+     "new": 2.4,
+     "step": 0.2,
+     "pred_gp3_7d": 1916.71,
+     "currency": "NOK"
+    },
+    {
+     "campaign": "p-shopping-no-rb-categories",
+     "old": 2.04,
+     "new": 1.8,
+     "step": -0.118,
+     "pred_gp3_7d": 1797.15,
+     "currency": "NOK"
+    },
+    {
+     "campaign": "ps-dsa-no",
+     "old": 1.84,
+     "new": 2.2,
+     "step": 0.196,
+     "pred_gp3_7d": 1723.97,
+     "currency": "NOK"
+    }
+   ],
+   "big_steps": 0,
+   "title": "tROAS: 4 campaigns in Babyshop NO (3↑ 1↓)",
+   "detail": "rec-final-weekly-2026-11-02"
+  },
+  {
+   "date": "2026-11-02",
+   "kind": "troas",
+   "market": "ROW",
+   "account": "Babyshop ROW",
+   "source": "target_changes",
+   "tag": "rec-final-weekly-2026-11-02",
+   "items": [
+    {
+     "campaign": "ps-dsa-uk",
+     "old": 3.78,
+     "new": 3.15,
+     "step": -0.167,
+     "pred_gp3_7d": -108.69,
+     "currency": "SEK"
+    },
+    {
+     "campaign": "shopping-nl",
+     "old": 1.9,
+     "new": 1.52,
+     "step": -0.2,
+     "pred_gp3_7d": 228.77,
+     "currency": "SEK"
+    },
+    {
+     "campaign": "shopping-uk",
+     "old": 2.3,
+     "new": 1.84,
+     "step": -0.2,
+     "pred_gp3_7d": 10373.65,
+     "currency": "SEK"
+    }
+   ],
+   "big_steps": 0,
+   "title": "tROAS: 3 campaigns in Babyshop ROW (0↑ 3↓)",
+   "detail": "rec-final-weekly-2026-11-02"
+  },
+  {
+   "date": "2026-11-02",
+   "kind": "troas",
+   "market": "SE",
+   "account": "Babyshop SE",
+   "source": "target_changes",
+   "tag": "rec-final-weekly-2026-11-02",
+   "items": [
+    {
+     "campaign": "p-shopping-se-last-season",
+     "old": 2.4,
+     "new": 2.2,
+     "step": -0.083,
+     "pred_gp3_7d": 94.4,
+     "currency": "SEK"
+    },
+    {
+     "campaign": "p-shopping-se-pb-generic",
+     "old": 2.59,
+     "new": 2.1,
+     "step": -0.189,
+     "pred_gp3_7d": 10523.79,
+     "currency": "SEK"
+    },
+    {
+     "campaign": "p-shopping-se-rb-categories",
+     "old": 2.1,
+     "new": 1.9,
+     "step": -0.095,
+     "pred_gp3_7d": 3308.19,
+     "currency": "SEK"
+    },
+    {
+     "campaign": "ps-dsa-all",
+     "old": 1.54,
+     "new": 1.84,
+     "step": 0.195,
+     "pred_gp3_7d": 803.3,
+     "currency": "SEK"
+    },
+    {
+     "campaign": "ps-search-se-generic-hero-categories",
+     "old": 1.44,
+     "new": 1.72,
+     "step": 0.194,
+     "pred_gp3_7d": 938.94,
+     "currency": "SEK"
+    }
+   ],
+   "big_steps": 0,
+   "title": "tROAS: 5 campaigns in Babyshop SE (2↑ 3↓)",
+   "detail": "rec-final-weekly-2026-11-02"
+  },
+  {
+   "date": "2026-11-02",
+   "kind": "troas",
+   "market": "DK",
+   "account": "Lekmer DK",
+   "source": "target_changes",
+   "tag": "rec-final-weekly-2026-11-02",
+   "items": [
+    {
+     "campaign": "p-shopping-fi-all",
+     "old": 1.84,
+     "new": 2.2,
+     "step": 0.196,
+     "pred_gp3_7d": 4.03,
+     "currency": "DKK"
+    }
+   ],
+   "big_steps": 0,
+   "title": "tROAS: 1 campaign in Lekmer DK (1↑ 0↓)",
+   "detail": "rec-final-weekly-2026-11-02"
+  },
+  {
+   "date": "2026-11-02",
+   "kind": "troas",
+   "market": "NO",
+   "account": "Lekmer NO",
+   "source": "target_changes",
+   "tag": "rec-final-weekly-2026-11-02",
+   "items": [
+    {
+     "campaign": "p-shopping-no-pb-generic",
+     "old": 1.44,
+     "new": 1.72,
+     "step": 0.194,
+     "pred_gp3_7d": 1477.59,
+     "currency": "NOK"
+    },
+    {
+     "campaign": "p-shopping-no-rb-categories",
+     "old": 1.76,
+     "new": 1.41,
+     "step": -0.199,
+     "pred_gp3_7d": 213.27,
+     "currency": "NOK"
+    }
+   ],
+   "big_steps": 0,
+   "title": "tROAS: 2 campaigns in Lekmer NO (1↑ 1↓)",
+   "detail": "rec-final-weekly-2026-11-02"
+  },
+  {
+   "date": "2026-11-02",
+   "kind": "troas",
+   "market": "SE",
+   "account": "Lekmer SE",
+   "source": "target_changes",
+   "tag": "rec-final-weekly-2026-11-02",
+   "items": [
+    {
+     "campaign": "p-shopping-se-pb-generic",
+     "old": 2.0,
+     "new": 1.7,
+     "step": -0.15,
+     "pred_gp3_7d": -456.62,
+     "currency": "SEK"
+    },
+    {
+     "campaign": "p-shopping-se-rb-categories",
+     "old": 2.18,
+     "new": 2.6,
+     "step": 0.193,
+     "pred_gp3_7d": 187.08,
+     "currency": "SEK"
+    },
+    {
+     "campaign": "ps-dsa-se",
+     "old": 1.54,
+     "new": 1.36,
+     "step": -0.117,
+     "pred_gp3_7d": 8.95,
+     "currency": "SEK"
+    }
+   ],
+   "big_steps": 0,
+   "title": "tROAS: 3 campaigns in Lekmer SE (1↑ 2↓)",
+   "detail": "rec-final-weekly-2026-11-02"
+  },
+  {
+   "date": "2026-10-28",
+   "kind": "troas",
+   "market": "DK",
+   "account": "Babyshop DK",
+   "source": "target_changes",
+   "tag": "rec-final-weekly-2026-10-28",
+   "items": [
+    {
+     "campaign": "p-shopping-dk-rb-categories",
+     "old": 2.18,
+     "new": 2.61,
+     "step": 0.197,
+     "pred_gp3_7d": -1385.45,
+     "currency": "SEK"
+    }
+   ],
+   "big_steps": 0,
+   "title": "tROAS: 1 campaign in Babyshop DK (1↑ 0↓)",
+   "detail": "rec-final-weekly-2026-10-28"
+  },
+  {
+   "date": "2026-10-28",
+   "kind": "troas",
+   "market": "FI",
+   "account": "Babyshop FI",
+   "source": "target_changes",
+   "tag": "rec-final-weekly-2026-10-28",
+   "items": [
+    {
+     "campaign": "p-shopping-fi-all-generic",
+     "old": 2.1,
+     "new": 1.9,
+     "step": -0.095,
+     "pred_gp3_7d": 15.03,
+     "currency": "EUR"
+    }
+   ],
+   "big_steps": 0,
+   "title": "tROAS: 1 campaign in Babyshop FI (0↑ 1↓)",
+   "detail": "rec-final-weekly-2026-10-28"
+  },
+  {
+   "date": "2026-10-28",
+   "kind": "troas",
+   "market": "ROW",
+   "account": "Babyshop ROW",
+   "source": "target_changes",
+   "tag": "rec-final-weekly-2026-10-28",
+   "items": [
+    {
+     "campaign": "ps-dsa-lt",
+     "old": 1.75,
+     "new": 2.1,
+     "step": 0.2,
+     "pred_gp3_7d": 230.81,
+     "currency": "SEK"
+    },
+    {
+     "campaign": "shopping-de",
+     "old": 3.3,
+     "new": 2.64,
+     "step": -0.2,
+     "pred_gp3_7d": 563.3,
+     "currency": "SEK"
+    }
+   ],
+   "big_steps": 0,
+   "title": "tROAS: 2 campaigns in Babyshop ROW (1↑ 1↓)",
+   "detail": "rec-final-weekly-2026-10-28"
+  },
+  {
+   "date": "2026-10-28",
+   "kind": "troas",
+   "market": "SE",
+   "account": "Babyshop SE",
+   "source": "target_changes",
+   "tag": "rec-final-weekly-2026-10-28",
+   "items": [
+    {
+     "campaign": "p-search-se-competitor",
+     "old": 1.08,
+     "new": 1.29,
+     "step": 0.194,
+     "pred_gp3_7d": 408.39,
+     "currency": "SEK"
+    }
+   ],
+   "big_steps": 0,
+   "title": "tROAS: 1 campaign in Babyshop SE (1↑ 0↓)",
+   "detail": "rec-final-weekly-2026-10-28"
+  },
+  {
+   "date": "2026-10-27",
+   "kind": "offer_launch",
+   "market": "all",
+   "title": "HAPPYBDAY live (to 5 Nov)",
+   "by": "Patrik",
+   "source": "manual",
+   "ts": "2026-10-27T09:00:00+01:00"
+  },
+  {
+   "date": "2026-10-23",
+   "when": "2026-10-23 16:30:49.110723",
+   "account": "Babyshop FI",
+   "market": "FI",
+   "source": "change_event",
+   "by": "patrik.segersven@gmail.com",
+   "kind": "status",
+   "title": "ps-search-fi--reima enabled → paused (Babyshop FI)",
+   "detail": "",
+   "campaign_id": "24364638625"
+  },
+  {
+   "date": "2026-10-23",
+   "kind": "troas",
+   "market": "FI",
+   "account": "Babyshop FI",
+   "source": "target_changes",
+   "tag": "reconciled-change-event",
+   "items": [
+    {
+     "campaign": "ps-search-fi--reima",
+     "old": 0.0,
+     "new": 1.0,
+     "step": null,
+     "pred_gp3_7d": null,
+     "currency": "EUR"
+    }
+   ],
+   "big_steps": 0,
+   "title": "tROAS: 1 campaign in Babyshop FI (0↑ 0↓)",
+   "detail": "reconciled-change-event"
+  }
+ ],
+ "seasonality": [
+  {
+   "account": "Babyshop DK",
+   "cid": "2054294342",
+   "market": "DK",
+   "name": "Post-BF dag 1 (-45%)",
+   "start": "2026-12-01 00:00:00",
+   "end": "2026-12-01 23:59:59",
+   "modifier": 0.55,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Babyshop DK",
+   "cid": "2054294342",
+   "market": "DK",
+   "name": "Post-BF dag 2 (-30%)",
+   "start": "2026-12-02 00:00:00",
+   "end": "2026-12-02 23:59:59",
+   "modifier": 0.7,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Babyshop FI",
+   "cid": "6161399704",
+   "market": "FI",
+   "name": "Post-BF dag 1 (-45%)",
+   "start": "2026-12-01 00:00:00",
+   "end": "2026-12-01 23:59:59",
+   "modifier": 0.55,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Babyshop FI",
+   "cid": "6161399704",
+   "market": "FI",
+   "name": "Post-BF dag 2 (-30%)",
+   "start": "2026-12-02 00:00:00",
+   "end": "2026-12-02 23:59:59",
+   "modifier": 0.7,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Babyshop NO",
+   "cid": "8623945183",
+   "market": "NO",
+   "name": "Post-BF dag 1 (-45%)",
+   "start": "2026-12-01 00:00:00",
+   "end": "2026-12-01 23:59:59",
+   "modifier": 0.55,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Babyshop NO",
+   "cid": "8623945183",
+   "market": "NO",
+   "name": "Post-BF dag 2 (-30%)",
+   "start": "2026-12-02 00:00:00",
+   "end": "2026-12-02 23:59:59",
+   "modifier": 0.7,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Babyshop ROW",
+   "cid": "5541487401",
+   "market": "ROW",
+   "name": "Post-BF dag 1 (-45%)",
+   "start": "2026-12-01 00:00:00",
+   "end": "2026-12-01 23:59:59",
+   "modifier": 0.55,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Babyshop ROW",
+   "cid": "5541487401",
+   "market": "ROW",
+   "name": "Post-BF dag 2 (-30%)",
+   "start": "2026-12-02 00:00:00",
+   "end": "2026-12-02 23:59:59",
+   "modifier": 0.7,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Babyshop RU",
+   "cid": "1929201802",
+   "market": "ROW",
+   "name": "Post-BF dag 1 (-45%)",
+   "start": "2026-12-01 00:00:00",
+   "end": "2026-12-01 23:59:59",
+   "modifier": 0.55,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Babyshop RU",
+   "cid": "1929201802",
+   "market": "ROW",
+   "name": "Post-BF dag 2 (-30%)",
+   "start": "2026-12-02 00:00:00",
+   "end": "2026-12-02 23:59:59",
+   "modifier": 0.7,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Babyshop SE",
+   "cid": "4851485396",
+   "market": "SE",
+   "name": "Post-BF dag 1 (-45%)",
+   "start": "2026-12-01 00:00:00",
+   "end": "2026-12-01 23:59:59",
+   "modifier": 0.55,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Babyshop SE",
+   "cid": "4851485396",
+   "market": "SE",
+   "name": "Post-BF dag 2 (-30%)",
+   "start": "2026-12-02 00:00:00",
+   "end": "2026-12-02 23:59:59",
+   "modifier": 0.7,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Lekmer DK",
+   "cid": "2756397225",
+   "market": "DK",
+   "name": "Post-BF dag 1 (-45%)",
+   "start": "2026-12-01 00:00:00",
+   "end": "2026-12-01 23:59:59",
+   "modifier": 0.55,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Lekmer DK",
+   "cid": "2756397225",
+   "market": "DK",
+   "name": "Post-BF dag 2 (-30%)",
+   "start": "2026-12-02 00:00:00",
+   "end": "2026-12-02 23:59:59",
+   "modifier": 0.7,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Lekmer NO",
+   "cid": "8308232278",
+   "market": "NO",
+   "name": "Post-BF dag 1 (-45%)",
+   "start": "2026-12-01 00:00:00",
+   "end": "2026-12-01 23:59:59",
+   "modifier": 0.55,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Lekmer NO",
+   "cid": "8308232278",
+   "market": "NO",
+   "name": "Post-BF dag 2 (-30%)",
+   "start": "2026-12-02 00:00:00",
+   "end": "2026-12-02 23:59:59",
+   "modifier": 0.7,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Lekmer SE",
+   "cid": "7780114635",
+   "market": "SE",
+   "name": "Post-BF dag 1 (-45%)",
+   "start": "2026-12-01 00:00:00",
+   "end": "2026-12-01 23:59:59",
+   "modifier": 0.55,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  },
+  {
+   "account": "Lekmer SE",
+   "cid": "7780114635",
+   "market": "SE",
+   "name": "Post-BF dag 2 (-30%)",
+   "start": "2026-12-02 00:00:00",
+   "end": "2026-12-02 23:59:59",
+   "modifier": 0.7,
+   "channels": [
+    "SEARCH",
+    "SHOPPING"
+   ]
+  }
+ ],
+ "checklist": [
+  {
+   "id": "troas-raise",
+   "due": "2026-11-04",
+   "title": "Pre-BF tROAS raise (+10–15 %) applied via apply_troas.py",
+   "detail": "Logged in target_changes. 14-day cooldown → those campaigns can move again from 18 Nov.",
+   "auto": "troas_raise",
+   "state": "done",
+   "auto_note": "15 campaigns logged on 4 Nov"
+  },
+  {
+   "id": "meta-setup",
+   "due": "2026-11-07",
+   "title": "Meta November setup matches the approved 200k plan",
+   "detail": "Kuling 60k / prospecting 20k / catalogue retargeting 120k; campaign budgets, one ad set per country, SE60/NO20/FI10/DK10 as min/max spend shares.",
+   "state": "open",
+   "auto_note": null
+  },
+  {
+   "id": "ly-anomaly",
+   "due": "2026-11-17",
+   "title": "Explain 14–20 Nov 2025: 1.31M SEK spend at ROAS ~1.38",
+   "detail": "Unexplained last year (CPC ~7 SEK). Check before the 18 Nov review so it does not repeat.",
+   "state": "open",
+   "auto_note": null
+  },
+  {
+   "id": "troas-review",
+   "due": "2026-11-18",
+   "title": "tROAS review: back to normal before BF, or stay raised?",
+   "detail": "Cooldown from the 4 Nov batch ends today. No positive BF seasonality adjustment is planned.",
+   "auto": "cooldown",
+   "state": "open",
+   "auto_note": "Last logged change 2026-11-04; cooldown ends 2026-11-18"
+  },
+  {
+   "id": "pb-review",
+   "due": "2026-11-18",
+   "title": "Private-label search review (SE 600 %, NO/FI/DK 350 %)",
+   "detail": "ps-search-*-pb-all: impression share, CPC, Kuling winter landing pages.",
+   "state": "open",
+   "auto_note": null
+  },
+  {
+   "id": "postbf-soften",
+   "due": "2026-11-18",
+   "title": "If tROAS stays raised through BF: soften Post-BF to −30 % / −15 %",
+   "detail": "Edit the two seasonality adjustments in all nine accounts.",
+   "state": "open",
+   "auto_note": null
+  },
+  {
+   "id": "bf-assets",
+   "due": "2026-11-23",
+   "title": "BF offers in Google Ads: promotions, sitelinks, promo RSAs (SE/NO/FI/DK)",
+   "detail": "Run the ads-assets routine from the Airtable calendar; promo_schedule script must be scheduled.",
+   "state": "open",
+   "auto_note": null
+  },
+  {
+   "id": "sale-end",
+   "due": "2026-11-30",
+   "title": "Confirm the sale end date in the campaign calendar",
+   "detail": "Post-BF adjustments assume the sale ends on Cyber Monday 30 Nov; shift them if it runs longer.",
+   "state": "open",
+   "auto_note": null
+  },
+  {
+   "id": "postbf-seasonality",
+   "due": "2026-11-30",
+   "title": "“Post-BF dag 1/2” (−45 % / −30 %) on 1–2 Dec in all nine accounts",
+   "detail": "Search + Shopping, account-local 00:00–23:59. Created 2026-11-04.",
+   "auto": "seasonality",
+   "state": "verified",
+   "auto_note": "Found in 9 accounts (dag 1: 9, dag 2: 9)"
+  },
+  {
+   "id": "post-bf-troas",
+   "due": "2026-12-03",
+   "title": "After the sale: tROAS back to normal, score the month",
+   "detail": "Score every accepted card; write up what worked for December.",
+   "state": "open",
+   "auto_note": null
+  }
+ ],
+ "snapshots": {
+  "pacing": "2026-11-04T15:06:30+01:00",
+  "paid": "2026-11-04T15:12:12+01:00",
+  "creatives": "2026-11-04T15:06:10+01:00",
+  "offers": "2026-11-04T15:12:21+01:00"
+ },
+ "levers": [
+  "google_troas",
+  "google_budget",
+  "meta_allocation",
+  "creative",
+  "offer",
+  "stock",
+  "site",
+  "other"
+ ],
+ "event_kinds": [
+  "offer_launch",
+  "offer_end",
+  "meta_budget",
+  "google_budget",
+  "troas",
+  "seasonality",
+  "bidding",
+  "status",
+  "site",
+  "stock",
+  "other"
+ ],
+ "notes": [
+  "Mock: cards and manual events are examples; alerts come from the sibling sections' mocks; change log, seasonality and checklist are a real dry run of 2026-11-04."
+ ]
+}

@@ -204,7 +204,7 @@ header#app-header {
   display: none;
   position: absolute; top: calc(100% - 6px); left: 0;
   min-width: 244px; padding: 7px;
-  background: #fff; border: 1px solid var(--border); border-radius: var(--r);
+  background: var(--card, #fff); border: 1px solid var(--border); border-radius: var(--r);
   box-shadow: var(--shadow-pop); z-index: 300;
 }
 .nav-more[data-open="true"] .nav-menu { display: block; }
@@ -212,15 +212,76 @@ header#app-header {
   font-size: 9px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
   color: var(--muted); padding: 9px 9px 5px;
 }
-.nav-menu a {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+.nav-menu a,
+.nav-palette-list a {
+  display: flex; flex-direction: column; align-items: stretch; gap: 1px;
   padding: 7px 9px; border-radius: var(--r-sm);
   font-size: 12.5px; font-weight: 500; color: var(--body); text-decoration: none;
-  white-space: nowrap;
 }
-.nav-menu a:hover { background: var(--brand-green-l); color: var(--brand-green-d); }
-.nav-menu a[aria-current="page"] { color: var(--brand-green-d); font-weight: 600; }
+.nav-item-main  { display: flex; align-items: center; justify-content: space-between; gap: 12px; white-space: nowrap; }
+.nav-item-desc  { font-size: 11px; font-weight: 400; color: var(--muted); white-space: nowrap; }
+.nav-menu a:hover,
+.nav-palette-list a.sel { background: var(--brand-green-l); color: var(--brand-green-d); }
+.nav-menu a[aria-current="page"],
+.nav-palette-list a[aria-current="page"] { color: var(--brand-green-d); font-weight: 600; }
 .nav-menu hr { border: none; border-top: 1px solid var(--border-lt); margin: 5px 2px; }
+
+/* Grouped dropdowns: the one holding the current page is underlined and names it. */
+.nav-more.holds-current .nav-more-btn { color: var(--h); font-weight: 600; position: relative; }
+.nav-more.holds-current .nav-more-btn::after {
+  content: ''; position: absolute; left: 8px; right: 8px; bottom: 0;
+  height: 2px; background: var(--brand-ink); border-radius: 1px;
+}
+.nav-more-btn { color: var(--body); white-space: nowrap; }
+.nav-more-cur { font-weight: 500; color: var(--muted); max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+
+/* Pinned tab (e.g. Black Month in November): lime pill so it reads as "now". */
+.nav-tab.nav-pin { margin: 14px 6px 14px 0; padding: 0 12px; border-radius: 999px;
+  background: var(--brand-ink); color: var(--brand-lime); font-weight: 600; }
+.nav-tab.nav-pin:hover { background: #000; color: var(--brand-lime); }
+.nav-tab.nav-pin.active::after { display: none; }
+.nav-tab.nav-pin.active { box-shadow: 0 0 0 2px var(--brand-lime) inset; }
+
+/* Search button + palette */
+.nav-search-btn {
+  display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px 0 10px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--card, #fff); cursor: pointer;
+  font-family: var(--font); font-size: 12px; color: var(--muted); white-space: nowrap;
+}
+.nav-search-btn:hover { color: var(--h); border-color: var(--muted); }
+.nav-search-icon { width: 11px; height: 11px; border: 1.6px solid currentColor; border-radius: 50%; position: relative; }
+.nav-search-icon::after { content: ''; position: absolute; width: 5px; height: 1.6px; background: currentColor;
+  right: -5px; bottom: -2px; transform: rotate(45deg); }
+#app-header kbd, .nav-palette kbd {
+  font-family: var(--font); font-size: 10.5px; line-height: 1; padding: 3px 5px; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--muted);
+}
+.nav-palette {
+  position: fixed; inset: 0; z-index: 1000; background: rgba(15,18,24,.38);
+  display: flex; justify-content: center; align-items: flex-start; padding: 12vh 16px 16px;
+}
+.nav-palette[hidden] { display: none; }
+.nav-palette-box {
+  width: 100%; max-width: 520px; max-height: 72vh; display: flex; flex-direction: column;
+  background: var(--card, #fff); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow-pop); overflow: hidden; font-family: var(--font);
+}
+.nav-palette-input {
+  border: none; border-bottom: 1px solid var(--border); padding: 14px 16px; font: inherit; font-size: 15px;
+  background: transparent; color: var(--h); outline: none;
+}
+.nav-palette-list { overflow-y: auto; padding: 6px; }
+.nav-palette-empty { padding: 14px 10px; color: var(--muted); font-size: 13px; }
+.nav-palette-foot { display: flex; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--border-lt);
+  font-size: 11px; color: var(--muted); }
+.nav-palette-foot kbd { margin-right: 2px; }
+
+/* Mobile menu button (opens the palette) — hidden on desktop. */
+.nav-burger { display: none; flex-direction: column; justify-content: center; gap: 4px;
+  width: 34px; height: 34px; padding: 0 8px; border: none; background: none; cursor: pointer; }
+.nav-burger span { display: block; height: 1.6px; background: var(--h); border-radius: 1px; }
+.nav-cur-mobile { display: none; font-size: 13px; font-weight: 600; color: var(--h); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
 
 /* ── Header status chrome (live dot + refresh pill), light-header variants ─── */
 .live-dot {
@@ -250,11 +311,27 @@ header#app-header {
   content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor;
 }
 
-/* Narrow viewports: the subtitle is the first thing worth losing. */
+/* Narrow viewports: tighten, then drop the current-page suffix, then fold the
+ * dropdowns into the menu button (which opens the same grouped search panel). */
 @media (max-width: 1280px) {
-  .brand-rule, .brand-sub { display: none; }
   #app-header { padding: 0 16px; gap: 10px; }
-  .nav-tab { padding: 0 9px; font-size: 12px; }
+  .nav-tab, .nav-more-btn { padding: 0 9px; font-size: 12px; }
+}
+@media (max-width: 1100px) {
+  .nav-more-cur, .nav-search-txt { display: none; }
+}
+@media (max-width: 900px) {
+  .hdr-nav .nav-more { display: none; }
+  .nav-burger { display: flex; }
+  .nav-cur-mobile { display: block; max-width: 40vw; }
+  #app-header .brand-logo { height: 22px; }
+}
+@media (max-width: 560px) {
+  /* The menu button covers search and the pinned page on phones. */
+  #app-header .hdr-nav, #app-header .nav-search-btn { display: none; }
+  #app-header .hdr-left { min-width: 0; flex: 1 1 auto; }
+  #app-header .hdr-right { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+  #app-header .live-dot { font-size: 0; gap: 0; }        /* keep the dot, drop its caption */
 }
 
 /* ── Shared card + table baseline ──────────────────────────────────────────

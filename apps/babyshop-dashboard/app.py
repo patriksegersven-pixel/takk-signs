@@ -1777,3 +1777,72 @@ def internal_refresh_sos(request: Request, run_date: str = ""):
         return JSONResponse({"status": "error", "error": f"{type(e).__name__}: {e}"},
                             status_code=500)
     return JSONResponse(out, status_code=200 if out["status"] == "ok" else 502)
+
+
+# ── Black Month tab (November 2026 war room) ────────────────────────────────
+# The page is a stack of independent sections (bm_common.SECTIONS). Each one has
+# a snapshot written by the blackmonth-refresh job to funnel_cache/<ws>__bm__<key>
+# and a renderer /bm-<key>.js. A section that needs more than its snapshot (live
+# reads, POSTs) ships an optional bm_<key>_api.py exposing an APIRouter `router`
+# with routes under /api/blackmonth/<key>/...; it is mounted here behind the same
+# Basic auth. See BLACKMONTH.md.
+BLACKMONTH_HTML = STATIC_DIR / "babyshop-blackmonth.html"
+BM_JS_RE = re.compile(r"^[a-z][a-z0-9_-]{0,40}$")
+
+
+@app.get("/babyshop-blackmonth.html")
+def blackmonth_dashboard(_: str = Depends(verify)):
+    return FileResponse(BLACKMONTH_HTML, media_type="text/html")
+
+
+@app.get("/bm-{name}.js")
+def blackmonth_js(name: str, _: str = Depends(verify)):
+    path = STATIC_DIR / f"bm-{name}.js"
+    if not BM_JS_RE.match(name) or not path.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(path, media_type="application/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+
+# Local preview only: serves mock payloads so a section can be reviewed without
+# Firestore. Never reachable in production (DEV_MODE is off there).
+@app.get("/bm-mock/{name}.json")
+def blackmonth_mock(name: str, _: str = Depends(verify)):
+    path = STATIC_DIR / "bm-mock" / f"{name}.json"
+    if not DEV_MODE or not BM_JS_RE.match(name) or not path.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(path, media_type="application/json")
+
+
+@app.get("/api/blackmonth/{section}")
+def api_blackmonth(section: str, _: str = Depends(verify)):
+    import bm_common
+    if section not in bm_common.SECTIONS:
+        return JSONResponse({"error": f"unknown section {section!r}"}, status_code=404)
+    from funnel_client import get_cache
+    try:
+        data = get_cache().get(f"{bm_common.DOC_PREFIX}{section}")
+    except Exception as e:
+        print(f"ERROR /api/blackmonth/{section}: {type(e).__name__}: {e}", flush=True)
+        return JSONResponse({"error": "the snapshot could not be read — try again shortly"},
+                            status_code=503)
+    if data is None:
+        return JSONResponse({"error": "no snapshot yet — the blackmonth-refresh job has "
+                                      "not written this section"}, status_code=503)
+    return data
+
+
+def _mount_blackmonth_routers() -> None:
+    import importlib
+    import bm_common
+    for key in bm_common.SECTIONS:
+        try:
+            mod = importlib.import_module(f"bm_{key}_api")
+        except ModuleNotFoundError as e:
+            if e.name == f"bm_{key}_api":
+                continue
+            raise
+        app.include_router(mod.router, dependencies=[Depends(verify)])
+
+
+_mount_blackmonth_routers()
