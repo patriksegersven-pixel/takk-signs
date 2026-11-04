@@ -18,7 +18,7 @@
     { k: 'net', label: 'Net sales' },
     { k: 'gp1', label: 'GP1' },
     { k: 'gp2', label: 'GP2' },
-    { k: 'cost', label: 'Ad cost', cost: true },
+    { k: 'cost', label: 'Marketing cost (all channels)', short: 'Marketing', cost: true },
     { k: 'gp3', label: 'GP3' }
   ];
   var EVENT = {
@@ -38,6 +38,8 @@
     '#bm-pacing .pc-seg button.on{background:var(--accent-bg);color:var(--accent);border-color:var(--accent-dark)}' +
     '#bm-pacing .pc-basis{color:var(--muted);font-size:12px}' +
     '#bm-pacing .pc-tag{margin-top:6px}' +
+    '#bm-pacing .pc-ladder tr.pc-ltot td{color:var(--h);font-weight:600}' +
+    '#bm-pacing .pc-ladder tr.pc-lsub td:first-child{padding-left:18px;color:var(--muted)}' +
     '#bm-pacing .pc-head-hr{border-left-color:var(--up);margin-top:4px}' +
     '#bm-pacing .pc-bridge td{border-bottom:1px solid var(--border-lt)}' +
     '#bm-pacing table.pc-bridge td:first-child{white-space:normal}' +
@@ -49,6 +51,7 @@
     '#bm-pacing .pc-src{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;padding:1px 6px;border-radius:4px;vertical-align:middle}' +
     '#bm-pacing .pc-src-norce{background:var(--accent-bg);color:var(--accent)}' +
     '#bm-pacing .pc-src-funnel{background:var(--card);color:var(--muted);border:1px solid var(--border)}' +
+    '#bm-pacing .pc-src-norce_bc,#bm-pacing .pc-src-model{background:var(--card);color:var(--accent);border:1px solid var(--accent-dark)}' +
     '#bm-pacing .pc-head{background:var(--card-2);border:1px solid var(--border-lt);border-left:3px solid var(--accent);border-radius:8px;padding:12px 14px;margin-bottom:12px;color:var(--h);font-size:14px;line-height:1.5}' +
     '#bm-pacing .pc-head b{color:var(--h)}' +
     '#bm-pacing .bm-kpi .val{font-size:22px}' +
@@ -178,6 +181,46 @@
     return '<div class="pc-head">' + h + '</div>';
   }
 
+  /* ── P&L ladder MTD: how gross becomes GP3, with the old Funnel figures ── */
+  function ladderTable(d, S, mk) {
+    var Mg = d.margins && d.margins[mk];
+    var ci = d.cost_inputs || {};
+    var g = S.gross.mtd;
+    var pctOf = function (v) { return g ? F.pct(v / g) : '–'; };
+    var rows = [
+      ['Gross sales (merchandise)', 'gross', 'gross', 'fgross', false],
+      ['− Returns (BC, posting date)', 'returns', null, null, true],
+      ['Net sales', 'net', 'net', 'fnet', false],
+      ['− COGS (BC rate)', 'cogs', null, null, true],
+      ['GP1', 'gp1', 'gp1', 'fgp1', false],
+      ['− Direct variable cost', 'dv', null, null, true],
+      ['GP2', 'gp2', 'gp2', 'fgp2', false],
+      ['− Marketing cost (all channels)', 'cost', 'cost', 'cost', true],
+      ['GP3', 'gp3', 'gp3', null, false]
+    ];
+    var h = ['<div class="bm-table-wrap"><table class="bm-table pc-ladder"><thead><tr><th>MTD</th><th class="num">Actual</th><th class="num">% of gross</th>' +
+      '<th class="num">Target</th><th class="num">vs target</th><th class="num">LY</th><th class="num">Funnel export (old)</th><th>Source</th></tr></thead><tbody>'];
+    rows.forEach(function (r) {
+      var s = S[r[1]], t = r[2] ? S[r[2]] : null, isCost = r[4];
+      var oldv = r[3] ? (r[3] === 'fgp1' || r[3] === 'fgp2' || r[3] === 'fnet' || r[3] === 'fgross' || r[3] === 'cost' ? S[r[3]].mtd : null) : null;
+      if (r[1] === 'gp3' && S.fgp2) oldv = S.fgp2.mtd - S.cost.mtd;
+      h.push('<tr class="' + (isCost ? 'pc-lsub' : 'pc-ltot') + '"><td>' + esc(r[0]) + '</td>' +
+        '<td class="num">' + F.sek(s.mtd) + '</td><td class="num">' + pctOf(s.mtd) + '</td>' +
+        '<td class="num">' + (t && t.target_mtd != null ? F.sek(t.target_mtd) : '') + '</td>' +
+        '<td class="num">' + (t && t.target_mtd != null ? delta(ratio(s.mtd, t.target_mtd), isCost) : '') + '</td>' +
+        '<td class="num">' + F.sek(s.ly_mtd) + '</td>' +
+        '<td class="num muted">' + (oldv != null ? F.sek(oldv) : '') + '</td>' +
+        '<td>' + basisTag(d, r[1]) + '</td></tr>');
+    });
+    h.push('</tbody></table></div>');
+    var note = 'Direct variable cost = shipping model outbound (' + esc(ci.ship_rate_through ? 'rates to ' + ci.ship_rate_through : '') +
+      ') + pick & pack ' + F.num(ci.pick_per_order) + ' + packaging ' + String(ci.pack_per_order || '').replace('.', ',') + ' SEK per order − Norce freight income + the forecast\'s other direct lines at ' +
+      F.pct(ci.other_dv_rate) + ' of sales (warehousing, VAS, returns handling, transaction fees).' +
+      (Mg && Mg.dv_per_order != null ? ' ' + F.num(Mg.dv_per_order) + ' SEK per order MTD.' : '') +
+      ' BC returns and COGS through ' + esc(ci.bc_through || '–') + '. Returns post when processed, so early-month returns are mostly October orders; per-market return rates swing with BC\'s batch processing.';
+    return '<h3>P&amp;L ladder, month to date</h3>' + h.join('') + '<p class="bm-note">' + note + '</p>';
+  }
+
   /* ── Spend headroom vs the GP3 target ──────────────────────────────────── */
   // Rule (Babyshop, 2026-11-04): GP3 is the binding target; the 10.5 % COS is
   // only derived from assumed margins. Margin above forecast is room to spend.
@@ -208,7 +251,7 @@
     h += '<div class="pc-head pc-head-hr">' + verdict + ' Only spend that adds at least as much incremental GP2 as it costs keeps GP3 whole.</div>';
     h += '<div class="bm-kpis">' +
       kpiCard('Allowed spend MTD', F.sek(H.allowed_spend_mtd), [
-        ['actual ad cost', F.sek(H.actual_spend_mtd)],
+        ['actual marketing', F.sek(H.actual_spend_mtd)],
         ['headroom', signedCls(H.headroom_mtd)],
         ['= GP2 − GP3 target', '']], src('gp2')) +
       kpiCard('Allowed spend, month', F.sek(H.allowed_spend_month), [
@@ -223,16 +266,28 @@
         ['MTD', F.pct(H.earned_cos_mtd)],
         ['forecast COS', F.pct(H.cos_target)],
         ['allowed ÷ gross (Norce)', '']], src('gross')) +
-      kpiCard('GM1 MTD', F.pct(H.gm1_actual), [['forecast', F.pct(H.gm1_fc)], ['vs forecast', pp(H.gm1_actual, H.gm1_fc)], ['GP1 ÷ gross', '']], src('gp1')) +
-      kpiCard('GM2 MTD', F.pct(H.gm2_actual), [['forecast', F.pct(H.gm2_fc)], ['vs forecast', pp(H.gm2_actual, H.gm2_fc)], ['GP2 ÷ gross', '']], src('gp2')) +
+      kpiCard('GM1 MTD', F.pct(H.gm1_actual), [['forecast', F.pct(H.gm1_fc)], ['vs forecast', pp(H.gm1_actual, H.gm1_fc)], ['GP1 ÷ Norce gross', '']], src('gp1')) +
+      kpiCard('GM2 MTD', F.pct(H.gm2_actual), [['forecast', F.pct(H.gm2_fc)], ['vs forecast', pp(H.gm2_actual, H.gm2_fc)], ['GP2 ÷ Norce gross', '']], src('gp2')) +
       '</div>';
+    var ch = d.marketing_channels && d.marketing_channels[mk];
+    if (ch && ch.length) {
+      var tot = ch.reduce(function (a, c) { return a + c.mtd; }, 0);
+      h += '<h3>Marketing cost by channel, MTD ' + src('cost') + '</h3>' + BM.table(ch, [
+        { key: 'channel', label: 'Channel' },
+        { key: 'mtd', label: 'MTD', num: true, fmt: F.sek },
+        { key: 'mtd', label: 'Share', num: true, fmt: function (v) { return tot ? F.pct(v / tot, 0) : '–'; } },
+        { key: 'ly_mtd', label: 'LY MTD', num: true, fmt: F.sek },
+        { key: 'mtd', label: 'vs LY', num: true, fmt: function (v, r) { return delta(ratio(v, r.ly_mtd), true); } }
+      ]) + '<p class="bm-note">Every channel with cost in the Funnel export, de-duplicated (the same total as the Marketing cost card, GP3 and COS). ' +
+        'The forecast\'s 5.54 M marketing line is all ad spend and equals Funnel\'s all-channel Nov 2025 cost, so the scope matches.</p>';
+    }
     if (b) {
       var steps = [
         ['Forecast GP2 MTD', b.target_gp2, true],
         ['Volume: sales vs target at forecast GM2', b.volume],
         ['GM1 margin vs forecast', b.gm1_margin],
         ['Variable cost (GM1 → GM2) vs forecast', b.variable_cost],
-        ['Basis & market mix', b.basis_mix],
+        ['Market mix (derived split)', b.market_mix],
         ['Actual GP2 MTD', b.actual_gp2, true]
       ];
       var max = Math.max.apply(null, steps.slice(1, 5).map(function (s) { return Math.abs(s[1] || 0); }).concat([1]));
@@ -247,8 +302,8 @@
         '<div class="bm-table-wrap"><table class="bm-table pc-bridge"><tbody>' + rows + '</tbody></table></div>' +
         '<p class="bm-note">Margin effect ' + signedSek(mEff) + ' vs volume effect ' + signedSek(b.volume) + ': headroom is coming mostly from <b>' +
         (Math.abs(mEff) >= Math.abs(b.volume) ? 'margin' : 'volume') + '</b>. Volume = (Norce merchandise − target) × forecast GM2. ' +
-        'Margin = Norce merchandise × (Funnel GM1/GM2 − forecast). "Basis & mix" is what is left: Norce vs Funnel sales basis and, per market, the mix split. ' +
-        'Funnel books returns when they come back, so GM1 runs high in a peak month until Black Week returns land in December.</p>';
+        'Margin = Norce merchandise × (GM1/GM2 on this ladder − forecast). "Market mix" is what is left when a market or brand target is a derived share (zero for all markets combined). ' +
+        'BC books returns when they are processed, so GM1 runs high in a peak month until Black Week returns land in December.</p>';
     }
     if (mk === 'all') {
       var mrows = ['SE', 'NO', 'FI', 'DK', 'ROW'].filter(function (m) { return d.headroom[m]; }).map(function (m) {
@@ -257,7 +312,7 @@
       h += '<h3>Headroom by market</h3>' + BM.table(mrows, [
         { key: 'm', label: 'Market', fmt: function (v) { return '<b style="color:' + BM.color.market(v) + '">' + esc(v) + '</b>'; } },
         { key: 'x', label: 'GM2 MTD', num: true, fmt: function (x) { return F.pct(x.gm2_actual); } },
-        { key: 'x', label: 'Ad cost MTD', num: true, fmt: function (x) { return F.sek(x.actual_spend_mtd); } },
+        { key: 'x', label: 'Marketing MTD', num: true, fmt: function (x) { return F.sek(x.actual_spend_mtd); } },
         { key: 'x', label: 'Allowed MTD', num: true, fmt: function (x) { return F.sek(x.allowed_spend_mtd); } },
         { key: 'x', label: 'Headroom MTD', num: true, fmt: function (x) { return signedCls(x.headroom_mtd); } },
         { key: 'x', label: 'Headroom rest of month', num: true, fmt: function (x) { return signedCls(x.headroom_remaining); } },
@@ -435,7 +490,7 @@
       { key: 'g', label: 'vs target', num: true, fmt: function (v) { return delta(ratio(v.mtd, v.target_mtd)); } },
       { key: 'g', label: 'vs LY', num: true, fmt: function (v) { return delta(ratio(v.mtd, v.ly_mtd)); } },
       { key: 'p', label: 'GP2 vs target', num: true, fmt: function (v) { return delta(ratio(v.mtd, v.target_mtd)); } },
-      { key: 'c', label: 'Ad cost MTD', num: true, fmt: function (v) { return F.sek(v.mtd); } },
+      { key: 'c', label: 'Marketing MTD', num: true, fmt: function (v) { return F.sek(v.mtd); } },
       { key: 'q', label: 'GP3 MTD', num: true, fmt: function (v) { return F.sek(v.mtd); } },
       { key: 'q', label: 'GP3 vs target', num: true, fmt: function (v) { return delta(ratio(v.mtd, v.target_mtd)); } },
       { key: 'g', label: 'Gross landing', num: true, fmt: function (v) { return F.sek(v.landing) + ' ' + delta(ratio(v.landing, v.target_month)); } }
@@ -521,9 +576,10 @@
     h.push(headline(d, S, mk));
     h.push(scopeLine(d, mk, M));
     h.push(kpis(d, S));
+    h.push(ladderTable(d, S, mk));
     h.push(headroomBlock(d, mk));
     h.push(todayBlock(d, mk));
-    h.push('<h3>Daily: ' + esc(mlabel) + ' ' + basisTag(d, ui.metric) + '</h3>' + seg('metric', METRICS.map(function (m) { return [m.k, m.label]; }), ui.metric));
+    h.push('<h3>Daily: ' + esc(mlabel) + ' ' + basisTag(d, ui.metric) + '</h3>' + seg('metric', METRICS.map(function (m) { return [m.k, m.short || m.label]; }), ui.metric));
     h.push('<div class="bm-grid-2" style="margin-top:8px"><div>' +
       legend([['Actual', C.actual], ['Target', C.plan], ['Last year (event-aligned)', C.ly], ['Forecast at run-rate', C.fc]]) +
       '<div class="bm-chart"><canvas id="pc-daily-chart"></canvas></div></div><div>' +

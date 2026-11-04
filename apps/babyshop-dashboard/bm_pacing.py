@@ -63,15 +63,37 @@ RUN_RATE_DAYS = 7
 #   oct    October 2026's day-of-month profile (the "last month" shape).
 SHAPES = ("event", "kv", "oct")
 # Metrics carried per day. orders/units/freight have no budget line (no
-# target); `fgross` is Funnel gross, carried only so COS% stays Funnel/Funnel.
-METRICS = ["gross", "net", "gp1", "gp2", "cost", "gp3", "orders", "units", "freight", "fgross"]
-NORCE_FIELDS = ("gross", "freight", "orders", "units")
-BASIS = {k: ("norce" if k in NORCE_FIELDS else "funnel") for k in METRICS}
+# target). The P&L ladder is built per day by _derive():
+#   net  = Norce merchandise - BC returns
+#   gp1  = net - COGS (BC cost-of-goods rate on the Norce base)
+#   gp2  = gp1 - direct variable cost (dv): Norce freight income, shipping-model
+#          outbound cost, shipping-tab pick & pack + packaging, and the
+#          forecast's remaining direct-variable lines at forecast
+#   gp3  = gp2 - de-duplicated Funnel ad cost
+# fgross/fnet/fgp1/fgp2 are the Funnel export's own figures: fgross keeps COS%
+# Funnel ÷ Funnel (the KV Overview definition); the rest are for comparison.
+METRICS = ["gross", "net", "gp1", "gp2", "cost", "gp3", "orders", "units", "freight",
+           "returns", "cogs", "dv", "fgross", "fnet", "fgp1", "fgp2"]
+BASIS = {"gross": "norce", "orders": "norce", "units": "norce", "freight": "norce",
+         "net": "norce_bc", "returns": "norce_bc", "gp1": "norce_bc", "cogs": "norce_bc",
+         "gp2": "model", "dv": "model", "gp3": "model",
+         "cost": "funnel", "fgross": "funnel", "fnet": "funnel", "fgp1": "funnel", "fgp2": "funnel"}
+BASIS_LABEL = {"norce": "Norce ordered", "norce_bc": "Norce − BC returns/COGS",
+               "model": "Norce + BC + shipping model", "funnel": "Funnel export"}
 # pacing metric -> budget line / daily_targets key
 BUDGET_KEY = {"gross": "gross_sales", "net": "net_sales", "gp1": "gp1",
               "gp2": "gp2", "cost": "marketing"}
-KVD_FIELD = {"fgross": "rev", "net": "net_rev", "gp1": "gp1", "gp2": "gp2",
-             "cost": "cost", "gp3": "gp3"}
+KVD_FIELD = {"fgross": "rev", "fnet": "net_rev", "fgp1": "gp1", "fgp2": "gp2", "cost": "cost"}
+# Forecast direct-variable lines (budget_2026.json's direct_var = GP1 - GP2,
+# Exec P&L forecast block) that the shipping model does NOT measure. They are
+# carried AT FORECAST in actuals, so they add no variance: warehousing, inbound
+# VAS, returns handling, return shipping, other shipping, outbound VAS and
+# transaction fees (a net credit). Nov 2026 values, SEK, cost positive.
+OTHER_DV_FC_LINES = ("Fulfillment 3PL - warehousing", "Fulfillment VAS - inbound",
+                     "Fulfillment 3PL - returns", "Fulfillment VAS - returns",
+                     "Shipping costs - returns", "Other shipping costs",
+                     "Fulfillment VAS - outbound", "Transaction fees")
+SHIP_RATE_DAYS = 28
 MARKET_SQL = ("IF(market_level_1_kv IN ('" + "','".join(bm.MARKETS) + "'), "
               "market_level_1_kv, 'ROW')")
 
@@ -105,7 +127,8 @@ def _norce_market(app_key: str) -> str:
     return mk if mk in bm.MARKETS else "ROW"
 
 
-def _norce_daily(start: datetime.date, end: datetime.date, out: dict) -> str | None:
+def _norce_daily(start: datetime.date, end: datetime.date, out: dict,
+                 ship_rate: dict, ship_avg: float) -> str | None:
     """Merge Norce ordered metrics into `out` ({market: {iso: {...}}}).
 
     Market = the Norce application's market (Babyshop + Lekmer per country;
@@ -117,13 +140,170 @@ def _norce_daily(start: datetime.date, end: datetime.date, out: dict) -> str | N
         iso = r["d"].isoformat()
         last = iso if last is None or iso > last else last
         vals = {"gross": _f(r["merch_sek"]), "freight": _f(r["freight_sek"]),
-                "orders": _f(r["orders"]), "units": _f(r["units"])}
+                "orders": _f(r["orders"]), "units": _f(r["units"]),
+                # Shipping model's outbound cost per order for this application.
+                "ship_model": ship_rate.get(r["market"], ship_avg) * _f(r["orders"])}
         brand = "lekmer" if (r["market"] or "").startswith("lekmer") else "babyshop"
         for m in _keys(brand, _norce_market(r["market"])):
             day = out[m].setdefault(iso, {})
             for k, v in vals.items():
                 day[k] = day.get(k, 0.0) + v
     return last
+
+
+def _marketing_channels(s: datetime.date, e: datetime.date, ly_s: datetime.date,
+                        ly_e: datetime.date) -> dict:
+    """All marketing cost in the Funnel export by channel, MTD and LY MTD, per
+    brand|market segment. Same de-duplicated kv_rows `cost` as every other ad
+    cost figure here: every channel with cost (Google, Meta, affiliate, Naver,
+    price comparison, ...), nothing filtered out."""
+    rows = bs._rows(
+        f"WITH {bs._kv_cte('(Date BETWEEN @s AND @e) OR (Date BETWEEN @ls AND @le)')} "
+        f"SELECT IF(Date >= @s, 'cur', 'ly') per, {MARKET_SQL} m, "
+        f"IF(shop_new = 'Lekmer', 'lekmer', 'babyshop') b, "
+        f"COALESCE(Channel_Type_Level_1, 'Other') ch, SUM(cost) cost "
+        f"FROM kv_rows GROUP BY 1, 2, 3, 4 HAVING ABS(cost) > 0",
+        [bigquery.ScalarQueryParameter(k, "DATE", v) for k, v in
+         (("s", s), ("e", e), ("ls", ly_s), ("le", ly_e))])
+    acc: dict = {}
+    for r in rows:
+        for k in _keys(r["b"], r["m"]):
+            c = acc.setdefault(k, {}).setdefault(r["ch"], {"channel": r["ch"], "mtd": 0.0, "ly_mtd": 0.0})
+            c["mtd" if r["per"] == "cur" else "ly_mtd"] += _f(r["cost"])
+    return {k: sorted(({"channel": c["channel"], "mtd": round(c["mtd"]), "ly_mtd": round(c["ly_mtd"])}
+                       for c in v.values()), key=lambda c: -c["mtd"])
+            for k, v in acc.items()}
+
+
+def _bc_market(country: str) -> str:
+    return country if country in bm.MARKETS else "ROW"
+
+
+def _cost_inputs() -> dict:
+    """Everything the P&L ladder needs beyond Norce and Funnel, from snapshots
+    this project already maintains:
+
+      • Exec P&L (funnel_cache/<ws>__exec-pl, refresh_exec_pl.py): Business
+        Central per country and month — gross, returns (credit memos, by
+        POSTING date) and item-ledger COGS, the GL COGS total, the posted
+        logistics lines, and the forecast's direct-variable lines. The open
+        month is month-to-date through `sources.bc.max_posting_date`.
+      • Shipping cost tab (funnel_cache/<ws>__shipping + shipping_cost.order_costs):
+        modelled outbound carrier cost per order, and pick & pack + packaging
+        per order.
+    """
+    from google.cloud import firestore
+    db = firestore.Client(project=bm.GCP_PROJECT)
+    doc = lambda k: ((db.collection(bm.COLLECTION).document(f"{bm.WORKSPACE}__{k}").get().to_dict() or {})
+                     .get("data") or {})
+    ex, sh = doc("exec-pl"), doc("shipping")
+    if not ex.get("markets") or not sh.get("fulfilment"):
+        raise RuntimeError("exec-pl or shipping snapshot missing: cannot build the P&L ladder")
+
+    def month_rates(ym: str) -> dict:
+        """Per KV market: returns, gross, item-ledger COGS, scaled so the
+        market COGS add up to the GL total (the ladder's COGS basis)."""
+        mk = ex["markets"].get(ym, {})
+        agg: dict = {}
+        for c, v in mk.items():
+            a = agg.setdefault(_bc_market(c), {"gross": 0.0, "returns": 0.0, "cogs": 0.0, "orders": 0})
+            a["gross"] += _f(v.get("gross")); a["returns"] += _f(v.get("returns"))
+            a["cogs"] += _f(v.get("cogs_item_ledger")); a["orders"] += int(v.get("orders") or 0)
+        il = sum(a["cogs"] for a in agg.values())
+        gl = _f(ex["ladder"].get(ym, {}).get("cogs"))
+        scale = gl / il if il and gl else 1.0
+        for a in agg.values():
+            a["cogs"] *= scale
+            a["returns_rate"] = a["returns"] / a["gross"] if a["gross"] else 0.0
+            a["cogs_rate"] = a["cogs"] / a["gross"] if a["gross"] else 0.0
+        return {"markets": agg, "cogs_gl_scale": round(scale, 4)}
+
+    ym_cur = f"{bm.YEAR:04d}-{bm.MONTH:02d}"
+    ym_ly = f"{bm.YEAR - 1:04d}-{bm.MONTH:02d}"
+    lad_ly = ex["ladder"].get(ym_ly, {})
+    ly_orders = sum(int(v.get("orders") or 0) for v in ex["markets"].get(ym_ly, {}).values())
+    ly_dv = _f(lad_ly.get("nship")) + _f(lad_ly.get("ful")) + _f(lad_ly.get("tf"))
+
+    fl = ex.get("forecast", {}).get("lines", {})
+    mon = bm.MONTH_START.strftime("%b").lower()
+    other_fc = -sum(_f(fl.get(k, {}).get(mon)) for k in OTHER_DV_FC_LINES)   # cost positive
+
+    f = sh["fulfilment"]
+    used = [r for r in f.get("monthly", []) if r.get("month") in f.get("months", [])]
+    orders = sum(int(r.get("orders") or 0) for r in used)
+    pick = (sum(_f(r.get("pick_contract")) for r in used) / orders) if orders else 0.0
+    pack = _f(f.get("packaging_per_order"))
+
+    thru = sh.get("orders_through")
+    rows = bs._rows(f"""
+      SELECT project, COUNT(*) n, SUM(cost_sek) c
+      FROM `{bm.GCP_PROJECT}.shipping_cost.order_costs`
+      WHERE order_date > DATE_SUB(@t, INTERVAL {SHIP_RATE_DAYS} DAY) AND order_date <= @t
+      GROUP BY project""", [bigquery.ScalarQueryParameter("t", "DATE", thru)])
+    n_all = sum(int(r["n"]) for r in rows)
+    ship = {r["project"]: _f(r["c"]) / int(r["n"]) for r in rows if r["n"]}
+    ship_avg = sum(_f(r["c"]) for r in rows) / n_all if n_all else 0.0
+    return {
+        "cur": month_rates(ym_cur), "ly": month_rates(ym_ly),
+        "bc_through": ex.get("sources", {}).get("bc", {}).get("max_posting_date"),
+        "exec_pl_generated": ex.get("generated_at"),
+        "ly_dv_per_order": ly_dv / ly_orders if ly_orders else 0.0,
+        "ly_dv_total": ly_dv, "ly_dv_orders": ly_orders,
+        "other_dv_fc": other_fc,
+        "pick_per_order": pick, "pack_per_order": pack,
+        "fulfilment_label": f.get("label"),
+        "ship_rate": ship, "ship_rate_avg": ship_avg, "ship_through": thru,
+    }
+
+
+def _derive(data: dict, ci: dict, isos: list[str], asof_i: int, ly_isos: list[str],
+            other_rate: float) -> None:
+    """Build net / GP1 / GP2 / GP3 (+ returns, cogs, dv) per day on the leaf
+    segments (brand x market), then roll the leaves up. See METRICS."""
+    cur_days = set(isos[:asof_i + 1])
+    ly_pos = {iso: j for j, iso in enumerate(ly_isos)}
+    leaves = [f"{b}|{m}" for b in ("babyshop", "lekmer") for m in MKTS if m != "all"]
+    # BC returns MTD are absolute amounts per market; spread over the market's
+    # days and brands in proportion to Norce gross (BC has no shop dimension).
+    g_mtd = {m: sum(data[f"all|{m}"].get(i, {}).get("gross", 0.0) for i in cur_days)
+             for m in MKTS if m != "all"}
+    pp = ci["pick_per_order"] + ci["pack_per_order"]
+    for leaf in leaves:
+        m = leaf.split("|")[1]
+        cur_m = ci["cur"]["markets"].get(m, {})
+        ly_m = ci["ly"]["markets"].get(m, {})
+        ret_factor = cur_m.get("returns", 0.0) / g_mtd[m] if g_mtd[m] else 0.0
+        for iso, day in data[leaf].items():
+            g, orders = day.get("gross", 0.0), day.get("orders", 0.0)
+            if iso in cur_days:
+                ret = g * ret_factor
+                cogs = g * cur_m.get("cogs_rate", 0.0)
+                # Unmeasured lines at the forecast's rate per krona of sales.
+                other = other_rate * g
+                dv = day.get("ship_model", 0.0) + pp * orders - day.get("freight", 0.0) + other
+            elif iso in ly_pos:
+                ret = g * ly_m.get("returns_rate", 0.0)
+                cogs = g * ly_m.get("cogs_rate", 0.0)
+                dv = ci["ly_dv_per_order"] * orders
+            else:
+                continue
+            day.update(returns=ret, cogs=cogs, dv=dv, net=g - ret, gp1=g - ret - cogs,
+                       gp2=g - ret - cogs - dv)
+    # Roll the derived fields up from the leaves (raw fields were rolled at load).
+    derived = ("returns", "cogs", "dv", "net", "gp1", "gp2")
+    for key in SEGS:
+        if key in leaves:
+            continue
+        b, m = key.split("|")
+        kids = [lf for lf in leaves if (b == "all" or lf.startswith(b + "|"))
+                and (m == "all" or lf.endswith("|" + m))]
+        for iso, day in data[key].items():
+            for k in derived:
+                day[k] = sum(data[lf].get(iso, {}).get(k, 0.0) for lf in kids)
+    for key in SEGS:
+        for day in data[key].values():
+            if "gp2" in day:
+                day["gp3"] = day["gp2"] - day.get("cost", 0.0)
 
 
 def _october_index(field: str, hist: list[dict]) -> list[float]:
@@ -249,16 +429,16 @@ def _headroom(S: dict, t: dict, n: int, budget: dict) -> dict:
     days by the marketing index. It only holds if the extra spend adds at least
     as much incremental GP2 as it costs, which this cannot see.
 
-    Sales are Norce merchandise (the plan's basis); GM1/GM2 rates and GP2 are
-    Funnel export (Norce has no cost), rates taken on Funnel gross.
+    Everything is on the pacing ladder: sales = Norce merchandise, GP1 = minus
+    BC returns and COGS, GP2 = minus the shipping model's direct variable cost.
     """
     r = lambda v: None if v is None else round(v)
     rate = lambda a, b: round(a / b, 4) if b else None
-    g, fg, gp1, gp2, gp3, c = (S[k] for k in ("gross", "fgross", "gp1", "gp2", "gp3", "cost"))
+    g, gp1, gp2, gp3, c = (S[k] for k in ("gross", "gp1", "gp2", "gp3", "cost"))
     gm1_fc = budget["gp1"] / budget["gross_sales"]
     gm2_fc = budget["gp2"] / budget["gross_sales"]
-    gm1_act = gp1["mtd"] / fg["mtd"] if fg["mtd"] else None
-    gm2_act = gp2["mtd"] / fg["mtd"] if fg["mtd"] else None
+    gm1_act = gp1["mtd"] / g["mtd"] if g["mtd"] else None
+    gm2_act = gp2["mtd"] / g["mtd"] if g["mtd"] else None
 
     allowed_mtd = gp2["mtd"] - gp3["target_mtd"]
     allowed_month = (gp2["landing"] - gp3["target_month"]) if gp2["landing"] is not None else None
@@ -274,12 +454,12 @@ def _headroom(S: dict, t: dict, n: int, budget: dict) -> dict:
         sales, sales_t = g["mtd"], g["target_mtd"]
         volume = (sales - sales_t) * gm2_fc
         gm1_eff = sales * (gm1_act - gm1_fc)
-        # GM1 -> GM2 is direct variable cost (fulfilment, payment, freight net).
+        # GM1 -> GM2 is direct variable cost (net shipping, fulfilment, payment).
         dvc_eff = sales * ((gm2_act - gm1_act) - (gm2_fc - gm1_fc))
         resid = gp2["mtd"] - gp2["target_mtd"] - volume - gm1_eff - dvc_eff
         bridge = {"target_gp2": r(gp2["target_mtd"]), "volume": r(volume),
                   "gm1_margin": r(gm1_eff), "variable_cost": r(dvc_eff),
-                  "basis_mix": r(resid), "actual_gp2": r(gp2["mtd"])}
+                  "market_mix": r(resid), "actual_gp2": r(gp2["mtd"])}
     return {
         "allowed_spend_mtd": r(allowed_mtd),
         "actual_spend_mtd": r(c["mtd"]),
@@ -317,7 +497,8 @@ def build(ctx: dict) -> dict:
     # ── Actuals: Nov 2026 MTD + event-aligned LY window + October for the shape
     fetch_to = min(today - datetime.timedelta(days=1), bm.MONTH_END)
     data = _daily_by_market(ly_days[0], fetch_to)
-    norce_last = _norce_daily(ly_days[0], fetch_to, data)
+    ci = _cost_inputs()
+    norce_last = _norce_daily(ly_days[0], fetch_to, data, ci["ship_rate"], ci["ship_rate_avg"])
     # A day counts once BOTH sources hold it, so every KPI shares one as-of.
     complete = [i for i, iso in enumerate(isos) if iso <= fetch_to.isoformat()
                 and data["all|all"].get(iso, {}).get("gross", 0) > 0
@@ -345,13 +526,16 @@ def build(ctx: dict) -> dict:
         t["gp3"] = [g - c for g, c in zip(t["gp2"], t["cost"])]
         shapes[sh] = t
 
-    # ── Per-market split: Nov 2025 (event-aligned) market mix, per metric
+    # ── Net / GP1 / GP2 / GP3 per day from Norce + BC + shipping model
     ly_isos = [d.isoformat() for d in ly_days]
+    _derive(data, ci, isos, asof_i, ly_isos, ci["other_dv_fc"] / budget["gross_sales"])
+
+    # ── Per-market split: Nov 2025 (event-aligned) market mix, per metric
     ly_tot = {k: sum(data["all|all"].get(i, {}).get(k, 0) for i in ly_isos)
               for k in METRICS}
     rnd = lambda d: {k: [None if v is None else round(v) for v in vs] for k, vs in d.items()}
 
-    markets, headroom = {}, {}
+    markets, headroom, margins = {}, {}, {}
     for m in SEGS:
         ser = data[m]
         # GP3's own mix is unstable (GP2 minus cost can be ~0 in a market), so
@@ -377,12 +561,26 @@ def build(ctx: dict) -> dict:
         t_ev = {k: [v * share[k] for v in shapes["event"][k]] for k in BUDGET_KEY}
         if asof_i >= 0:
             headroom[m] = _headroom(summaries["event"], t_ev, asof_i + 1, budget)
+            S = summaries["event"]
+            gm = lambda k, per="mtd": round(S[k][per] / S["gross"][per], 4) if S["gross"][per] else None
+            margins[m] = {
+                "basis": "Norce merchandise − BC returns − BC COGS rate − shipping-model direct variable cost",
+                "gm1": gm("gp1"), "gm2": gm("gp2"), "gm3": gm("gp3"),
+                "gm1_ly": gm("gp1", "ly_mtd"), "gm2_ly": gm("gp2", "ly_mtd"),
+                "gm1_fc": round(budget["gp1"] / budget["gross_sales"], 4),
+                "gm2_fc": round(budget["gp2"] / budget["gross_sales"], 4),
+                "returns_rate": gm("returns"), "cogs_rate": gm("cogs"), "dv_rate": gm("dv"),
+                "dv_per_order": round(S["dv"]["mtd"] / S["orders"]["mtd"], 1) if S["orders"]["mtd"] else None,
+                "funnel_gm1": round(S["fgp1"]["mtd"] / S["fgross"]["mtd"], 4) if S["fgross"]["mtd"] else None,
+                "funnel_gm2": round(S["fgp2"]["mtd"] / S["fgross"]["mtd"], 4) if S["fgross"]["mtd"] else None,
+            }
 
     # ── New vs returning (Norce), same MTD window and its LY twin
-    cust = None
+    cust, mchan = None, None
     if asof_i >= 0:
         s, e = days[0], days[asof_i]
         cust = _customers(s, e, s - LY_SHIFT, e - LY_SHIFT)
+        mchan = _marketing_channels(s, e, s - LY_SHIFT, e - LY_SHIFT)
 
     events = {d.isoformat(): n for d, n in dt.calendar_events(bm.YEAR).items()
               if d.year == bm.YEAR and d.month == bm.MONTH}
@@ -407,6 +605,8 @@ def build(ctx: dict) -> dict:
                       "brand target here is DERIVED from Nov 2025's mix per metric."),
         },
         "brands": {b: {"markets": pick(markets, b), "headroom": pick(headroom, b),
+                       "margins": pick(margins, b),
+                       "marketing_channels": pick(mchan, b) if mchan else None,
                        "customers": pick(cust, b) if cust else None}
                    for b in BRANDS if b != "all"},
         "asof": asof,
@@ -417,8 +617,25 @@ def build(ctx: dict) -> dict:
         "markets": pick(markets, "all"),
         "customers": pick(cust, "all") if cust else None,
         "headroom": pick(headroom, "all"),
+        "margins": pick(margins, "all"),
+        "marketing_channels": pick(mchan, "all") if mchan else None,
+        "cost_inputs": {
+            "bc_through": ci["bc_through"], "exec_pl_generated": ci["exec_pl_generated"],
+            "returns_mtd_by_market": {k: round(v["returns"]) for k, v in ci["cur"]["markets"].items()},
+            "cogs_rate_by_market": {k: round(v["cogs_rate"], 4) for k, v in ci["cur"]["markets"].items()},
+            "cogs_rate_by_market_ly": {k: round(v["cogs_rate"], 4) for k, v in ci["ly"]["markets"].items()},
+            "returns_rate_by_market_ly": {k: round(v["returns_rate"], 4) for k, v in ci["ly"]["markets"].items()},
+            "cogs_gl_scale": ci["cur"]["cogs_gl_scale"],
+            "ship_cost_per_order_by_app": {k: round(v, 1) for k, v in ci["ship_rate"].items()},
+            "ship_rate_through": str(ci["ship_through"]),
+            "pick_per_order": round(ci["pick_per_order"], 2), "pack_per_order": ci["pack_per_order"],
+            "fulfilment_period": ci["fulfilment_label"],
+            "other_dv_at_forecast_month": round(ci["other_dv_fc"]),
+            "other_dv_rate": round(ci["other_dv_fc"] / budget["gross_sales"], 4),
+            "ly_dv_per_order": round(ci["ly_dv_per_order"], 1),
+        },
         "basis": BASIS,
-        "basis_label": {"norce": "Norce ordered", "funnel": "Funnel export"},
+        "basis_label": BASIS_LABEL,
         "norce_last_day": norce_last,
         "run_rate_days": RUN_RATE_DAYS,
         "budget_month": {k: round(budget[BUDGET_KEY[k]]) for k in BUDGET_KEY} | {
@@ -434,10 +651,30 @@ def build(ctx: dict) -> dict:
             "excluding freight, because the forecast's Gross Sales line excludes shipping; "
             "freight is ~2% on top. Gross of returns, like the plan line. Complete days "
             "only (norce-sync closes yesterday at 03:00).",
-            "Net sales, GP1, GP2, ad cost, GP3 and COS%: Funnel export, the KV Overview's "
-            "de-duplicated numbers. Norce has no cost (CostUnit is empty) and no returns, "
-            "so these cannot be built on the ordered basis. Funnel days can still grow for "
-            "~2 days.",
+            "Net sales = Norce merchandise − Business Central returns (credit memos incl. "
+            "compensation, as in the Executive P&L). BC books a return on its POSTING date, "
+            "when it is processed, not on the original order date: early-month returns are "
+            "mostly October orders, and Black Week returns land in December. MTD returns are "
+            "BC's actual amount per market, spread over days and brands by Norce gross (BC "
+            "has no shop dimension).",
+            "GP1 = net sales − COGS at Business Central's cost-of-goods rate for the same "
+            "month to date, per market (item-ledger COGS ÷ BC gross, scaled to the GL COGS "
+            "the Executive P&L uses), applied to Norce merchandise. Chosen over the Funnel "
+            "GM1 because it is Finance's own ledger; it is a rate, not a daily BC figure, "
+            "because BC posts on invoice date and the snapshot is per month and market.",
+            "GP2 = GP1 − direct variable cost, like the forecast's GP2 line (net shipping + "
+            "fulfilment + transaction fees). Measured: Norce freight income, the Shipping "
+            "cost tab's modelled outbound carrier cost per order per application (last 28 "
+            "days of the model), pick & pack + packaging per order from the shipping tab "
+            "(contract rate; PostNord's billed rate runs ~18% lower). Carried AT FORECAST "
+            "at the forecast's rate per krona of sales (no variance): warehousing, "
+            "inbound/outbound/returns VAS, returns handling, return shipping, other shipping "
+            "and transaction fees, 2.63 M in the November forecast = 5.0% of gross sales.",
+            "GP3 = GP2 − de-duplicated Funnel ad cost. COS% stays Funnel ad cost ÷ Funnel gross.",
+            "Last year (Nov 2025) on the same ladder: Norce merchandise × BC's Nov 2025 return "
+            "and COGS rates per market, minus BC's posted Nov 2025 net shipping + fulfilment "
+            "+ transaction fees per order. The shipping model starts Jan 2026, so LY uses the "
+            "ledger instead.",
             "Targets: Finance's November forecast (budget_2026.json) spread per day by "
             "November 2025's daily shape, lined up by event (Black Friday, Cyber Monday, "
             "payday, weekday) with the KV Overview's own daily_targets model. We use that "
@@ -454,7 +691,7 @@ def build(ctx: dict) -> dict:
             "103.1 M vs Babyshop alone 96.9 M). Actuals cover the same scope.",
             "Market and brand targets: the forecast is global only, so each market's and "
             "brand's target is the global target × its share of the same metric in Nov 2025 "
-            "(event-aligned; Norce mix for gross sales, Funnel mix for the rest). Norce "
+            "(event-aligned, on this tab's own ladder; ad cost on the Funnel mix). Norce "
             "market = the ordering application (SE/NO/FI/DK incl. Lekmer; EU, UK, NA, Asia, "
             "ROW apps = ROW). Market GP3 = market GP2 − market ad cost. The mix has moved "
             "a lot since then (NO and DK roughly doubled in Oct 2026 YoY; international "
@@ -469,13 +706,18 @@ def build(ctx: dict) -> dict:
             "current run-rate). Headroom = allowed − actual (MTD) and allowed − expected "
             "spend at run-rate (rest of month), spread by the marketing index. Extra spend "
             "only keeps GP3 if it adds at least as much incremental GP2 as it costs. "
-            "Margins and GP2 are Funnel export; sales are Norce merchandise. Per market it "
+            "GP2 and margins are on this tab's own ladder (Norce − BC − shipping model). Per market it "
             "rides the Nov 2025 mix split: the forecast itself has no market split.",
-            "GM1 caveat: the Funnel export books returns when they come back, so GM1/GM2 "
+            "GM1 caveat: Business Central books returns when they are processed, so GM1/GM2 "
             "(and the headroom built on them) run high during a sales peak until the "
             "peak's returns land, largely in December.",
-            "Ad cost target = Finance's whole marketing line (5.54 M), which also holds "
-            "non-ad channels; actual ad cost is de-duplicated Funnel ad spend.",
+            "Marketing cost = ALL marketing cost in the Funnel export, every channel with cost "
+            "(Google, Meta, affiliate, Naver, price comparison, ...), de-duplicated with "
+            "bq_source's COST_GRAIN machinery. The forecast's marketing line (5.54 M) is "
+            "entirely 'Marketing ad spend' (other marketing and marketing consultants are 0) "
+            "and equals Funnel's all-channel cost for Nov 2025 (5.537 M) to 0.01%, so the "
+            "scope matches. Business Central's GL booked 4.71 M marketing for Nov 2025; that "
+            "gap to Funnel is not reconciled here. Funnel is the basis, as instructed.",
             "Last year = same weekday 364 days earlier, so Black Friday 27 Nov lines up "
             "with 28 Nov 2025 and Cyber Monday 30 Nov with 1 Dec 2025.",
             f"Landing = MTD actual + remaining daily target × the last {RUN_RATE_DAYS} "
