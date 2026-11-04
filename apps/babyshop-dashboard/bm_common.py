@@ -126,16 +126,28 @@ def envelope(section: str, payload: dict) -> dict:
 
 
 def write_section(section: str, payload: dict) -> None:
+    """Stored as ONE JSON string, not a map: Firestore indexes every nested map
+    field and caps a document at 20,000 index entries, which the brand x market
+    payloads exceed (pacing hit INDEX_ENTRIES_COUNT_LIMIT_EXCEEDED on 2026-11-04).
+    A string is a single index entry; the 1 MiB document limit still applies,
+    hence refresh_blackmonth's 900 kB budget."""
     from google.cloud import firestore
     db = firestore.Client(project=GCP_PROJECT)
     db.collection(COLLECTION).document(f"{WORKSPACE}__{DOC_PREFIX}{section}").set({
-        "data": payload, "created_at": time.time(),
+        "data_json": json.dumps(payload, default=str, separators=(",", ":")),
+        "created_at": time.time(),
         "expires_at": time.time() + TTL, "ttl_seconds": TTL, "workspace": WORKSPACE})
 
 
 def read_section(section: str) -> dict | None:
-    """Read another section's stored payload (used by `insights`)."""
+    """A section's stored payload (used by the API route and by `insights`).
+    Reads the JSON-string format, and the older map format while it lingers."""
     from google.cloud import firestore
     db = firestore.Client(project=GCP_PROJECT)
     snap = db.collection(COLLECTION).document(f"{WORKSPACE}__{DOC_PREFIX}{section}").get()
-    return (snap.to_dict() or {}).get("data") if snap.exists else None
+    if not snap.exists:
+        return None
+    d = snap.to_dict() or {}
+    if d.get("data_json"):
+        return json.loads(d["data_json"])
+    return d.get("data")

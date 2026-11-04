@@ -1819,9 +1819,8 @@ def api_blackmonth(section: str, _: str = Depends(verify)):
     import bm_common
     if section not in bm_common.SECTIONS:
         return JSONResponse({"error": f"unknown section {section!r}"}, status_code=404)
-    from funnel_client import get_cache
     try:
-        data = get_cache().get(f"{bm_common.DOC_PREFIX}{section}")
+        data = bm_common.read_section(section)
     except Exception as e:
         print(f"ERROR /api/blackmonth/{section}: {type(e).__name__}: {e}", flush=True)
         return JSONResponse({"error": "the snapshot could not be read — try again shortly"},
