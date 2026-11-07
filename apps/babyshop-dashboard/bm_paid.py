@@ -395,6 +395,16 @@ def _marginal(pairs: list[tuple[float, float]]) -> dict:
             "r2": round(r2, 2), "n": n, "spend_cv": round(cv, 2), "confidence": conf}
 
 
+MARKET_TOKEN_RX = re.compile(r"(?:^|[-_ ])(se|no|fi|dk)(?:[-_ ]|$)", re.I)
+
+
+def name_market(name: str) -> str | None:
+    """Market a campaign NAMES (p-shopping-fi-all -> FI). Accounts can host
+    another market's campaigns: Lekmer DK runs p-shopping-fi-all."""
+    m = MARKET_TOKEN_RX.search(name or "")
+    return m.group(1).upper() if m else None
+
+
 BRAND_RX = re.compile(r"(^|[-_ |])brand([-_ |]|$)", re.I)
 STEP = 0.10                  # the tROAS move we suggest: ±10 %
 NOISE = 0.10                 # |incremental marginal − 1| below this → hold
@@ -695,7 +705,7 @@ def build(ctx: dict) -> dict:
                    or "BUDGET_CONSTRAINED" in " ".join(c["reasons"])
                    or (lb is not None and lb >= 0.10))
         row = {
-            "brand": c["brand"], "market": c["market"], "id": c["id"], "name": c["name"],
+            "brand": c["brand"], "market": name_market(c["name"]) or c["market"], "id": c["id"], "name": c["name"],
             "channel": c["channel"].title().replace("_", " "),
             "bidding": c["bidding"].replace("_", " ").title(), "troas": c["troas"],
             "currency": c["currency"],

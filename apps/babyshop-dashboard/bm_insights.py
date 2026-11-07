@@ -77,6 +77,7 @@ SCORE_BY_DAYS = 7
 RULES = {
     "gp3_behind_pct": 0.05,        # MTD GP3 more than 5 % behind target-to-date
     "headroom_min_per_day": 2000,  # positive headroom worth mentioning, SEK/day
+    "meta_min_mtd_sek": 1000,      # Meta line needs this much MTD spend for a scale-down alert
     "min_gp3_target_mtd": 10000,   # skip GP3-behind on scopes smaller than this (tiny Lekmer markets)
     "min_negative_headroom": 20000,  # skip negative headroom smaller than this, SEK to month end
     "suggestion_min_l7_sek": 2000, # tROAS suggestions on campaigns spending ≥ this per 7 d
@@ -409,6 +410,9 @@ def rule_alerts(snaps: dict[str, dict | None], today: dt.date) -> tuple[list[dic
             alerts.extend(fn(snaps, today))
         except Exception as e:                       # noqa: BLE001 — a rule must never sink the section
             notes.append(f"Rule {fn.__name__[6:]} skipped: {type(e).__name__}: {e}")
+    over = {(a.get("brand"), a.get("market")) for a in alerts if a["rule"] == "headroom_negative"}
+    alerts = [a for a in alerts
+              if not (a["rule"] == "gp3_behind" and (a.get("brand"), a.get("market")) in over)]
     for a in alerts:                                 # "Lekmer · …" on brand-specific headlines
         lab = _brand_label(a.get("brand", "all"))
         if lab and not a["headline"].startswith(lab):
@@ -476,8 +480,17 @@ def _brand_label(br: str) -> str:
 # tROAS set high on purpose; never suggest lowering (memory "PB campaign", 2026-11-04).
 # Keyed (brand, name): Lekmer reuses Babyshop's campaign names.
 DELIBERATE_TROAS = {("babyshop", "ps-search-se-pb-all")}
+# Private-label product and brand campaigns sit at 600 % on purpose in every
+# market and both shops: only Babyshop sells these brands, so their clicks are
+# mostly not incremental. Never suggest lowering them.
+DELIBERATE_RX = re.compile(r"-pb-all$|-pb-product$|(^|-)brand$", re.I)
 
-_RETURNS_CAVEAT = ("Late-November headroom reads high: Funnel books returns on the return date, so "
+
+def _deliberate(c) -> bool:
+    return ((_brand(c, c.get("name")), c.get("name")) in DELIBERATE_TROAS
+            or bool(DELIBERATE_RX.search(str(c.get("name") or ""))))
+
+_RETURNS_CAVEAT = ("Late-November headroom reads high: Business Central books returns when they are processed, so "
                    "Black Week returns land in December and GP3 to date is flattered.")
 
 
@@ -529,7 +542,7 @@ def _incremental_candidates(pd, market, up: bool, n: int = 3, brand: str = "all"
             continue
         if brand != "all" and _brand(c, c.get("name")) != brand:
             continue
-        if up and (_brand(c, c.get("name")), c.get("name")) in DELIBERATE_TROAS:
+        if up and _deliberate(c):
             continue
         if (im > 1) if up else (im < 1):
             cd = c.get("cooldown_until")
@@ -594,7 +607,7 @@ def _rule_troas_suggestions(snaps, today):
         act = sg.get("action")
         if act not in ("lower", "raise") or (_num(c.get("l7_cost_sek")) or 0) < RULES["suggestion_min_l7_sek"]:
             continue
-        if act == "lower" and (_brand(c, c.get("name")), c.get("name")) in DELIBERATE_TROAS:
+        if act == "lower" and _deliberate(c):
             continue
         until = max(str(sg.get("blocked_until") or ""), str(c.get("cooldown_until") or ""))
         if until and until > tday:
@@ -639,7 +652,8 @@ def _rule_meta_lines(snaps, today):
         act = (l.get("suggestion") or {}).get("action")
         if act in ("up", "test"):
             up.setdefault((l.get("market") or "all", _brand(l, l.get("campaign"))), []).append(l)
-        elif act == "down":
+        elif act == "down" and (_num(l.get("mtd_spend")) or 0) >= RULES["meta_min_mtd_sek"] \
+                and dig(l, "fit.n", default=0):
             down.setdefault((l.get("market") or "all", _brand(l, l.get("campaign"))), []).append(l)
     out = []
     for (m, br), ls in up.items():
@@ -673,9 +687,9 @@ def _rule_negative_gp3(snaps, today):
     out = []
     for r in _rows(p, "gp3.l14.rows"):
         g, sp = _num(r.get("gp3")), _num(r.get("spend")) or 0
-        if g is None or g >= 0 or sp < 5000:
-            continue
         ch = r.get("channel", "paid")
+        if g is None or g >= 0 or sp < 5000 or ch == "meta":
+            continue
         out.append(_alert(
             "negative_gp3", "high" if g < -0.25 * sp else "medium", r.get("market"),
             f"{ch.title()} {r.get('market')} lost {_sek(-g)} GP3 in 14 days (GP2/spend {r.get('gp2_roas') or 0:.2f})",
@@ -1102,7 +1116,8 @@ def build(ctx: dict) -> dict:
     for g in troas:
         if g["big_steps"]:
             big.setdefault(g["date"], []).append(g)
-    for day, gs in sorted(big.items(), reverse=True)[:3]:
+    fresh = (today - dt.timedelta(days=2)).isoformat()
+    for day, gs in sorted(((d, g) for d, g in big.items() if d >= fresh), reverse=True)[:3]:
         n = sum(g["big_steps"] for g in gs)
         mk = sorted({g["market"] for g in gs})
         alerts.append(_alert(
