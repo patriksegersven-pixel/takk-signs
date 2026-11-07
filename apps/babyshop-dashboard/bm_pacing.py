@@ -256,6 +256,7 @@ def _cost_inputs() -> dict:
     ship_avg = sum(_f(r["c"]) for r in rows) / n_all if n_all else 0.0
     return {
         "cur": month_rates(ym_cur, scale=cur_scale), "ly": month_rates(ym_ly),
+        "mix": month_rates(MIX_YM),
         "bc_through": ex.get("sources", {}).get("bc", {}).get("max_posting_date"),
         "exec_pl_generated": ex.get("generated_at"),
         "ly_dv_per_order": ly_dv / ly_orders if ly_orders else 0.0,
@@ -265,6 +266,15 @@ def _cost_inputs() -> dict:
         "fulfilment_label": f.get("label"),
         "ship_rate": ship, "ship_rate_avg": ship_avg, "ship_through": thru,
     }
+
+
+# Month whose market x brand mix splits the global forecast (the forecast has
+# no market split). October 2026 replaced Nov 2025 on 2026-11-07: NO and DK
+# roughly doubled and Lekmer shrank since last year, so the old mix set wrong
+# market targets.
+MIX_YM = "2026-10"
+MIX_DAYS = (datetime.date(2026, 10, 1), datetime.date(2026, 10, 31))
+MIX_LABEL = "Oct 2026"
 
 
 def _norce_cogs(start: datetime.date, end: datetime.date) -> dict:
@@ -293,11 +303,12 @@ def _norce_cogs(start: datetime.date, end: datetime.date) -> dict:
 
 
 def _derive(data: dict, ci: dict, isos: list[str], asof_i: int, ly_isos: list[str],
-            other_rate: float) -> None:
+            other_rate: float, mix_isos: list[str]) -> None:
     """Build net / GP1 / GP2 / GP3 (+ returns, cogs, dv) per day on the leaf
     segments (brand x market), then roll the leaves up. See METRICS."""
     cur_days = set(isos[:asof_i + 1])
     ly_pos = {iso: j for j, iso in enumerate(ly_isos)}
+    mix_days = set(mix_isos)
     leaves = [f"{b}|{m}" for b in ("babyshop", "lekmer") for m in MKTS if m != "all"]
     # BC returns MTD are absolute amounts per market; spread over the market's
     # days and brands in proportion to Norce gross (BC has no shop dimension).
@@ -308,6 +319,7 @@ def _derive(data: dict, ci: dict, isos: list[str], asof_i: int, ly_isos: list[st
         m = leaf.split("|")[1]
         cur_m = ci["cur"]["markets"].get(m, {})
         ly_m = ci["ly"]["markets"].get(m, {})
+        mix_m = ci["mix"]["markets"].get(m, {})
         ret_factor = cur_m.get("returns", 0.0) / g_mtd[m] if g_mtd[m] else 0.0
         for iso, day in data[leaf].items():
             g, orders = day.get("gross", 0.0), day.get("orders", 0.0)
@@ -319,6 +331,14 @@ def _derive(data: dict, ci: dict, isos: list[str], asof_i: int, ly_isos: list[st
                 # Unmeasured lines at the forecast's rate per krona of sales.
                 other = other_rate * g
                 dv = day.get("ship_model", 0.0) + pp * orders - day.get("freight", 0.0) + other
+            elif iso in mix_days:
+                # The split month on the same ladder: BC's posted return rate for
+                # the month, Norce cost on goods kept, the shipping model.
+                ret = g * mix_m.get("returns_rate", 0.0)
+                nc = ci["norce_cogs_mix"].get(leaf) or ci["norce_cogs_mix"].get(f"all|{m}")
+                cogs = (g - ret) * nc["rate"] if nc else g * mix_m.get("cogs_rate", 0.0)
+                dv = (day.get("ship_model", 0.0) + pp * orders - day.get("freight", 0.0)
+                      + other_rate * g)
             elif iso in ly_pos:
                 ret = g * ly_m.get("returns_rate", 0.0)
                 cogs = g * ly_m.get("cogs_rate", 0.0)
@@ -567,11 +587,16 @@ def build(ctx: dict) -> dict:
 
     # ── Net / GP1 / GP2 / GP3 per day from Norce + BC + shipping model
     ly_isos = [d.isoformat() for d in ly_days]
-    _derive(data, ci, isos, asof_i, ly_isos, ci["other_dv_fc"] / budget["gross_sales"])
+    mix_isos = [(MIX_DAYS[0] + datetime.timedelta(days=i)).isoformat()
+                for i in range((MIX_DAYS[1] - MIX_DAYS[0]).days + 1)]
+    ci["norce_cogs_mix"] = _norce_cogs(*MIX_DAYS)
+    _derive(data, ci, isos, asof_i, ly_isos, ci["other_dv_fc"] / budget["gross_sales"], mix_isos)
 
-    # ── Per-market split: Nov 2025 (event-aligned) market mix, per metric
+    # ── Per-market x brand split: the MIX_YM mix, per metric, on this ladder
     ly_tot = {k: sum(data["all|all"].get(i, {}).get(k, 0) for i in ly_isos)
               for k in METRICS}
+    mix_tot = {k: sum(data["all|all"].get(i, {}).get(k, 0) for i in mix_isos)
+               for k in BUDGET_KEY}
     rnd = lambda d: {k: [None if v is None else round(v) for v in vs] for k, vs in d.items()}
 
     markets, headroom, margins = {}, {}, {}
@@ -580,8 +605,8 @@ def build(ctx: dict) -> dict:
         # GP3's own mix is unstable (GP2 minus cost can be ~0 in a market), so
         # market GP3 is derived from the market's GP2 and cost targets instead.
         share = {k: (1.0 if m == "all|all" else
-                     (sum(ser.get(i, {}).get(k, 0) for i in ly_isos) / ly_tot[k]
-                      if ly_tot[k] else 0.0)) for k in BUDGET_KEY}
+                     (sum(ser.get(i, {}).get(k, 0) for i in mix_isos) / mix_tot[k]
+                      if mix_tot[k] else 0.0)) for k in BUDGET_KEY}
         act = {k: [(ser[i].get(k, 0.0) if (j <= asof_i and i in ser) else None)
                    for j, i in enumerate(isos)] for k in METRICS}
         ly = {k: [ser.get(i, {}).get(k, 0.0) for i in ly_isos] for k in METRICS}
@@ -592,7 +617,8 @@ def build(ctx: dict) -> dict:
             targets[sh] = rnd(t)
             summaries[sh] = _summary(isos, asof_i, t, act, ly)
         markets[m] = {
-            "share_of_ly": {k: round(v, 4) for k, v in share.items()},
+            # Key name kept for the page; the share is MIX_LABEL's, not last year's.
+            "share_of_ly": {k: round(v, 4) for k, v in share.items()}, "share_basis": MIX_LABEL,
             "targets": targets, "actual": rnd(act), "ly": rnd(ly),
             # `summary` = the primary (event) shape; what `insights` should read.
             "summary": summaries["event"], "summaries": summaries,
@@ -641,7 +667,7 @@ def build(ctx: dict) -> dict:
                         "shop_new Babyshop + Lekmer (workspace AA/BS/LM/MJ Combo); no other shop "
                         "carries revenue or ad cost."),
             "split": ("The forecast is global only: no market or brand split. Every market and "
-                      "brand target here is DERIVED from Nov 2025's mix per metric."),
+                      "brand target here is DERIVED from Oct 2026's mix per metric."),
         },
         "brands": {b: {"markets": pick(markets, b), "headroom": pick(headroom, b),
                        "margins": pick(margins, b),
@@ -733,13 +759,14 @@ def build(ctx: dict) -> dict:
             "Finance's ledger: Jun-Sep 2026 posted gross 103.6 M vs Norce Babyshop + Lekmer "
             "103.1 M vs Babyshop alone 96.9 M). Actuals cover the same scope.",
             "Market and brand targets: the forecast is global only, so each market's and "
-            "brand's target is the global target × its share of the same metric in Nov 2025 "
-            "(event-aligned, on this tab's own ladder; ad cost on the Funnel mix). Norce "
-            "market = the ordering application (SE/NO/FI/DK incl. Lekmer; EU, UK, NA, Asia, "
-            "ROW apps = ROW). Market GP3 = market GP2 − market ad cost. The mix has moved "
-            "a lot since then (NO and DK roughly doubled in Oct 2026 YoY; international "
-            "revenue moved from 'ROW EUR' to named countries), so per-market targets are "
-            "a rough guide: NO/DK read ahead, ROW reads behind.",
+            "brand's target is the global target × its share of the same metric in October "
+            "2026, on this tab's own ladder (Norce merchandise − BC's October return rate − "
+            "Norce cost − shipping model; ad cost on the Funnel mix). October replaced "
+            "Nov 2025 on 7 Nov: NO and DK roughly doubled year on year and Lekmer shrank, "
+            "so last year's mix set wrong market targets. October has no Black Friday, so a "
+            "market that peaks harder on Black Friday will read ahead late in the month. "
+            "Norce market = the ordering application (SE/NO/FI/DK incl. Lekmer; EU, UK, NA, "
+            "Asia, ROW apps = ROW). Market GP3 = market GP2 − market ad cost.",
             "1 Nov: All Saints' Day fell on 1 Nov 2025 but on 31 Oct 2026, so 1 Nov 2026 has "
             "no last-year twin and the model gives it an average-day target × the Sunday "
             "factor (~1.9 M). It reads behind on that day for that reason.",
@@ -750,7 +777,7 @@ def build(ctx: dict) -> dict:
             "spend at run-rate (rest of month), spread by the marketing index. Extra spend "
             "only keeps GP3 if it adds at least as much incremental GP2 as it costs. "
             "GP2 and margins are on this tab's own ladder (Norce − BC − shipping model). Per market it "
-            "rides the Nov 2025 mix split: the forecast itself has no market split.",
+            "rides the Oct 2026 mix split: the forecast itself has no market split.",
             "GM1 caveat: Business Central books returns when they are processed, so GM1/GM2 "
             "(and the headroom built on them) run high during a sales peak until the "
             "peak's returns land, largely in December.",

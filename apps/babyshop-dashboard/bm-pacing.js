@@ -319,7 +319,7 @@
         { key: 'x', label: 'Per day', num: true, fmt: function (x) { return signedSek(x.headroom_per_day); } },
         { key: 'x', label: 'Earned COS', num: true, fmt: function (x) { return F.pct(x.earned_cos); } },
         { key: 'x', label: 'GP3 vs target', num: true, fmt: function (x) { return delta(ratio(x.gp3_mtd, x.gp3_target_mtd)); } }
-      ]) + '<p class="bm-note">The forecast has no market split: market headroom rides the Nov 2025 mix split of the global GP3 and marketing lines, so treat it as direction, not a budget.</p>';
+      ]) + '<p class="bm-note">The forecast has no market split: market headroom rides the October 2026 mix split of the global GP3 and marketing lines, so treat it as direction, not a budget.</p>';
     }
     return h;
   }
@@ -553,7 +553,7 @@
     var derived = [];
     if (mk !== 'all' || b !== 'all') {
       derived.push('<b>' + esc((b === 'all' ? '' : BRAND[b] + ' ') + (mk === 'all' ? 'all markets' : mk)) + '</b> target = ' +
-        F.pct(M.share_of_ly.gross, 1) + ' of the forecast (its Nov 2025 share of gross sales; per metric for the rest). ' +
+        F.pct(M.share_of_ly.gross, 1) + ' of the forecast (its October 2026 share of gross sales; per metric for the rest). ' +
         'Derived: the forecast has no market or brand split.');
     }
     return '<p class="bm-note pc-scope"><b>Scope:</b> ' + esc(BRAND[b]) + (b === 'all'
@@ -590,7 +590,7 @@
       (S[ui.metric].run_rate_ratio != null ? F.pct(S[ui.metric].run_rate_ratio, 0) : '–') + '). ' +
       '"Needed / day" = what each remaining day must deliver to land exactly on the month\'s forecast.</p>');
     h.push(dailyTable(d, M));
-    if (mk === 'all') h.push('<h3>Markets</h3>' + marketTable(d) + '<p class="bm-note">Market targets split the global forecast by each market\'s Nov 2025 share. ' +
+    if (mk === 'all') h.push('<h3>Markets</h3>' + marketTable(d) + '<p class="bm-note">Market targets split the global forecast by each market\'s October 2026 share. ' +
       'Gross sales and shares are Norce ordered by ordering application (ROW = EU/UK/NA/Asia/ROW apps); GP2, ad cost and GP3 are Funnel export by KV market. ' +
       'Where Share MTD differs from Share LY (amber) the split is stale (NO and DK have roughly doubled since last year), so read market "vs target" alongside "vs LY". Click a market to filter.</p>');
     h.push('<h3>New vs returning customers, MTD vs last year</h3>' + customerTable(d, mk) +
