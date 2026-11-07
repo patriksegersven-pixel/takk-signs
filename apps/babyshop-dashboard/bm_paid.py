@@ -518,7 +518,7 @@ def pacing_snapshot() -> dict:
 
 class Margins:
     """GP2 margin per brand × market. Pacing's Norce basis first (merchandise − BC
-    returns − BC COGS rate − shipping-model cost), the Funnel export as fallback."""
+    returns − Norce COGS − shipping-model cost), the Funnel export as fallback."""
     def __init__(self, pacing: dict, funnel: dict[str, float]):
         self.p, self.f = pacing or {}, funnel
 
@@ -1073,7 +1073,7 @@ def build(ctx: dict) -> dict:
     # ── Notes ────────────────────────────────────────────────────────────────
     notes += [
         "GP2 margin basis (Meta scoring, GP3, channel marginal): pacing's Norce model (merchandise − "
-        "BC returns − BC COGS rate − shipping-model cost: pick & pack, freight) applied to Funnel "
+        "BC returns − Norce COGS − shipping-model cost: pick & pack, freight) applied to Funnel "
         "channel revenue; Funnel's own GP2 is the fallback, labelled per row. Google's profit ROAS "
         "stays platform-reported: its conversion value is Babyshop's own profit definition, not this GP2.",
         "Platform-reported: Google ROAS = profit ÷ spend (conversion value is PROFIT in the Babyshop accounts); "

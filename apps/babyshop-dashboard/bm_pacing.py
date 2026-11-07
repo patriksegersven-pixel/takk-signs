@@ -78,7 +78,7 @@ BASIS = {"gross": "norce", "orders": "norce", "units": "norce", "freight": "norc
          "net": "norce_bc", "returns": "norce_bc", "gp1": "norce_bc", "cogs": "norce_bc",
          "gp2": "model", "dv": "model", "gp3": "model",
          "cost": "funnel", "fgross": "funnel", "fnet": "funnel", "fgp1": "funnel", "fgp2": "funnel"}
-BASIS_LABEL = {"norce": "Norce ordered", "norce_bc": "Norce − BC returns/COGS",
+BASIS_LABEL = {"norce": "Norce ordered", "norce_bc": "Norce − BC returns − Norce COGS",
                "model": "Norce + BC + shipping model", "funnel": "Funnel export"}
 # pacing metric -> budget line / daily_targets key
 BUDGET_KEY = {"gross": "gross_sales", "net": "net_sales", "gp1": "gp1",
@@ -200,18 +200,26 @@ def _cost_inputs() -> dict:
     if not ex.get("markets") or not sh.get("fulfilment"):
         raise RuntimeError("exec-pl or shipping snapshot missing: cannot build the P&L ladder")
 
-    def month_rates(ym: str) -> dict:
+    def gl_scale(ym: str) -> float | None:
+        mk = ex["markets"].get(ym, {})
+        il = sum(_f(v.get("cogs_item_ledger")) for v in mk.values())
+        gl = _f(ex["ladder"].get(ym, {}).get("cogs"))
+        return gl / il if il and gl else None
+
+    def month_rates(ym: str, scale: float | None = None) -> dict:
         """Per KV market: returns, gross, item-ledger COGS, scaled so the
-        market COGS add up to the GL total (the ladder's COGS basis)."""
+        market COGS add up to the GL total (the ladder's COGS basis). The open
+        month passes `scale` from closed months: its own GL-to-item-ledger
+        ratio is lumpy early on (1.20 on 6 Nov 2026 vs 0.93-1.03 in closed
+        months), which moved GM1 ~9 pp and flipped the headroom."""
         mk = ex["markets"].get(ym, {})
         agg: dict = {}
         for c, v in mk.items():
             a = agg.setdefault(_bc_market(c), {"gross": 0.0, "returns": 0.0, "cogs": 0.0, "orders": 0})
             a["gross"] += _f(v.get("gross")); a["returns"] += _f(v.get("returns"))
             a["cogs"] += _f(v.get("cogs_item_ledger")); a["orders"] += int(v.get("orders") or 0)
-        il = sum(a["cogs"] for a in agg.values())
-        gl = _f(ex["ladder"].get(ym, {}).get("cogs"))
-        scale = gl / il if il and gl else 1.0
+        if scale is None:
+            scale = gl_scale(ym) or 1.0
         for a in agg.values():
             a["cogs"] *= scale
             a["returns_rate"] = a["returns"] / a["gross"] if a["gross"] else 0.0
@@ -220,6 +228,9 @@ def _cost_inputs() -> dict:
 
     ym_cur = f"{bm.YEAR:04d}-{bm.MONTH:02d}"
     ym_ly = f"{bm.YEAR - 1:04d}-{bm.MONTH:02d}"
+    # Open month: median GL/item-ledger ratio of the last three closed months.
+    closed = sorted(ym for ym in ex["markets"] if ym < ym_cur and gl_scale(ym))[-3:]
+    cur_scale = sorted(gl_scale(ym) for ym in closed)[len(closed) // 2] if closed else 1.0
     lad_ly = ex["ladder"].get(ym_ly, {})
     ly_orders = sum(int(v.get("orders") or 0) for v in ex["markets"].get(ym_ly, {}).values())
     ly_dv = _f(lad_ly.get("nship")) + _f(lad_ly.get("ful")) + _f(lad_ly.get("tf"))
@@ -244,7 +255,7 @@ def _cost_inputs() -> dict:
     ship = {r["project"]: _f(r["c"]) / int(r["n"]) for r in rows if r["n"]}
     ship_avg = sum(_f(r["c"]) for r in rows) / n_all if n_all else 0.0
     return {
-        "cur": month_rates(ym_cur), "ly": month_rates(ym_ly),
+        "cur": month_rates(ym_cur, scale=cur_scale), "ly": month_rates(ym_ly),
         "bc_through": ex.get("sources", {}).get("bc", {}).get("max_posting_date"),
         "exec_pl_generated": ex.get("generated_at"),
         "ly_dv_per_order": ly_dv / ly_orders if ly_orders else 0.0,
@@ -254,6 +265,31 @@ def _cost_inputs() -> dict:
         "fulfilment_label": f.get("label"),
         "ship_rate": ship, "ship_rate_avg": ship_avg, "ship_through": thru,
     }
+
+
+def _norce_cogs(start: datetime.date, end: datetime.date) -> dict:
+    """COGS ÷ sales per brand x market (and 'all|<market>') for the open month,
+    from Norce's own unit costs: the customer_orders mart prices every order
+    line at the CURRENT CostUnit on the application's primary price list
+    (order-line CostUnit is empty on this tenant). Current cost is right for
+    the current month; coverage is ~95 % of November's merchandise, and the
+    rate is taken over costed lines only (cost ÷ costed value)."""
+    rows = bs._rows(f"""
+      SELECT shop, app_key, SUM(order_cost) cost, SUM(costed_value) costed,
+             SUM(order_value - IFNULL(shipping_value, 0)) merch
+      FROM `{bm.GCP_PROJECT}.norce.customer_orders`
+      WHERE status_id != 6 AND order_date BETWEEN @s AND @e
+      GROUP BY shop, app_key""",
+        [bigquery.ScalarQueryParameter("s", "DATE", start),
+         bigquery.ScalarQueryParameter("e", "DATE", end)])
+    agg: dict = {}
+    for r in rows:
+        m = _norce_market(r["app_key"])
+        for k in (f"{r['shop']}|{m}", f"all|{m}"):
+            a = agg.setdefault(k, [0.0, 0.0, 0.0])
+            a[0] += _f(r["cost"]); a[1] += _f(r["costed"]); a[2] += _f(r["merch"])
+    return {k: {"rate": c / v, "coverage": v / g if g else None}
+            for k, (c, v, g) in agg.items() if v}
 
 
 def _derive(data: dict, ci: dict, isos: list[str], asof_i: int, ly_isos: list[str],
@@ -277,7 +313,9 @@ def _derive(data: dict, ci: dict, isos: list[str], asof_i: int, ly_isos: list[st
             g, orders = day.get("gross", 0.0), day.get("orders", 0.0)
             if iso in cur_days:
                 ret = g * ret_factor
-                cogs = g * cur_m.get("cogs_rate", 0.0)
+                # Norce cost on the goods kept: returned units go back to stock.
+                nc = ci["norce_cogs"].get(leaf) or ci["norce_cogs"].get(f"all|{m}")
+                cogs = (g - ret) * nc["rate"] if nc else g * cur_m.get("cogs_rate", 0.0)
                 # Unmeasured lines at the forecast's rate per krona of sales.
                 other = other_rate * g
                 dv = day.get("ship_model", 0.0) + pp * orders - day.get("freight", 0.0) + other
@@ -505,6 +543,7 @@ def build(ctx: dict) -> dict:
                 and data["all|all"].get(iso, {}).get("fgross", 0) > 0]
     asof_i = complete[-1] if complete else -1
     asof = isos[asof_i] if asof_i >= 0 else None
+    ci["norce_cogs"] = _norce_cogs(days[0], days[asof_i]) if asof_i >= 0 else {}
 
     # ── Global targets, three daily shapes of the same monthly forecast
     hist = dt.daily_history()
@@ -564,7 +603,7 @@ def build(ctx: dict) -> dict:
             S = summaries["event"]
             gm = lambda k, per="mtd": round(S[k][per] / S["gross"][per], 4) if S["gross"][per] else None
             margins[m] = {
-                "basis": "Norce merchandise − BC returns − BC COGS rate − shipping-model direct variable cost",
+                "basis": "Norce merchandise − BC returns − Norce COGS (current cost) − shipping-model direct variable cost",
                 "gm1": gm("gp1"), "gm2": gm("gp2"), "gm3": gm("gp3"),
                 "gm1_ly": gm("gp1", "ly_mtd"), "gm2_ly": gm("gp2", "ly_mtd"),
                 "gm1_fc": round(budget["gp1"] / budget["gross_sales"], 4),
@@ -626,6 +665,8 @@ def build(ctx: dict) -> dict:
             "cogs_rate_by_market_ly": {k: round(v["cogs_rate"], 4) for k, v in ci["ly"]["markets"].items()},
             "returns_rate_by_market_ly": {k: round(v["returns_rate"], 4) for k, v in ci["ly"]["markets"].items()},
             "cogs_gl_scale": ci["cur"]["cogs_gl_scale"],
+            "cogs_rate_norce": {k: {"rate": round(v["rate"], 4), "coverage": round(v["coverage"] or 0, 3)}
+                                for k, v in ci["norce_cogs"].items()},
             "ship_cost_per_order_by_app": {k: round(v, 1) for k, v in ci["ship_rate"].items()},
             "ship_rate_through": str(ci["ship_through"]),
             "pick_per_order": round(ci["pick_per_order"], 2), "pack_per_order": ci["pack_per_order"],
@@ -657,11 +698,13 @@ def build(ctx: dict) -> dict:
             "mostly October orders, and Black Week returns land in December. MTD returns are "
             "BC's actual amount per market, spread over days and brands by Norce gross (BC "
             "has no shop dimension).",
-            "GP1 = net sales − COGS at Business Central's cost-of-goods rate for the same "
-            "month to date, per market (item-ledger COGS ÷ BC gross, scaled to the GL COGS "
-            "the Executive P&L uses), applied to Norce merchandise. Chosen over the Funnel "
-            "GM1 because it is Finance's own ledger; it is a rate, not a daily BC figure, "
-            "because BC posts on invoice date and the snapshot is per month and market.",
+            "GP1 = net sales − COGS from Norce's own unit costs: every November order line "
+            "priced at the CURRENT cost on its application's primary price list (Norce's "
+            "order-line cost is empty), cost ÷ value over costed lines (~95% of November "
+            "merchandise is costed), per brand and market, applied to the goods kept (net of "
+            "returns). Business Central's GL-scaled rate was dropped for the open month: "
+            "early-month GL postings put it at 57% on 6 Nov vs ~50% in closed months. "
+            "Last year stays on BC's Nov 2025 rates (today's Norce costs would restate it).",
             "GP2 = GP1 − direct variable cost, like the forecast's GP2 line (net shipping + "
             "fulfilment + transaction fees). Measured: Norce freight income, the Shipping "
             "cost tab's modelled outbound carrier cost per order per application (last 28 "

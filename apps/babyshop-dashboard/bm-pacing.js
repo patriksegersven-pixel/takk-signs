@@ -191,7 +191,7 @@
       ['Gross sales (merchandise)', 'gross', 'gross', 'fgross', false],
       ['− Returns (BC, posting date)', 'returns', null, null, true],
       ['Net sales', 'net', 'net', 'fnet', false],
-      ['− COGS (BC rate)', 'cogs', null, null, true],
+      ['− COGS (Norce cost)', 'cogs', null, null, true],
       ['GP1', 'gp1', 'gp1', 'fgp1', false],
       ['− Direct variable cost', 'dv', null, null, true],
       ['GP2', 'gp2', 'gp2', 'fgp2', false],
@@ -217,7 +217,7 @@
       ') + pick & pack ' + F.num(ci.pick_per_order) + ' + packaging ' + String(ci.pack_per_order || '').replace('.', ',') + ' SEK per order − Norce freight income + the forecast\'s other direct lines at ' +
       F.pct(ci.other_dv_rate) + ' of sales (warehousing, VAS, returns handling, transaction fees).' +
       (Mg && Mg.dv_per_order != null ? ' ' + F.num(Mg.dv_per_order) + ' SEK per order MTD.' : '') +
-      ' BC returns and COGS through ' + esc(ci.bc_through || '–') + '. Returns post when processed, so early-month returns are mostly October orders; per-market return rates swing with BC\'s batch processing.';
+      ' BC returns through ' + esc(ci.bc_through || '–') + '. Returns post when processed, so early-month returns are mostly October orders; per-market return rates swing with BC\'s batch processing.';
     return '<h3>P&amp;L ladder, month to date</h3>' + h.join('') + '<p class="bm-note">' + note + '</p>';
   }
 
