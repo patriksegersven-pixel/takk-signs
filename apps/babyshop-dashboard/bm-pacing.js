@@ -1,8 +1,8 @@
 /* bm-pacing.js — "Pacing & forecast" section of the Black Month tab.
  *
  * Payload: bm_pacing.py. Everything is per market in data.markets[m], so the
- * market filter never refetches. Three daily shapes of the same monthly
- * forecast (data.shapes) are switchable; the metric picker drives the charts
+ * market filter never refetches. The target is one daily shape of the monthly
+ * forecast (data.shapes; a toggle appears only if there is more than one); the metric picker drives the charts
  * and the daily table. Today's live intake comes from /api/norce-today
  * (ordered basis), restated against today's Funnel-basis target with the
  * measured Norce/Funnel ratio from the payload.
@@ -324,17 +324,6 @@
     return h;
   }
 
-  /* What each target shape means, under the toggle. */
-  var SHAPE_NOTE = {
-    event: 'Default. Spreads the November forecast over the days like November 2025, lined up by event (Black Friday ↔ Black Friday, Cyber Monday, payday, weekday). Has the Black Week peak.',
-    kv: 'The KV Overview tab\'s curve: the same Nov 2025 shape pulled 70 % toward a flat month. Front-loads the month and flattens Black Friday, so it reads behind early on. Shown so the two tabs can be compared.',
-    oct: 'October 2026\'s daily pattern. Recent weekday rhythm, but no Black Friday peak, so it is a sanity check, not the target.'
-  };
-  function shapeNote() {
-    return SHAPE_NOTE[ui.shape] ? '<p class="bm-note" style="margin-top:0">' + esc(SHAPE_NOTE[ui.shape]) +
-      ' Only the daily spread changes: every shape has the same monthly totals.</p>' : '';
-  }
-
   /* ── Today, live from Norce ────────────────────────────────────────────── */
   // Same basis as the gross-sales actuals: Norce ordered merchandise, so it
   // compares directly with today's gross-sales target. The live payload's
@@ -582,10 +571,9 @@
     var shapes = Object.keys(d.shapes).map(function (k) { return [k, d.shapes[k]]; });
 
     var h = [];
-    h.push('<div class="pc-bar">' + seg('shape', shapes, ui.shape) +
+    h.push('<div class="pc-bar">' + (shapes.length > 1 ? seg('shape', shapes, ui.shape) : '') +
       '<span class="pc-basis">Complete through ' + esc(d.asof ? F.date(d.asof) : '–') +
       '</span></div>');
-    h.push(shapeNote());
     h.push(todayBlock(d, mk, raw));
     h.push(headline(d, S, mk));
     h.push(scopeLine(d, mk, M));

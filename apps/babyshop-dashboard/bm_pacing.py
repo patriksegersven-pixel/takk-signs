@@ -52,16 +52,12 @@ def _keys(brand: str, market: str) -> tuple:
 # Monday (30 Nov 2026 -> 1 Dec 2025).
 LY_SHIFT = datetime.timedelta(days=364)
 RUN_RATE_DAYS = 7
-# Daily shapes of the same monthly forecast (all sum to Finance's figure):
-#   event  Nov 2025 lined up by event (BF, CM, payday, weekday), taken in full.
-#          daily_targets' default shrinks that shape 70% toward a flat month
-#          (PRIOR_SHRINK, tuned on Feb-Jul, which have no Black Friday); in
-#          November that puts ~10% of the month in 1-3 Nov against 5% last year
-#          and flattens BF, so pacing reads far behind early and the landing
-#          collapses. Primary curve for this tab.
-#   kv     daily_targets as the KV Overview uses it (shrunk), for reconciliation.
-#   oct    October 2026's day-of-month profile (the "last month" shape).
-SHAPES = ("event", "kv", "oct")
+# Daily shape of the monthly forecast: Nov 2025 lined up by event (BF, CM,
+# payday, weekday), taken in full. daily_targets' default shrinks that shape
+# 70% toward a flat month (tuned on Feb-Jul, which have no Black Friday); in
+# November that front-loads the month and flattens BF. The KV-smoothed and
+# October-shaped alternatives were dropped on 2026-11-10 (one target only).
+SHAPES = ("event",)
 # Metrics carried per day. orders/units/freight have no budget line (no
 # target). The P&L ladder is built per day by _derive():
 #   net  = Norce merchandise - BC returns
@@ -364,27 +360,6 @@ def _derive(data: dict, ci: dict, isos: list[str], asof_i: int, ly_isos: list[st
                 day["gp3"] = day["gp2"] - day.get("cost", 0.0)
 
 
-def _october_index(field: str, hist: list[dict]) -> list[float]:
-    """November index shaped like October 2026 instead of November 2025.
-
-    Each November day takes the October day with the same day-of-month (so the
-    25th payday lines up), with October's weekday effect divided out and
-    November's multiplied back in, using daily_targets' own weekday factors.
-    No Black Friday peak: October has none, which is exactly why the
-    event-aligned November 2025 shape is the primary target.
-    """
-    series = {datetime.date.fromisoformat(r["iso"]): float(r[field] or 0) for r in hist}
-    years = sorted({d.year for d in series})
-    dow = dt._dow_factors(series, {y: dt.calendar_events(y) for y in years})
-    raw = []
-    for nd in bm.month_days():
-        od = datetime.date(2026, 10, nd.day)
-        v = max(series.get(od, 0.0), 0.0) / (dow[od.weekday()] or 1.0)
-        raw.append(v * dow[nd.weekday()])
-    tot = sum(raw)
-    return [x / tot for x in raw] if tot > 0 else [1.0 / len(raw)] * len(raw)
-
-
 def _spread(total: float, index: list[float]) -> list[float]:
     return [total * w for w in index]
 
@@ -565,20 +540,14 @@ def build(ctx: dict) -> dict:
     asof = isos[asof_i] if asof_i >= 0 else None
     ci["norce_cogs"] = _norce_cogs(days[0], days[asof_i]) if asof_i >= 0 else {}
 
-    # ── Global targets, three daily shapes of the same monthly forecast
+    # ── Global targets: the monthly forecast spread by the event-aligned shape
     hist = dt.daily_history()
     shapes = {}
     for sh in SHAPES:
-        if sh == "event":
-            # daily_targets' event-aligned Nov 2025 index with the prior-year
-            # shape taken in full (shrink=1.0). See SHAPES for why.
-            ix = {f: dt.build_index(bm.YEAR, bm.MONTH, f, hist, shrink=1.0)["index"]
-                  for f in ("revenue", "cost")}
-        elif sh == "kv":
-            ix = {f: dt.build_index(bm.YEAR, bm.MONTH, f, hist)["index"]
-                  for f in ("revenue", "cost")}
-        else:
-            ix = {f: _october_index(f, hist) for f in ("revenue", "cost")}
+        # daily_targets' event-aligned Nov 2025 index with the prior-year
+        # shape taken in full (shrink=1.0). See SHAPES for why.
+        ix = {f: dt.build_index(bm.YEAR, bm.MONTH, f, hist, shrink=1.0)["index"]
+              for f in ("revenue", "cost")}
         t = {k: _spread(budget[BUDGET_KEY[k]], ix["cost" if k == "cost" else "revenue"])
              for k in BUDGET_KEY}
         # GP3 = GP2 - ad cost per day, so the daily lines reconcile (Σ = budget gp3).
@@ -707,9 +676,7 @@ def build(ctx: dict) -> dict:
         "run_rate_days": RUN_RATE_DAYS,
         "budget_month": {k: round(budget[BUDGET_KEY[k]]) for k in BUDGET_KEY} | {
             "gp3": round(budget["gp2"] - budget["marketing"])},
-        "shapes": {"event": "Nov 2025 by event (full shape)",
-                   "kv": "KV Overview model (smoothed)",
-                   "oct": "October 2026 shape"},
+        "shapes": {"event": "Nov 2025 by event (full shape)"},
         "yoy_forecast": round(budget["gross_sales"] / ly_tot["gross"] - 1, 4) if ly_tot["gross"] else None,
         "notes": [
             "Gross sales, orders, units and AOV: Norce ORDERED data (order date, Stockholm "
@@ -746,15 +713,9 @@ def build(ctx: dict) -> dict:
             "ledger instead.",
             "Targets: Finance's November forecast (budget_2026.json) spread per day by "
             "November 2025's daily shape, lined up by event (Black Friday, Cyber Monday, "
-            "payday, weekday) with the KV Overview's own daily_targets model. We use that "
-            "event-aligned shape rather than last month's, because October has no Black "
-            "Friday peak; the October-shaped curve is a toggle for comparison.",
-            "The KV Overview's version of the same model pulls last year's shape 70% "
-            "toward a flat month (tuned on Feb-Jul, months without Black Friday). In "
-            "November that puts ~10% of the month into 1-3 Nov instead of last year's 5% "
-            "and flattens the Black Friday peak, so it reads far behind early in the month. "
-            "This tab uses the full shape; the 'KV Overview model' toggle shows the other "
-            "one. Monthly totals are identical.",
+            "payday, weekday) with the KV Overview's own daily_targets model, taken in full. "
+            "The Budget vs Targets tab smooths the same shape 70% toward a flat month, so "
+            "early November reads further behind there; the monthly totals are identical.",
             "Scope: the forecast covers Babyshop + Lekmer combined (verified against BC, "
             "Finance's ledger: Jun-Sep 2026 posted gross 103.6 M vs Norce Babyshop + Lekmer "
             "103.1 M vs Babyshop alone 96.9 M). Actuals cover the same scope.",
