@@ -110,6 +110,15 @@
     .bm-error { color: var(--down); }
     h3 { color: var(--h); font-size: 14px; font-weight: 600; margin: 16px 0 8px; }
     .up { color: var(--up); } .down { color: var(--down); } .warn { color: var(--warn); } .muted { color: var(--muted); }
+    /* "?" metric explanations (bm-core + bm-glossary.js) */
+    .bm-q { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; margin-left: 5px;
+      border-radius: 50%; border: 1px solid var(--border); color: var(--muted); font-size: 10px; font-weight: 600;
+      line-height: 1; cursor: help; vertical-align: middle; text-transform: none; letter-spacing: 0; user-select: none; }
+    .bm-q:hover, .bm-q:focus { color: #111; background: var(--accent); border-color: var(--accent); outline: none; }
+    .bm-tip { position: fixed; z-index: 50; display: none; max-width: min(340px, calc(100vw - 16px)); padding: 10px 12px;
+      background: var(--card-2); color: var(--body); border: 1px solid var(--border); border-radius: 8px;
+      font-size: 12.5px; line-height: 1.45; font-weight: 400; text-transform: none; letter-spacing: 0;
+      box-shadow: 0 8px 24px rgba(0,0,0,.5); pointer-events: none; }
   </style>
 </head>
 <body>
@@ -155,6 +164,7 @@
 </main>
 
 <script src="/bm-core.js"></script>
+<script src="/bm-glossary.js"></script>
 <script>
   (function () {
     var bf = new Date('2026-11-27T00:00:00+01:00'), now = new Date();

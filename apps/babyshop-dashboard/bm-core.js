@@ -17,7 +17,8 @@
  *   state.brand    'all' | 'babyshop' | 'lekmer'
  *
  * Helpers for sections: BM.fmt.*, BM.color.*, BM.chart(canvas, config),
- * BM.el(html), BM.table(rows, columns). Build HTML strings in one pass — never
+ * BM.el(html), BM.table(rows, columns). Metric explanations ("?" tips) live in
+ * bm-glossary.js, keyed by the label text the section renders. Build HTML strings in one pass — never
  * `innerHTML +=` in a loop (that froze the Inventory tab for 60 s).
  * ───────────────────────────────────────────────────────────────────────────── */
 (function () {
@@ -114,6 +115,84 @@
     return c;
   }
 
+  /* ── "?" explanations ──────────────────────────────────────────────────
+     bm-glossary.js registers label → text. A "?" goes after every KPI label,
+     table header and h3 in a section whose own text has an entry; a single
+     floating tip shows it on hover, keyboard focus or tap. A MutationObserver
+     re-decorates after any re-render, including a section's own re-renders. */
+  var gloss = {}, prefixes = [];
+  function glossary(map) {
+    Object.keys(map).forEach(function (k) {
+      if (k.slice(-1) === '*') prefixes.push([k.slice(0, -1), map[k]]); else gloss[k] = map[k];
+    });
+  }
+  function ownText(e) {
+    var t = '';
+    for (var n = e.firstChild; n; n = n.nextSibling) {
+      if (n.nodeType === 3) t += n.textContent;
+      else if (n.nodeType === 1 && !n.classList.contains('bm-q') && /^(B|I|EM|STRONG|SMALL)$/.test(n.tagName)) t += n.textContent;
+      else if (n.nodeType === 1) break;
+    }
+    return t.replace(/\s+/g, ' ').trim();
+  }
+  function lookup(sec, t) {
+    if (!t) return null;
+    var hit = gloss[sec + '|' + t] || gloss[t];
+    if (hit) return hit;
+    for (var i = 0; i < prefixes.length; i++) {
+      var k = prefixes[i][0], s = k.indexOf('|') > 0 ? k.split('|') : [null, k];
+      if ((s[0] === null || s[0] === sec) && t.indexOf(s[1]) === 0) return prefixes[i][1];
+    }
+    return null;
+  }
+  function decorate(root) {
+    var sec = root.id.replace(/^bm-/, '');
+    root.querySelectorAll('.bm-kpi .lbl, th, h3').forEach(function (e) {
+      if (e.querySelector(':scope > .bm-q')) return;
+      var tip = lookup(sec, ownText(e));
+      if (!tip) return;
+      var q = document.createElement('span');
+      q.className = 'bm-q'; q.tabIndex = 0; q.textContent = '?';
+      q.setAttribute('role', 'button'); q.setAttribute('aria-label', tip);
+      q.setAttribute('data-tip', tip);
+      e.appendChild(q);
+    });
+  }
+  var tipEl = null;
+  function showTip(q) {
+    if (!tipEl) { tipEl = document.createElement('div'); tipEl.className = 'bm-tip'; tipEl.setAttribute('role', 'tooltip'); document.body.appendChild(tipEl); }
+    tipEl.textContent = q.getAttribute('data-tip');
+    tipEl.style.left = '0px'; tipEl.style.top = '0px';      // measure at full width, not squeezed at the old spot
+    tipEl.style.display = 'block';
+    var r = q.getBoundingClientRect(), w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+    var left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 8));
+    var top = r.bottom + 8 + h > innerHeight ? r.top - h - 8 : r.bottom + 8;
+    tipEl.style.left = left + 'px'; tipEl.style.top = Math.max(8, top) + 'px';
+  }
+  function hideTip() { if (tipEl) tipEl.style.display = 'none'; }
+  function wireTips() {
+    var over = function (ev) { var q = ev.target.closest && ev.target.closest('.bm-q'); if (q) showTip(q); };
+    var out = function (ev) { if (ev.target.closest && ev.target.closest('.bm-q')) hideTip(); };
+    document.addEventListener('mouseover', over);
+    document.addEventListener('mouseout', out);
+    document.addEventListener('focusin', over);
+    document.addEventListener('focusout', out);
+    document.addEventListener('click', function (ev) {          // tap: inside a <summary> or th, don't toggle/sort
+      var q = ev.target.closest && ev.target.closest('.bm-q');
+      if (q) { ev.preventDefault(); ev.stopPropagation(); q.focus(); showTip(q); }
+    }, true);
+    addEventListener('scroll', hideTip, { passive: true });
+    var pending = false;
+    new MutationObserver(function () {
+      if (pending) return;
+      pending = true;
+      setTimeout(function () {            // not rAF: it never fires in a background tab
+        pending = false;
+        document.querySelectorAll('section.bm-section').forEach(decorate);
+      }, 30);
+    }).observe(document.querySelector('main') || document.body, { childList: true, subtree: true });
+  }
+
   function sectionEl(key) { return document.getElementById('bm-' + key); }
 
   function renderOne(key) {
@@ -159,8 +238,9 @@
     register: function (key, mod) { registry[key] = mod; if (payloads[key]) renderOne(key); },
     payload: function (key) { return payloads[key]; },
     state: state, fmt: fmt, color: color, esc: esc, table: table, chart: chart,
-    setMarket: setMarket, setBrand: setBrand, reload: load,
+    setMarket: setMarket, setBrand: setBrand, reload: load, glossary: glossary,
     start: function () {
+      wireTips();
       document.querySelectorAll('[data-market]').forEach(function (b) {
         b.addEventListener('click', function () { setMarket(b.getAttribute('data-market')); });
       });
