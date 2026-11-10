@@ -12,7 +12,8 @@
   var MOCK = new URLSearchParams(location.search).get('mock') === '1';
   var API = '/api/blackmonth/insights';
   var esc = BM.esc, fmt = BM.fmt;
-  var ui = { histStatus: 'all', logKind: 'all', showForm: false, toast: '', allAlerts: false };
+  var ui = { histStatus: 'all', logKind: 'all', showForm: false, toast: '', allAlerts: false, open: {} };
+  var TOP_N = 8;
 
   var LEVER_LABEL = {
     google_troas: 'Google tROAS', google_budget: 'Google budget', meta_allocation: 'Meta allocation',
@@ -85,7 +86,22 @@
       '#bm-insights .bmi-chips button{background:var(--card-2);color:var(--muted);border:1px solid var(--border-lt);border-radius:999px;padding:2px 10px;font:inherit;font-size:12px;cursor:pointer}',
       '#bm-insights .bmi-chips button.on{color:#111;background:var(--accent);border-color:var(--accent)}',
       '#bm-insights .bmi-toast{font-size:12px;color:var(--warn);min-height:16px}',
-      '#bm-insights .bmi-empty{color:var(--muted);font-size:13px;padding:10px;background:var(--card-2);border-radius:8px}'
+      '#bm-insights .bmi-empty{color:var(--muted);font-size:13px;padding:10px;background:var(--card-2);border-radius:8px}',
+      '#bm-insights .bmi-top{display:flex;flex-direction:column;gap:6px}',
+      '#bm-insights details.bmi-row{background:var(--card-2);border:1px solid var(--border-lt);border-radius:8px;font-size:13px;color:var(--body)}',
+      '#bm-insights details.bmi-row[open]{border-color:var(--border)}',
+      '#bm-insights details.bmi-row>summary{list-style:none;display:grid;grid-template-columns:22px 64px 120px 1fr auto;gap:10px;align-items:center;padding:9px 12px;cursor:pointer}',
+      '#bm-insights details.bmi-row>summary::-webkit-details-marker{display:none}',
+      '#bm-insights details.bmi-row>summary .r-n{color:var(--muted);font-variant-numeric:tabular-nums}',
+      '#bm-insights details.bmi-row>summary .r-h{color:var(--h);line-height:1.35}',
+      '#bm-insights details.bmi-row>summary .r-i{font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}',
+      '#bm-insights details.bmi-row>summary .r-i.neg{color:var(--down)}#bm-insights details.bmi-row>summary .r-i.pos{color:var(--accent)}',
+      '#bm-insights .bmi-more{padding:0 12px 12px 108px;display:flex;flex-direction:column;gap:8px}',
+      '#bm-insights .bmi-more ul{margin:0;padding-left:16px;color:var(--muted);font-size:12px}',
+      '@media (max-width:640px){#bm-insights details.bmi-row>summary{grid-template-columns:18px auto 1fr;row-gap:4px}#bm-insights details.bmi-row>summary .r-m{grid-column:2/4}#bm-insights details.bmi-row>summary .r-h{grid-column:1/-1}#bm-insights details.bmi-row>summary .r-i{grid-column:1/-1}#bm-insights .bmi-more{padding:0 12px 12px}}',
+      '#bm-insights details.bmi-fold{margin-top:14px;font-size:13px;color:var(--body)}',
+      '#bm-insights details.bmi-fold>summary{color:var(--h);font-weight:600;font-size:14px;padding:6px 0}',
+      '#bm-insights details.bmi-fold>summary .muted{font-weight:400;font-size:12px}'
     ].join('\n');
     document.head.appendChild(s);
   }
@@ -226,6 +242,50 @@
       (dec ? '<div class="bmi-dec">' + dec + (c.owner ? ' · owner ' + esc(c.owner) : '') + '</div>' : '') +
       (c.verification ? checkHtml(c.verification, null, null, st === 'done') : '') +
       '</article>';
+  }
+
+  /* One ranked list: the agent's open cards and the rule alerts. High rule alerts
+     first, then open cards, then medium alerts, then low; by size within a tier.
+     Only the top TOP_N show; each row opens to the action, evidence and buttons. */
+  function topItems(open, alerts) {
+    var tier = { high: 0, medium: 2, low: 3 };
+    var items = open.map(function (c) {
+      return { kind: 'card', c: c, tier: c.status === 'proposed' ? 1 : 2, size: Math.abs((c.impact || {}).gp3_sek || 0) };
+    }).concat(alerts.map(function (a) {
+      return { kind: 'alert', a: a, tier: tier[a.severity] == null ? 3 : tier[a.severity], size: Math.abs(a.impact_sek || 0) };
+    }));
+    return items.sort(function (x, y) { return x.tier - y.tier || y.size - x.size; });
+  }
+
+  function rowHtml(it, n) {
+    var key, sev, m, b, head, imp, body;
+    if (it.kind === 'card') {
+      var c = it.c, gp = (c.impact || {}).gp3_sek;
+      key = 'c:' + c.id; sev = '<span class="bm-pill warn">agent</span>'; m = c.market; b = c.brand; head = c.headline;
+      imp = gp == null ? '' : '<span class="r-i ' + (gp < 0 ? 'neg' : 'pos') + '">' + signedSek(gp) + ' GP3</span>';
+      body = cardHtml(c);
+    } else {
+      var a = it.a;
+      key = 'a:' + a.rule + ':' + a.market + ':' + a.brand + ':' + a.headline.slice(0, 40);
+      sev = sevPill(a.severity); m = a.market; b = a.brand; head = a.headline;
+      imp = a.impact_sek ? '<span class="r-i neg">' + signedSek(a.impact_sek) + '</span>' : '';
+      var ev = (a.evidence || []).map(function (e) { return '<li><b>' + esc(e.metric) + '</b>: ' + evVal(e.value) + '</li>'; }).join('');
+      body = '<div><b>Do:</b> ' + esc(a.action) + '</div>' + (ev ? '<ul>' + ev + '</ul>' : '') +
+        (a.section && SECTION_LABEL[a.section] ? '<a href="#bm-' + esc(a.section) + '" class="muted">' + esc(SECTION_LABEL[a.section]) + ' →</a>' : '');
+    }
+    return '<details class="bmi-row" data-key="' + esc(key) + '"' + (ui.open[key] ? ' open' : '') + '><summary>' +
+      '<span class="r-n">' + n + '</span>' + sev + '<span class="r-m">' + mkt(m) + brandPill(b) + '</span>' +
+      '<span class="r-h">' + esc(head) + '</span>' + (imp || '<span></span>') + '</summary>' +
+      '<div class="bmi-more">' + body + '</div></details>';
+  }
+
+  function topHtml(items) {
+    if (!items.length) return '<div class="bmi-empty">Nothing to act on for this filter.</div>';
+    var shown = ui.allAlerts ? items : items.slice(0, TOP_N);
+    var more = items.length - TOP_N;
+    return '<div class="bmi-top">' + shown.map(function (it, i) { return rowHtml(it, i + 1); }).join('') +
+      (more > 0 ? '<button class="bmi-b" data-act="allalerts" style="align-self:flex-start">' +
+        (ui.allAlerts ? 'Show top ' + TOP_N : 'Show ' + more + ' more') + '</button>' : '') + '</div>';
   }
 
   function alertsHtml(alerts, state) {
@@ -373,24 +433,26 @@
       (nextDue ? esc(fmt.date(nextDue.due)) : 'All done') + '</div><div class="sub">' + (nextDue ? esc(nextDue.title) : '') + '</div></div>' +
       '</div>');
 
-    h.push('<h3>Actions' + (nToday ? '' : ' <span class="muted" style="font-weight:400">(no new cards today — the agent runs weekdays ~07:30)</span>') + '</h3>');
-    h.push(open.length ? '<div class="bmi-cards">' + open.map(cardHtml).join('') + '</div>'
-      : '<div class="bmi-empty">No open insight cards' + (state.market !== 'all' ? ' for ' + esc(state.market) : '') +
-        (state.brand && state.brand !== 'all' ? ' (' + esc(state.brand === 'lekmer' ? 'Lekmer' : 'Babyshop') + ')' : '') + '. Rule alerts below still apply.</div>');
+    var items = topItems(open, alerts);
+    h.push('<h3>Top actions <span class="muted" style="font-weight:400">· ' + Math.min(TOP_N, items.length) + ' of ' + items.length +
+      ', most important first · click a row for the detail' + (nToday ? '' : ' · no new agent cards today (runs weekdays ~07:30)') + '</span></h3>');
+    h.push(topHtml(items));
 
-    h.push('<h3>Rule alerts</h3>' + alertsHtml(data.alerts, state));
-
-    h.push('<div class="bm-grid-2" style="margin-top:8px"><div><h3>Checklist</h3>' + checklistHtml(data.checklist, today, state) + '</div>' +
-      '<div><h3 style="display:flex;justify-content:space-between;align-items:center;gap:8px">Change log' +
-      (ui.showForm ? '' : formHtml(data, state)) + '</h3>' + (ui.showForm ? formHtml(data, state) : '') +
-      eventsHtml(data.events, state, kindsPresent(data.events)) + '</div></div>');
-
-    h.push('<h3>History</h3>' + historyHtml(cards, state));
+    var openChecks = (data.checklist || []).filter(function (c) { return inBrand(c.brand, state) && ['done', 'verified', 'explained'].indexOf(c.state) < 0; }).length;
+    h.push(fold('chk', 'Checklist', openChecks + ' open', checklistHtml(data.checklist, today, state)));
+    h.push(fold('log', 'Change log', (data.events || []).filter(function (e) { return inScope(e, state); }).length + ' changes',
+      '<div style="margin:6px 0">' + formHtml(data, state) + '</div>' + eventsHtml(data.events, state, kindsPresent(data.events))));
+    h.push(fold('hist', 'Decided actions', accepted.length + ' accepted', historyHtml(cards, state)));
 
     var notes = data.notes || [];
     if (notes.length) h.push('<div class="bm-note">' + notes.map(esc).join('<br>') + '</div>');
     el.innerHTML = h.join('');
     wire(el, data, state);
+  }
+
+  function fold(key, title, sub, inner) {
+    return '<details class="bmi-fold" data-key="f:' + key + '"' + (ui.open['f:' + key] ? ' open' : '') + '><summary>' + esc(title) +
+      ' <span class="muted">· ' + esc(sub) + '</span></summary>' + inner + '</details>';
   }
 
   function kindsPresent(events) {
@@ -410,6 +472,9 @@
       else if (act === 'allalerts') { ui.allAlerts = !ui.allAlerts; render(el, data, state); }
       else if (act === 'status') setStatus(el, data, state, b.getAttribute('data-id'), b.getAttribute('data-to'));
     };
+    el.querySelectorAll('details[data-key]').forEach(function (d) {
+      d.addEventListener('toggle', function () { ui.open[d.getAttribute('data-key')] = d.open; });
+    });
     el.onchange = function (ev) {
       var t = ev.target;
       if (t.getAttribute('data-act') === 'who') { setWho(t.value.trim()); toast(''); }

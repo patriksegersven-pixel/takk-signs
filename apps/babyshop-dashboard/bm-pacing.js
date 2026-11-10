@@ -324,20 +324,32 @@
     return h;
   }
 
+  /* What each target shape means, under the toggle. */
+  var SHAPE_NOTE = {
+    event: 'Default. Spreads the November forecast over the days like November 2025, lined up by event (Black Friday ↔ Black Friday, Cyber Monday, payday, weekday). Has the Black Week peak.',
+    kv: 'The KV Overview tab\'s curve: the same Nov 2025 shape pulled 70 % toward a flat month. Front-loads the month and flattens Black Friday, so it reads behind early on. Shown so the two tabs can be compared.',
+    oct: 'October 2026\'s daily pattern. Recent weekday rhythm, but no Black Friday peak, so it is a sanity check, not the target.'
+  };
+  function shapeNote() {
+    return SHAPE_NOTE[ui.shape] ? '<p class="bm-note" style="margin-top:0">' + esc(SHAPE_NOTE[ui.shape]) +
+      ' Only the daily spread changes: every shape has the same monthly totals.</p>' : '';
+  }
+
   /* ── Today, live from Norce ────────────────────────────────────────────── */
   // Same basis as the gross-sales actuals: Norce ordered merchandise, so it
   // compares directly with today's gross-sales target. The live payload's
   // revenue includes freight; it is taken off (per market at the day's overall
   // freight share, since the by-country split carries no freight figure).
-  function todayBlock(d, mk) {
+  function todayBlock(d, mk, raw) {
     var t = todayIso(), i = d.days.indexOf(t);
     if (i < 0) return '';
-    if (d.brand && d.brand !== 'all') {
-      return '<h3>Today, ' + esc(F.date(t)) + '</h3><p class="bm-note">The live Norce intake (/api/norce-today) has no shop split, so today\'s pace is shown for Babyshop + Lekmer only. Switch the brand filter to All to see it.</p>';
-    }
-    var M = d.markets[mk], tgt = M.targets[ui.shape].gross[i];
+    // The live intake has no shop split: under a brand filter show both shops, against both shops' target.
+    var split = d.brand && d.brand !== 'all';
+    if (split) d = view(raw, 'all');
+    var M = d.markets[mk] || d.markets.all, tgt = M.targets[ui.shape].gross[i];
     var ev = d.events[t] ? ' · ' + esc(EVENT[d.events[t]] || d.events[t]) : '';
-    var head = '<h3>Today, ' + esc(F.date(t)) + ev + ' <span class="pc-src pc-src-norce">Norce ordered · live</span></h3>';
+    var head = '<h3>Yesterday and today, ' + esc(F.date(t)) + ev + ' <span class="pc-src pc-src-norce">Norce ordered · live</span>' +
+      (split ? ' <span class="muted" style="font-weight:400;font-size:12px">Babyshop + Lekmer: the live feed has no shop split</span>' : '') + '</h3>';
     if (!live) return head + '<p class="muted" id="pc-today-body">' + (liveLoading ? 'Loading live orders…' : 'Live orders not loaded.') + '</p>';
     if (!live.available) {
       return head + '<div class="pc-today">' + kpiCard('Today\'s target', F.sek(tgt), [['gross sales, merchandise', '']]) +
@@ -573,12 +585,13 @@
     h.push('<div class="pc-bar">' + seg('shape', shapes, ui.shape) +
       '<span class="pc-basis">Complete through ' + esc(d.asof ? F.date(d.asof) : '–') +
       '</span></div>');
+    h.push(shapeNote());
+    h.push(todayBlock(d, mk, raw));
     h.push(headline(d, S, mk));
     h.push(scopeLine(d, mk, M));
     h.push(kpis(d, S));
     h.push(ladderTable(d, S, mk));
     h.push(headroomBlock(d, mk));
-    h.push(todayBlock(d, mk));
     h.push('<h3>Daily: ' + esc(mlabel) + ' ' + basisTag(d, ui.metric) + '</h3>' + seg('metric', METRICS.map(function (m) { return [m.k, m.short || m.label]; }), ui.metric));
     h.push('<div class="bm-grid-2" style="margin-top:8px"><div>' +
       legend([['Actual', C.actual], ['Target', C.plan], ['Last year (event-aligned)', C.ly], ['Forecast at run-rate', C.fc]]) +
