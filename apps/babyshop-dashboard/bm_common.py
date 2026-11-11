@@ -38,7 +38,7 @@ TZ = ZoneInfo("Europe/Stockholm")
 
 # Section keys, in page order. A key here with no bm_<key>.py yet is skipped by
 # the job and rendered as "not built yet" by the page.
-SECTIONS = ["pacing", "paid", "creatives", "offers", "insights"]
+SECTIONS = ["pacing", "paid", "meta", "creatives", "offers", "insights"]
 
 # ── The campaign period ──────────────────────────────────────────────────────
 YEAR, MONTH = 2026, 11

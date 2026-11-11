@@ -124,5 +124,28 @@ BM.glossary({
   'insights|Next on the checklist': 'The next open item on the Black Month checklist.',
   'insights|Expected': 'GP3 the card estimated when it was proposed.',
   'insights|Check': 'Whether the data shows the action was taken.',
-  'insights|Measured': 'GP3 change measured after the action.'
+  'insights|Measured': 'GP3 change measured after the action.',
+
+  /* ── Meta · scale / hold / cut ────────────────────────────────────────── */
+  'meta|Meta spend 7d': 'Babyshop Meta spend over the last 7 full days, from the Meta API, with the change vs the 7 days before.',
+  'meta|Spend on existing customers': 'Share of spend Meta delivered to people in the account\'s existing-customer audience (Meta\'s own split), with their 7-day frequency. Above the limit they mostly see the same ads again.',
+  'meta|Cost per new customer': 'Spend on the prospecting (new) segment ÷ Norce new customers who came from a Meta ad click. Break-even = what one is worth: (first-order GP2 + 12-month repeat GP2) × incrementality.',
+  'meta|New customers from Meta': 'Norce orders from customers with no order in that market in the past 365 days, whose session came from a paid Meta click (GA4-matched). Conservative: no view-throughs, no other devices.',
+  'meta|Meta count ÷ Norce orders': 'Meta\'s reported purchases (7-day click / 1-day view) ÷ Norce orders from Meta clicks. How much more Meta claims than the click trail shows; the truth is in between.',
+  'meta|Scale / hold / cut': 'One row per lever: market, then new vs existing customers, then ad-set groups (catalog/creative × offer/evergreen × line). ▸ opens the level below; clicking a row shows why.',
+  'meta|Segment': 'Market → new customers (Meta\'s prospecting segment) or existing customers (its existing-customer audience) → ad-set group. The grey line is the main reason for the verdict.',
+  'meta|Verdict and action': 'Scale ≥ 1.2, Hold 0.8–1.2, Cut < 0.8 incremental GP3 per krona, then gated by frequency, rising costs, market headroom and data volume. "Low confidence": the Norce and Meta ends disagree, or it rests on month-to-date data. The action: Scale = up to +20 % then wait 3 days; Cut = −25 %, existing customers via the existing-customer budget cap first. "Scale candidate": Hold on the numbers, but above break-even with market headroom left.',
+  'meta|Spend 7d': 'Meta spend in the last 7 days (Meta API) and the change vs the 7 days before. On market rows: the share delivered to existing customers.',
+  'meta|Spend MTD': 'Meta spend this month, from the Meta API. On market rows: the share delivered to existing customers.',
+  'meta|Norce orders': 'Orders from a paid Meta click, matched to Norce, new vs returning by Norce\'s 365-day flag. Recent days grossed up for orders not yet matched. At ad-set-group level a campaign\'s orders are shared by Meta\'s purchases (Norce only knows the campaign). Below: Meta\'s own purchase count and how many times the Norce count that is.',
+  'meta|Cost per customer / break-even': 'Spend on the segment ÷ its Norce orders (green when below break-even). Break-even new = (first-order GP2 + 12-month repeat GP2) × 0.6; existing = order GP2 × 0.3.',
+  'meta|Incremental GP3 per krona': 'What the next krona adds in GP2 after its own cost: Norce-click end – Meta-count end. Above 1.0 it adds GP3. Marginal: slope vs the week before when spend moved ≥ 20 % (demand-adjusted), else 0.75 × the average.',
+  'meta|Frequency': 'Meta\'s own frequency: impressions ÷ unique people reached in the window. Limits per 7 days: new 3, existing 5. Market rows also show the new and existing split.',
+  'meta|Daily spend and Norce orders*': 'Daily Meta spend split into new (prospecting) and existing customers, against Norce orders from Meta clicks, new and returning.',
+  'meta|GP2 margin': 'GP2 ÷ gross sales for Babyshop in that market this month (pacing section): Norce − returns − Norce cost − shipping, pick & pack.',
+  'meta|Repeat revenue 12m': 'Average revenue in the 12 months after a new customer\'s first order (customers acquired Nov 2024–Oct 2025), capped at 20 000 SEK per customer.',
+  'meta|Repeat GP2 12m': 'Repeat revenue × GP2 margin: the future value added to each new customer.',
+  'meta|Repeat rate': 'Share of those new customers who ordered again within 12 months.',
+  'meta|Cohort size': 'New customers in the Nov 2024–Oct 2025 cohort behind the repeat figures.',
+  'meta|Demand 7d vs prior': 'All Babyshop orders in the market, last 7 days ÷ the 7 before. Used to take seasonality out of the week-on-week slope.'
 });

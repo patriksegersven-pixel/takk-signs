@@ -11,7 +11,8 @@ and skipped; the page keeps showing that section's previous snapshot.
     python3 refresh_blackmonth.py --section pacing --dry-run --out /tmp/p.json
                                                        # build, write JSON locally only
 
-`insights` runs last because it reads the other sections' fresh snapshots.
+`insights` runs last because it reads the other sections' fresh snapshots;
+`meta` reads this run's pacing payload (ctx["built"]), so it comes after pacing.
 """
 from __future__ import annotations
 
@@ -32,6 +33,7 @@ def run(sections: list[str], dry_run: bool, out: str | None) -> int:
     order = sorted(sections, key=lambda s: s == "insights")
     failed = 0
     built = {}
+    ctx["built"] = built          # meta reads this run's pacing (margins, headroom)
     for key in order:
         try:
             mod = importlib.import_module(f"bm_{key}")

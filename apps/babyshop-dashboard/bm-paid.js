@@ -281,6 +281,12 @@
   function mktOfCustomer(n) { var m = /\b(SE|NO|FI|DK|ROW)\b/.exec(n || ''); return m ? m[1] : 'ROW'; }
 
   /* ── Meta ───────────────────────────────────────────────────────────────── */
+  // Meta has its own section now (bm-meta.js): new vs existing customers, frequency
+  // and a scale / hold / cut verdict per market, tactic and ad-set group.
+  function metaPointer() {
+    return '<h3>Meta</h3><div class="bm-note">Meta levers moved to their own section: <a href="#bm-meta" style="color:var(--accent)">Meta · scale / hold / cut</a>.</div>';
+  }
+
   function metaHtml(d, state) {
     var m = d.meta, p = m.pacing, h = [];
     if (!metaOn(d, state)) return '<h3>Meta</h3><div class="bm-note warn">' + esc(d.meta_brand_note || 'No Lekmer Meta data.') + '</div>';
@@ -515,7 +521,7 @@
   function render(el, d, state) {
     injectCss();
     last = { el: el, d: d, state: state };
-    var h = [guardrailHtml(d, state), kpis(d, state), googleHtml(d, state), metaHtml(d, state), nvrHtml(d, state), gp3Html(d, state)];
+    var h = [guardrailHtml(d, state), kpis(d, state), googleHtml(d, state), metaPointer(), nvrHtml(d, state), gp3Html(d, state)];
     h.push('<details><summary>Data notes</summary><ul class="bm-note pd-notes">' + d.notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul></details>');
     if (d.errors && d.errors.length) h.push('<div class="bm-error" style="font-size:12px;margin-top:8px">' + d.errors.map(esc).join('<br>') + '</div>');
     el.innerHTML = h.join('');
