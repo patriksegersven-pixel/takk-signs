@@ -435,9 +435,18 @@ def ads_client():
     }, version=API_VERSION)
 
 
+ADS_STREAM_TIMEOUT = float(os.environ.get("GOOGLE_ADS_STREAM_TIMEOUT", "300"))
+
+
 def _search(service, cid: str, query: str) -> Iterable[Any]:
-    """Stream one GAQL query and yield GoogleAdsRow objects."""
-    for batch in service.search_stream(customer_id=cid, query=query):
+    """Stream one GAQL query and yield GoogleAdsRow objects.
+
+    The library's default deadline for search_stream is hours, so one stalled
+    stream used to hang blackmonth-refresh until Cloud Run killed the task
+    (2026-11-11). 300 s is far above any query here (the slowest takes seconds).
+    """
+    for batch in service.search_stream(customer_id=cid, query=query,
+                                       timeout=ADS_STREAM_TIMEOUT):
         for row in batch.results:
             yield row
 
