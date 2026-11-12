@@ -7,7 +7,7 @@
   var F = BM.fmt, esc = BM.esc;
   var MKTS = ['SE', 'NO', 'FI', 'DK', 'ROW'];
   var V = {
-    scale: ['up', 'Scale'], hold: ['muted', 'Hold'], cut: ['down', 'Cut'], data: ['muted', 'Too little data']
+    scale: ['up', 'Scale'], test: ['up', 'Scale · test'], hold: ['muted', 'Hold'], cut: ['down', 'Cut'], data: ['muted', 'Too little data']
   };
   var ui = { win: 'l7', open: {}, why: {} };   // open: row id → children shown; why: row id → reasons shown
   var last = null;
@@ -103,7 +103,7 @@
     var m = r.marginal || {};
     if (m.low == null) return '<span class="muted">–</span>';
     var t = last.d.thresholds;
-    function c(v) { return '<span class="' + (v >= t.scale ? 'up' : v < t.cut ? 'down' : '') + '">' + F.roas(v) + '</span>'; }
+    function c(v) { return '<span class="' + (v >= (t.test || 1) ? 'up' : v < t.cut ? 'down' : '') + '">' + F.roas(v) + '</span>'; }
     return c(m.low) + ' <span class="muted">–</span> ' + c(m.high);
   }
 
@@ -216,12 +216,13 @@
       '<ol style="margin:6px 0 6px 18px;padding:0">' +
       '<li><b>Worth of an extra krona</b>: incremental GP3 per krona = (new orders × (first-order GP2 + 12-month repeat GP2) × ' + d.incrementality.new +
       ' + returning orders × GP2 × ' + d.incrementality.existing + ') ÷ spend, marginal not average. Shown as a range: Norce click orders (conservative) – Meta\'s own count (optimistic). ' +
-      '≥ ' + t.scale + ' Scale · ' + t.cut + '–' + t.scale + ' Hold · < ' + t.cut + ' Cut. Confident only when both ends agree.</li>' +
-      '<li><b>Saturation</b>: new-customer frequency > ' + t.freq_new + ' in 7 days blocks Scale; existing-customer frequency > ' + t.freq_existing +
-      ' forces Cut on that segment (on a market row it means: move money from existing to new). CPM and cost per Meta purchase both up > ' + Math.round(t.cost_rise * 100) + ' % while spend rose: one step down.</li>' +
-      '<li><b>Headroom</b>: a market over its allowed spend (pacing section) cannot Scale.</li>' +
+      '≥ ' + t.scale + ' Scale · ' + (t.test || 1) + '–' + t.scale + ' Scale · test · ' + t.cut + '–' + (t.test || 1) + ' Hold · < ' + t.cut + ' Cut. ' +
+      'Spending more is allowed whenever the extra krona brings back more than it costs (above 1), so anything above break-even leans up. Confident only when both ends agree.</li>' +
+      '<li><b>Saturation</b>: new-customer frequency > ' + t.freq_new + ' in 7 days takes one step down (Scale → test → Hold) instead of blocking; existing-customer frequency > ' + t.freq_existing +
+      ' forces Cut on that segment unless even Norce clicks pay back (then Hold); on a market row it means: move money from existing to new. CPM and cost per Meta purchase both up > ' + Math.round(t.cost_rise * 100) + ' % while spend rose: one step down.</li>' +
+      '<li><b>Headroom</b>: shown for context only. A market over its allowed spend (pacing section) can still add Meta spend that pays for itself, since that keeps GP3 whole.</li>' +
       '<li><b>Data</b>: below ' + F.num(t.min_spend) + ' SEK or ' + t.min_orders + ' Norce orders in 7 days the month to date is used (low confidence); below that too, no verdict.</li>' +
-      '</ol>Steps: Scale = up to +' + Math.round(t.step_up * 100) + ' % then wait 3 days (bigger jumps reset Meta\'s learning); Cut = −' + Math.round(t.step_down * 100) + ' %, existing customers via the existing-customer budget cap first.</div>' +
+      '</ol>Steps: Scale = up to +' + Math.round(t.step_up * 100) + ' % then wait 3 days; Scale · test = the same step, kept only if the measured slope (shown once spend has moved) stays above 1 (bigger jumps reset Meta\'s learning); Cut = −' + Math.round(t.step_down * 100) + ' %, existing customers via the existing-customer budget cap first.</div>' +
       BM.table(repRows, [
         { key: 'market', label: 'Market', fmt: mk },
         { key: 'gm2', label: 'GP2 margin', num: true, fmt: function (v) { return F.pct(v, 1); } },

@@ -9,7 +9,10 @@ Three levels a buyer can actually move:
   3. market × tactic × format (catalog/DPA or not) × offer vs evergreen × line
      (Kuling / Babyshop / STOY) — matches the ad sets you would scale or pause
 
-Every row gets a verdict (Scale / Hold / Cut / too little data) from:
+Rule (2026-11-12): spending more is allowed whenever the extra spend brings in
+more incremental margin than it costs, so anything above break-even leans up.
+
+Every row gets a verdict (Scale / Scale · test / Hold / Cut / too little data) from:
   1. incremental GP3 per krona (marginal), as a range:
        low  = Norce orders from Meta ad clicks (GA4-matched), new vs returning by
               Norce's own new-customer flag
@@ -19,10 +22,14 @@ Every row gets a verdict (Scale / Hold / Cut / too little data) from:
      marginal = Δvalue ÷ Δspend last 7 days vs the 7 before (demand-normalised by
                 the market's site orders) when spend moved ≥ 20 %, else
                 average × 0.75; never above the average, never below 0
-  2. frequency gates (7-day, straight from Meta): new > 3 blocks Scale,
-     existing > 5 forces Cut
+     ≥ 1.2 Scale · 1.0–1.2 Scale · test (raise one step, read the slope back) ·
+     0.8–1.0 Hold · < 0.8 Cut
+  2. frequency (7-day, straight from Meta): new > 3 steps the verdict down one
+     level (Scale → test → Hold) rather than blocking it; existing > 5 forces Cut
+     unless even the conservative end is above break-even (then Hold)
   3. cost-rise gate: CPM and Meta CPA both up > 15 % while spend rose → one step down
-  4. market GP3 headroom from the pacing section: negative headroom blocks Scale
+  4. market GP3 headroom from the pacing section is context only: spend that
+     pays for itself does not cost GP3, so it no longer blocks Scale
   5. data gate: < 3 000 SEK spend or < 10 Norce orders in 7 days → no verdict
 The verdict is "confident" only when the low and high ends agree.
 
@@ -51,7 +58,7 @@ WH = "`claude-private-499703.babyshop_marts.{}`"
 MKTS = bm.MARKETS + ["ROW"]
 
 T = {                                        # verdict thresholds (agreed 2026-11-11)
-    "scale": 1.2, "cut": 0.8,                # incremental GP3 per krona (1.0 = break-even)
+    "scale": 1.2, "test": 1.0, "cut": 0.8,   # incremental GP3 per krona (1.0 = break-even)
     "freq_new": 3.0, "freq_existing": 5.0,   # 7-day frequency
     "cost_rise": 0.15,                       # CPM and CPA both up more than this
     "min_spend": 3000, "min_orders": 10,     # 7-day data gate
@@ -63,7 +70,7 @@ INC = {"new": bm.INCREMENTALITY["meta_prospecting"], "existing": bm.INCREMENTALI
 REPEAT_CAP = 20_000                          # SEK of repeat revenue per customer (B2B-ish outliers)
 SEG_OF = {"prospecting": "new", "existing": "existing", "engaged": "new", "unknown": "new"}
 SEG_LABEL = {"new": "New customers (prospecting)", "existing": "Existing customers (retargeting)"}
-VERDICTS = ("scale", "hold", "cut")
+VERDICTS = ("scale", "test", "hold", "cut")
 
 META_SRC_RX = r"^(facebook|instagram|meta|fb|ig)$"
 META_MED_RX = r"^(cpc|ppc|paid|paid_social|paidsocial)"
@@ -404,10 +411,11 @@ def build(ctx: dict) -> dict:
     def band(x):
         if x is None:
             return None
-        return "scale" if x >= T["scale"] else "hold" if x >= T["cut"] else "cut"
+        return ("scale" if x >= T["scale"] else "test" if x >= T["test"]
+                else "hold" if x >= T["cut"] else "cut")
 
     def step_down(v):
-        return {"scale": "hold", "hold": "cut", "cut": "cut"}.get(v, v)
+        return {"scale": "test", "test": "hold", "hold": "cut", "cut": "cut"}.get(v, v)
 
     rows = []
 
@@ -530,20 +538,28 @@ def build(ctx: dict) -> dict:
                     shift = True
                     reasons.insert(0, f"Existing-customer frequency {fe:.1f} in 7 days (> {T['freq_existing']:.0f}): "
                                       "move money from existing to new customers")
+                elif lo_ >= T["test"]:                  # saturated, yet even Norce clicks pay back
+                    verdict, gated = ("hold" if verdict in ("scale", "test") else verdict), True
+                    reasons.insert(0, f"Existing-customer frequency {fe:.1f} in 7 days (> {T['freq_existing']:.0f}), "
+                                      "but it still pays back on Norce clicks: hold, don't add")
                 else:
                     verdict, conf, gated = "cut", "high", True
                     reasons.insert(0, f"Existing-customer frequency {fe:.1f} in 7 days (> {T['freq_existing']:.0f})")
             if level == "detail":                       # the segment as a whole can be saturated
                 pf = fq("l7", "mseg", mkt, seg)
                 lim = T["freq_new"] if seg == "new" else T["freq_existing"]
-                if verdict == "scale" and pf is not None and pf > lim:
-                    verdict, gated = "hold", True
+                if verdict in ("scale", "test") and pf is not None and pf > lim:
+                    # existing customers: the segment is being cut, so no group in it adds spend
+                    verdict, gated = ("hold" if seg == "existing" else step_down(verdict)), True
                     reasons.insert(0, f"{SEG_LABEL[seg].split(' (')[0]} in {mkt} see Meta ads {pf:.1f} times in 7 days "
-                                      f"(> {lim:.0f}) across all ad sets: test new ads here rather than more budget")
-            if verdict == "scale" and fn is not None and fn > T["freq_new"]:
-                verdict, gated = "hold", True
+                                      f"(> {lim:.0f}) across all ad sets: "
+                                      + ("hold, the segment is saturated" if seg == "existing"
+                                         else "the next krona may do less, so one step down"))
+            if verdict in ("scale", "test") and fn is not None and fn > T["freq_new"] and not gated:
+                verdict, gated = step_down(verdict), True     # once: the segment gate may have stepped already
                 reasons.insert(0, f"New-customer frequency {fn:.1f} in 7 days (> {T['freq_new']:.0f}): "
-                                  "more money mostly reaches the same people")
+                                  "more money partly reaches the same people, so one step down"
+                                  + (" (test it, then read the slope)" if verdict == "test" else ""))
             # cost-rise gate
             if (basis == "l7" and p7["cpm"] and p7["cpa_meta"] and l7["cpm"] and l7["cpa_meta"]
                     and l7["spend"] > p7["spend"]
@@ -551,16 +567,14 @@ def build(ctx: dict) -> dict:
                 verdict, gated = step_down(verdict), True
                 reasons.insert(0, f"Saturation: spend up, CPM +{l7['cpm'] / p7['cpm'] - 1:.0%} and "
                                   f"cost per Meta purchase +{l7['cpa_meta'] / p7['cpa_meta'] - 1:.0%}")
-            # headroom gate
-            if verdict == "scale" and hr is not None and hr < 0:
-                verdict, gated = "hold", True
-                reasons.insert(0, f"{mkt} is over its allowed spend ({_n(hr)} SEK/day headroom)")
+            # headroom: context only. Spend that adds more GP2 than it costs keeps GP3 whole.
+            if verdict in ("scale", "test") and hr is not None and hr < 0:
+                reasons.append(f"{mkt} is over its allowed spend ({_n(hr)} SEK/day headroom): extra Meta spend "
+                               "is still fine while it pays back, so read the slope before the next step")
         mid = ((marg["low"] or 0) + (marg["high"] or 0)) / 2 if marg["low"] is not None else None
-        # Hold on the numbers alone, yet above break-even with market headroom to spend
-        candidate = (verdict == "hold" and not gated and not shift and mid is not None
-                     and mid > 1.0 and (hr or 0) > 0)
+        candidate = False                                # superseded by the "test" verdict (2026-11-12)
 
-        if shift and verdict == "scale":
+        if shift and verdict in ("scale", "test"):
             action = (f"Raise up to +{T['step_up']:.0%} on new customers only; lower the existing-customer cap")
         elif shift and verdict == "hold":
             action = "Keep the total: lower the existing-customer cap and move that money to new customers"
@@ -568,6 +582,9 @@ def build(ctx: dict) -> dict:
             action = f"Cut −{T['step_down']:.0%}, starting with existing customers (lower the existing-customer cap)"
         elif verdict == "scale":
             action = f"Raise budget up to +{T['step_up']:.0%}, then wait 3 days"
+        elif verdict == "test":
+            action = (f"Test +{T['step_up']:.0%} for 3–4 days; keep it if the measured slope stays above 1, "
+                      "roll back if not")
         elif verdict == "cut":
             action = (f"Lower the existing-customer budget cap first, then −{T['step_down']:.0%} budget"
                       if seg == "existing" else f"Cut budget −{T['step_down']:.0%}")
@@ -609,6 +626,18 @@ def build(ctx: dict) -> dict:
                 make_row("detail", mkt, seg, (fmt, off, line),
                          f"{FMT_LABEL[fmt]} · {OFFER_LABEL[off]} · {LINE_LABEL[line]}",
                          lambda wk, mkt=mkt, seg=seg, k=k: {seg: agg.get((wk, "x", mkt) + k, _blank())})
+
+    # Market rows that move money from existing to new customers: when the new-customer
+    # row itself pays back (Scale or test), the move comes with a raise on new customers.
+    for r in rows:
+        if r["level"] != "market" or not r["shift"] or r["verdict"] not in ("hold",):
+            continue
+        nw = next((x for x in rows if x["level"] == "tactic" and x["market"] == r["market"]
+                   and x["seg"] == "new"), None)
+        if nw and nw["verdict"] in ("scale", "test"):
+            r["action"] = (f"Lower the existing-customer cap, move that money to new customers and "
+                           f"{'raise' if nw['verdict'] == 'scale' else 'test'} new customers "
+                           f"+{T['step_up']:.0%} on top: they pay back")
 
     # ── Daily series (MTD) per market × segment ─────────────────────────────
     days = []

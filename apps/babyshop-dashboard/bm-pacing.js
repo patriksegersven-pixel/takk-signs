@@ -12,6 +12,7 @@
   var F = BM.fmt, esc = BM.esc;
   var ui = { shape: 'event', metric: 'gross' };
   var live = null, liveLoading = false;
+  var spend = null, spendLoading = false;   // /api/blackmonth/pacing/spend-live (Google Ads + Meta)
 
   var METRICS = [
     { k: 'gross', label: 'Gross sales' },  // Norce merchandise
@@ -348,24 +349,75 @@
     var pick = function (day) {
       var merchShare = day.revenue_sek ? 1 - (day.freight_sek || 0) / day.revenue_sek : 1;
       if (mk === 'all') return { rev: (day.revenue_sek || 0) * merchShare, orders: day.orders || 0 };
-      var c = (day.by_country || {})[mk] || {};
+      var bc = day.by_country || {}, c;
+      if (mk === 'ROW') {                  // by_country is ISO-2: ROW = every non-Nordic country
+        c = { revenue_sek: 0, orders: 0 };
+        Object.keys(bc).forEach(function (k) {
+          if (['SE', 'NO', 'FI', 'DK', 'unknown'].indexOf(k) < 0) { c.revenue_sek += bc[k].revenue_sek || 0; c.orders += bc[k].orders || 0; }
+        });
+      } else c = bc[mk] || {};
       return { rev: (c.revenue_sek || 0) * merchShare, orders: c.orders || 0 };
     };
     var now = pick(pd), y = pick(cd);
     var share = pd.elapsed_share_of_prev_day;
     var proj = share ? now.rev / share : null;
     var yTgt = i > 0 ? M.targets[ui.shape].gross[i - 1] : null;
+    var cosCard = cosToday(M, i, mk, now.rev, y.rev, tgt, yTgt);
     var h = head + '<div class="pc-today">' +
       kpiCard('Ordered so far', F.sek(now.rev), [['orders', F.num(now.orders)], ['as of', esc(live.fetched_at_local || '').slice(11)]]) +
       kpiCard('Today\'s target', F.sek(tgt), [['so far vs full day', F.pct(tgt ? now.rev / tgt : null, 0)], ['day share elapsed', F.pct(share, 0)]]) +
       kpiCard('Pace for the day', F.sek(proj), [['vs target', delta(tgt && proj != null ? proj / tgt - 1 : null)], ['indication only', '']]) +
       kpiCard('Yesterday (ordered)', F.sek(y.rev), [['orders', F.num(y.orders)], ['vs its target', delta(yTgt ? y.rev / yTgt - 1 : null)]]) +
-      '</div>';
+      cosCard.html + '</div>';
     h += '<p class="bm-note">Live from the Norce API: order date, Stockholm day, ex VAT, merchandise (freight taken off), gross of returns, every status except 6. ' +
       'Same basis as the gross-sales actuals above, so it compares directly with today\'s target. ' +
-      'Pace = so far ÷ the share of yesterday\'s intake that had arrived by this time.' +
+      'Pace = so far ÷ the share of yesterday\'s intake that had arrived by this time. ' + cosCard.note +
       (mk !== 'all' ? ' Live market split = delivery country; the history above uses the ordering application.' : '') + '</p>';
     return h;
+  }
+
+  // COS for today so far and yesterday: live Google Ads + Meta spend ÷ the live
+  // Norce intake above. Target COS = that day's marketing-cost target ÷ its
+  // gross-sales target. Google + Meta are ~99 % of ad cost; the rest (Naver,
+  // affiliate, price comparison) only reaches Funnel with complete days.
+  function cosToday(M, i, mk, rev, yRev, tgt, yTgt) {
+    var lbl = 'COS today (Google + Meta)';
+    if (!spend) return { html: kpiCard(lbl, '<span class="muted">…</span>', [['loading live spend', '']]), note: '' };
+    if (!spend.available) return { html: kpiCard(lbl, '–', [['live spend unavailable', '']]),
+      note: 'Live ad spend unavailable: ' + esc(spend.reason || (spend.errors || []).join('; ') || 'unknown') + '.' };
+    var D = spend.days || {}, st = ((D.today || {}).markets || {})[mk] || {}, sy = ((D.yesterday || {}).markets || {})[mk] || {};
+    var tc = M.targets[ui.shape].cost || [];
+    var cos = rev ? (st.total || 0) / rev : null, yCos = yRev ? (sy.total || 0) / yRev : null;
+    var cosT = tgt ? tc[i] / tgt : null, yCosT = (i > 0 && yTgt) ? tc[i - 1] / yTgt : null;
+    var pp = function (a, b) {
+      if (a == null || b == null) return '<span class="muted">–</span>';
+      var x = (a - b) * 100;
+      return '<span class="' + (x > 0 ? 'down' : 'up') + '">' + (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(1).replace('.', ',') + ' pp</span>';
+    };
+    var html = kpiCard(lbl, F.pct(cos), [
+      ['vs target ' + F.pct(cosT), pp(cos, cosT)],
+      ['yesterday ' + F.pct(yCos), pp(yCos, yCosT) + ' <span class="muted">vs ' + F.pct(yCosT) + '</span>'],
+      ['spend so far · as of', F.sek(st.total) + ' · ' + esc((spend.fetched_at_local || '').slice(11))]
+    ]);
+    var note = 'COS = Google Ads + Meta spend (live from their APIs, SEK, by market of the ad account / delivery country) ÷ the ordered merchandise above; ' +
+      'target = that day\'s marketing-cost target ÷ its gross-sales target. Google + Meta are about 99 % of ad cost; Naver, affiliate and price comparison are left out. ' +
+      'Not the same basis as the COS % MTD card (Funnel ÷ Funnel).' +
+      ((spend.errors || []).length ? ' Missing from the spend: ' + esc(spend.errors.join('; ')) + '.' : '');
+    return { html: html, note: note };
+  }
+
+  function loadSpend() {
+    if (spend || spendLoading) return;
+    spendLoading = true;
+    fetch('/api/blackmonth/pacing/spend-live', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { spend = j || { available: false, reason: 'empty response' }; })
+      .catch(function (e) { spend = { available: false, reason: String(e) }; })
+      .then(function () {
+        spendLoading = false;
+        var el = document.querySelector('#bm-pacing .bm-body'), p = BM.payload('pacing');
+        if (el && p) render(el, p, BM.state);
+      });
   }
 
   function loadLive() {
@@ -614,6 +666,7 @@
     });
     drawCharts(el, d, M);
     loadLive();
+    loadSpend();
   }
 
   BM.register('pacing', { title: 'Pacing & forecast', render: render });
