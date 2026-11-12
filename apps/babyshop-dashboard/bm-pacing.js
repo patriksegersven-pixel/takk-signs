@@ -362,7 +362,7 @@
     var share = pd.elapsed_share_of_prev_day;
     var proj = share ? now.rev / share : null;
     var yTgt = i > 0 ? M.targets[ui.shape].gross[i - 1] : null;
-    var cosCard = cosToday(M, i, mk, now.rev, y.rev, tgt, yTgt);
+    var cosCard = cosToday(d, M, i, mk, now.rev, y.rev, tgt, yTgt, share);
     var h = head + '<div class="pc-today">' +
       kpiCard('Ordered so far', F.sek(now.rev), [['orders', F.num(now.orders)], ['as of', esc(live.fetched_at_local || '').slice(11)]]) +
       kpiCard('Today\'s target', F.sek(tgt), [['so far vs full day', F.pct(tgt ? now.rev / tgt : null, 0)], ['day share elapsed', F.pct(share, 0)]]) +
@@ -376,18 +376,29 @@
     return h;
   }
 
-  // COS for today so far and yesterday: live Google Ads + Meta spend ÷ the live
-  // Norce intake above. Target COS = that day's marketing-cost target ÷ its
-  // gross-sales target. Google + Meta are ~99 % of ad cost; the rest (Naver,
-  // affiliate, price comparison) only reaches Funnel with complete days.
-  function cosToday(M, i, mk, rev, yRev, tgt, yTgt) {
-    var lbl = 'COS today (Google + Meta)';
+  // COS for today so far and yesterday, all advertising (rule 2026-11-12: COS always
+  // means every ad channel unless it is labelled Google or Meta).
+  //   yesterday: Funnel's all-channel cost for that day once it has loaded, else as today
+  //   today:     Google Ads + Meta live from their APIs, plus the other channels
+  //              (Naver, affiliate, price comparison …: Funnel has complete days only)
+  //              at their month-to-date daily average × the share of the day elapsed
+  // ÷ the live Norce intake above. Target COS = the day's marketing-cost target ÷ its
+  // gross-sales target.
+  function cosToday(d, M, i, mk, rev, yRev, tgt, yTgt, share) {
+    var lbl = 'COS today (all advertising)';
     if (!spend) return { html: kpiCard(lbl, '<span class="muted">…</span>', [['loading live spend', '']]), note: '' };
     if (!spend.available) return { html: kpiCard(lbl, '–', [['live spend unavailable', '']]),
       note: 'Live ad spend unavailable: ' + esc(spend.reason || (spend.errors || []).join('; ') || 'unknown') + '.' };
     var D = spend.days || {}, st = ((D.today || {}).markets || {})[mk] || {}, sy = ((D.yesterday || {}).markets || {})[mk] || {};
+    // other channels' daily rate: Funnel MTD through the last complete day
+    var ch = (d.marketing_channels || {})[mk] || [], nDays = d.days.indexOf(d.asof) + 1, other = 0;
+    ch.forEach(function (c) { if (c.channel !== 'Google Ads' && c.channel !== 'Paid Social (Meta)') other += c.mtd || 0; });
+    var otherDay = nDays > 0 ? other / nDays : 0;
+    var costT = (st.total || 0) + otherDay * (share || 0);
+    var fy = i > 0 ? M.actual.cost[i - 1] : null, yFunnel = fy != null && fy > 0;
+    var costY = yFunnel ? fy : (sy.total || 0) + otherDay;
     var tc = M.targets[ui.shape].cost || [];
-    var cos = rev ? (st.total || 0) / rev : null, yCos = yRev ? (sy.total || 0) / yRev : null;
+    var cos = rev ? costT / rev : null, yCos = yRev ? costY / yRev : null;
     var cosT = tgt ? tc[i] / tgt : null, yCosT = (i > 0 && yTgt) ? tc[i - 1] / yTgt : null;
     var pp = function (a, b) {
       if (a == null || b == null) return '<span class="muted">–</span>';
@@ -397,12 +408,14 @@
     var html = kpiCard(lbl, F.pct(cos), [
       ['vs target ' + F.pct(cosT), pp(cos, cosT)],
       ['yesterday ' + F.pct(yCos), pp(yCos, yCosT) + ' <span class="muted">vs ' + F.pct(yCosT) + '</span>'],
-      ['spend so far · as of', F.sek(st.total) + ' · ' + esc((spend.fetched_at_local || '').slice(11))]
+      ['ad cost so far · as of', F.sek(costT) + ' · ' + esc((spend.fetched_at_local || '').slice(11))]
     ]);
-    var note = 'COS = Google Ads + Meta spend (live from their APIs, SEK, by market of the ad account / delivery country) ÷ the ordered merchandise above; ' +
-      'target = that day\'s marketing-cost target ÷ its gross-sales target. Google + Meta are about 99 % of ad cost; Naver, affiliate and price comparison are left out. ' +
-      'Not the same basis as the COS % MTD card (Funnel ÷ Funnel).' +
-      ((spend.errors || []).length ? ' Missing from the spend: ' + esc(spend.errors.join('; ')) + '.' : '');
+    var note = 'COS = all advertising cost ÷ the ordered merchandise above; target = that day\'s marketing-cost target ÷ its gross-sales target. ' +
+      'Today: Google Ads + Meta live from their APIs (' + F.sek(st.total || 0) + ' SEK so far) plus the other channels (Naver, affiliate, price comparison) at their month-to-date daily average ' +
+      'scaled to the share of the day elapsed (' + F.sek(otherDay * (share || 0)) + ' SEK; they only reach Funnel as complete days). ' +
+      'Yesterday: ' + (yFunnel ? 'Funnel\'s all-channel cost for the day.' : 'Funnel has not loaded it yet, so live Google Ads + Meta plus the other channels\' daily average.') +
+      ' Cost is by the ad account\'s market, sales by delivery country. Not the same sales basis as the COS % MTD card (Funnel ÷ Funnel).' +
+      ((spend.errors || []).length ? ' Missing from the live spend: ' + esc(spend.errors.join('; ')) + '.' : '');
     return { html: html, note: note };
   }
 
