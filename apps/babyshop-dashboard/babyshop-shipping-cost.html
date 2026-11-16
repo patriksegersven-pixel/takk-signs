@@ -59,7 +59,7 @@
     tbody td { font-weight:500; color:var(--body); border-bottom:1px solid var(--border-lt); }
     tbody tr:last-child td { border-bottom:none; }
     tbody tr:hover td { background-image:linear-gradient(rgba(27,40,57,.025),rgba(27,40,57,.025)); }
-    td.strong { color:var(--h); font-weight:700; } td.dim { color:var(--muted); }
+    td.strong { color:var(--h); font-weight:700; } td.dim { color:var(--muted); } td.off { color:#B4442C; font-weight:700; }
     td.empty { text-align:center; color:var(--muted); padding:26px 12px; font-weight:400; }
     tr.total td { font-weight:700; color:var(--h); background:#FCFBF9; border-bottom:1px solid var(--border); }
     .chip { display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; padding:3px 7px; border-radius:3px; white-space:nowrap; line-height:1; }
@@ -156,10 +156,12 @@
         <div class="fwin" id="pwin"></div>
       </div>
       <div class="card tbl stack">
-        <div class="card-head"><div><h3>Estimated shipping cost per market</h3><div class="csub">One row per website market (slug), with the Kuvio website, WID and the cost in the website's currency — the numbers to set in Kuvio.</div></div>
+        <div class="card-head"><div><h3>Estimated shipping cost per market</h3><div class="csub">One row per website market (slug), with the Kuvio website, WID and the cost in the website's currency — the numbers to set in Kuvio — next to what Kuvio has set today. Differences over 5 % are in red.</div></div>
           <div class="card-tools"><span id="mkTools"></span></div></div>
         <div class="tbl-scroll"><table id="mkTable" data-export-name="shipping-cost-per-market"></table></div>
-        <div class="tbl-note">Cost per order = total estimated outbound freight ÷ orders in the period. Website currency at fixed rates (<span id="fxNote"></span>). "From invoice" is the share of orders whose cost comes from the carrier's own invoice line rather than an estimate.</div>
+        <div class="tbl-note">Cost per order = total estimated outbound freight ÷ orders in the period. Website currency at fixed rates (<span id="fxNote"></span>). "From invoice" is the share of orders whose cost comes from the carrier's own invoice line rather than an estimate.
+          "Kuvio rate set" is the shipping cost configured in Kuvio for the market: the slug's shipping method on websites that have them (EU, ROW, NA and Asia 2026; the GTM Kuvio tag sends the URL slug), otherwise the website's default — hover for which and when it was last changed. "Kuvio charged" is what Kuvio actually booked per order for that website and country in the warehouse (last 30 days, 90 for small countries; hover for the basis), so per-country shipping rates count, not just the website's default. "Default" and the pick &amp; pack setting are read from each Kuvio website's settings at every refresh (pick &amp; pack = cost per order + cost per order row).
+          Pick &amp; pack (model) = PostNord TPL's contract rate per unique item × unique items per order + packaging per order<span id="ppNote"></span>.</div>
       </div>
     </section>
 
@@ -413,21 +415,32 @@
     S.market_month.forEach(r => {
       if (!inPeriod(r[ix.month]) || !siteOk(r[ix.project])) return;
       const k = r[ix.project] + '|' + r[ix.country];
-      const a = g.get(k) || { project:r[ix.project], country:r[ix.country], orders:0, cost:0, kg:0, rev:0, act:0 };
-      a.orders += r[ix.orders]; a.cost += r[ix.cost]; a.kg += r[ix.kg]; a.rev += r[ix.rev]; a.act += r[ix.actual_orders]; g.set(k, a);
+      const a = g.get(k) || { project:r[ix.project], country:r[ix.country], orders:0, cost:0, kg:0, rev:0, act:0, skus:0 };
+      a.orders += r[ix.orders]; a.cost += r[ix.cost]; a.kg += r[ix.kg]; a.rev += r[ix.rev]; a.act += r[ix.actual_orders]; a.skus += (r[ix.skus] || 0); g.set(k, a);
     });
     const rows = [...g.values()].sort((x, y) => y.orders - x.orders);
     const tot = rows.reduce((t, a) => ({ orders:t.orders + a.orders, cost:t.cost + a.cost, kg:t.kg + a.kg, rev:t.rev + a.rev, act:t.act + a.act }), { orders:0, cost:0, kg:0, rev:0, act:0 });
     $('pwin').innerHTML = `<b>${mlabel(period[0])}${period[0] !== period[1] ? ' – ' + mlabel(period[1]) : ''}</b> · ${fmt(tot.orders)} orders · ${fmt(tot.cost)} SEK · <b>${fmt(tot.cost / tot.orders, 1)} SEK per order</b>`
       + (period[1] > S.cal_months[S.cal_months.length - 1] ? ' · months after the calibration window use its factors until their invoices are booked' : '');
-    const body = rows.map(a => { const m = mapFor(a.project, a.country), cpo = a.cost / a.orders;
+    const F = S.fulfilment || {}, diffTd = (now, ref) => { const d = now != null && ref ? 100 * (now / ref - 1) : null;
+      return `<td class="${d != null && Math.abs(d) > 5 ? 'off' : 'dim'}">${d == null ? '–' : (d > 0 ? '+' : '') + fmt(d, 0) + ' %'}</td>`; };
+    $('ppNote').textContent = F.pick_rate_item ? ` (${fmt(F.pick_rate_item, 2)} SEK per item, ${fmt(F.packaging_per_order, 2)} SEK packaging, ${F.label || ''})` : '';
+    const body = rows.map(a => { const m = mapFor(a.project, a.country), cpo = a.cost / a.orders, k = m.kuvio || {};
+      const cpoCur = inCur(cpo, m.cur), ipo = a.skus / a.orders;
+      const ppModel = F.pick_rate_item ? inCur(F.pick_rate_item * ipo + (F.packaging_per_order || 0), m.cur) : null;
+      const ppKuvio = k.charged_pp != null ? k.charged_pp : (k.per_order != null || k.per_row != null ? (k.per_order || 0) + (k.per_row || 0) * ipo + (k.per_item || 0) * ipo : null);
+      const kShip = k.charged != null ? k.charged : k.shipping;
+      const ppSet = k.per_order != null ? `${fmt(k.per_order, 2)} + ${fmt(k.per_row || 0, 2)} / row` : '–';
       return `<tr><td class="lbl">${siteOf(a.project)}</td><td class="lbl">${esc(m.slug || '')}</td><td class="lbl">${esc(m.country || a.country)}</td><td class="lbl">${esc(a.country)}</td>
         <td class="lbl">${esc(a.project)}</td><td class="lbl">${esc(m.website || '')}</td><td class="lbl">${esc(m.wid || '')}</td><td class="lbl">${esc(m.cur || '')}</td>
-        <td>${fmt(a.orders)}</td><td class="strong">${fmt(cpo, 2)}</td><td>${fmt(inCur(cpo, m.cur), 2)}</td><td>${fmt(a.kg / a.orders, 2)}</td>
-        <td>${pct(100 * a.cost / a.rev)}</td><td>${pct(100 * a.act / a.orders, 0)}</td><td>${fmt(a.cost)}</td></tr>`; }).join('');
+        <td>${fmt(a.orders)}</td><td class="strong">${fmt(cpo, 2)}</td><td>${fmt(cpoCur, 2)}</td><td title="${esc((k.rate_basis || '') + (k.rate_updated ? ', updated ' + k.rate_updated : ''))}">${fmt(k.rate, 2)}</td>${diffTd(k.rate, cpoCur)}<td title="${esc(k.basis || '')}">${fmt(kShip, 2)}</td>${diffTd(kShip, cpoCur)}<td class="dim">${fmt(k.shipping, 2)}</td>
+        <td>${fmt(a.kg / a.orders, 2)}</td><td>${fmt(ipo, 2)}</td><td>${fmt(ppModel, 2)}</td><td class="lbl">${ppSet}</td><td>${fmt(ppKuvio, 2)}</td>${diffTd(ppKuvio, ppModel)}
+        <td>${pct(100 * a.cost / a.rev)}</td><td>${pct(100 * a.act / a.orders, 0)}</td><td>${fmt(a.cost)}</td><td class="dim">${esc(k.updated || '')}</td></tr>`; }).join('');
     $('mkTable').innerHTML = `<thead><tr><th class="lbl">Site</th><th class="lbl">Slug</th><th class="lbl">Country</th><th class="lbl">Code</th><th class="lbl">Norce project</th><th class="lbl">Website</th><th class="lbl">WID</th><th class="lbl">Currency</th>
-      <th>Orders</th><th>Cost / order SEK</th><th>Cost / order website cur.</th><th>Avg basket kg</th><th>% of revenue</th><th>From invoice</th><th>Total cost SEK</th></tr></thead>
-      <tbody>${body || '<tr><td class="empty" colspan="15">No orders in this period.</td></tr>'}</tbody>`;
+      <th>Orders</th><th>Cost / order SEK</th><th>Cost / order website cur.</th><th>Kuvio rate set</th><th>Rate vs model</th><th>Kuvio shipping charged</th><th>Charged vs model</th><th>Kuvio default</th>
+      <th>Avg basket kg</th><th>Unique items / order</th><th>Pick &amp; pack / order website cur.</th><th class="lbl">Kuvio pick &amp; pack setting</th><th>Kuvio pick &amp; pack charged / order</th><th>Kuvio vs model</th>
+      <th>% of revenue</th><th>From invoice</th><th>Total cost SEK</th><th>Kuvio settings changed</th></tr></thead>
+      <tbody>${body || '<tr><td class="empty" colspan="26">No orders in this period.</td></tr>'}</tbody>`;
     mkTT = enhance($('mkTable'), 'mkTools', mkTT);
 
     const nc = S.method_month_cols, jx = Object.fromEntries(nc.map((c, i) => [c, i]));
