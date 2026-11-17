@@ -722,13 +722,12 @@
 /* ─── Funnel field IDs (shown on hover) ─────────────── */
 const FIELD_IDS = {
   'kv-revenue-product': 'cf1j2rvf6cstma8_kv_revenue_new',
-  // No product-level returns exist in the export (kv_returns is KV-feed-only,
-  // with no brand/type/title) — net revenue here is the day's real
-  // kv_returns allocated pro-rata over the day's product revenue. Exact in
-  // total; per-brand/category it assumes the day's uniform return rate.
-  'kv-net-revenue-product': 'kv_revenue_product − pro-rata daily share of kv_returns · derived',
-  'kv-product-cogs':    'cf1j4pbcoib0bom_kv_product_cogs',
-  'kv-gp1-product':     'cf1j4pb7q0974md_kv_gp1_product − allocated returns (net revenue − COGS) · derived',
+  // Since 2026-11-17 kv_returns sits on the product rows (brand/type/title/
+  // market), so returns net per product exactly. kv_product_cogs is GROSS
+  // (it adds product_return_cogs back), so GP1 nets both sides.
+  'kv-net-revenue-product': 'kv_revenue_product − kv_returns (per product) · derived',
+  'kv-product-cogs':    'cf1j4pbcoib0bom_kv_product_cogs − product_return_cogs (returned goods restocked) · derived',
+  'kv-gp1-product':     'cf1j4pb7q0974md_kv_gp1_product − kv_returns + product_return_cogs (net revenue − COGS) · derived',
   'kv-gp2-product':     'cf1j4pbasj1d5lc_kv_gp2_product',
   'kv-gp3-shopping':    'cf1j4pau1ki6bas_kv_gp3_shopping',
   'kv-gm1-product':     'cf1j4pbh7847jbs_kv_gm1_product',
@@ -1893,11 +1892,13 @@ document.getElementById('filter-reset').addEventListener('click', () => {
 populateFilters();
 
 /* ─── Chart: Margin Bridge Waterfall (split ops + % labels) ── */
-// Ops costs split — Funnel returns the lumped figure, so we use typical
-// retail proportions: Returns 35% · Shipping 30% · Pick&Pack 20% · Payment 15%.
-// With a net_revenue payload the Returns step is REAL (revenue − net revenue,
-// the allocated kv_returns) and gp1 − gp2 no longer contains returns, so the
-// three remaining shares are renormalised over their 65-part remainder.
+// Ops costs — Funnel exports only GP2 per product, not its parts (Product
+// Shipping Cost / Supplement Cost are not in the export, and Supplement bundles
+// pick & pack with payment anyway). With a net_revenue payload the Returns step
+// is REAL (kv_returns per product) and GP1 → GP2 is shown as ONE ops step —
+// shipping + pick & pack + payment — rather than inventing a split.
+// OPS_SPLIT (typical retail proportions) is used only for payloads that predate
+// net_revenue, where returns are still inside the gp1 − gp2 gap.
 const OPS_SPLIT = { returns: 0.35, shipping: 0.30, pickpack: 0.20, payment: 0.15 };
 
 // Plugin: draw the % share of revenue on top of each bar
@@ -1931,13 +1932,10 @@ function renderBridge() {
   // Read live values (filter / period might have changed them)
   const hasNet        = typeof T.net_revenue === 'number' && T.net_revenue > 0;
   const opsTotal      = gp1 - gp2;
-  // With real returns the ops bucket holds only shipping/P&P/payment — keep
-  // their relative 30/20/15 proportions over the whole of it.
-  const shipShare     = hasNet ? OPS_SPLIT.shipping / (1 - OPS_SPLIT.returns) : OPS_SPLIT.shipping;
-  const ppShare       = hasNet ? OPS_SPLIT.pickpack / (1 - OPS_SPLIT.returns) : OPS_SPLIT.pickpack;
+  // Legacy payloads only: estimated split of the lumped gp1 − gp2 gap.
   const opsReturns    = hasNet ? 0 : opsTotal * OPS_SPLIT.returns;
-  const opsShipping   = opsTotal * shipShare;
-  const opsPickpack   = opsTotal * ppShare;
+  const opsShipping   = opsTotal * OPS_SPLIT.shipping;
+  const opsPickpack   = opsTotal * OPS_SPLIT.pickpack;
   // opsPayment derived: gp2 = afterPickpack - payment
   const afterReturns  = gp1 - opsReturns;
   const afterShipping = afterReturns - opsShipping;
@@ -1948,10 +1946,10 @@ function renderBridge() {
   // subtotal — and net revenue − gp1 is the REAL COGS. Old payloads keep the
   // previous shape (COGS = revenue − gross gp1, returns estimated inside ops).
   const bridgeLabels = hasNet
-    ? ['Revenue','Returns','Net Revenue','COGS','GP1','Shipping','Pick & Pack','Payment','GP2','Marketing','GP3-Shopping']
+    ? ['Revenue','Returns','Net Revenue','COGS','GP1','Ops (ship · P&P · pay)','GP2','Marketing','GP3-Shopping']
     : ['Revenue','COGS','GP1','Returns','Shipping','Pick & Pack','Payment','GP2','Marketing','GP3-Shopping'];
   const bridgeColors = hasNet
-    ? ['#2E6F5E','#A9621A','#5E9E8B','#CFCAC3','#5E9E8B','#A9621A','#A9621A','#A9621A','#5E9E8B','#7E5A8C','#1E7A45']
+    ? ['#2E6F5E','#A9621A','#5E9E8B','#CFCAC3','#5E9E8B','#A9621A','#5E9E8B','#7E5A8C','#1E7A45']
     : ['#2E6F5E','#CFCAC3','#5E9E8B','#A9621A','#A9621A','#A9621A','#A9621A','#5E9E8B','#7E5A8C','#1E7A45'];
   const bridgeData = hasNet ? [
     [0,             T.revenue],      // Revenue
@@ -1959,9 +1957,7 @@ function renderBridge() {
     [0,             T.net_revenue],  // Net Revenue subtotal
     [gp1,           T.net_revenue],  // COGS (real: net revenue − gp1)
     [0,             gp1],            // GP1 subtotal
-    [afterShipping, gp1],            // Shipping
-    [afterPickpack, afterShipping],  // Pick & Pack
-    [gp2,           afterPickpack],  // Payment
+    [gp2,           gp1],            // Ops: shipping + pick & pack + payment
     [0,             gp2],            // GP2 subtotal
     [gp3,           gp2],            // Marketing
     [0,             gp3],            // GP3-Shopping

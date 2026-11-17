@@ -124,6 +124,18 @@ KV_MARKET = (
     "IF(market_level_1_kv IN ('" + "','".join(COST_ONLY_MARKETS) + "'), "
     f"COALESCE(NULLIF(m1, ''), '{ROW_UNATTRIBUTED}'), market_level_1_kv)")
 
+# ── Shop of the returns rows ────────────────────────────────────────────────
+# Since the 2026-11-17 Funnel export change, kv_returns sits on PRODUCT rows,
+# whose shop_new carries the brand ('Kuling', 'Voksi', …) instead of a shop
+# (history re-exported back to Oct 2025). Those rows hold nothing but returns —
+# no revenue, cost, GP or orders — and every return is Babyshop's (Lekmer has
+# 0 returns 2025→2026). Without this, a shop=Babyshop filter dropped ~92% of
+# returns (Oct 2026: 287k of 3.49M) and overstated its net revenue. Resolved
+# AFTER the cost grain, like KV_MARKET, so the de-duplication is untouched.
+KV_SHOPS = ("Babyshop", "Lekmer")
+KV_SHOP = ("IF(COALESCE(shop_new, '') = '' OR shop_new IN ('" + "','".join(KV_SHOPS) + "'), "
+           "shop_new, 'Babyshop')")
+
 
 def _kv_cte(where: str) -> str:
     """CTE `kv_rows`: KV metrics per COST_GRAIN slice with `cost` de-duplicated.
@@ -147,7 +159,7 @@ def _kv_cte(where: str) -> str:
       GROUP BY {COST_GRAIN}),
     kv_rows AS (
       SELECT Date, Channel_Type_Level_1, Channel_Type_Level_2,
-             {KV_MARKET} AS market_level_1_kv, shop_new, rev, ret, gp1, gp2, txns,
+             {KV_MARKET} AS market_level_1_kv, {KV_SHOP} AS shop_new, rev, ret, gp1, gp2, txns,
              {COST_FIXED} AS cost
       FROM kv_grain)
     """
@@ -167,31 +179,28 @@ def _kv_cte(where: str) -> str:
 KVD = ("SUM(rev) rev, SUM(rev)-COALESCE(SUM(ret),0) net_rev, "
        "SUM(gp1)-COALESCE(SUM(ret),0) gp1, SUM(gp2) gp2, SUM(gp2)-COALESCE(SUM(cost),0) gp3, "
        "CAST(SUM(txns) AS INT64) txns, SUM(cost) cost")
-# ── Product-feed returns netting (pro-rata) ─────────────────────────────────
-# kv_gp1_product has the same defect the KV feed had: kv_revenue_product is
-# GROSS of returns while kv_product_cogs is net of them (identity verified:
-# gp1 = rev − cogs to the öre; 2026 YTD 181.38 − 95.90 = 85.48M). But
-# kv_returns lives ONLY on the KV feed and carries NO product dimension
-# (brand/type/title all empty on every returns row) — an exact per-product
-# netting is impossible from this export.
+# ── Product-feed returns netting (per product) ──────────────────────────────
+# Since the 2026-11-17 Funnel export change, kv_returns sits ON the product
+# rows (kv_brand / Product_type_* / title / market_level_1_kv populated,
+# history back to Oct 2025), so returns net per brand/category/market exactly
+# — the old pro-rata day-rate allocation (every brand at the day's ~10% rate)
+# is gone. Voksi 1–15 Nov 2026: real 16.7k (7.1%) vs 24.2k (10.3%) pro-rata.
 #
-# So returns are allocated PRO-RATA: the real kv_returns per Date are spread
-# across that day's product revenue, i.e. every product row gets the day's
-# uniform return rate. Totals tie out exactly — summed product net revenue =
-# product revenue − the day's real returns — and net_rev − netted gp1 still
-# equals the real COGS. The caveat is per-row: a brand/category's netted GM1
-# assumes the day's uniform return rate, so real return-rate differences
-# (apparel ≫ strollers/toys) are NOT reflected.
-# Grain is Date ONLY — nothing finer joins across the two feeds:
-#   · shop_new is NOT a shop on product rows: it mostly carries the brand
-#     ('Kuling', 'Konges Sløjd', …); only ~10% of product revenue sits under
-#     'Babyshop', where 100% of returns sit. A (Date, shop_new) grain put a
-#     ~135% return rate on that 10% (negative net revenue, GP1 < GP2) and a
-#     0% rate on the other 90% (still-gross, inflated GM1).
-#   · market_level_1 is NULL on every product-revenue row.
-# The day pool includes Lekmer returns (Lekmer has no product rows), so the
-# product tab's total netting matches the KV Overview's.
-# kv_returns only populates from ~Sep 2025, so earlier days net to gross.
+# COGS (Funnel custom metric kv-product-cogs = Cost price × Quantity +
+# product-return-cogs): Quantity is NET of returned units, and
+# product_return_cogs (≈ returns × the product's cost ratio) adds the cost of
+# the returned units back — so kv_product_cogs is GROSS COGS and
+# kv_gp1_product = gross revenue − gross COGS. Netting both sides:
+#   net_rev = rev − returns
+#   cogs    = kv_product_cogs − product_return_cogs   (returned goods restocked)
+#   gp1     = kv_gp1_product − returns + product_return_cogs = net_rev − cogs
+# Verified: KV-feed kv_cogs ≈ kv_product_cogs − product_return_cogs (within
+# ~1.5%/month, 2026). kv_gp2_product already includes returns and ops (its
+# product sum equals KV kv_gp2), so it needs no correction.
+# Before Oct 2025 kv_returns is 0 while product_return_cogs carries a few
+# tens of k per month; the add-back is gated to RET_START so those months stay
+# plain gross rather than half-netted.
+RET_START = "2025-10-01"
 # ── Product market scope ────────────────────────────────────────────────────
 # Product rows DO carry the KV market in `market_level_1_kv` (it is
 # `market_level_1` that is NULL on them): 'SE' / 'NO' / 'DK' / 'FI', plus one
@@ -260,43 +269,25 @@ def _pr_market_cond(market, alias=""):
     raise ValueError(f"unknown product market: {market!r}")
 
 def _pr_cte(where: str, market=None) -> str:
-    """CTE `pr_rows`: the raw table plus `pr_ret_rate`, the day's returns ÷
-    product revenue. Cost-only rows (NULL product revenue) pass through
-    untouched — NULL × rate stays NULL, so gp3's shopping_cost keeps summing
-    over them. `where` must only constrain the date range.
-
-    `market` (see _pr_market_cond) scopes all three CTEs: the market's own
-    product and shopping-cost rows, netted with the market's OWN day returns
-    over its own product revenue. Return rates differ a lot by market (SE ~14%,
-    DK ~7% of KV revenue), so the cross-market day rate would be wrong for any
-    single one. The markets still add up to the unscoped total: every return
-    lands in exactly one market's pool."""
+    """CTE `pr_rows`: the raw table over the date range, optionally scoped to
+    one product market (see _pr_market_cond). Returns rows carry the market
+    too, so a market scope nets with that market's own returns. `where` must
+    only constrain the date range."""
     mc = _pr_market_cond(market)
     m  = f" AND {mc}" if mc else ""
-    mt = f" AND {_pr_market_cond(market, 't.')}" if mc else ""
     return f"""
-    pr_ret AS (
-      SELECT Date d, SUM(kv_returns) ret
-      FROM `{BQ_TABLE}` WHERE {where}{m} GROUP BY d),
-    pr_base AS (
-      SELECT Date d, SUM(kv_revenue_product) rev
-      FROM `{BQ_TABLE}` WHERE {where}{m} GROUP BY d
-      HAVING SUM(kv_revenue_product) > 0),
     pr_rows AS (
-      SELECT t.*, COALESCE(r.ret / b.rev, 0) AS pr_ret_rate
-      FROM `{BQ_TABLE}` t
-      LEFT JOIN pr_base b ON b.d = t.Date
-      LEFT JOIN pr_ret  r ON r.d = t.Date
-      WHERE {where}{mt})
+      SELECT * FROM `{BQ_TABLE}` WHERE {where}{m})
     """
 
-# Product aggregate — SELECT from `pr_rows` (never the raw table), so rev/gp1
-# carry the returns netting above. cogs is untouched: it is already net of
-# returns in the export, which is exactly why gp1 needed the correction.
+# Product aggregate — SELECT from `pr_rows`. See "Product-feed returns netting"
+# above for why returns come off revenue and product_return_cogs comes off COGS.
+_RET   = "COALESCE(SUM(kv_returns), 0)"
+_RCOGS = f"COALESCE(SUM(IF(Date >= DATE '{RET_START}', product_return_cogs, 0)), 0)"
 PR = ("SUM(kv_revenue_product) rev, "
-      "SUM(kv_revenue_product)-SUM(kv_revenue_product*pr_ret_rate) net_rev, "
-      "SUM(kv_product_cogs) cogs, "
-      "SUM(kv_gp1_product)-SUM(kv_revenue_product*pr_ret_rate) gp1, "
+      f"SUM(kv_revenue_product)-{_RET} net_rev, "
+      f"SUM(kv_product_cogs)-{_RCOGS} cogs, "
+      f"SUM(kv_gp1_product)-{_RET}+{_RCOGS} gp1, "
       "SUM(kv_gp2_product) gp2, SUM(kv_gp2_product)-COALESCE(SUM(shopping_cost),0) gp3")
 
 def _merge_kv(cur, prev, rev_prev_key="revenue_prev"):
