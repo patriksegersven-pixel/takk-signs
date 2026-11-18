@@ -124,19 +124,6 @@ KV_MARKET = (
     "IF(market_level_1_kv IN ('" + "','".join(COST_ONLY_MARKETS) + "'), "
     f"COALESCE(NULLIF(m1, ''), '{ROW_UNATTRIBUTED}'), market_level_1_kv)")
 
-# ── Shop of the returns rows ────────────────────────────────────────────────
-# Since the 2026-11-17 Funnel export change, kv_returns sits on PRODUCT rows,
-# whose shop_new carries the brand ('Kuling', 'Voksi', …) instead of a shop
-# (history re-exported back to Oct 2025). Those rows hold nothing but returns —
-# no revenue, cost, GP or orders — and every return is Babyshop's (Lekmer has
-# 0 returns 2025→2026). Without this, a shop=Babyshop filter dropped ~92% of
-# returns (Oct 2026: 287k of 3.49M) and overstated its net revenue. Resolved
-# AFTER the cost grain, like KV_MARKET, so the de-duplication is untouched.
-KV_SHOPS = ("Babyshop", "Lekmer")
-KV_SHOP = ("IF(COALESCE(shop_new, '') = '' OR shop_new IN ('" + "','".join(KV_SHOPS) + "'), "
-           "shop_new, 'Babyshop')")
-
-
 def _kv_cte(where: str) -> str:
     """CTE `kv_rows`: KV metrics per COST_GRAIN slice with `cost` de-duplicated.
 
@@ -159,7 +146,7 @@ def _kv_cte(where: str) -> str:
       GROUP BY {COST_GRAIN}),
     kv_rows AS (
       SELECT Date, Channel_Type_Level_1, Channel_Type_Level_2,
-             {KV_MARKET} AS market_level_1_kv, {KV_SHOP} AS shop_new, rev, ret, gp1, gp2, txns,
+             {KV_MARKET} AS market_level_1_kv, shop_new, rev, ret, gp1, gp2, txns,
              {COST_FIXED} AS cost
       FROM kv_grain)
     """
