@@ -256,7 +256,7 @@
   'use strict';
   // Replaced by meta.market_options (the job's grid) once a payload arrives.
   let MARKETS = ['all', 'SE', 'NO', 'DK', 'FI'];
-  const MK_RE = /^[A-Z]{2}$/;
+  const MK_RE = /^[A-Z]{2,3}$/;   // SE … and EU / ROW
   const DAYS = [7, 28, 90];
   const RISE_MIN = 10;
   const $ = id => document.getElementById(id);

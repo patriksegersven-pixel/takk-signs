@@ -121,7 +121,9 @@ OTHER          = "Other"          # every warehouse market outside the grid
 GRID_MIN_SHARE     = float(os.environ.get("ECOM_GRID_MIN_SHARE", "0.01"))
 GRID_LOOKBACK_DAYS = 28
 GRID_MAX           = 20
-NOT_A_MARKET       = ("UNKNOWN", "DEFAULT", "UNMAPPED", "ROW", "EU", "")
+# EU and ROW ARE markets since 2026-11-19 (GA4 country_map: the EU countries
+# Babyshop ships to → EU, the other ordering countries → ROW, KR → KR).
+NOT_A_MARKET       = ("UNKNOWN", "DEFAULT", "UNMAPPED", "")
 # Markets dropped from the whole tab: every total, the selector, the benchmark
 # and the drill-downs. US (2026-11-19, Kine): Babyshop has closed the market and
 # what is left is mostly bot traffic (~6 % of sessions at 0.06 % conversion,
@@ -165,7 +167,7 @@ BRAND_MARKET_TOP   = 60
 SEARCH_TOP         = 100
 TYPE_MAP_DAYS      = 120          # Shopping-feed look-back for the title → type map
 UNCATEGORISED      = "Uncategorised"
-REST_OF_WORLD      = "Rest of world"   # warehouse market 'unknown': countries outside the map
+REST_OF_WORLD      = "Unmapped countries"   # warehouse market 'unknown': countries outside the map
 # On-site search counts as tracked when view_search_results events reach this
 # share of sessions (measured 2026-10: ~0.01 %, i.e. effectively untracked).
 SEARCH_TRACKED_MIN = 0.005
@@ -1352,8 +1354,10 @@ def build_combo(data: dict, market: str, w: dict, *, days: int | None = None,
                      "declined or a session that started with another event); they show "
                      "very low engagement.")
     if any(r["key"] == REST_OF_WORLD for r in day["by_market"]):
-        notes.append(f"'{REST_OF_WORLD}' is every country outside the market map "
-                     "(e.g. KR, DE, the rest of the EU).")
+        notes.append(f"'{REST_OF_WORLD}' is every country Babyshop has no orders from "
+                     "(outside the GA4 market map) — mostly bot-like traffic from e.g. IN, "
+                     "BR, CO. EU, ROW and KR are the countries that do order, grouped as "
+                     "on the order side.")
 
     return {
         "meta": {

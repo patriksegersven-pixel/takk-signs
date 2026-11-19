@@ -795,7 +795,7 @@
   // the core four plus every market with >= 1 % of sessions).
   const CORE_MARKETS = ['SE', 'NO', 'DK', 'FI'];
   const OPTS = { markets: ['all'].concat(CORE_MARKETS), days: [7, 28, 90] };
-  const MK_RE = /^[A-Z]{2}$/;
+  const MK_RE = /^[A-Z]{2,3}$/;   // SE … and EU / ROW
   const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
   let state = { market: 'all', days: 28, custom: false, from: '', to: '', cmp: 'prev' };
   let D = null, inflight = 0, chart = null, lastGood = null;
@@ -1222,7 +1222,7 @@
   const MK_COLS = ['cr', 'bounce', 'rps', 'aov', 'pps', 'newshare', 'v2c', 'v2p', 'c2chk', 'cartab', 'chkab'];
   let gMk, gCh, gPt, gLp, gM, gHeat, gSr;
   /* The markets the tab can be filtered to (meta.markets). by_market also
-     carries every other raw market (US, GB, …) and "Rest of world"; those are
+     carries every other raw market (US, GB, …) and "Unmapped countries"; those are
      shown for completeness but never benchmarked or called out: they have no
      local storefront effort behind them and convert at a fraction of the
      Nordic rate, so they would win every "weakest market" contest. */
@@ -1244,7 +1244,7 @@
     const allS = val(all.cur, 'sessions');
     const cols = [
       { id: 'key', label: 'Market', lbl: true, val: r => r.key, html: r => '<span class="' + (r.total || isOtherMarket(r) ? '' : 'strong') + '">' + esc(r.key) + '</span>' +
-          (r.nordic ? '<span class="sub">benchmark</span>' : isOtherMarket(r) ? '<span class="sub">not selectable</span>' : '') },
+          (r.nordic ? '<span class="sub">benchmark</span>' : isOtherMarket(r) ? '<span class="sub">' + (OPTS.markets.indexOf(r.key) >= 0 ? 'not benchmarked' : 'not selectable') + '</span>' : '') },
       { id: 'sessions', label: 'Sessions', val: r => val(r.cur, 'sessions'), html: r => fmtInt(val(r.cur, 'sessions')) },
       { id: 'share', label: 'Share', val: r => div(val(r.cur, 'sessions'), allS), html: r => '<span class="dim">' + (r.total ? DASH : fmtPct(div(val(r.cur, 'sessions'), allS), 1)) + '</span>' }
     ].concat(MK_COLS.map(id => ({ id, label: shortLabel(id), title: M[id].formula + ' — ' + M[id].btxt, val: r => calc(id, r.cur),

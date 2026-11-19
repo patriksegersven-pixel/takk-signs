@@ -1045,7 +1045,7 @@ def api_meta(market: str = META_DEFAULT_MARKET, days: str = str(META_DEFAULT_DAY
 # dicts would let an E-com range evict a Meta range, and this tab must not
 # change how that one behaves.
 ECOM_MARKETS = ("all", "SE", "NO", "DK", "FI")   # always written; the job adds grid markets
-ECOM_MARKET_RX = re.compile(r"^[A-Z]{2}$")
+ECOM_MARKET_RX = re.compile(r"^[A-Z]{2,3}$")   # SE … and EU / ROW
 
 
 def _ecom_market(market: str) -> str:
