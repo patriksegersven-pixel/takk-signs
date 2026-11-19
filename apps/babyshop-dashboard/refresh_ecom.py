@@ -1203,8 +1203,11 @@ def _build_funnel(data, market: str, kind: str):
         return None, None, [f"No {kind} user funnel is available for this market."]
     cur_key = with_total[-1]
     cur = total(cur_key)
-    if cur is None:
-        return None, None, [f"No {kind} user funnel is available for this market."]
+    # An all-zero funnel is a scope GA4 matched no country for (e.g. the old
+    # placeholder 'EU'/'ROW' country_map keys before 2026-11-19), never a market
+    # with no shoppers — show it as missing, not as a funnel of zeros.
+    if cur is None or not any(cur["steps"].get(s) for s in FUNNEL_STEPS):
+        return None, None, [f"No {kind} user funnel is available for this market yet."]
     notes = []
     if cur["sampled"]:
         notes.append(f"The {FUNNEL_KIND_DAYS[kind]}-day user funnel is SAMPLED by GA4 "
@@ -1222,6 +1225,8 @@ def _build_funnel(data, market: str, kind: str):
                      if k[1] == cur_key[0] - datetime.timedelta(days=1)
                      and (k[1] - k[0]).days + 1 == n), None)
     prev = total(prev_key) if prev_key else None
+    if prev is not None and not any(prev["steps"].get(s) for s in FUNNEL_STEPS):
+        prev = None
 
     def steps(c):
         return [{"name": s, "users": c["steps"].get(s)} for s in FUNNEL_STEPS]
