@@ -1055,6 +1055,10 @@ def _ecom_market(market: str) -> str:
     if m.lower() == "all":
         return "all"
     m = m.upper()
+    excluded = {x.strip().upper() for x in
+                os.environ.get("ECOM_EXCLUDED_MARKETS", "US").split(",") if x.strip()}
+    if m in excluded:      # dropped from the tab (refresh_ecom.EXCLUDED_MARKETS)
+        return ECOM_DEFAULT_MARKET
     return m if ECOM_MARKET_RX.match(m) else ECOM_DEFAULT_MARKET
 ECOM_DAYS = (7, 28, 90)
 ECOM_DEFAULT_MARKET = "all"

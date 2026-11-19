@@ -122,6 +122,12 @@ GRID_MIN_SHARE     = float(os.environ.get("ECOM_GRID_MIN_SHARE", "0.01"))
 GRID_LOOKBACK_DAYS = 28
 GRID_MAX           = 20
 NOT_A_MARKET       = ("UNKNOWN", "DEFAULT", "UNMAPPED", "ROW", "EU", "")
+# Markets dropped from the whole tab: every total, the selector, the benchmark
+# and the drill-downs. US (2026-11-19, Kine): Babyshop has closed the market and
+# what is left is mostly bot traffic (~6 % of sessions at 0.06 % conversion,
+# 86 % bounce) that drags every all-market rate down.
+EXCLUDED_MARKETS   = tuple(m.strip().upper() for m in
+                           os.environ.get("ECOM_EXCLUDED_MARKETS", "US").split(",") if m.strip())
 
 # GA4 keeps revising the trailing ~72 h. The window still ends yesterday (the
 # last COMPLETE day); the page greys the restated tail.
@@ -376,6 +382,15 @@ def _site_sql(site, alias: str = "t") -> str:
     return f" and {alias}.client_site = @site" if site else ""
 
 
+def _excl_sql(alias: str = "t") -> str:
+    """Drops EXCLUDED_MARKETS rows. Every scan of a market-keyed table carries it,
+    except q_funnel, which needs those markets' funnels to subtract them."""
+    if not EXCLUDED_MARKETS:
+        return ""
+    lst = ", ".join(f"'{m}'" for m in EXCLUDED_MARKETS)
+    return f" and upper(coalesce({alias}.market, '')) not in ({lst})"
+
+
 # ── Queries ──────────────────────────────────────────────────────────────────
 def discover_grid(end, stats, site=None) -> list[str]:
     """MARKETS plus every other warehouse market with at least GRID_MIN_SHARE of
@@ -388,7 +403,7 @@ def discover_grid(end, stats, site=None) -> list[str]:
         rows = q(f"""
             select upper(t.market) as market, sum(t.ga4_sessions) as sessions
             from {T_CHANNEL} t
-            where t.date between @lo and @hi{_site_sql(site)}
+            where t.date between @lo and @hi{_site_sql(site)}{_excl_sql()}
             group by 1 order by 2 desc""", p, stats)
     except Exception as e:
         _log_fail("market grid discovery", e)
@@ -458,7 +473,7 @@ def q_sessions(ranges, site, stats):
                sum(t.ga4_revenue)               as revenue,
                sum(t.ga4_add_to_carts)          as add_to_carts
         from {T_CHANNEL} t
-        where {where}{_site_sql(site)}
+        where {where}{_site_sql(site)}{_excl_sql()}
         group by 1, 2, 3""", p, stats)
 
 
@@ -474,7 +489,7 @@ def q_events(ranges, site, stats):
                any_value(t.channel_display) as label,
                {pivots}
         from {T_EVENTS} t
-        where {where} and t.event_name in ({names}){_site_sql(site)}
+        where {where} and t.event_name in ({names}){_site_sql(site)}{_excl_sql()}
         group by 1, 2, 3""", p, stats)
 
 
@@ -490,7 +505,7 @@ def q_items_daily(ranges, stats):
                sum(t.items_purchased)     as items_purchased,
                sum(t.item_revenue)        as item_revenue
         from {T_BRAND} t
-        where {where}{_not_fee_sql()}
+        where {where}{_not_fee_sql()}{_excl_sql()}
         group by 1, 2""", p, stats)
 
 
@@ -514,7 +529,7 @@ def q_landing(windows, site, only, stats, with_events=True, grid=None):
              sum(if(t.event_name = 'purchase', t.event_count, null))    as c_purchase
       from {T_LP_EVT} t cross join win w
       where t.date between @lo and @hi and t.date between w.cf and w.ct
-        and t.event_name in ('add_to_cart', 'purchase'){_site_sql(site)}
+        and t.event_name in ('add_to_cart', 'purchase'){_site_sql(site)}{_excl_sql()}
       group by 1, 2, 3),
     j as (
       select s.days, s.m, s.k, s.c_sessions, s.c_engaged_sessions, s.c_engaged_denom,
@@ -541,7 +556,7 @@ def q_landing(windows, site, only, stats, with_events=True, grid=None):
              sum(if(t.date between w.pf and w.pt, t.engaged_sessions, null))       as p_engaged_sessions,
              sum(if(t.date between w.pf and w.pt, t.engaged_sessions_denom, null)) as p_engaged_denom
       from {T_LP_SESS} t cross join win w
-      where t.date between @lo and @hi and t.date between w.pf and w.ct{_site_sql(site)}
+      where t.date between @lo and @hi and t.date between w.pf and w.ct{_site_sql(site)}{_excl_sql()}
       group by 1, 2, 3),{e_cte}
     x as (
       select days, m, k, {cols} from j where m != '{OTHER}'
@@ -595,7 +610,7 @@ def q_items_keyed(table, key_col, windows, only, stats, *, top, min_views=0,
              {name_a}
              {sel}
       from {table} t cross join win w
-      where t.date between @lo and @hi and t.date between w.pf and w.ct{_not_fee_sql()}
+      where t.date between @lo and @hi and t.date between w.pf and w.ct{_not_fee_sql()}{_excl_sql()}
       group by 1, 2, 3),
     x as (
       select days, m, k, name, {cols} from a where m != '{OTHER}'
@@ -622,7 +637,7 @@ def q_search(windows, only, stats, grid=None):
              sum(if(t.date between w.cf and w.ct, t.event_count, null)) as c_count,
              sum(if(t.date between w.pf and w.pt, t.event_count, null)) as p_count
       from {T_SEARCH} t cross join win w
-      where t.date between @lo and @hi and t.date between w.pf and w.ct
+      where t.date between @lo and @hi and t.date between w.pf and w.ct{_excl_sql()}
       group by 1, 2, 3),
     x as (
       select days, m, k, c_count, p_count from a where m != '{OTHER}'
@@ -749,7 +764,7 @@ def q_products(windows, only, stats):
                     t.items_viewed, null)) as v_nocat
       from {T_ITEMS_SRC} t
       where t.date between @lo and @hi
-        and (@only in ('', 'all') or upper(t.market) = @only){_not_fee_sql(with_name=True)}
+        and (@only in ('', 'all') or upper(t.market) = @only){_not_fee_sql(with_name=True)}{_excl_sql()}
       group by 1, 2, 3, 4, 5),
     conv as (
       select b.* except (rev_native),
@@ -1155,6 +1170,26 @@ def _build_funnel(data, market: str, kind: str):
         cell["sampled"] = cell["sampled"] or bool(r.get("sampled"))
         cell["markets"].add(str(r.get("market")))
 
+    # All markets minus EXCLUDED_MARKETS: GA4's unfiltered funnel cannot drop a
+    # country, so each excluded market's own funnel (scope 'market', same
+    # window) is subtracted from the total row, step by step. Breakdowns stay
+    # as GA4 returned them (no per-market breakdowns exist to subtract) — the
+    # funnel note says so.
+    subtracted = False
+    if market == "all" and EXCLUDED_MARKETS:
+        for r in rows:
+            if (r.get("scope_kind") != "market"
+                    or str(r.get("market") or "").upper() not in EXCLUDED_MARKETS
+                    or (r.get("breakdown") or "total") != "total"):
+                continue
+            wkey = (_as_date(r["window_start"]), _as_date(r["window_end"]))
+            cell = (wins.get(wkey) or {}).get(("total", ""))
+            nm = str(r.get("step_name") or "")
+            if not cell or cell["steps"].get(nm) is None:
+                continue
+            cell["steps"][nm] = max(0, cell["steps"][nm] - int(r.get("users") or 0))
+            subtracted = True
+
     def total(wkey):
         c = (wins.get(wkey) or {}).get(("total", ""))
         if not c or not any(n in c["steps"] for n in FUNNEL_STEPS):
@@ -1175,6 +1210,11 @@ def _build_funnel(data, market: str, kind: str):
     if len(cur["markets"]) > 1:
         notes.append("The all-markets user funnel is the sum of per-market funnels; a "
                      "shopper active in two markets is counted in both.")
+    if subtracted:
+        notes.append(f"The all-markets user funnel excludes {', '.join(EXCLUDED_MARKETS)}: "
+                     "that market's own GA4 funnel is subtracted step by step. The device, "
+                     "new/returning and channel breakdowns still include it — GA4 has no "
+                     "per-market breakdown to subtract.")
     n = FUNNEL_KIND_DAYS[kind]
     prev_key = next((k for k in wins
                      if k[1] == cur_key[0] - datetime.timedelta(days=1)
@@ -1298,6 +1338,10 @@ def build_combo(data: dict, market: str, w: dict, *, days: int | None = None,
         "product name; unmatched products are 'Uncategorised'.",
         "Landing-page types are inferred from URL patterns.",
     ]
+    if EXCLUDED_MARKETS:
+        notes.append(f"{', '.join(EXCLUDED_MARKETS)} is excluded from every figure on this "
+                     "tab, including All markets: the market is closed and its remaining "
+                     "traffic is mostly bots.")
     if any(r.get("id") == "not_consented" for r in day["by_channel"]):
         notes.append("Channel 'Not Consented' is traffic GA4 reports with source "
                      "'(not set)': visits without analytics consent (modelled, no "
