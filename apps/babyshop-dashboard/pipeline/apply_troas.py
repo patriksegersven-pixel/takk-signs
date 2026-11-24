@@ -40,7 +40,9 @@ USAGE
      value - cost, factor from roas_sims.incrementality, see roas_sims_bq.py) that are NOT in cooldown, spend at
      least --min-spend (1000/week, account currency) and whose rec_final differs
      from the live target by at least --min-move (5 %). Each step is clipped to the
-     ±20 % cap and rounded to 2 dp. The result is an ordinary plan, so every guard
+     ±20 % cap and rounded to 2 dp, and dropped unless its predicted iGP3 gain is at
+     least --min-gain (2 %) of the campaign's current weekly iGP3 and at least
+     --min-gain-sek (1000 SEK/week) in absolute terms (gated rows exempt). The result is an ordinary plan, so every guard
      below still runs on it.
 
   Dry run prints the full table (live target, calibrated rec, cooldown, step %, the
@@ -71,11 +73,14 @@ ACCOUNT_BY_CID = {a["cid"]: a for a in ACCOUNTS}
 CID_BY_LABEL = {a["label"]: a["cid"] for a in ACCOUNTS}
 
 
-def plan_from_recs(min_spend: float, min_move_pct: float, classes: tuple[str, ...]) -> list[dict]:
+def plan_from_recs(min_spend: float, min_move_pct: float, classes: tuple[str, ...],
+                   min_gain_pct: float = 2.0, min_gain_sek: float = 1000.0) -> list[dict]:
     """Build a capped plan from v_calibrated_recs — the weekly routine's input.
 
     Selection: inc_class in `classes`, not in cooldown, avg 7-day spend ≥ min_spend,
-    |rec_final − current| ≥ min_move_pct of current, and BOTH κ factors inside
+    |rec_final − current| ≥ min_move_pct of current, the CAPPED step's predicted
+    iGP3 gain ≥ min_gain_pct of the campaign's current weekly iGP3 AND ≥ min_gain_sek
+    per week (converted via norce.currency_rates), and BOTH κ factors inside
     KAPPA_SANE — a κ of 3 means Google's curve and the measured actuals disagree by
     3x, which is a handful of conversions in a tiny market (ROW), not a level to
     optimise on. Step clipped to ±STEP_CAP_PCT. Campaigns whose live target is 0
@@ -87,7 +92,7 @@ def plan_from_recs(min_spend: float, min_move_pct: float, classes: tuple[str, ..
     sql = f"""
         SELECT r.customer_name, r.strategy_id, r.strategy_name, r.current_target,
                r.rec_final, r.gate, r.cooldown, r.days_since_change, k.avg_7d_cost,
-               r.k_cost, r.k_value
+               r.k_cost, r.k_value, r.inc_factor, r.currency
         FROM `{rsb.T("v_calibrated_recs")}` r
         LEFT JOIN `{rsb.T("v_kappa_calibrated")}` k USING (customer_name, strategy_id)
         WHERE r.inc_class IN UNNEST(@classes) AND r.current_target > 0
@@ -95,6 +100,10 @@ def plan_from_recs(min_spend: float, min_move_pct: float, classes: tuple[str, ..
     """
     job = rsb.bq().query(sql, job_config=bigquery.QueryJobConfig(query_parameters=[
         bigquery.ArrayQueryParameter("classes", "STRING", list(classes))]))
+    to_sek = {row.currency_code: float(row.to_sek) for row in rsb.bq().query(
+        f"SELECT currency_code, to_sek FROM `{rsb.BQ_PROJECT}.norce.currency_rates` "
+        "WHERE currency_code IN ('NOK', 'EUR', 'DKK', 'USD', 'GBP')").result()}
+    to_sek["SEK"] = 1.0
     plan, why_not = [], []
     for r in job.result():
         cur, rec = float(r.current_target), float(r.rec_final)
@@ -124,6 +133,35 @@ def plan_from_recs(min_spend: float, min_move_pct: float, classes: tuple[str, ..
         # exact 2.64 does not ceil to 2.65.
         raw = round(cur * (1 + capped / 100) * 100, 6)
         new_target = (math.floor(raw) if capped > 0 else math.ceil(raw)) / 100
+        # Min-gain: near the optimum the iGP3 curve is flat, so a full 20 % step can
+        # move a third of the spend for ~1 % more iGP3 (SE pb-generic 2026-11-24:
+        # -77k cost for +2.8k iGP3/wk). Not worth the bidder's 1-2 week re-learn or
+        # the estimation error in κ and the incrementality factor. Gated rows are
+        # exempt: the gate is measured evidence that overrules this same curve.
+        if not r.gate and (min_gain_pct > 0 or min_gain_sek > 0):
+            _, pts = rsb.curve_points(r.customer_name, str(r.strategy_id),
+                                      _dt.date.today().isoformat())
+            pr = rsb.predict_change(pts, cur, new_target,
+                                    k_cost=float(r.k_cost or 1.0),
+                                    k_value=float(r.k_value or 1.0),
+                                    inc_factor=float(r.inc_factor or 1.0)) if pts else {}
+            gain_pct = pr.get("predicted_gp3_pct")
+            fx = to_sek.get(r.currency)
+            gain_sek = (pr["predicted_gp3_delta_7d"] * fx
+                        if fx and pr.get("predicted_gp3_delta_7d") is not None else None)
+            short = []
+            if gain_pct is None or gain_pct < min_gain_pct:
+                short.append(f"< {min_gain_pct:g}% of iGP3")
+            if gain_sek is None or gain_sek < min_gain_sek:
+                short.append(f"< {min_gain_sek:,.0f} SEK/wk")
+            if short:
+                why_not.append((r.customer_name, r.strategy_name,
+                                f"gain {'n/a' if gain_pct is None else f'{gain_pct:+.1f}%'}"
+                                f" / {'n/a' if gain_sek is None else f'{gain_sek:+,.0f} SEK'}/wk "
+                                f"{' and '.join(short)} (step to {new_target:.2f}, "
+                                f"{(pr.get('predicted_cost_delta_7d') or 0):+,.0f}/wk cost, "
+                                f"{r.currency})"))
+                continue
         plan.append({"customer_id": cid, "campaign_id": str(r.strategy_id),
                      "name": f"{r.customer_name} {r.strategy_name}",
                      "new_target": new_target,
@@ -211,6 +249,12 @@ def main() -> int:
                     help="--from-recs: min avg 7-day spend, account currency (default 1000)")
     ap.add_argument("--min-move", type=float, default=5.0,
                     help="--from-recs: min |rec_final - live| in %% to act (default 5)")
+    ap.add_argument("--min-gain", type=float, default=2.0,
+                    help="--from-recs: min predicted iGP3 gain of the capped step, %% of the "
+                         "campaign's current weekly iGP3 (default 2; 0 disables)")
+    ap.add_argument("--min-gain-sek", type=float, default=1000.0,
+                    help="--from-recs: min predicted iGP3 gain of the capped step, SEK/week "
+                         "(default 1000; 0 disables)")
     ap.add_argument("--classes", default="generic",
                     help="--from-recs: comma list of inc_class values (default generic)")
     ap.add_argument("--apply", action="store_true", help="mutate for real (default: validateOnly)")
@@ -234,7 +278,8 @@ def main() -> int:
 
     if args.from_recs:
         plan = plan_from_recs(args.min_spend, args.min_move,
-                              tuple(c.strip() for c in args.classes.split(",") if c.strip()))
+                              tuple(c.strip() for c in args.classes.split(",") if c.strip()),
+                              min_gain_pct=args.min_gain, min_gain_sek=args.min_gain_sek)
         if args.write_plan:
             json.dump(plan, open(args.write_plan, "w"), indent=1)
             print(f"wrote {len(plan)} row(s) to {args.write_plan}")
