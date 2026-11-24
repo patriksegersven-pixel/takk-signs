@@ -35,8 +35,9 @@ USAGE
   # 2b. or let the calibrated view write the plan (the weekly routine's path):
   python3 pipeline/apply_troas.py --from-recs --write-plan plan.json   # dry run
   python3 pipeline/apply_troas.py --from-recs --apply --source rec-final-weekly-2026-09-29
-     --from-recs selects generic-class campaigns (1:1 incrementality; brand and
-     private-label recs are directional only) that are NOT in cooldown, spend at
+     --from-recs selects generic-class campaigns (brand and private-label recs are
+     directional only; every class is optimised on iGP3 = incrementality factor x
+     value - cost, factor from roas_sims.incrementality, see roas_sims_bq.py) that are NOT in cooldown, spend at
      least --min-spend (1000/week, account currency) and whose rec_final differs
      from the live target by at least --min-move (5 %). Each step is clipped to the
      ±20 % cap and rounded to 2 dp. The result is an ordinary plan, so every guard
@@ -168,7 +169,8 @@ def _calibration() -> dict[str, dict]:
     """strategy_id → v_calibrated_recs row (κ, recs, cooldown)."""
     sql = f"""
         SELECT strategy_id, customer_name, currency, inc_class, k_cost, k_value,
-               current_target, rec_google, rec_calibrated, rec_final, gate,
+               inc_factor, current_target, rec_google, rec_calibrated_f1,
+               rec_calibrated, rec_final, gate,
                last_any_change_date, days_since_change, cooldown, run_date
         FROM `{rsb.T("v_calibrated_recs")}`
     """
@@ -287,7 +289,8 @@ def main() -> int:
             if pts:
                 pred = rsb.predict_change(pts, lv["current"], p["new_target"],
                                           k_cost=float(c.get("k_cost") or 1.0),
-                                          k_value=float(c.get("k_value") or 1.0))
+                                          k_value=float(c.get("k_value") or 1.0),
+                                          inc_factor=float(c.get("inc_factor") or 1.0))
                 pred["curve_run_date"] = used
         row = {**p, "account": acct["label"], "currency": acct["currency"],
                "live": lv, "cal": c, "step_pct": step_pct, "pred": pred, "blocked": why}
@@ -295,7 +298,7 @@ def main() -> int:
 
     # ── report ──────────────────────────────────────────────────────────────
     hdr = (f"{'account':<12} {'campaign':<38} {'type':<5} {'live':>6} {'new':>6} {'step':>6} "
-           f"{'recFinal':>8} {'cool':>5} {'Δcost/wk':>10} {'ΔGP3/wk':>9}  status")
+           f"{'recFinal':>8} {'@f=1':>5} {'f':>4} {'cool':>5} {'Δcost/wk':>10} {'ΔiGP3/wk':>9}  status")
     print(hdr)
     print("-" * len(hdr))
     for r in rows + blocked:
@@ -305,7 +308,8 @@ def main() -> int:
         print(f"{r['account']:<12} {(lv.get('name') or r['campaign_id'])[:38]:<38} {t:<5} "
               f"{(lv.get('current') or 0):>6.2f} {r['new_target']:>6.2f} "
               f"{(r['step_pct'] if r['step_pct'] is not None else 0):>+5.0f}% "
-              f"{(c.get('rec_final') or 0):>8.2f} {cool:>5} "
+              f"{(c.get('rec_final') or 0):>8.2f} {(c.get('rec_calibrated_f1') or 0):>5.2f} "
+              f"{float(c.get('inc_factor') or 1.0):>4.2f} {cool:>5} "
               f"{(pr.get('predicted_cost_delta_7d') or 0):>10,.0f} "
               f"{(pr.get('predicted_gp3_delta_7d') or 0):>9,.0f}  "
               + ("OK" if not r["blocked"] else "BLOCKED: " + "; ".join(r["blocked"])))
@@ -372,9 +376,11 @@ def main() -> int:
             "predicted_cost_delta_7d": pr.get("predicted_cost_delta_7d"),
             "predicted_gp3_delta_7d": pr.get("predicted_gp3_delta_7d"),
             "currency": r["currency"],
+            "inc_factor": pr.get("inc_factor"),
             "notes": (f"apply_troas.py. predicted_* from the κ-deflated curve of "
                       f"{pr.get('curve_run_date')} (κC {float(r['cal'].get('k_cost') or 1):.2f}, "
-                      f"κV {float(r['cal'].get('k_value') or 1):.2f}); rec_final at apply "
+                      f"κV {float(r['cal'].get('k_value') or 1):.2f}, incrementality "
+                      f"{float(r['cal'].get('inc_factor') or 1):.2f}); rec_final at apply "
                       f"{r['cal'].get('rec_final')}, step {r['step_pct']:+.0f}%"
                       + (f"; cooldown overridden ({r['cal'].get('days_since_change')}d)"
                          if r["cal"].get("cooldown") else "")

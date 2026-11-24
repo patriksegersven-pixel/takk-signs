@@ -47,6 +47,14 @@ TABLES (dataset `roas_sims`, EU, day-partitioned on run_date)
                       change scoring. Add rows with --exclude-tracking. WHY: Babyshop
                       ROW under-tracked conversions 2026-10-01..11-01; its κ and every
                       ROW change scored in that month were learning from the outage.
+  incrementality      dated factor per incrementality class: the share of Google's
+                      reported conversion value (GP2) the ads actually caused. The
+                      recommendations maximise iGP3 = factor x κ_value x value −
+                      κ_cost x cost. Set with --set-incrementality. WHY: retro check
+                      2026-11-24, Kuvio credits generic campaigns with only ~0.67 of
+                      the GP2 Google Ads reports (big four 0.61-0.70, stable across
+                      markets and weeks); at factor 1.0 the model recommended cutting
+                      targets to ~2.0 where the measured optimum was ~2.6-3.6.
 
 IDEMPOTENCY
   Grids load into the run_date partition decorator (table$YYYYMMDD) with
@@ -213,6 +221,10 @@ SCHEMAS: dict[str, list[bigquery.SchemaField]] = {
         S("predicted_gp3_delta_7d", "FLOAT64", description="Currency units per week"),
         S("currency", "STRING"),
         S("notes", "STRING"),
+        S("inc_factor", "FLOAT64",
+          description="Incrementality factor the predicted_gp3_* assumed "
+                      "(iGP3 = factor x value - cost). NULL on rows logged before "
+                      "the factor existed, which assumed 1.0"),
     ],
     # Hand-loaded marginal measurements — same shape v_marginal_scoring derives
     # automatically, for scorings done outside the actuals pipeline (e.g. the
@@ -248,11 +260,28 @@ SCHEMAS: dict[str, list[bigquery.SchemaField]] = {
         S("reason", "STRING"),
         S("added_at", "TIMESTAMP"),
     ],
+    # How much of Google's reported conversion value the ads actually CAUSED, per
+    # incrementality class. Append-only and dated: the factor in force on a run is
+    # the latest row with valid_from <= run_date, so history stays reproducible.
+    # A class with no row falls back to 1.0 (Google's value at face value).
+    "incrementality": [
+        S("valid_from", "DATE", mode="REQUIRED"),
+        S("inc_class", "STRING", mode="REQUIRED",
+          description="generic | private-label | brand (v_kappa_calibrated rules)"),
+        S("factor", "FLOAT64", mode="REQUIRED",
+          description="iGP2 = factor x Google-reported conversion value (GP2)"),
+        S("basis", "STRING",
+          description="assumed | measured-<method>, e.g. measured-kuvio-attribution"),
+        S("notes", "STRING"),
+        S("added_at", "TIMESTAMP"),
+    ],
 }
 _PARTITION = {"sim_points": "run_date", "impression_shares": "run_date",
               "actuals": "run_date", "target_changes": "change_date",
               "marginal_observations": "change_date",
-              "tracking_exclusions": "start_date"}
+              "tracking_exclusions": "start_date",
+              "incrementality": "valid_from"}
+INC_CLASSES = ("generic", "private-label", "brand")
 _CLUSTER = {"sim_points": ["customer_name", "strategy_name"],
             "actuals": ["customer_name", "strategy_name"]}
 
@@ -458,7 +487,19 @@ _VIEWS = {
                  AS realized_gp3_pct,
                SIGN(c.predicted_cost_pct) = SIGN(post.cost - pre.cost)
                  AS cost_direction_hit,
-               SIGN(c.predicted_gp3_pct) = SIGN(post.gp3 - pre.gp3)
+               -- predicted_gp3_pct is iGP3 at the factor logged with the change
+               -- (NULL = logged before the factor existed = 1.0), so the realized
+               -- side is scored at that same factor. pre/post_gp3 and
+               -- realized_gp3_pct stay Google-reported (v_marginal_scoring reads them).
+               IFNULL(c.inc_factor, 1.0) AS inc_factor,
+               ROUND(100 * SAFE_DIVIDE(
+                 (IFNULL(c.inc_factor, 1.0) * (post.gp3 + post.cost) - post.cost)
+                 - (IFNULL(c.inc_factor, 1.0) * (pre.gp3 + pre.cost) - pre.cost),
+                 ABS(IFNULL(c.inc_factor, 1.0) * (pre.gp3 + pre.cost) - pre.cost)), 1)
+                 AS realized_igp3_pct,
+               SIGN(c.predicted_gp3_pct) = SIGN(
+                 (IFNULL(c.inc_factor, 1.0) * (post.gp3 + post.cost) - post.cost)
+                 - (IFNULL(c.inc_factor, 1.0) * (pre.gp3 + pre.cost) - pre.cost))
                  AS gp3_direction_hit,
                IFNULL(pa.tracking_excluded, FALSE) AS tracking_excluded
         FROM `{target_changes}` c
@@ -581,15 +622,29 @@ _VIEWS = {
     # effect is always visible. Deliberately no step cap here: caps are an
     # apply-time policy, not a property of the curve.
     "v_calibrated_recs": """
-        WITH base AS (
+        WITH inc AS (
+          -- factor in force on the latest run: newest valid_from <= run_date
+          SELECT inc_class,
+                 ARRAY_AGG(factor ORDER BY valid_from DESC, added_at DESC
+                           LIMIT 1)[OFFSET(0)] AS factor
+          FROM `{incrementality}`
+          WHERE valid_from <= (SELECT MAX(run_date) FROM `{sim_points}`)
+          GROUP BY inc_class
+        ),
+        base AS (
           SELECT run_date, customer_name, strategy_name, strategy_id, currency,
                  inc_class, strategy_type, kappa_days,
                  ANY_VALUE(current_target) AS current_target,
                  ANY_VALUE(k_cost)  AS k_cost,
                  ANY_VALUE(k_value) AS k_value,
+                 ANY_VALUE(inc_factor) AS inc_factor,
                  ARRAY_AGG(STRUCT(target_roas, gp3_cal)
                            ORDER BY gp3_cal DESC LIMIT 1)[OFFSET(0)].target_roas
                    AS rec_calibrated,
+                 -- the same calibrated curve at factor 1.0, kept for comparison
+                 ARRAY_AGG(STRUCT(target_roas, gp3_cal_f1)
+                           ORDER BY gp3_cal_f1 DESC LIMIT 1)[OFFSET(0)].target_roas
+                   AS rec_calibrated_f1,
                  ARRAY_AGG(STRUCT(target_roas, gp3_raw)
                            ORDER BY gp3_raw DESC LIMIT 1)[OFFSET(0)].target_roas
                    AS rec_google,
@@ -601,10 +656,14 @@ _VIEWS = {
             SELECT s.run_date, s.customer_name, s.strategy_name, s.strategy_id,
                    s.currency, s.current_target, s.strategy_type, s.target_roas,
                    k.inc_class, k.k_cost, k.k_value, k.days AS kappa_days,
-                   k.k_value * s.conversions_value - k.k_cost * s.cost AS gp3_cal,
+                   IFNULL(i.factor, 1.0) AS inc_factor,
+                   IFNULL(i.factor, 1.0) * k.k_value * s.conversions_value
+                     - k.k_cost * s.cost AS gp3_cal,
+                   k.k_value * s.conversions_value - k.k_cost * s.cost AS gp3_cal_f1,
                    s.conversions_value - s.cost AS gp3_raw
             FROM `{sim_points}` s
             JOIN `{v_kappa_calibrated}` k USING (customer_name, strategy_id)
+            LEFT JOIN inc i ON i.inc_class = k.inc_class
             WHERE s.run_date = (SELECT MAX(run_date) FROM `{sim_points}`)
               AND NOT s.is_anchor
               AND s.current_target > 0
@@ -622,10 +681,12 @@ _VIEWS = {
                  CASE
                    WHEN l.campaign_id IS NULL
                      OR ABS(l.delta_cost) < 0.05 * l.pre_cost THEN NULL
-                   WHEN l.spend_increased AND l.realized_marginal < 0.9
+                   -- realized_marginal is Google-reported GP2 per krona; scale it
+                   -- by the same factor as the curve so both judge iGP2
+                   WHEN l.spend_increased AND b.inc_factor * l.realized_marginal < 0.9
                         AND b.rec_calibrated < l.old_target
                      THEN 'revert-spend-increase'
-                   WHEN NOT l.spend_increased AND l.realized_marginal > 1.1
+                   WHEN NOT l.spend_increased AND b.inc_factor * l.realized_marginal > 1.1
                         AND b.rec_calibrated > l.old_target
                      THEN 'restore-profitable-spend'
                  END AS gate
@@ -693,6 +754,7 @@ def ensure_tables() -> None:
                                   v_lambda=T("v_lambda"),
                                   marginal_observations=T("marginal_observations"),
                                   tracking_exclusions=T("tracking_exclusions"),
+                                  incrementality=T("incrementality"),
                                   cooldown_days=COOLDOWN_DAYS)
         bq().delete_table(v, not_found_ok=True)   # views have no data; recreate freely
         bq().create_table(v)
@@ -842,8 +904,8 @@ def calibration_payload() -> dict:
     """
     sql = f"""
         SELECT run_date, customer_name, strategy_id, strategy_name, inc_class,
-               kappa_days, k_cost, k_value, current_target,
-               rec_google, rec_calibrated, rec_final, gate,
+               kappa_days, k_cost, k_value, inc_factor, current_target,
+               rec_google, rec_calibrated_f1, rec_calibrated, rec_final, gate,
                last_change_date, last_old_target, last_marginal,
                last_sim_marginal, gp3_cal_at_current, gp3_cal_at_rec,
                last_any_change_date, days_since_change, cooldown
@@ -861,8 +923,10 @@ def calibration_payload() -> dict:
             "kappaDays": r.kappa_days,
             "kCost": round(r.k_cost, 4) if r.k_cost is not None else None,
             "kValue": round(r.k_value, 4) if r.k_value is not None else None,
+            "incFactor": r.inc_factor,
             "currentTarget": r.current_target,
             "recGoogle": r.rec_google,
+            "recCalibratedF1": r.rec_calibrated_f1,
             "recCalibrated": r.rec_calibrated,
             "recFinal": r.rec_final,
             "gate": r.gate,
@@ -971,19 +1035,23 @@ def curve_points(customer_name: str, strategy_id: str, on_or_before: str,
 
 
 def predict_change(points: list[tuple[float, float, float]], old: float, new: float,
-                   k_cost: float = 1.0, k_value: float = 1.0) -> dict:
-    """Δcost/ΔGP3 of moving old→new on `points`, both axes deflated by κ.
+                   k_cost: float = 1.0, k_value: float = 1.0,
+                   inc_factor: float = 1.0) -> dict:
+    """Δcost/ΔiGP3 of moving old→new on `points`, both axes deflated by κ.
 
     κ = 1 gives Google's raw curve (what the reconciler logs); apply_troas.py
-    passes the campaign's shrunk κ so the logged prediction is the calibrated
-    model's own claim. GP3 here is value − cost, matching v_change_scoring.
+    passes the campaign's shrunk κ and its class's incrementality factor so the
+    logged prediction is the calibrated model's own claim. GP3 here is
+    inc_factor × value − cost, matching v_change_scoring at the logged factor.
     Simulation windows are 7 days, so the deltas are per week.
     """
     c_old, v_old = _interp(points, old)
     c_new, v_new = _interp(points, new)
     c_old, c_new = k_cost * c_old, k_cost * c_new
-    g_old, g_new = k_value * v_old - c_old, k_value * v_new - c_new
+    f = inc_factor * k_value
+    g_old, g_new = f * v_old - c_old, f * v_new - c_new
     return {
+        "inc_factor": inc_factor,
         "predicted_cost_delta_7d": round(c_new - c_old, 2),
         "predicted_gp3_delta_7d": round(g_new - g_old, 2),
         "predicted_cost_pct": round(100 * (c_new - c_old) / c_old, 2) if c_old else None,
@@ -1158,6 +1226,27 @@ def add_tracking_exclusion(customer_name: str, start: str, end: str, reason: str
     bq().load_table_from_json([row], T("tracking_exclusions"), job_config=cfg).result()
 
 
+def set_incrementality(inc_class: str, factor: float, valid_from: str,
+                       basis: str, notes: str) -> None:
+    """Append one incrementality row (append-only: a later valid_from supersedes).
+    Refuses unknown classes and factors outside (0, 1.5]: a typo in the class would
+    match nothing and silently leave the model at 1.0."""
+    from datetime import date, datetime, timezone
+
+    if inc_class not in INC_CLASSES:
+        raise SystemExit(f"class must be one of {', '.join(INC_CLASSES)}, got {inc_class!r}")
+    if not 0 < factor <= 1.5:
+        raise SystemExit(f"factor {factor} outside (0, 1.5]")
+    date.fromisoformat(valid_from)
+    ensure_tables()
+    row = {"valid_from": valid_from, "inc_class": inc_class, "factor": factor,
+           "basis": basis, "notes": notes,
+           "added_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat()}
+    cfg = bigquery.LoadJobConfig(schema=SCHEMAS["incrementality"],
+                                 write_disposition="WRITE_APPEND")
+    bq().load_table_from_json([row], T("incrementality"), job_config=cfg).result()
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -1174,8 +1263,21 @@ if __name__ == "__main__":
                     help="log a broken-tracking range (inclusive dates) for one account; "
                          "kappa and change scoring skip windows overlapping it")
     ap.add_argument("--reason", default="", help="with --exclude-tracking")
+    ap.add_argument("--set-incrementality", nargs=2, metavar=("CLASS", "FACTOR"),
+                    help="record the incrementality factor for a class "
+                         f"({' | '.join(INC_CLASSES)}); recs maximise factor x value - cost")
+    ap.add_argument("--valid-from", default=None,
+                    help="with --set-incrementality: first run_date it applies to (default today)")
+    ap.add_argument("--basis", default="assumed",
+                    help="with --set-incrementality: assumed | measured-<method>")
+    ap.add_argument("--notes", default="", help="with --set-incrementality")
     args = ap.parse_args()
-    if args.exclude_tracking:
+    if args.set_incrementality:
+        cls, fac = args.set_incrementality
+        vf = args.valid_from or _dt.date.today().isoformat()
+        set_incrementality(cls, float(fac), vf, args.basis, args.notes)
+        print(f"incrementality {cls} = {float(fac):g} from {vf} ({args.basis})")
+    elif args.exclude_tracking:
         acct, start, end = args.exclude_tracking
         add_tracking_exclusion(acct, start, end, args.reason)
         print(f"excluded {acct} {start}..{end}")

@@ -45,7 +45,12 @@ Simulations page was originally developed is archived and read-only.)
   sim-implied marginal GP2-per-cost across each applied step) and
   `v_calibrated_recs`, whose `rec_final` is gated by that marginal evidence —
   it reverts, and never deepens, a spend move the measured marginal already
-  refuted. Called best-effort from `refresh()` — Firestore
+  refuted. Recommendations maximise iGP3 = factor x value - cost, where the
+  factor per incrementality class lives in the dated `incrementality` table
+  (`python3 roas_sims_bq.py --set-incrementality generic 0.65 --basis ...`);
+  a class without a row stays at 1.0. WHY: a 2026-11-24 retro check found
+  Kuvio credits generic campaigns with ~0.67 of the GP2 Google Ads reports.
+  Called best-effort from `refresh()` — Firestore
   keeps 90 days for serving, BigQuery keeps everything for model training.
   Missed days: `python3 roas_sims_bq.py --backfill`. Every applied tROAS change
   MUST be logged to `target_changes` with its predicted Δcost/ΔGP3 at apply
