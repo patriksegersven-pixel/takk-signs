@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   var F = BM.fmt, esc = BM.esc;
-  var MKTS = ['SE', 'NO', 'FI', 'DK', 'ROW'];
+  var MKTS = ['SE', 'NO', 'FI', 'DK', 'UK', 'DE', 'EE', 'ROW'];   // fallback; payload.markets wins
   var V = {
     scale: ['up', 'Scale'], test: ['up', 'Scale · test'], hold: ['muted', 'Hold'], cut: ['down', 'Cut'], data: ['muted', 'Too little data']
   };
@@ -117,7 +117,7 @@
       if (ui.open[id] === undefined) ui.open[id] = r.level === 'market' ? true : (r.level === 'tactic' && state.market !== 'all');
     });
     var order = [];
-    var mkts = state.market === 'all' ? ['all'].concat(MKTS) : [state.market];
+    var mkts = state.market === 'all' ? ['all'].concat(d.markets || MKTS) : [state.market];
     mkts.forEach(function (m) {
       rows.filter(function (r) { return r.level === 'market' && r.market === m; }).forEach(function (mr) {
         order.push(mr);

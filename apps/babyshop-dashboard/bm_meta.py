@@ -50,12 +50,13 @@ import re
 from collections import defaultdict
 
 import bm_common as bm
+import bm_meta_geo
 from bm_insights_meta import GRAPH, _get, market_of
 
 ACCOUNT = "2927326560764919"                 # Babyshop SE - New (the only one spending)
 IDLE_ACCOUNTS = {"686612050420009": "Kuling", "1465585123471722": "Lekmer"}
 WH = "`claude-private-499703.babyshop_marts.{}`"
-MKTS = bm.MARKETS + ["ROW"]
+MKTS = bm_meta_geo.META_MARKETS        # UK/DE/EE split out of ROW
 
 T = {                                        # verdict thresholds (agreed 2026-11-11)
     "scale": 1.2, "test": 1.0, "cut": 0.8,   # incremental GP3 per krona (1.0 = break-even)
@@ -252,9 +253,12 @@ def build(ctx: dict) -> dict:
         seg = SEG_OF.get(r.get("user_segment_key") or "unknown", "new")
         aid = r["adset_id"]
         if aid not in adsets:
+            # ad set targeting first: names put the UK/DE/EE ad sets of the
+            # multi-market offers campaign under SE
             mkt = market_of(r.get("adset_name"), r.get("campaign_name"))
             adsets[aid] = {"id": aid, "name": r.get("adset_name") or "", "campaign": r.get("campaign_name") or "",
-                           "campaign_id": r.get("campaign_id"), "market": _mk(mkt if mkt != "all" else None),
+                           "campaign_id": r.get("campaign_id"),
+                           "market": bm_meta_geo.adset_market(aid) or _mk(mkt if mkt != "all" else None),
                            **classify(r.get("campaign_name"), r.get("adset_name"))}
         camp_by_id[str(r.get("campaign_id"))] = r.get("campaign_name") or ""
         camp_by_norm[_norm(r.get("campaign_name"))] = r.get("campaign_name") or ""
@@ -273,12 +277,12 @@ def build(ctx: dict) -> dict:
         for r in _insights(token, level="account", breakdowns="country,user_segment_key",
                            fields="impressions,reach", since=a, until=b):
             seg = SEG_OF.get(r.get("user_segment_key") or "unknown", "new")
-            k = (wk, "mseg", _mk(r.get("country")), seg)
+            k = (wk, "mseg", bm_meta_geo.country_to_market(r.get("country")) or "ROW", seg)
             imp, rch = freq.get(k, (0.0, 0.0))
             freq[k] = (imp + float(r.get("impressions") or 0), rch + float(r.get("reach") or 0))
         for r in _insights(token, level="account", breakdowns="country",
                            fields="impressions,reach", since=a, until=b):
-            k = (wk, "mkt", _mk(r.get("country")))
+            k = (wk, "mkt", bm_meta_geo.country_to_market(r.get("country")) or "ROW")
             imp, rch = freq.get(k, (0.0, 0.0))
             freq[k] = (imp + float(r.get("impressions") or 0), rch + float(r.get("reach") or 0))
         for r in _insights(token, level="account", breakdowns="user_segment_key",
@@ -296,15 +300,35 @@ def build(ctx: dict) -> dict:
 
     # ── Norce: Meta-click orders, grossed up for orders not yet matched ─────
     nmeta, nsite = _norce_meta(lo, y)
-    site = defaultdict(lambda: [0.0, 0.0])               # (d, mkt) → [all, matched]
+    # Orders keep their site market (GB → UK; the EU site, shared by DE and EE,
+    # stays 'EU' here and is split over those markets below)
+    site = defaultdict(lambda: [0.0, 0.0])               # (d, order mkt) → [all, matched]
     for r in nsite:
-        s = site[(r["d"], _mk(r["market"]))]
+        s = site[(r["d"], bm_meta_geo.order_market(r["market"]))]
         s[0] += r["all_orders"] or 0; s[1] += r["matched"] or 0
     unmapped = defaultdict(float)
     norce = []                                           # (d, mkt, campaign name, is_new, orders, rev)
+    # Meta purchases (spend as fallback) per campaign × EU-site market, to share
+    # EU-site orders between the DE and EE ad sets of the same campaign
+    eu_mkts = [m for m, s_ in bm_meta_geo.ORDER_SITE.items() if s_ == "EU"]
+    eu_share = defaultdict(lambda: defaultdict(lambda: [0.0, 0.0]))   # campaign → mkt → [purch, spend]
+    for _d, aid, _seg, sp, _imp, pu, _pv in mrows:
+        a_ = adsets[aid]
+        if a_["market"] in eu_mkts:
+            x = eu_share[a_["campaign"]][a_["market"]]
+            x[0] += pu; x[1] += sp
+
+    def split_eu(camp):
+        sh = eu_share.get(camp) or {}
+        for i in (0, 1):
+            tot = sum(v[i] for v in sh.values())
+            if tot:
+                return [(m, v[i] / tot) for m, v in sh.items() if v[i]]
+        return [("ROW", 1.0)]
+
     for r in nmeta:
-        mkt = _mk(r["market"])
-        a, m = site[(r["d"], mkt)]
+        omkt = bm_meta_geo.order_market(r["market"])
+        a, m = site[(r["d"], omkt)]
         gross_up = (a / m) if m else 1.0
         raw = r["camp"] or ""
         camp = camp_by_id.get(raw) or camp_by_norm.get(_norm(raw))
@@ -314,8 +338,9 @@ def build(ctx: dict) -> dict:
         if not camp:
             unmapped[raw or "(none)"] += r["orders"] or 0
             camp = raw or "(unknown campaign)"
-        norce.append((r["d"], mkt, camp, bool(r["nw"]), float(r["orders"] or 0) * gross_up,
-                      float(r["rev"] or 0) * gross_up))
+        for mkt, f in (split_eu(camp) if omkt == "EU" else [(omkt, 1.0)]):
+            norce.append((r["d"], mkt, camp, bool(r["nw"]), float(r["orders"] or 0) * gross_up * f,
+                          float(r["rev"] or 0) * gross_up * f))
 
     # ── Aggregate per window into rows keyed by level ───────────────────────
     agg = defaultdict(_blank)                            # (window, level-key) → metrics
@@ -361,7 +386,8 @@ def build(ctx: dict) -> dict:
 
     # demand index per market: site orders L7 ÷ P7
     def site_orders(mkt, w):
-        return sum(v[0] for (d, m), v in site.items() if _in(d, w) and (mkt == "all" or m == mkt))
+        sk = "EU" if bm_meta_geo.ORDER_SITE.get(mkt) == "EU" else mkt   # DE/EE share the EU site
+        return sum(v[0] for (d, m), v in site.items() if _in(d, w) and (mkt == "all" or m == sk))
     demand = {m: (site_orders(m, W["l7"]) / site_orders(m, W["p7"])) if site_orders(m, W["p7"]) else 1.0
               for m in MKTS + ["all"]}
 
@@ -377,10 +403,12 @@ def build(ctx: dict) -> dict:
         errors.append(f"Repeat value not loaded: {e}")
 
     def gm2(m):
+        m = m if m == "all" else bm_meta_geo.base_market(m)   # margins know UK/DE/EE as ROW
         v = (margins.get(m) or {}).get("gm2") or (margins.get("all") or {}).get("gm2")
         return float(v) if v else 0.29
 
     def repeat_gp2(m):
+        m = m if m == "all" else bm_meta_geo.base_market(m)
         r = rep.get(m) or rep.get("all") or {}
         return (r.get("repeat_rev") or 0) * gm2(m)
 
@@ -690,7 +718,7 @@ def build(ctx: dict) -> dict:
     ]
 
     return {
-        "asof": y.isoformat(), "today": today.isoformat(),
+        "asof": y.isoformat(), "today": today.isoformat(), "markets": MKTS,
         "windows": {k: [a.isoformat(), b.isoformat()] for k, (a, b) in W.items()},
         "thresholds": T, "incrementality": INC, "marginal_haircut": MARGINAL_HAIRCUT,
         "repeat": rep, "gm2": {m: round(gm2(m), 4) for m in MKTS + ["all"]},

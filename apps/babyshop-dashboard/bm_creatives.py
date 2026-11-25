@@ -30,6 +30,7 @@ import datetime
 import re
 
 import bm_common as bm
+import bm_meta_geo
 import refresh_meta as rm
 
 # ── Windows ──────────────────────────────────────────────────────────────────
@@ -310,7 +311,11 @@ def build(ctx: dict) -> dict:
     ads = []
     for ad_id, days in by_ad.items():
         d = dims.get(ad_id)
-        if not d or d.get("mk") not in bm.MARKETS:
+        if d:   # ad set targeting beats the mart's name rule (multi-market campaigns → SE)
+            geo = bm_meta_geo.ad_market(ad_id)
+            if geo:
+                d["mk"] = geo
+        if not d or d.get("mk") not in bm_meta_geo.META_MARKETS:
             continue
         days.sort(key=lambda r: r["date"])
         spend_days = [r for r in days if rm._f(r.get("spend")) > 0]
@@ -345,7 +350,7 @@ def build(ctx: dict) -> dict:
     ref = {}
     for br in ["all"] + BRANDS:
         ref[br] = {}
-        for mk in ["all"] + bm.MARKETS:
+        for mk in ["all"] + bm_meta_geo.META_MARKETS:
             rows = [judge_rows[a["ad_id"]] for a in ads if not a["dpa"] and a["ad_id"] in judge_rows
                     and in_scope(a, br, mk)]
             m = rm._metrics(rm._sum_rows(rows)) if rows else {}
@@ -411,7 +416,7 @@ def build(ctx: dict) -> dict:
         s.update({"mk": a["dim"]["mk"], "brand": a["brand"], "tagged": a["tagged"], **{k: a["tags"][k] for k, _ in TAG_DIMS}})
         tag_rows.append(s)
     tags = {br: {} for br in ["all"] + BRANDS}
-    for br, mk in [(b, m) for b in ["all"] + BRANDS for m in ["all"] + bm.MARKETS]:
+    for br, mk in [(b, m) for b in ["all"] + BRANDS for m in ["all"] + bm_meta_geo.META_MARKETS]:
         rows = [r for r in tag_rows if (br == "all" or r["brand"] == br) and (mk == "all" or r["mk"] == mk)]
         tot = sum(r["spend"] for r in rows)
         mref = _agg(rows) if rows else {}

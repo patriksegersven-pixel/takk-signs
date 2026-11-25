@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import bm_common as bm
+import bm_meta_geo
 
 CARDS = "blackmonth_insights"
 EVENTS = "blackmonth_events"
@@ -60,7 +61,7 @@ CONFIDENCE = ["low", "medium", "high"]
 VERDICTS = ["worked", "no_effect", "backfired", "inconclusive"]
 EVENT_KINDS = ["offer_launch", "offer_end", "meta_budget", "google_budget", "troas",
                "seasonality", "bidding", "status", "site", "stock", "checklist", "other"]
-MARKET_VALUES = bm.MARKETS + ["ROW", "all"]
+MARKET_VALUES = bm.MARKETS + bm_meta_geo.EXTRA_MARKETS + ["ROW", "all"]   # UK/DE/EE: Meta only
 BRANDS = ["babyshop", "lekmer"]
 BRAND_VALUES = BRANDS + ["all"]
 SECTION_KEYS = [s for s in bm.SECTIONS if s != "insights"]

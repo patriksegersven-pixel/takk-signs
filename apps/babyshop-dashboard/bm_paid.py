@@ -34,6 +34,7 @@ import re
 from collections import defaultdict
 
 import bm_common as bm
+import bm_meta_geo
 
 GOOGLE_ACCOUNTS = {          # cid → (brand, market); same accounts as refresh_roas_sims
     "4851485396": ("babyshop", "SE"), "8623945183": ("babyshop", "NO"),
@@ -47,6 +48,7 @@ SHOP_BRAND = {"Babyshop": "babyshop", "Lekmer": "lekmer"}
 META_ACCOUNTS_NOTE = ("Lekmer has no Meta ad account in the warehouse (only Babyshop's, "
                       "2927326560764919), so Meta rows are Babyshop only.")
 MKTS = bm.MARKETS + ["ROW"]
+META_MKTS = bm_meta_geo.META_MARKETS     # Meta only: UK/DE/EE split out of ROW
 HIST_DAYS = 35               # history window: marginal ROAS + L7/L28 views
 COOLDOWN_DAYS = 14
 FUNNEL_CH = {"Google Ads": "google", "Paid Social (Meta)": "meta"}
@@ -253,7 +255,7 @@ TYPE_RULES = [  # first match wins, on the lower-cased campaign name
     ("retargeting", r"catalog|dpa|retarget|remarket"),
     ("prospecting", r"prospect|evergreen|offers|broad|advantage|asc"),
 ]
-CAMPAIGN_MKT = [(m, re.compile(rf"(^|[ \-|+]){m}([ \-+|]|$)", re.I)) for m in bm.MARKETS]
+CAMPAIGN_MKT = [(m, re.compile(rf"(^|[ \-|+]){m}([ \-+|]|$)", re.I)) for m in bm.MARKETS + bm_meta_geo.EXTRA_MARKETS]
 
 
 def classify(campaign: str) -> str:
@@ -264,7 +266,13 @@ def classify(campaign: str) -> str:
     return "unclassified"
 
 
-def _meta_market(mart_market: str, campaign: str) -> str:
+def _meta_market(mart_market: str, campaign: str, adset_id=None) -> str:
+    """Ad set target country first (a multi-market campaign such as
+    'SE+NO+FI+DK+DE+UK-BS-offers' is booked to SE by the mart), then the mart's
+    name-based market, then the campaign name."""
+    geo = bm_meta_geo.adset_market(adset_id)
+    if geo:
+        return geo
     if mart_market in bm.MARKETS:
         return mart_market
     for m, rx in CAMPAIGN_MKT:
@@ -276,14 +284,15 @@ def _meta_market(mart_market: str, campaign: str) -> str:
 def _meta(d0: datetime.date, d1: datetime.date) -> list[dict]:
     import refresh_meta as rm
     rows = rm.q(f"""
-        SELECT CAST(date AS STRING) d, market, campaign_name, adset_name,
+        SELECT CAST(date AS STRING) d, market, campaign_name, adset_id, adset_name,
                SUM(ad_spend_reporting) spend, SUM(purchases) purchases,
                SUM(purchase_value_reporting) value, SUM(link_clicks) clicks,
                SUM(impressions) impressions
         FROM {WH.format('agg_daily_kpis_by_ad')}
         WHERE date BETWEEN @s AND @e AND client_site = 'babyshop'
-        GROUP BY d, market, campaign_name, adset_name""", s=d0, e=d1)
-    return [{"d": r["d"], "brand": "babyshop", "market": _meta_market(r["market"], r["campaign_name"]),
+        GROUP BY d, market, campaign_name, adset_id, adset_name""", s=d0, e=d1)
+    return [{"d": r["d"], "brand": "babyshop",
+             "market": _meta_market(r["market"], r["campaign_name"], r["adset_id"]),
              "campaign": r["campaign_name"] or "(none)", "adset": r["adset_name"] or "(none)",
              "type": classify(r["campaign_name"]),
              "spend": float(r["spend"] or 0), "purchases": float(r["purchases"] or 0),
@@ -792,7 +801,7 @@ def build(ctx: dict) -> dict:
                             "new_share": _div(new.get("conv"), tot, 3) if new else None}
 
     # ── Meta pacing + tables ─────────────────────────────────────────────────
-    m_mkt = {m: [None] * len(days) for m in MKTS}
+    m_mkt = {m: [None] * len(days) for m in META_MKTS}
     types = list(bm.META_PLAN_BY_TYPE) + ["brand_funded", "unclassified"]
     m_type = {t: [None] * len(days) for t in types}
     m_mkt_type = defaultdict(float)          # MTD market × type, for filtered views
@@ -804,7 +813,7 @@ def build(ctx: dict) -> dict:
             m_mkt_type[(r["market"], r["type"])] += r["spend"]
     meta_pacing = {
         "market": {m: {"plan": m_plan_mkt.get(m, [0] * len(days)),
-                       "actual": [_r(v) for v in m_mkt[m]]} for m in MKTS},
+                       "actual": [_r(v) for v in m_mkt[m]]} for m in META_MKTS},
         "type": {t: {"plan": m_plan_type.get(t, [0] * len(days)),
                      "actual": [_r(v) for v in m_type[t]]} for t in types},
         "market_type_mtd": [{"market": m, "type": t, "spend": _r(v)}
@@ -863,14 +872,14 @@ def build(ctx: dict) -> dict:
         if r["channel"] == "meta" and r["brand"] == "babyshop" and r["d"] >= l28_lo.isoformat():
             lc[r["market"]][0] += r["gp2"]; lc[r["market"]][1] += r["cost"]
     meta_lines = []
-    for (mk_, t), dd in sorted(line_days.items(), key=lambda kv: (MKTS.index(kv[0][0]), kv[0][1])):
+    for (mk_, t), dd in sorted(line_days.items(), key=lambda kv: (META_MKTS.index(kv[0][0]), kv[0][1])):
         prs = list(dd.values())
         sp = sum(x for x, _ in prs)
         if sp < 500:
             continue
         fit = _marginal(prs)
         inc = bm.INCREMENTALITY.get(f"meta_{t}")
-        mg, mb = M.get("babyshop", mk_)
+        mg, mb = M.get("babyshop", bm_meta_geo.base_market(mk_))   # orders know UK/DE/EE as ROW
         if fit.get("marginal") is not None and fit["confidence"] in ("medium", "high"):
             basis, mrev = "fit", fit["marginal"]
         else:
@@ -893,7 +902,8 @@ def build(ctx: dict) -> dict:
                            if t in bm.META_PLAN_BY_TYPE else None),
             "avg_roas": fit.get("avg"), "gp2_margin": mg, "margin_basis": mb,
             "avg_gp2_roas_platform": None if None in (fit.get("avg"), mg) else round(fit["avg"] * mg, 2),
-            "lastclick_gp2_roas_market": _div(*lc[mk_]) if lc[mk_][1] else None,
+            "lastclick_gp2_roas_market": (_div(*lc[bm_meta_geo.base_market(mk_)])
+                                          if lc[bm_meta_geo.base_market(mk_)][1] else None),
             "marginal_roas": mrev, "marginal_basis": basis, "fit": fit,
             "incrementality": inc, "inc_marginal": inc_m,
             "inc_gp3_per_10k": None if inc_m is None else _r((inc_m - 1) * 10_000),
@@ -1138,7 +1148,7 @@ def build(ctx: dict) -> dict:
                    "seasonality": seasonality, "post_bf": post_bf,
                    "post_bf_by_brand": dict(post_bf_by_brand),
                    "accounts": g["accounts"], "cooldown_days": COOLDOWN_DAYS},
-        "meta": {"pacing": meta_pacing, "lines": meta_lines, "margins": margins,
+        "meta": {"markets": META_MKTS, "pacing": meta_pacing, "lines": meta_lines, "margins": margins,
                  "retargeting_check": retargeting,
                  "campaigns": meta_campaigns, "adsets": meta_adsets,
                  "unclassified": unclassified, "type_rules": rules_text,

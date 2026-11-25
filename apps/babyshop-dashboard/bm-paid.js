@@ -487,12 +487,15 @@
       if (!inMkt(state, m)) return;
       var g = gp[m];
       if (g) { ga += sumTo(g.actual, n); gy += n > 0 ? (g.actual[n - 1] || 0) : 0; }
-      var x = d.meta.pacing.market[m];
-      if (x && metaOn(d, state)) { mp += sumTo(x.plan, n); ma += sumTo(x.actual, n); }
       Object.keys(pbb).forEach(function (b) {
         var pb = pbb[b][m];
         if (pb && inBrand(state, b) && (!pb.day1 || !pb.day2)) pbMiss++;
       });
+    });
+    // Meta has its own markets (UK/DE/EE split out of ROW), Google does not
+    (d.meta.markets || MKTS).forEach(function (m) {
+      var x = d.meta.pacing.market[m];
+      if (x && inMkt(state, m) && metaOn(d, state)) { mp += sumTo(x.plan, n); ma += sumTo(x.actual, n); }
     });
     d.google.campaigns.forEach(function (c) {
       if (!inF(state, c)) return;

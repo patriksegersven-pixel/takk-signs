@@ -352,7 +352,7 @@
   function formHtml(data, state) {
     if (!ui.showForm) return '<button class="bmi-b" data-act="form">+ Log a change</button>';
     var kinds = (data.event_kinds || []).map(function (k) { return '<option value="' + k + '">' + esc(KIND_LABEL[k] || k) + '</option>'; }).join('');
-    var ms = ['all', 'SE', 'NO', 'FI', 'DK', 'ROW'].map(function (m) {
+    var ms = ['all', 'SE', 'NO', 'FI', 'DK', 'UK', 'DE', 'EE', 'ROW'].map(function (m) {
       return '<option value="' + m + '"' + (m === state.market ? ' selected' : '') + '>' + (m === 'all' ? 'All markets' : m) + '</option>';
     }).join('');
     return '<form class="bmi-form" data-act="addevent">' +
